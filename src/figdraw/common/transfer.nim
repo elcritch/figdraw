@@ -74,7 +74,6 @@ proc toRenderFig*[N](current: N): Fig =
   result.uid = current.uid
   result.name = current.name.toFigName()
 
-  result.box = current.box.scaled
   result.screenBox = current.screenBox.scaled
   result.offset = current.offset.scaled
   result.scroll = current.scroll.scaled
