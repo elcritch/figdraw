@@ -1,5 +1,5 @@
 import std/os
-import pkg/chroma
+import chroma
 
 import figdraw/commons
 import figdraw/fignodes

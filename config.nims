@@ -1,4 +1,5 @@
 --nimcache: ".nimcache/"
+--passc:"-Wno-incompatible-function-pointer-types"
 
 task test, "run unit test":
   exec("nim r tests/ttransfer.nim")
