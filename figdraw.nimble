@@ -27,3 +27,5 @@ feature "reference":
   requires "https://github.com/elcritch/figuro"
   requires "fidget"
 
+requires "sdl2"
+
