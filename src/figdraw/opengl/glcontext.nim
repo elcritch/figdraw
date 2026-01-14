@@ -13,7 +13,6 @@ import ../fignodes
 import ../utils/drawextras
 import ../utils/drawboxes
 import ../utils/drawshadows
-import ./shadysources
 
 export drawextras
 
@@ -155,34 +154,17 @@ proc newContext*(
   result.addMaskTexture()
 
   when defined(emscripten) or defined(useOpenGlEs):
-    result.maskShader = newShader(
-      ("shady:figdraw/atlas.vert", atlasVert330),
-      ("shady:figdraw/mask.frag", maskFrag330),
+    result.maskShader = newShaderStatic(
+      "glsl/emscripten/atlas.vert",
+      "glsl/emscripten/mask.frag",
     )
-    result.mainShader = newShader(
-      ("shady:figdraw/main.vert", sdfRoundedBoxVert330),
-      ("shady:figdraw/main.frag", sdfRoundedBoxFrag330),
+    result.mainShader = newShaderStatic(
+      "glsl/emscripten/atlas.vert",
+      "glsl/emscripten/atlas.frag",
     )
   else:
-    try:
-      result.maskShader = newShader(
-        ("shady:figdraw/atlas.vert", atlasVert410),
-        ("shady:figdraw/mask.frag", maskFrag410),
-      )
-      result.mainShader = newShader(
-        ("shady:figdraw/main.vert", sdfRoundedBoxVert410),
-        ("shady:figdraw/main.frag", sdfRoundedBoxFrag410),
-      )
-    except ShaderCompilationError:
-      notice "OpenGL 4.10 failed, trying 3.30"
-      result.maskShader = newShader(
-        ("shady:figdraw/atlas.vert", atlasVert330),
-        ("shady:figdraw/mask.frag", maskFrag330),
-      )
-      result.mainShader = newShader(
-        ("shady:figdraw/main.vert", sdfRoundedBoxVert330),
-        ("shady:figdraw/main.frag", sdfRoundedBoxFrag330),
-      )
+      result.maskShader = newShaderStatic("glsl/atlas.vert", "glsl/410/mask.frag")
+      result.mainShader = newShaderStatic("glsl/atlas.vert", "glsl/410/atlas.frag")
 
   result.positions.buffer.componentType = cGL_FLOAT
   result.positions.buffer.kind = bkVEC2

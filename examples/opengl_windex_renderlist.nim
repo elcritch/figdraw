@@ -98,7 +98,7 @@ when isMainModule:
 
   let window = newWindexWindow(frame.addr)
   let renderer = glrenderer.newOpenGLRenderer(window, frame.addr,
-      atlasSize = 2048)
+      atlasSize = 512)
   window.configureWindowEvents(renderer)
 
   try:

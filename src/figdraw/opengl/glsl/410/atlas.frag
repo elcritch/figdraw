@@ -3,15 +3,132 @@
 in vec2 pos;
 in vec2 uv;
 in vec4 color;
+in vec4 sdfParams;
+in vec4 sdfRadii;
+in float sdfMode;
+in vec2 sdfFactors;
 
 uniform vec2 windowFrame;
 uniform sampler2D atlasTex;
 uniform sampler2D maskTex;
+uniform float aaFactor;
 
 out vec4 fragColor;
 
+const int sdfModeAtlas = 0;
+const int sdfModeClipAA = 3;
+const int sdfModeDropShadow = 7;
+const int sdfModeDropShadowAA = 8;
+const int sdfModeInsetShadow = 9;
+const int sdfModeInsetShadowAnnular = 10;
+const int sdfModeAnnular = 11;
+const int sdfModeAnnularAA = 12;
+
+float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
+  float rr;
+  if (p.x > 0.0) {
+    if (p.y > 0.0) {
+      rr = r.x;
+    } else {
+      rr = r.y;
+    }
+  } else {
+    if (p.y > 0.0) {
+      rr = r.z;
+    } else {
+      rr = r.w;
+    }
+  }
+
+  vec2 q = abs(p) - b + vec2(rr, rr);
+  return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - rr;
+}
+
+float gaussian(float x, float s) {
+  return 1.0 / (s * sqrt(6.283185307179586)) *
+    exp(-1.0 * (x * x) / (2.0 * s * s));
+}
+
 void main() {
-  fragColor = texture(atlasTex, uv).rgba * color;
-  vec2 normalizedPos = vec2(pos.x / windowFrame.x, 1 - pos.y / windowFrame.y);
-  fragColor.a *= texture(maskTex, normalizedPos).r;
+  vec2 quadHalfExtents = sdfParams.xy;
+  vec2 shapeHalfExtents = sdfParams.zw;
+
+  vec2 p = vec2(
+    (uv.x - 0.5) * 2.0 * quadHalfExtents.x,
+    (uv.y - 0.5) * 2.0 * quadHalfExtents.y
+  );
+
+  float dist = sdRoundedBox(vec2(p.x, -p.y), shapeHalfExtents, sdfRadii);
+
+  float sdfFactor = sdfFactors.x;
+  float sdfSpread = sdfFactors.y;
+  int sdfModeInt = int(sdfMode);
+
+  float alpha = 0.0;
+  if (sdfModeInt == sdfModeAtlas) {
+    vec4 tex = texture(atlasTex, uv);
+    fragColor = vec4(
+      tex.x * color.x,
+      tex.y * color.y,
+      tex.z * color.z,
+      tex.w * color.w
+    );
+  } else {
+    float stdDevFactor = 1.0 / 2.2;
+    switch (sdfModeInt) {
+      case sdfModeAnnular: {
+        float f = sdfFactor * 0.5;
+        float sd = abs(dist + f) - f;
+        alpha = (sd < 0.0) ? 1.0 : 0.0;
+        break;
+      }
+      case sdfModeAnnularAA: {
+        float f = sdfFactor * 0.5;
+        float sd = abs(dist + f) - f;
+        float cl = clamp(aaFactor * sd + 0.5, 0.0, 1.0);
+        alpha = 1.0 - cl;
+        break;
+      }
+      case sdfModeDropShadow: {
+        float sd = dist - sdfSpread + 1.0;
+        float x = sd / (sdfFactor + 0.5);
+        float a = 1.1 * gaussian(x, stdDevFactor);
+        alpha = (sd > 0.0) ? min(a, 1.0) : 1.0;
+        break;
+      }
+      case sdfModeDropShadowAA: {
+        float cl = clamp(aaFactor * dist + 0.5, 0.0, 1.0);
+        float insideAlpha = 1.0 - cl;
+        float sd = dist - sdfSpread + 1.0;
+        float x = sd / (sdfFactor + 0.5);
+        float a = 1.1 * gaussian(x, stdDevFactor);
+        alpha = (sd >= 0.0) ? min(a, 1.0) : insideAlpha;
+        break;
+      }
+      case sdfModeInsetShadow: {
+        float sd = dist + sdfSpread + 1.0;
+        float x = sd / (sdfFactor + 0.5);
+        float a = 1.1 * gaussian(x, stdDevFactor);
+        alpha = (sd < 0.0) ? min(a, 1.0) : 1.0;
+        break;
+      }
+      case sdfModeInsetShadowAnnular: {
+        float sd = dist + sdfSpread + 1.0;
+        float x = sd / (sdfFactor + 0.5);
+        float a = 1.1 * gaussian(x, stdDevFactor);
+        alpha = (sd < 0.0) ? min(a, 1.0) : 0.0;
+        break;
+      }
+      default: {
+        float cl = clamp(aaFactor * dist + 0.5, 0.0, 1.0);
+        alpha = 1.0 - cl;
+        break;
+      }
+    }
+
+    fragColor = vec4(color.x, color.y, color.z, color.w * alpha);
+  }
+
+  vec2 normalizedPos = vec2(pos.x / windowFrame.x, 1.0 - pos.y / windowFrame.y);
+  fragColor.w *= texture(maskTex, normalizedPos).x;
 }
