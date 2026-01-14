@@ -23,9 +23,11 @@ requires "supersnappy"
 feature "siwin":
   requires "siwin"
 
+feature "sdl2":
+  requires "sdl2"
+
 feature "reference":
   requires "https://github.com/elcritch/figuro"
   requires "fidget"
 
-requires "sdl2"
 
