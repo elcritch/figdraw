@@ -1,4 +1,4 @@
-import std/[os, times, random]
+import std/[os, times, random, math]
 import chroma
 
 import windy
@@ -9,6 +9,7 @@ import figdraw/opengl/renderer as glrenderer
 import figdraw/utils/glutils
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
+var globalFrame = 0
 
 proc setupWindow(frame: AppFrame, window: Window) =
   let style: WindowStyle = case frame.windowStyle
@@ -45,7 +46,8 @@ proc getWindowInfo(window: Window): WindowInfo =
 
 proc makeRenderTree*(w, h: float32): Renders =
   var list = RenderList()
-  const copies = 100
+  const copies = 400
+  let t = globalFrame.float32 * 0.02'f32
 
   let rootId = 1.FigID
   list.nodes.add Fig(
@@ -67,8 +69,12 @@ proc makeRenderTree*(w, h: float32): Renders =
 
   for i in 0 ..< copies:
     let baseId = 2 + i * 3
-    let offsetX = rand(rng, 0.0'f32 .. maxX)
-    let offsetY = rand(rng, 0.0'f32 .. maxY)
+    let baseX = rand(rng, 0.0'f32 .. maxX)
+    let baseY = rand(rng, 0.0'f32 .. maxY)
+    let jitterX = sin((t + i.float32 * 0.15'f32).float64).float32 * 20
+    let jitterY = cos((t * 0.9'f32 + i.float32 * 0.2'f32).float64).float32 * 20
+    let offsetX = min(max(baseX + jitterX, 0.0'f32), maxX)
+    let offsetY = min(max(baseY + jitterY, 0.0'f32), maxY)
 
     let redIdx = list.nodes.len()
     list.nodes.add Fig(
@@ -175,6 +181,7 @@ when isMainModule:
       redraw()
 
       inc frames
+      inc globalFrame
       inc fpsFrames
       let now = epochTime()
       let elapsed = now - fpsStart
