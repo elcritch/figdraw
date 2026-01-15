@@ -27,6 +27,9 @@ feature "sdl2":
 feature "windy":
   requires "windy"
 
+feature "windex":
+  requires "https://github.com/elcritch/windex"
+
 feature "reference":
   requires "https://github.com/elcritch/figuro"
   requires "fidget"

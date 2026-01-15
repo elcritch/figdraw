@@ -88,7 +88,7 @@ proc makeRenderTree*(w, h: float32): Renders =
         spread: 10,
         x: 10,
         y: 10,
-        color: blackColor,
+        color: rgba(0,0,0,55).color,
     ),
     RenderShadow(),
     RenderShadow(),

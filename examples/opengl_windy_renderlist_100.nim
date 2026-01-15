@@ -58,7 +58,7 @@ proc makeRenderTree*(w, h: float32): Renders =
     zlevel: 0.ZLevel,
     name: "root".toFigName(),
     screenBox: rect(0, 0, w, h),
-    fill: rgba(255, 255, 255, 255).color,
+    fill: rgba(255, 255, 255, 155).color,
   )
 
   list.rootIds = @[0.FigIdx]
@@ -86,8 +86,8 @@ proc makeRenderTree*(w, h: float32): Renders =
       corners: [10.0'f32, 20.0, 30.0, 40.0],
       name: ("box-red-" & $i).toFigName(),
       screenBox: rect(60 + offsetX, 60 + offsetY, 220, 140),
-      fill: rgba(220, 40, 40, 255).color,
-      stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 255).color)
+      fill: rgba(220, 40, 40, 155).color,
+      stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 155).color)
     )
     list.rootIds.add(redIdx.FigIdx)
 
@@ -100,7 +100,7 @@ proc makeRenderTree*(w, h: float32): Renders =
       zlevel: 0.ZLevel,
       name: ("box-green-" & $i).toFigName(),
       screenBox: rect(320 + offsetX, 120 + offsetY, 220, 140),
-      fill: rgba(40, 180, 90, 255).color,
+      fill: rgba(40, 180, 90, 155).color,
       shadows: [
         RenderShadow(
           style: DropShadow,
@@ -108,7 +108,7 @@ proc makeRenderTree*(w, h: float32): Renders =
           spread: 10,
           x: 10,
           y: 10,
-          color: blackColor,
+          color: rgba(0,0,0,155).color,
       ),
       RenderShadow(),
       RenderShadow(),
@@ -126,7 +126,7 @@ proc makeRenderTree*(w, h: float32): Renders =
       zlevel: 0.ZLevel,
       name: ("box-blue-" & $i).toFigName(),
       screenBox: rect(180 + offsetX, 300 + offsetY, 220, 140),
-      fill: rgba(60, 90, 220, 255).color,
+      fill: rgba(60, 90, 220, 155).color,
     )
     list.rootIds.add(blueIdx.FigIdx)
 
