@@ -1,6 +1,5 @@
 import std/[os, json]
 
-import windy
 import pkg/chronicles
 
 import appframes
