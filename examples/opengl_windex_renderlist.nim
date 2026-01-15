@@ -1,7 +1,7 @@
 import std/os
 import chroma
 
-import pkg/windex
+import windy
 
 import figdraw/commons
 import figdraw/fignodes
@@ -130,20 +130,29 @@ when isMainModule:
     pixelRatio: 1.0,
   )
 
+  var frames = 0
   let window = newWindexWindow(frame)
+
   let renderer = glrenderer.newOpenGLRenderer(
     atlasSize = 512,
     pixelScale = app.pixelScale,
   )
 
+  proc redraw() =
+    let winInfo = window.getWindowInfo()
+    var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
+    renderer.renderFrame(renders, winInfo.box.wh.scaled())
+    window.swapBuffers()
+
+  window.onCloseRequest = proc() =
+    app.running = false
+  window.onResize = proc() =
+    redraw()
+
   try:
-    var frames = 0
     while app.running:
-      windex.pollEvents()
-      let winInfo = window.getWindowInfo()
-      var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
-      renderer.renderFrame(renders, winInfo.box.wh.scaled())
-      window.swapBuffers()
+      pollEvents()
+      redraw()
 
       inc frames
       if RunOnce and frames >= 1:

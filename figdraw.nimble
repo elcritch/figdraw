@@ -31,3 +31,5 @@ feature "reference":
   requires "fidget"
 
 
+requires "windy"
+
