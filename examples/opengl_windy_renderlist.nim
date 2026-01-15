@@ -1,7 +1,7 @@
 import std/[os, times]
 import chroma
 
-import windy
+import windex
 
 import figdraw/commons
 import figdraw/fignodes

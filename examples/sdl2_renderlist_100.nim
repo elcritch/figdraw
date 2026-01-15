@@ -1,7 +1,7 @@
 import std/[os, times, random, math]
-import chroma
 
-import windex
+import chroma
+import sdl2 except rect
 
 import figdraw/commons
 import figdraw/fignodes
@@ -11,38 +11,11 @@ import figdraw/utils/glutils
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 var globalFrame = 0
 
-proc setupWindow(frame: AppFrame, window: Window) =
-  let style: WindowStyle = case frame.windowStyle
-    of FrameStyle.DecoratedResizable: WindowStyle.DecoratedResizable
-    of FrameStyle.DecoratedFixedSized: WindowStyle.Decorated
-    of FrameStyle.Undecorated: WindowStyle.Undecorated
-    of FrameStyle.Transparent: WindowStyle.Transparent
-
-  if frame.windowInfo.fullscreen:
-    window.fullscreen = frame.windowInfo.fullscreen
-  else:
-    window.size = ivec2(frame.windowInfo.box.wh.scaled())
-
-  window.visible = true
-  window.makeContextCurrent()
-
-  let winCfg = frame.loadLastWindow()
-  window.`style=`(style)
-  window.`pos=`(winCfg.pos)
-
-proc newWindyWindow(frame: AppFrame): Window =
-  let window = newWindow("Figuro", ivec2(1280, 800), visible = false)
-  startOpenGL(openglVersion)
-  setupWindow(frame, window)
-  result = window
-
-proc getWindowInfo(window: Window): WindowInfo =
-  app.requestedFrame.inc
-  result.minimized = window.minimized()
-  result.pixelRatio = window.contentScale()
-  let size = window.size()
-  result.box.w = size.x.float32.descaled()
-  result.box.h = size.y.float32.descaled()
+type SdlWindow = ref object
+  window: WindowPtr
+  glContext: GlContextPtr
+  focused: bool
+  minimized: bool
 
 proc makeRenderTree*(w, h: float32): Renders =
   var list = RenderList()
@@ -133,6 +106,98 @@ proc makeRenderTree*(w, h: float32): Renders =
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
 
+proc newSdlWindow(frame: ptr AppFrame): SdlWindow =
+  doAssert not frame.isNil
+  if sdl2.init(INIT_VIDEO) != SdlSuccess:
+    quit "SDL2 init failed: " & $sdl2.getError()
+
+  discard glSetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, openglVersion[0].cint)
+  discard glSetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, openglVersion[1].cint)
+  discard glSetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE)
+  discard glSetAttribute(SDL_GL_DOUBLEBUFFER, 1)
+
+  let winBox = frame[].windowInfo.box
+  let flags = SDL_WINDOW_OPENGL or SDL_WINDOW_RESIZABLE or SDL_WINDOW_ALLOW_HIGHDPI
+  let window = createWindow(
+    frame[].windowTitle.cstring,
+    SDL_WINDOWPOS_CENTERED,
+    SDL_WINDOWPOS_CENTERED,
+    winBox.w.cint,
+    winBox.h.cint,
+    flags,
+  )
+  if window.isNil:
+    quit "SDL2 window creation failed: " & $sdl2.getError()
+
+  let glContext = glCreateContext(window)
+  if glContext.isNil:
+    quit "SDL2 GL context creation failed: " & $sdl2.getError()
+
+  discard glMakeCurrent(window, glContext)
+  startOpenGL(openglVersion)
+
+  result = SdlWindow(
+    window: window,
+    glContext: glContext,
+    focused: true,
+    minimized: false,
+  )
+  discard
+
+proc swapBuffers*(w: SdlWindow) =
+  w.window.glSwapWindow()
+
+proc pollEvents*(w: SdlWindow, onResize: proc() {.closure.} = nil) =
+  var evt = defaultEvent
+  while pollEvent(evt):
+    case evt.kind
+    of QuitEvent:
+      app.running = false
+    of WindowEvent:
+      let winEvent = evt.window()
+      case winEvent.event
+      of WindowEvent_Close:
+        app.running = false
+      of WindowEvent_Minimized:
+        w.minimized = true
+      of WindowEvent_Restored, WindowEvent_Shown, WindowEvent_Exposed,
+          WindowEvent_Resized, WindowEvent_SizeChanged:
+        w.minimized = false
+        if onResize != nil:
+          onResize()
+      of WindowEvent_FocusGained:
+        w.focused = true
+      of WindowEvent_FocusLost:
+        w.focused = false
+      else:
+        discard
+    else:
+      discard
+
+proc getWindowInfo*(w: SdlWindow): WindowInfo =
+  app.requestedFrame.inc
+  var winW, winH: cint
+  var drawW, drawH: cint
+  w.window.getSize(winW, winH)
+  w.window.glGetDrawableSize(drawW, drawH)
+
+  result.box.w = winW.float32.descaled()
+  result.box.h = winH.float32.descaled()
+  result.minimized = w.minimized
+  result.focused = w.focused
+  result.fullscreen = false
+  if winW > 0:
+    result.pixelRatio = drawW.float32 / winW.float32
+  else:
+    result.pixelRatio = 1.0
+
+proc closeWindow*(w: SdlWindow) =
+  if not w.glContext.isNil:
+    glDeleteContext(w.glContext)
+  if not w.window.isNil:
+    destroy(w.window)
+  sdl2.quit()
+
 when isMainModule:
   app.running = true
   app.autoUiScale = false
@@ -140,9 +205,9 @@ when isMainModule:
   app.pixelScale = 1.0
 
   var frame = AppFrame(
-    windowTitle: "figdraw: OpenGL + Windy RenderList",
+    windowTitle: "figdraw: SDL2 RenderList (100)",
     windowStyle: FrameStyle.DecoratedResizable,
-    configFile: getCurrentDir() / "examples" / "opengl_windy_renderlist",
+    configFile: getCurrentDir() / "examples" / "sdl2_renderlist_100",
     saveWindowState: false,
   )
   frame.windowInfo = WindowInfo(
@@ -154,10 +219,7 @@ when isMainModule:
     pixelRatio: 1.0,
   )
 
-  var frames = 0
-  var fpsFrames = 0
-  var fpsStart = epochTime()
-  let window = newWindyWindow(frame)
+  let window = newSdlWindow(frame.addr)
 
   let renderer = glrenderer.newOpenGLRenderer(
     atlasSize = 192,
@@ -170,14 +232,12 @@ when isMainModule:
     renderer.renderFrame(renders, winInfo.box.wh.scaled())
     window.swapBuffers()
 
-  window.onCloseRequest = proc() =
-    app.running = false
-  window.onResize = proc() =
-    redraw()
-
   try:
+    var frames = 0
+    var fpsFrames = 0
+    var fpsStart = epochTime()
     while app.running:
-      pollEvents()
+      window.pollEvents(onResize = redraw)
       redraw()
 
       inc frames
@@ -195,4 +255,5 @@ when isMainModule:
       else:
         sleep(16)
   finally:
-    window.close()
+    window.closeWindow()
+
