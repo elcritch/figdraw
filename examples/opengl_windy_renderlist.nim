@@ -140,9 +140,10 @@ when isMainModule:
     pixelScale = app.pixelScale,
   )
 
+  let winInfo = window.getWindowInfo()
+  var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
+
   proc redraw() =
-    let winInfo = window.getWindowInfo()
-    var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
     renderer.renderFrame(renders, winInfo.box.wh.scaled())
     window.swapBuffers()
 
