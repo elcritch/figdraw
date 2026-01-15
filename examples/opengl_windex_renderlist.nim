@@ -1,13 +1,47 @@
 import std/os
 import chroma
 
+import pkg/windex
+
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/openglWindex
 import figdraw/opengl/renderer as glrenderer
-import figdraw/utils/baserenderer
+import figdraw/utils/glutils
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
+
+proc setupWindow(frame: AppFrame, window: Window) =
+  let style: WindowStyle = case frame.windowStyle
+    of FrameStyle.DecoratedResizable: WindowStyle.DecoratedResizable
+    of FrameStyle.DecoratedFixedSized: WindowStyle.Decorated
+    of FrameStyle.Undecorated: WindowStyle.Undecorated
+    of FrameStyle.Transparent: WindowStyle.Transparent
+
+  if frame.windowInfo.fullscreen:
+    window.fullscreen = frame.windowInfo.fullscreen
+  else:
+    window.size = ivec2(frame.windowInfo.box.wh.scaled())
+
+  window.visible = true
+  window.makeContextCurrent()
+
+  let winCfg = frame.loadLastWindow()
+  window.`style=`(style)
+  window.`pos=`(winCfg.pos)
+
+proc newWindexWindow(frame: AppFrame): Window =
+  let window = newWindow("Figuro", ivec2(1280, 800), visible = false)
+  startOpenGL(openglVersion)
+  setupWindow(frame, window)
+  result = window
+
+proc getWindowInfo(window: Window): WindowInfo =
+  app.requestedFrame.inc
+  result.minimized = window.minimized()
+  result.pixelRatio = window.contentScale()
+  let size = window.size()
+  result.box.w = size.x.float32.descaled()
+  result.box.h = size.y.float32.descaled()
 
 proc makeRenderTree*(w, h: float32): Renders =
   var list = RenderList()
@@ -36,7 +70,7 @@ proc makeRenderTree*(w, h: float32): Renders =
     name: "box-red".toFigName(),
     screenBox: rect(60, 60, 220, 140),
     fill: rgba(220, 40, 40, 255).color,
-    stroke: RenderStroke(weight: 5.0, color: rgba(0,0,0,255).color)
+    stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 255).color)
   )
   list.nodes.add Fig(
     kind: nkRectangle,
@@ -55,11 +89,11 @@ proc makeRenderTree*(w, h: float32): Renders =
         x: 10,
         y: 10,
         color: blackColor,
-      ),
-      RenderShadow(),
-      RenderShadow(),
-      RenderShadow(),
-    ]
+    ),
+    RenderShadow(),
+    RenderShadow(),
+    RenderShadow(),
+  ]
   )
   list.nodes.add Fig(
     kind: nkRectangle,
@@ -96,19 +130,20 @@ when isMainModule:
     pixelRatio: 1.0,
   )
 
-  let window = newWindexWindow(frame.addr)
-  let renderer = glrenderer.newOpenGLRenderer(window, frame.addr,
-      atlasSize = 512)
-  window.configureWindowEvents(renderer)
+  let window = newWindexWindow(frame)
+  let renderer = glrenderer.newOpenGLRenderer(
+    atlasSize = 512,
+    pixelScale = app.pixelScale,
+  )
 
   try:
     var frames = 0
     while app.running:
-      window.pollEvents()
+      windex.pollEvents()
       let winInfo = window.getWindowInfo()
-      let renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
-      renderer.setRenderState(renders, winInfo)
-      renderer.renderAndSwap()
+      var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
+      renderer.renderFrame(renders, winInfo.box.wh.scaled())
+      window.swapBuffers()
 
       inc frames
       if RunOnce and frames >= 1:
@@ -116,4 +151,4 @@ when isMainModule:
       else:
         sleep(16)
   finally:
-    window.closeWindow()
+    window.close()

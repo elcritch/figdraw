@@ -1,15 +1,38 @@
 import std/os
 import pkg/pixie
 
+import pkg/windex
+
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/openglWindex
 import figdraw/opengl/renderer as glrenderer
-import figdraw/utils/baserenderer
+import figdraw/utils/glutils
 
 proc ensureTestOutputDir*(subdir = "output"): string =
   result = getCurrentDir() / "tests" / subdir
   createDir(result)
+
+proc newTestWindow(frame: AppFrame): Window =
+  let window = newWindow(
+    frame.windowTitle,
+    ivec2(frame.windowInfo.box.w.int32, frame.windowInfo.box.h.int32),
+    visible = false,
+  )
+  startOpenGL(openglVersion)
+  window.makeContextCurrent()
+  window.visible = true
+  result = window
+
+proc getWindowInfo(window: Window): WindowInfo =
+  app.requestedFrame.inc
+
+  result.minimized = window.minimized()
+  result.pixelRatio = window.contentScale()
+
+  let size = window.size()
+
+  result.box.w = size.x.float32.descaled()
+  result.box.h = size.y.float32.descaled()
 
 proc renderAndScreenshotOnce*(
     makeRenders: proc(w, h: float32): Renders {.closure.},
@@ -39,19 +62,20 @@ proc renderAndScreenshotOnce*(
     pixelRatio: 1.0,
   )
 
-  let window = newWindexWindow(frame.addr)
-  let renderer = glrenderer.newOpenGLRenderer(window, frame.addr, atlasSize = atlasSize)
-  window.configureWindowEvents(renderer)
+  let window = newTestWindow(frame)
+  let renderer = glrenderer.newOpenGLRenderer(
+    atlasSize = atlasSize,
+    pixelScale = app.pixelScale,
+  )
 
   try:
-    window.pollEvents()
+    windex.pollEvents()
     let winInfo = window.getWindowInfo()
-    let renders = makeRenders(winInfo.box.w.scaled(), winInfo.box.h.scaled())
-    renderer.setRenderState(renders, winInfo)
-    renderer.renderAndSwap()
+    var renders = makeRenders(winInfo.box.w.scaled(), winInfo.box.h.scaled())
+    renderer.renderFrame(renders, winInfo.box.wh.scaled())
+    window.swapBuffers()
 
     result = glrenderer.takeScreenshot(readFront = true)
     result.writeFile(outputPath)
   finally:
-    window.closeWindow()
-
+    window.close()

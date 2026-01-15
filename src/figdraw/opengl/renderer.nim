@@ -1,4 +1,4 @@
-import std/[hashes, math, os, tables, times, monotimes, unicode, atomics, locks]
+import std/[hashes, math, tables, unicode]
 export tables
 
 from pixie import Image, newImage, flipVertical
@@ -8,14 +8,13 @@ import pkg/opengl
 
 import ../commons
 import ../utils/glutils
-import ../utils/baserenderer
 import ../utils/drawshadows
 import ../utils/drawboxes
 import glcommons, glcontext
 
 const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
-type OpenGLRenderer* = ref object of Renderer
+type OpenGLRenderer* = ref object
   ctx*: Context
 
 proc takeScreenshot*(
@@ -55,16 +54,14 @@ proc takeScreenshot*(
   glReadBuffer(GL_BACK)
 
 proc newOpenGLRenderer*(
-    window: RendererWindow,
-    frame: ptr AppFrame,
     atlasSize: int,
+    pixelScale = app.pixelScale,
 ): OpenGLRenderer =
-  result = OpenGLRenderer(window: window)
-  configureBaseRenderer(result, frame[], 1.0, atlasSize)
+  result = OpenGLRenderer()
   result.ctx = newContext(
     atlasSize = atlasSize,
     pixelate = false,
-    pixelScale = app.pixelScale,
+    pixelScale = pixelScale,
   )
 
 proc renderDrawable*(ctx: Context, node: Fig) =
@@ -392,15 +389,16 @@ proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [
     for rootIdx in list.rootIds:
       ctx.render(list.nodes, rootIdx, -1.FigIdx)
 
-proc renderFrame*(renderer: OpenGLRenderer) =
+proc renderFrame*(renderer: OpenGLRenderer, nodes: var Renders,
+    frameSize: Vec2) =
   let ctx: Context = renderer.ctx
   clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
-  ctx.beginFrame(renderer.window.info.box.wh.scaled())
+  ctx.beginFrame(frameSize)
   ctx.saveTransform()
   ctx.scale(ctx.pixelScale)
 
   # draw root
-  ctx.renderRoot(renderer.nodes)
+  ctx.renderRoot(nodes)
 
   ctx.restoreTransform()
   ctx.endFrame()
@@ -412,14 +410,16 @@ proc renderFrame*(renderer: OpenGLRenderer) =
     img.writeFile("screenshot.png")
     quit()
 
-method renderAndSwap*(renderer: OpenGLRenderer) =
-  ## Does drawing operations.
-
-  timeIt(drawFrame):
-    renderFrame(renderer)
-
-  for error in glErrors():
-    echo error
-
-  timeIt(drawFrameSwap):
-    renderer.window.swapBuffers()
+proc renderFrame*(
+    ctx: Context,
+    nodes: var Renders,
+    frameSize: Vec2,
+    pixelScale = ctx.pixelScale,
+) =
+  clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
+  ctx.beginFrame(frameSize)
+  ctx.saveTransform()
+  ctx.scale(pixelScale)
+  ctx.renderRoot(nodes)
+  ctx.restoreTransform()
+  ctx.endFrame()

@@ -6,12 +6,11 @@ import pkg/sdl2 except rect
 import figdraw/commons
 import figdraw/fignodes
 import figdraw/opengl/renderer as glrenderer
-import figdraw/utils/baserenderer
 import figdraw/utils/glutils
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
-type SdlWindow = ref object of RendererWindow
+type SdlWindow = ref object
   window: WindowPtr
   glContext: GlContextPtr
   focused: bool
@@ -63,11 +62,11 @@ proc makeRenderTree*(w, h: float32): Renders =
         x: 10,
         y: 10,
         color: blackColor,
-      ),
-      RenderShadow(),
-      RenderShadow(),
-      RenderShadow(),
-    ]
+    ),
+    RenderShadow(),
+    RenderShadow(),
+    RenderShadow(),
+  ]
   )
   list.nodes.add Fig(
     kind: nkRectangle,
@@ -116,17 +115,15 @@ proc newSdlWindow(frame: ptr AppFrame): SdlWindow =
   result = SdlWindow(
     window: window,
     glContext: glContext,
-    frame: frame,
     focused: true,
     minimized: false,
   )
-  result.info = frame[].windowInfo
-  configureBaseWindow(result)
+  discard
 
-method swapBuffers*(w: SdlWindow) =
+proc swapBuffers*(w: SdlWindow) =
   w.window.glSwapWindow()
 
-method pollEvents*(w: SdlWindow) =
+proc pollEvents*(w: SdlWindow) =
   var evt = defaultEvent
   while pollEvent(evt):
     case evt.kind
@@ -151,7 +148,7 @@ method pollEvents*(w: SdlWindow) =
     else:
       discard
 
-method getScaleInfo*(w: SdlWindow): ScaleInfo =
+proc getScaleInfo*(w: SdlWindow): ScaleInfo =
   var winW, winH: cint
   var drawW, drawH: cint
   w.window.getSize(winW, winH)
@@ -163,7 +160,7 @@ method getScaleInfo*(w: SdlWindow): ScaleInfo =
     result.x = 1.0
     result.y = 1.0
 
-method getWindowInfo*(w: SdlWindow): WindowInfo =
+proc getWindowInfo*(w: SdlWindow): WindowInfo =
   app.requestedFrame.inc
   var winW, winH: cint
   var drawW, drawH: cint
@@ -180,20 +177,15 @@ method getWindowInfo*(w: SdlWindow): WindowInfo =
   else:
     result.pixelRatio = 1.0
 
-  w.info = result
-
-method setTitle*(w: SdlWindow, name: string) =
+proc setTitle*(w: SdlWindow, name: string) =
   w.window.setTitle(name.cstring)
 
-method closeWindow*(w: SdlWindow) =
+proc closeWindow*(w: SdlWindow) =
   if not w.glContext.isNil:
     glDeleteContext(w.glContext)
   if not w.window.isNil:
     destroy(w.window)
   sdl2.quit()
-
-method configureWindowEvents*(w: SdlWindow, r: Renderer) =
-  discard
 
 when isMainModule:
   app.running = true
@@ -217,16 +209,19 @@ when isMainModule:
   )
 
   let window = newSdlWindow(frame.addr)
-  let renderer = glrenderer.newOpenGLRenderer(window, frame.addr, atlasSize = 512)
+  let renderer = glrenderer.newOpenGLRenderer(
+    atlasSize = 512,
+    pixelScale = app.pixelScale,
+  )
 
   try:
     var frames = 0
     while app.running:
       window.pollEvents()
       let winInfo = window.getWindowInfo()
-      let renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
-      renderer.setRenderState(renders, winInfo)
-      renderer.renderAndSwap()
+      var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
+      renderer.renderFrame(renders, winInfo.box.wh.scaled())
+      window.swapBuffers()
 
       inc frames
       if RunOnce and frames >= 1:

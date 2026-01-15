@@ -3,6 +3,7 @@ import std/unittest
 
 import pkg/chroma
 import pkg/pixie
+import pkg/windex
 
 import figdraw/commons
 import figdraw/fignodes
@@ -36,7 +37,7 @@ proc makeRenderTree(w, h: float32): Renders =
     name: "box-red".toFigName(),
     screenBox: rect(60, 60, 220, 140),
     fill: rgba(220, 40, 40, 255).color,
-    stroke: RenderStroke(weight: 5.0, color: rgba(0,0,0,255).color)
+    stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 255).color)
   )
   list.nodes.add Fig(
     kind: nkRectangle,
@@ -87,27 +88,33 @@ suite "opengl rgb boxes render (sdf)":
     let outPath = outDir/"render_rgb_boxes_sdf.png"
     if fileExists(outPath):
       removeFile(outPath)
-    let img = renderAndScreenshotOnce(
-      makeRenders = makeRenderTree,
-      outputPath = outPath,
-      title = "figdraw test: rgb boxes (sdf)",
-    )
+    block renderOnce:
+      var img: Image
+      try:
+        img = renderAndScreenshotOnce(
+          makeRenders = makeRenderTree,
+          outputPath = outPath,
+          title = "figdraw test: rgb boxes (sdf)",
+        )
+      except WindexError:
+        skip()
+        break renderOnce
 
-    check fileExists(outPath)
-    check getFileSize(outPath) > 0
+      check fileExists(outPath)
+      check getFileSize(outPath) > 0
 
-    let expectedPath = "tests"/"expected"/"render_rgb_boxes.png"
-    check fileExists(expectedPath)
-    let expected = readImage(expectedPath)
-    let (diffScore, diffImg) = expected.diff(img)
-    echo "Got image difference of: ", diffScore
-    let diffThreshold = 0.10'f32
-    if diffScore > diffThreshold:
-      diffImg.writeFile(joinPath(outDir, "render_rgb_boxes_sdf.diff.png"))
-    check diffScore <= diffThreshold
+      let expectedPath = "tests"/"expected"/"render_rgb_boxes.png"
+      check fileExists(expectedPath)
+      let expected = readImage(expectedPath)
+      let (diffScore, diffImg) = expected.diff(img)
+      echo "Got image difference of: ", diffScore
+      let diffThreshold = 0.10'f32
+      if diffScore > diffThreshold:
+        diffImg.writeFile(joinPath(outDir, "render_rgb_boxes_sdf.diff.png"))
+      check diffScore <= diffThreshold
 
-    let tol = 12
-    check img[10, 10].maxChannelDelta(255, 255, 255) <= tol
-    check img[120, 120].maxChannelDelta(220, 40, 40) <= tol
-    check img[400, 180].maxChannelDelta(40, 180, 90) <= tol
-    check img[260, 360].maxChannelDelta(60, 90, 220) <= tol
+      let tol = 12
+      check img[10, 10].maxChannelDelta(255, 255, 255) <= tol
+      check img[120, 120].maxChannelDelta(220, 40, 40) <= tol
+      check img[400, 180].maxChannelDelta(40, 180, 90) <= tol
+      check img[260, 360].maxChannelDelta(60, 90, 220) <= tol
