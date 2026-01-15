@@ -134,7 +134,7 @@ when isMainModule:
   let window = newWindyWindow(frame)
 
   let renderer = glrenderer.newOpenGLRenderer(
-    atlasSize = 512,
+    atlasSize = 192,
     pixelScale = app.pixelScale,
   )
 

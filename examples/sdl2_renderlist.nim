@@ -123,7 +123,7 @@ proc newSdlWindow(frame: ptr AppFrame): SdlWindow =
 proc swapBuffers*(w: SdlWindow) =
   w.window.glSwapWindow()
 
-proc pollEvents*(w: SdlWindow) =
+proc pollEvents*(w: SdlWindow, onResize: proc() {.closure.} = nil) =
   var evt = defaultEvent
   while pollEvent(evt):
     case evt.kind
@@ -139,6 +139,8 @@ proc pollEvents*(w: SdlWindow) =
       of WindowEvent_Restored, WindowEvent_Shown, WindowEvent_Exposed,
           WindowEvent_Resized, WindowEvent_SizeChanged:
         w.minimized = false
+        if onResize != nil:
+          onResize()
       of WindowEvent_FocusGained:
         w.focused = true
       of WindowEvent_FocusLost:
@@ -210,18 +212,21 @@ when isMainModule:
 
   let window = newSdlWindow(frame.addr)
   let renderer = glrenderer.newOpenGLRenderer(
-    atlasSize = 512,
+    atlasSize = 256,
     pixelScale = app.pixelScale,
   )
+
+  proc redraw() =
+    let winInfo = window.getWindowInfo()
+    var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
+    renderer.renderFrame(renders, winInfo.box.wh.scaled())
+    window.swapBuffers()
 
   try:
     var frames = 0
     while app.running:
-      window.pollEvents()
-      let winInfo = window.getWindowInfo()
-      var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
-      renderer.renderFrame(renders, winInfo.box.wh.scaled())
-      window.swapBuffers()
+      window.pollEvents(onResize = redraw)
+      redraw()
 
       inc frames
       if RunOnce and frames >= 1:
