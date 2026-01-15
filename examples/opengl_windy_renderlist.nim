@@ -1,4 +1,4 @@
-import std/os
+import std/[os, times]
 import chroma
 
 import windy
@@ -131,6 +131,8 @@ when isMainModule:
   )
 
   var frames = 0
+  var fpsFrames = 0
+  var fpsStart = epochTime()
   let window = newWindyWindow(frame)
 
   let renderer = glrenderer.newOpenGLRenderer(
@@ -155,6 +157,14 @@ when isMainModule:
       redraw()
 
       inc frames
+      inc fpsFrames
+      let now = epochTime()
+      let elapsed = now - fpsStart
+      if elapsed >= 1.0:
+        let fps = fpsFrames.float / elapsed
+        echo "fps: ", fps
+        fpsFrames = 0
+        fpsStart = now
       if RunOnce and frames >= 1:
         app.running = false
       else:

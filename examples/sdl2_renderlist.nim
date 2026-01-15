@@ -1,4 +1,4 @@
-import std/os
+import std/[os, times]
 
 import chroma
 import sdl2 except rect
@@ -224,11 +224,21 @@ when isMainModule:
 
   try:
     var frames = 0
+    var fpsFrames = 0
+    var fpsStart = epochTime()
     while app.running:
       window.pollEvents(onResize = redraw)
       redraw()
 
       inc frames
+      inc fpsFrames
+      let now = epochTime()
+      let elapsed = now - fpsStart
+      if elapsed >= 1.0:
+        let fps = fpsFrames.float / elapsed
+        echo "fps: ", fps
+        fpsFrames = 0
+        fpsStart = now
       if RunOnce and frames >= 1:
         app.running = false
       else:
