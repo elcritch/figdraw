@@ -29,7 +29,7 @@ proc setupWindow(frame: AppFrame, window: Window) =
   window.`style=`(style)
   window.`pos=`(winCfg.pos)
 
-proc newWindexWindow(frame: AppFrame): Window =
+proc newWindyWindow(frame: AppFrame): Window =
   let window = newWindow("Figuro", ivec2(1280, 800), visible = false)
   startOpenGL(openglVersion)
   setupWindow(frame, window)
@@ -116,9 +116,9 @@ when isMainModule:
   app.pixelScale = 1.0
 
   var frame = AppFrame(
-    windowTitle: "figdraw: OpenGL + Windex RenderList",
+    windowTitle: "figdraw: OpenGL + Windy RenderList",
     windowStyle: FrameStyle.DecoratedResizable,
-    configFile: getCurrentDir() / "examples" / "opengl_windex_renderlist",
+    configFile: getCurrentDir() / "examples" / "opengl_windy_renderlist",
     saveWindowState: false,
   )
   frame.windowInfo = WindowInfo(
@@ -131,7 +131,7 @@ when isMainModule:
   )
 
   var frames = 0
-  let window = newWindexWindow(frame)
+  let window = newWindyWindow(frame)
 
   let renderer = glrenderer.newOpenGLRenderer(
     atlasSize = 512,

@@ -1,7 +1,8 @@
 import std/os
 import pkg/pixie
+import pkg/opengl
 
-import pkg/windex
+import windy
 
 import figdraw/commons
 import figdraw/fignodes
@@ -63,13 +64,16 @@ proc renderAndScreenshotOnce*(
   )
 
   let window = newTestWindow(frame)
+  if glGetString(GL_VERSION) == nil:
+    raise newException(WindyError, "OpenGL context unavailable")
+
   let renderer = glrenderer.newOpenGLRenderer(
     atlasSize = atlasSize,
     pixelScale = app.pixelScale,
   )
 
   try:
-    windex.pollEvents()
+    pollEvents()
     let winInfo = window.getWindowInfo()
     var renders = makeRenders(winInfo.box.w.scaled(), winInfo.box.h.scaled())
     renderer.renderFrame(renders, winInfo.box.wh.scaled())

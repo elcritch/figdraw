@@ -1,6 +1,6 @@
 import std/[os, json]
 
-import pkg/windex
+import windy
 import pkg/chronicles
 
 import appframes
@@ -29,4 +29,3 @@ proc writeWindowConfig*(wcfg: WindowConfig, winCfgFile: string) =
     writeFile(winCfgFile, $(jn))
   except Defect, CatchableError:
     debug "error writing window position"
-

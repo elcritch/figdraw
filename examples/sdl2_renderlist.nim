@@ -1,7 +1,7 @@
 import std/os
 
 import chroma
-import pkg/sdl2 except rect
+import sdl2 except rect
 
 import figdraw/commons
 import figdraw/fignodes

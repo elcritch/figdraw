@@ -3,7 +3,7 @@ import std/unittest
 
 import pkg/chroma
 import pkg/pixie
-import pkg/windex
+import windy
 
 import figdraw/commons
 import figdraw/fignodes
@@ -96,7 +96,7 @@ suite "opengl rgb boxes render (sdf)":
           outputPath = outPath,
           title = "figdraw test: rgb boxes (sdf)",
         )
-      except WindexError:
+      except WindyError:
         skip()
         break renderOnce
 

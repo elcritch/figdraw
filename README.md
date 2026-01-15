@@ -43,7 +43,7 @@ nim r tests/trender_rgb_boxes.nim
 The OpenGL backend supports rendering rounded rectangles using an SDF shader path. This is enabled in the renderer with:
 
 ```sh
-nim r -d:useSdf example/opengl_windex_renderlist.nim
+nim r -d:useSdf examples/opengl_windy_renderlist.nim
 ```
 
 Notes:
