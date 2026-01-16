@@ -97,6 +97,17 @@ proc makeRenderTree*(w, h: float32): Renders =
     let blueW = 160.0'f32 + 100.0'f32 * (1.0'f32 - sizePulseW)
     let blueH = 110.0'f32 + 70.0'f32 * (1.0'f32 - sizePulseH)
 
+    let cornerPulse = 0.5'f32 + 0.5'f32 *
+      sin((t * 1.25'f32 + i.float32 * 0.11'f32).float64).float32
+    let c0 = 4.0'f32 + 26.0'f32 * cornerPulse
+    let c1 = 6.0'f32 + 22.0'f32 * (1.0'f32 - cornerPulse)
+    let c2 = 8.0'f32 + 18.0'f32 *
+      (0.5'f32 + 0.5'f32 *
+        sin((t * 0.7'f32 + i.float32 * 0.05'f32).float64).float32)
+    let c3 = 10.0'f32 + 16.0'f32 *
+      (0.5'f32 + 0.5'f32 *
+        cos((t * 0.8'f32 + i.float32 * 0.06'f32).float64).float32)
+
     let shadowPulse = 0.5'f32 + 0.5'f32 *
       sin((t * 1.1'f32 + i.float32 * 0.05'f32).float64).float32
     let shadowBlur = max(0.0'f32, 6.0'f32 + 18.0'f32 * shadowPulse)
@@ -114,7 +125,7 @@ proc makeRenderTree*(w, h: float32): Renders =
       parent: -1.FigID,
       childCount: 0,
       zlevel: 0.ZLevel,
-      corners: [10.0'f32, 20.0, 30.0, 40.0],
+      corners: [c0, c1, c2, c3],
       name: ("box-red-" & $i).toFigName(),
       screenBox: rect(redStartX + offsetX, redStartY + offsetY, redW, redH),
       fill: rgba(220, 40, 40, 155).color,
