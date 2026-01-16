@@ -15,7 +15,9 @@ type
     target*, componentType*: GLenum
     kind*: BufferKind
     normalized*: bool
+    usage*: GLenum
     bufferId*: GLuint
+    byteCapacity*: int
 
 func size*(componentType: GLenum): Positive =
   case componentType
@@ -45,4 +47,10 @@ proc bindBufferData*(buffer: ptr Buffer, data: pointer) =
     buffer.count * buffer.kind.componentCount() * buffer.componentType.size()
 
   glBindBuffer(buffer.target, buffer.bufferId)
-  glBufferData(buffer.target, byteLength, data, GL_STATIC_DRAW)
+  if buffer.byteCapacity < byteLength:
+    let usage = if buffer.usage == 0.GLenum: GL_STATIC_DRAW else: buffer.usage
+    glBufferData(buffer.target, byteLength, nil, usage)
+    buffer.byteCapacity = byteLength
+
+  if data != nil and byteLength > 0:
+    glBufferSubData(buffer.target, 0, byteLength, data)

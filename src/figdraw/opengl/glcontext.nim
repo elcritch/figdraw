@@ -170,6 +170,7 @@ proc newContext*(
   result.positions.buffer.componentType = cGL_FLOAT
   result.positions.buffer.kind = bkVEC2
   result.positions.buffer.target = GL_ARRAY_BUFFER
+  result.positions.buffer.usage = GL_STREAM_DRAW
   result.positions.data =
     newSeq[float32](result.positions.buffer.kind.componentCount() * maxQuads * 4)
 
@@ -177,42 +178,49 @@ proc newContext*(
   result.colors.buffer.kind = bkVEC4
   result.colors.buffer.target = GL_ARRAY_BUFFER
   result.colors.buffer.normalized = true
+  result.colors.buffer.usage = GL_STREAM_DRAW
   result.colors.data =
     newSeq[uint8](result.colors.buffer.kind.componentCount() * maxQuads * 4)
 
   result.uvs.buffer.componentType = cGL_FLOAT
   result.uvs.buffer.kind = bkVEC2
   result.uvs.buffer.target = GL_ARRAY_BUFFER
+  result.uvs.buffer.usage = GL_STREAM_DRAW
   result.uvs.data =
     newSeq[float32](result.uvs.buffer.kind.componentCount() * maxQuads * 4)
 
   result.sdfParams.buffer.componentType = cGL_FLOAT
   result.sdfParams.buffer.kind = bkVEC4
   result.sdfParams.buffer.target = GL_ARRAY_BUFFER
+  result.sdfParams.buffer.usage = GL_STREAM_DRAW
   result.sdfParams.data =
     newSeq[float32](result.sdfParams.buffer.kind.componentCount() * maxQuads * 4)
 
   result.sdfRadii.buffer.componentType = cGL_FLOAT
   result.sdfRadii.buffer.kind = bkVEC4
   result.sdfRadii.buffer.target = GL_ARRAY_BUFFER
+  result.sdfRadii.buffer.usage = GL_STREAM_DRAW
   result.sdfRadii.data =
     newSeq[float32](result.sdfRadii.buffer.kind.componentCount() * maxQuads * 4)
 
   result.sdfModeAttr.buffer.componentType = GL_UNSIGNED_SHORT
   result.sdfModeAttr.buffer.kind = bkSCALAR
   result.sdfModeAttr.buffer.target = GL_ARRAY_BUFFER
+  result.sdfModeAttr.buffer.usage = GL_STREAM_DRAW
   result.sdfModeAttr.data =
     newSeq[uint16](result.sdfModeAttr.buffer.kind.componentCount() * maxQuads * 4)
 
   result.sdfFactors.buffer.componentType = cGL_FLOAT
   result.sdfFactors.buffer.kind = bkVEC2
   result.sdfFactors.buffer.target = GL_ARRAY_BUFFER
+  result.sdfFactors.buffer.usage = GL_STREAM_DRAW
   result.sdfFactors.data =
     newSeq[float32](result.sdfFactors.buffer.kind.componentCount() * maxQuads * 4)
 
   result.indices.buffer.componentType = GL_UNSIGNED_SHORT
   result.indices.buffer.kind = bkSCALAR
   result.indices.buffer.target = GL_ELEMENT_ARRAY_BUFFER
+  result.indices.buffer.usage = GL_STATIC_DRAW
   result.indices.buffer.count = maxQuads * 6
 
   for i in 0 ..< maxQuads:
