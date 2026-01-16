@@ -191,6 +191,8 @@ proc renderInnerShadows(ctx: Context, node: Fig) =
       continue
     if shadow.blur <= 0.0 and shadow.spread <= 0.0:
       continue
+    if shadow.color.a <= 0.0:
+      continue
 
     when not defined(useFigDrawTextures):
       let shadowRect = node.screenBox + rect(shadow.x, shadow.y, 0, 0)
@@ -239,6 +241,19 @@ proc renderInnerShadows(ctx: Context, node: Fig) =
         shadowColor = shadow.color,
         innerShadow = true,
       )
+
+proc hasActiveInnerShadow(node: Fig): bool =
+  if node.shadows.len == 0:
+    return false
+  for shadow in node.shadows:
+    if shadow.style != InnerShadow:
+      continue
+    if shadow.blur <= 0.0 and shadow.spread <= 0.0:
+      continue
+    if shadow.color.a <= 0.0:
+      continue
+    return true
+  return false
 
 proc renderBoxes(ctx: Context, node: Fig) =
   ## drawing boxes for rectangles
@@ -359,11 +374,12 @@ proc render(
 
   ifrender node.kind == nkRectangle:
     if NfClipContent notin node.flags:
-      ctx.beginMask()
-      ctx.drawMasks(node)
-      ctx.endMask()
-      ctx.renderInnerShadows(node)
-      ctx.popMask()
+      if node.hasActiveInnerShadow():
+        ctx.beginMask()
+        ctx.drawMasks(node)
+        ctx.endMask()
+        ctx.renderInnerShadows(node)
+        ctx.popMask()
     else:
       ctx.renderInnerShadows(node)
 
