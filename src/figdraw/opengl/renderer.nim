@@ -201,7 +201,7 @@ proc renderInnerShadows(ctx: Context, node: Fig) =
         shapeSize = shadowRect.wh,
         color = shadow.color,
         radii = node.corners,
-        mode = sdfModeInsetShadow,
+        mode = sdfModeInsetShadowAnnular,
         factor = shadow.blur,
         spread = shadow.spread,
       )
@@ -373,15 +373,19 @@ proc render(
       ctx.renderBoxes(node)
 
   ifrender node.kind == nkRectangle:
-    if NfClipContent notin node.flags:
+    when not defined(useFigDrawTextures):
       if node.hasActiveInnerShadow():
-        ctx.beginMask()
-        ctx.drawMasks(node)
-        ctx.endMask()
         ctx.renderInnerShadows(node)
-        ctx.popMask()
     else:
-      ctx.renderInnerShadows(node)
+      if NfClipContent notin node.flags:
+        if node.hasActiveInnerShadow():
+          ctx.beginMask()
+          ctx.drawMasks(node)
+          ctx.endMask()
+          ctx.renderInnerShadows(node)
+          ctx.popMask()
+      else:
+        ctx.renderInnerShadows(node)
 
   # restores the opengl context back to the parent node's (see above)
   # ctx.restoreTransform()
