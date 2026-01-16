@@ -221,6 +221,7 @@ when isMainModule:
 
   var makeRenderTreeMsSum = 0.0
   var renderFrameMsSum = 0.0
+  var lastElementCount = 0
 
   proc redraw() =
     let winInfo = window.getWindowInfo()
@@ -228,6 +229,7 @@ when isMainModule:
     let t0 = getMonoTime()
     var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
     makeRenderTreeMsSum += float((getMonoTime() - t0).inMilliseconds)
+    lastElementCount = renders.layers[0.ZLevel].nodes.len
 
     let t1 = getMonoTime()
     renderer.renderFrame(renders, winInfo.box.wh.scaled())
@@ -254,8 +256,9 @@ when isMainModule:
         let fps = fpsFrames.float / elapsed
         let avgMake = makeRenderTreeMsSum / max(1, fpsFrames).float
         let avgRender = renderFrameMsSum / max(1, fpsFrames).float
-        echo "fps: ", fps, " | makeRenderTree avg(ms): ", avgMake,
-          " | renderFrame avg(ms): ", avgRender
+        echo "fps: ", fps, " | elems: ", lastElementCount,
+          " | makeRenderTree avg(ms): ", avgMake, " | renderFrame avg(ms): ",
+          avgRender
         fpsFrames = 0
         fpsStart = now
         makeRenderTreeMsSum = 0.0
