@@ -391,15 +391,19 @@ proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
   if ctx.activeShader.hasUniform("aaFactor"):
     ctx.activeShader.setUniform("aaFactor", ctx.aaFactor)
 
+  if ctx.activeShader.hasUniform("maskTexEnabled"):
+    ctx.activeShader.setUniform("maskTexEnabled", maskTextureRead != 0)
+
   if ctx.activeShader.hasUniform("atlasTex"):
     glActiveTexture(GL_TEXTURE0)
     glBindTexture(GL_TEXTURE_2D, ctx.atlasTexture.textureId)
     ctx.activeShader.setUniform("atlasTex", 0)
 
   if ctx.activeShader.hasUniform("maskTex"):
-    glActiveTexture(GL_TEXTURE1)
-    glBindTexture(GL_TEXTURE_2D, ctx.maskTextures[maskTextureRead].textureId)
-    ctx.activeShader.setUniform("maskTex", 1)
+    if maskTextureRead != 0:
+      glActiveTexture(GL_TEXTURE1)
+      glBindTexture(GL_TEXTURE_2D, ctx.maskTextures[maskTextureRead].textureId)
+      ctx.activeShader.setUniform("maskTex", 1)
 
   ctx.activeShader.bindUniforms()
 

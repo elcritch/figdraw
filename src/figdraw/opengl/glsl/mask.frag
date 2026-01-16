@@ -11,6 +11,7 @@ uniform vec2 windowFrame;
 uniform sampler2D atlasTex;
 uniform sampler2D maskTex;
 uniform float aaFactor;
+uniform bool maskTexEnabled;
 
 out vec4 fragColor;
 
@@ -54,6 +55,8 @@ void main() {
   }
 
   vec2 normalizedPos = vec2(pos.x / windowFrame.x, 1 - pos.y / windowFrame.y);
-  alpha *= texture(maskTex, normalizedPos).r;
+  if (maskTexEnabled) {
+    alpha *= texture(maskTex, normalizedPos).r;
+  }
   fragColor = vec4(alpha);
 }
