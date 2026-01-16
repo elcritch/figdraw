@@ -139,7 +139,7 @@ proc renderDropShadows(ctx: Context, node: Fig) =
     if shadow.blur <= 0.0 and shadow.spread <= 0.0:
       continue
 
-    when defined(useSdf):
+    when not defined(useFigDrawTextures):
       let
         blurPad = round(1.5'f32 * shadow.blur)
         pad = max(shadow.spread.round() + blurPad, 0.0'f32)
@@ -192,7 +192,7 @@ proc renderInnerShadows(ctx: Context, node: Fig) =
     if shadow.blur <= 0.0 and shadow.spread <= 0.0:
       continue
 
-    when defined(useSdf):
+    when not defined(useFigDrawTextures):
       let shadowRect = node.screenBox + rect(shadow.x, shadow.y, 0, 0)
       ctx.drawRoundedRectSdf(
         rect = shadowRect,
@@ -244,7 +244,7 @@ proc renderBoxes(ctx: Context, node: Fig) =
   ## drawing boxes for rectangles
 
   if node.fill.a > 0'f32:
-    when defined(useSdf):
+    when not defined(useFigDrawTextures):
       ctx.drawRoundedRectSdf(
         rect = node.screenBox,
         color = node.fill,
@@ -261,7 +261,7 @@ proc renderBoxes(ctx: Context, node: Fig) =
         ctx.drawRect(node.screenBox, node.fill)
 
   if node.highlight.a > 0'f32:
-    when defined(useSdf):
+    when not defined(useFigDrawTextures):
       ctx.drawRoundedRectSdf(
         rect = node.screenBox,
         color = node.highlight,
@@ -284,7 +284,7 @@ proc renderBoxes(ctx: Context, node: Fig) =
           color = node.image.color, size = size)
 
   if node.stroke.color.a > 0 and node.stroke.weight > 0:
-    when defined(useSdf):
+    when not defined(useFigDrawTextures):
       ctx.drawRoundedRectSdf(
         rect = node.screenBox,
         color = node.stroke.color,

@@ -134,7 +134,7 @@ when isMainModule:
   let window = newSdlWindow(frame.addr)
 
   let renderer = glrenderer.newOpenGLRenderer(
-    atlasSize = (when defined(useSdf): 192 else: 2048),
+    atlasSize = (when not defined(useFigDrawTextures): 192 else: 2048),
     pixelScale = app.pixelScale,
   )
 
