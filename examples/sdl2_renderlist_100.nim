@@ -10,6 +10,7 @@ import figdraw/utils/glutils
 import renderlist_100_common
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
+const NoSleep {.booldefine: "figdraw.noSleep".}: bool = false
 var globalFrame = 0
 
 type SdlWindow = ref object
@@ -181,9 +182,13 @@ when isMainModule:
         fpsStart = now
         makeRenderTreeMsSum = 0.0
         renderFrameMsSum = 0.0
-      if RunOnce and frames >= 1:
-        app.running = false
-      else:
-        sleep(16)
+
+      when RunOnce:
+        if frames >= 1:
+          app.running = false
+
+      when not NoSleep:
+        if app.running:
+          sleep(16)
   finally:
     window.closeWindow()
