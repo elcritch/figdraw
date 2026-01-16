@@ -1,7 +1,10 @@
 import std/[os, times]
 import chroma
 
-import windex
+when defined(useWindex):
+  import windex
+else:
+  import windy
 
 import figdraw/commons
 import figdraw/fignodes
