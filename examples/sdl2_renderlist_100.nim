@@ -10,7 +10,7 @@ import figdraw/utils/glutils
 import renderlist_100_common
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
-const NoSleep {.booldefine: "figdraw.noSleep".}: bool = false
+const NoSleep {.booldefine: "figdraw.noSleep".}: bool = true
 var globalFrame = 0
 
 type SdlWindow = ref object
