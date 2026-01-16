@@ -1,6 +1,9 @@
 import std/[os, times, monotimes]
 
-import windex
+when defined(useWindex):
+  import windex
+else:
+  import windy
 
 import figdraw/commons
 import figdraw/fignodes
