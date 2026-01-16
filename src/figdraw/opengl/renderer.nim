@@ -120,16 +120,23 @@ macro postRender() =
     result.add postRenderImpl.pop()
 
 proc drawMasks(ctx: Context, node: Fig) =
-  if node.corners != [0'f32, 0'f32, 0'f32, 0'f32]:
-    ctx.drawRoundedRect(
-      node.screenBox,
-      rgba(255, 0, 0, 255).color,
-      node.corners,
+  when not defined(useFigDrawTextures):
+    ctx.drawRoundedRectSdf(
+      rect = node.screenBox,
+      color = rgba(255, 0, 0, 255).color,
+      radii = node.corners,
     )
   else:
-    ctx.drawRect(
-      node.screenBox, rgba(255, 0, 0, 255).color
-    )
+    if node.corners != [0'f32, 0'f32, 0'f32, 0'f32]:
+      ctx.drawRoundedRect(
+        node.screenBox,
+        rgba(255, 0, 0, 255).color,
+        node.corners,
+      )
+    else:
+      ctx.drawRect(
+        node.screenBox, rgba(255, 0, 0, 255).color
+      )
 
 proc renderDropShadows(ctx: Context, node: Fig) =
   ## drawing shadows with 9-patch technique

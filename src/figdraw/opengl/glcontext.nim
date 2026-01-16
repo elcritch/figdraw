@@ -259,6 +259,9 @@ proc newContext*(
   result.maskShader.bindAttrib("vertexPos", result.positions.buffer)
   result.maskShader.bindAttrib("vertexColor", result.colors.buffer)
   result.maskShader.bindAttrib("vertexUv", result.uvs.buffer)
+  result.maskShader.bindAttrib("vertexSdfParams", result.sdfParams.buffer)
+  result.maskShader.bindAttrib("vertexSdfRadii", result.sdfRadii.buffer)
+  result.maskShader.bindAttrib("vertexSdfMode", result.sdfModeAttr.buffer)
 
   # Create mask framebuffer
   glGenFramebuffers(1, result.maskFramebufferId.addr)
@@ -411,7 +414,10 @@ proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
 proc checkBatch(ctx: Context) =
   if ctx.quadCount == ctx.maxQuads:
     # ctx is full dump the images in the ctx now and start a new batch
-    ctx.flush()
+    if ctx.maskBegun:
+      ctx.flush(ctx.maskTextureWrite - 1)
+    else:
+      ctx.flush()
 
 proc setVert2(buf: var seq[float32], i: int, v: Vec2) =
   buf[i * 2 + 0] = v.x
@@ -686,9 +692,7 @@ proc drawRoundedRectSdf*(
   if rect.w <= 0 or rect.h <= 0:
     return
 
-  assert not ctx.maskBegun, "drawRoundedRectSdf cannot be used while drawing into a mask."
-
-  ctx.activeShader = ctx.mainShader
+  ctx.activeShader = (if ctx.maskBegun: ctx.maskShader else: ctx.mainShader)
   ctx.checkBatch()
 
   let
@@ -704,10 +708,22 @@ proc drawRoundedRectSdf*(
     )
     maxRadius = min(shapeHalfExtents.x, shapeHalfExtents.y)
     radiiClamped = [
-      dcTopLeft: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round(),
-      dcTopRight: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round(),
-      dcBottomLeft: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round(),
-      dcBottomRight: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round(),
+      dcTopLeft: (
+        if radii[dcTopLeft] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
+    ),
+      dcTopRight: (
+        if radii[dcTopRight] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
+    ),
+      dcBottomLeft: (
+        if radii[dcBottomLeft] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
+    ),
+      dcBottomRight: (
+        if radii[dcBottomRight] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
+    ),
     ]
     # (top-right, bottom-right, top-left, bottom-left)
     r4 = vec4(
