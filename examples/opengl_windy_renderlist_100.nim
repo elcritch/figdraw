@@ -108,6 +108,17 @@ proc makeRenderTree*(w, h: float32): Renders =
       (0.5'f32 + 0.5'f32 *
         cos((t * 0.8'f32 + i.float32 * 0.06'f32).float64).float32)
 
+    let greenCornerPulse = 0.5'f32 + 0.5'f32 *
+      cos((t * 0.95'f32 + i.float32 * 0.08'f32).float64).float32
+    let g0 = 6.0'f32 + 22.0'f32 * greenCornerPulse
+    let g1 = 8.0'f32 + 18.0'f32 * (1.0'f32 - greenCornerPulse)
+    let g2 = 10.0'f32 + 16.0'f32 *
+      (0.5'f32 + 0.5'f32 *
+        cos((t * 0.75'f32 + i.float32 * 0.04'f32).float64).float32)
+    let g3 = 12.0'f32 + 14.0'f32 *
+      (0.5'f32 + 0.5'f32 *
+        sin((t * 0.85'f32 + i.float32 * 0.05'f32).float64).float32)
+
     let shadowPulse = 0.5'f32 + 0.5'f32 *
       sin((t * 1.1'f32 + i.float32 * 0.05'f32).float64).float32
     let shadowBlur = max(0.0'f32, 6.0'f32 + 18.0'f32 * shadowPulse)
@@ -143,6 +154,7 @@ proc makeRenderTree*(w, h: float32): Renders =
       name: ("box-green-" & $i).toFigName(),
       screenBox: rect(greenStartX + offsetX, greenStartY + offsetY, greenW,
           greenH),
+      corners: [g0, g1, g2, g3],
       fill: rgba(40, 180, 90, 155).color,
       shadows: [
         RenderShadow(
@@ -203,7 +215,7 @@ when isMainModule:
   let window = newWindyWindow(frame)
 
   let renderer = glrenderer.newOpenGLRenderer(
-    atlasSize = 192,
+    atlasSize = when defined(useSdf): 192 else: 2048,
     pixelScale = app.pixelScale,
   )
 

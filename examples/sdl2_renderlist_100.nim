@@ -222,7 +222,10 @@ when isMainModule:
   let window = newSdlWindow(frame.addr)
 
   let renderer = glrenderer.newOpenGLRenderer(
-    atlasSize = 192,
+    when not defined(useSdf):
+      atlasSize = 2048,
+    else:
+      atlasSize = 192,
     pixelScale = app.pixelScale,
   )
 
