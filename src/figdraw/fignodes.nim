@@ -29,7 +29,6 @@ type
     rotation*: float32
     fill*: Color
     stroke*: RenderStroke
-    image*: ImageStyle
 
     case kind*: FigKind
     of nkRectangle:
@@ -40,7 +39,7 @@ type
     of nkDrawable:
       points*: seq[Vec2]
     of nkImage:
-      discard
+      image*: ImageStyle
     else:
       discard
 
