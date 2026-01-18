@@ -15,10 +15,20 @@ jobs:
         nimversion:
           - '2.2.6'
         os:
-          - ubuntu-latest
+          - ubuntu-24.04
     steps:
     - uses: actions/checkout@v1
-    - uses: openrndr/setup-opengl@v1.1
+    - name: Setup software OpenGL (Mesa) + Xvfb
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          xvfb \
+          mesa-utils \
+          libgl1-mesa-dri \
+          libgl1-mesa-glx \
+          libegl1-mesa \
+          libgles2-mesa
 
     - uses: iffy/install-nim@v4
       with:
