@@ -1,10 +1,15 @@
-import ./inputs
 
-export inputs
+type
+  WindowInfo* = object
+    box*: Rect
+    running*: bool
+    focused*: bool
+    minimized*: bool
+    fullscreen*: bool
+    pixelRatio*: float32
 
-type AppFrame* = ref object
-  windowInfo*: WindowInfo
-  windowTitle*: string
-  windowStyle*: FrameStyle
-  configFile*: string
-  saveWindowState*: bool
+  AppFrame* = ref object
+    windowInfo*: WindowInfo
+    windowTitle*: string
+    saveWindowState*: bool
+
