@@ -1,0 +1,65 @@
+on:
+  push:
+    branches:
+    - "main"
+  pull_request:
+    branches:
+    - "*"
+
+
+jobs:
+  tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        nimversion:
+          - '2.2.6'
+        os:
+          - ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+
+    - name: Setup software OpenGL (Mesa) + Xvfb
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          xvfb \
+          mesa-utils \
+          libgl1-mesa-dri \
+          libgl1-mesa-glx \
+          libegl1-mesa \
+          libgles2-mesa
+
+    - uses: iffy/install-nim@v4
+      with:
+        version: ${{ matrix.nimversion }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Cache packages
+      uses: actions/cache@v3
+      with:
+        path: deps/
+        key: ${{ runner.os }}-${{ hashFiles('figdraw.nimble') }}
+
+    - name: Install Nimble
+      run: |
+        nimble install 'https://github.com/nim-lang/atlas@#head'
+        echo "Nim:: "
+        nim -v
+        echo "Nimble:: "
+        atlas -v
+
+    - name: Install Deps
+      run: |
+        # sync deps
+        atlas install
+
+    - name: Build Tests
+      env:
+        LIBGL_ALWAYS_SOFTWARE: "1"
+        MESA_GL_VERSION_OVERRIDE: "3.3"
+        MESA_GLSL_VERSION_OVERRIDE: "330"
+      run: |
+        xvfb-run -a -s "-screen 0 1280x1024x24" nim test
