@@ -78,7 +78,13 @@ proc toImgObj*(image: Flippy): ImgObj =
 proc toImgObj*(image: Image): ImgObj =
   result = ImgObj(kind: PixieImg, pimg: image)
 
+proc hasImage*(id: ImageId): bool =
+  withLock imageCachedLock:
+    result = id in imageCached
+
 proc sendImage*(imgObj: var ImgObj) =
+  withLock imageCachedLock:
+    imageCached.incl(imgObj.id)
   imageChan.send(unsafeIsolate imgObj)
 
 proc sendImageCached*(imgObj: var ImgObj) =
@@ -99,5 +105,5 @@ proc loadImage*(filePath: string): ImageId =
 
 proc loadImage*(id: ImageId, image: var Image) =
   var imgObj = ImgObj(id: id, kind: PixieImg, pimg: ensureMove image)
-  sendImage(imgObj)
+  sendImageCached(imgObj)
 

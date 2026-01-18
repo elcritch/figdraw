@@ -7,6 +7,7 @@ import pkg/pixie/fonts
 import pkg/chronicles
 
 import ./rchannels
+import ./imgutils
 import ./fonttypes
 import ./shared
 
@@ -17,10 +18,6 @@ type GlyphPosition* = ref object ## Represents a glyph position after typesettin
   rect*: Rect
   descent*: float32
   lineHeight*: float32
-
-var
-  glyphImageChan* = newRChan[(Hash, Image)](1000)
-  glyphImageCached*: HashSet[Hash]
 
 proc toSlices*[T: SomeInteger](a: openArray[(T, T)]): seq[Slice[T]] =
   a.mapIt(it[0] .. it[1])
@@ -94,7 +91,7 @@ proc generateGlyphImage(arrangement: GlyphArrangement) =
 
     let hashFill = glyph.hash()
 
-    if hashFill notin glyphImageCached:
+    if not hasImage(hashFill.ImageId):
       let
         wh = glyph.rect.wh
         fontId = glyph.fontId
@@ -118,17 +115,14 @@ proc generateGlyphImage(arrangement: GlyphArrangement) =
         echo "GEN IMG: ", glyph.rune, " wh: ", wh, " snapped: ", snappedBounds
         continue
 
-      let image = newImage(bounds.w.int, bounds.h.int)
-      # echo "GEN IMG: ", glyph.rune, " bounds: ", bounds
-
       try:
         font.paint = parseHex"#FFFFFF"
         # var m = translate(bounds.xy)
+        var image = newImage(bounds.w.int, bounds.h.int)
         image.fillText(arrangement)
 
         # put into cache
-        glyphImageCached.incl hashFill
-        glyphImageChan.send(unsafeIsolate (hashFill, image))
+        loadImage(hashFill.ImageId, image)
       except PixieError:
         discard
 
