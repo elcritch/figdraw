@@ -27,32 +27,32 @@ const quadLimit = 10_921
 type Context* = ref object
   mainShader, maskShader, activeShader: Shader
   atlasTexture: Texture
-  maskTextureWrite: int       ## Index into max textures for writing.
-  maskTextures: seq[Texture]  ## Masks array for pushing and popping.
-  atlasSize: int              ## Size x size dimensions of the atlas
-  atlasMargin: int            ## Default margin between images
-  quadCount: int              ## Number of quads drawn so far
-  maxQuads: int               ## Max quads to draw before issuing an OpenGL call
-  mat*: Mat4                  ## Current matrix
-  mats: seq[Mat4]             ## Matrix stack
+  maskTextureWrite: int ## Index into max textures for writing.
+  maskTextures: seq[Texture] ## Masks array for pushing and popping.
+  atlasSize: int ## Size x size dimensions of the atlas
+  atlasMargin: int ## Default margin between images
+  quadCount: int ## Number of quads drawn so far
+  maxQuads: int ## Max quads to draw before issuing an OpenGL call
+  mat*: Mat4 ## Current matrix
+  mats: seq[Mat4] ## Matrix stack
   entries*: Table[Hash, Rect] ## Mapping of image name to atlas UV position
-  heights: seq[uint16]        ## Height map of the free space in the atlas
+  heights: seq[uint16] ## Height map of the free space in the atlas
   proj*: Mat4
-  frameSize: Vec2             ## Dimensions of the window frame
+  frameSize: Vec2 ## Dimensions of the window frame
   vertexArrayId, maskFramebufferId: GLuint
   frameBegun, maskBegun: bool
-  pixelate*: bool             ## Makes texture look pixelated, like a pixel game.
-  pixelScale*: float32        ## Multiple scaling factor.
+  pixelate*: bool ## Makes texture look pixelated, like a pixel game.
+  pixelScale*: float32 ## Multiple scaling factor.
 
   # Buffer data for OpenGL
   indices: tuple[buffer: Buffer, data: seq[uint16]]
   positions: tuple[buffer: Buffer, data: seq[float32]]
   colors: tuple[buffer: Buffer, data: seq[uint8]]
   uvs: tuple[buffer: Buffer, data: seq[float32]]
-  sdfParams: tuple[buffer: Buffer, data: seq[
-      float32]]               ## Vec4: (halfExtents.xy, strokeWidth, unused)
-  sdfRadii: tuple[buffer: Buffer, data: seq[
-      float32]]               ## Vec4: (topRight, bottomRight, topLeft, bottomLeft)
+  sdfParams: tuple[buffer: Buffer, data: seq[float32]]
+    ## Vec4: (halfExtents.xy, strokeWidth, unused)
+  sdfRadii: tuple[buffer: Buffer, data: seq[float32]]
+    ## Vec4: (topRight, bottomRight, topLeft, bottomLeft)
   sdfModeAttr: tuple[buffer: Buffer, data: seq[uint16]] ## SDFMode value (uint16)
   sdfFactors: tuple[buffer: Buffer, data: seq[float32]] ## Vec2: (factor, spread)
 
@@ -61,7 +61,9 @@ type Context* = ref object
 
 proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite)
 
-proc toKey*(h: Hash): Hash = h
+proc toKey*(h: Hash): Hash =
+  h
+
 proc hasImage*(ctx: Context, key: Hash): bool =
   key in ctx.entries
 
@@ -154,18 +156,20 @@ proc newContext*(
   result.addMaskTexture()
 
   when defined(emscripten) or defined(useOpenGlEs):
-    result.maskShader = newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
-    result.mainShader = newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/atlas.frag")
+    result.maskShader =
+      newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
+    result.mainShader =
+      newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/atlas.frag")
   else:
     try:
       result.maskShader = newShaderStatic("glsl/atlas.vert", "glsl/mask.frag")
       result.mainShader = newShaderStatic("glsl/atlas.vert", "glsl/atlas.frag")
     except ShaderCompilationError:
       info "OpenGL 3.30 failed, trying GLSL ES fallback"
-      result.maskShader = newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
-      result.mainShader = newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/atlas.frag")
-
-
+      result.maskShader =
+        newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
+      result.mainShader =
+        newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/atlas.frag")
 
   result.positions.buffer.componentType = cGL_FLOAT
   result.positions.buffer.kind = bkVEC2
@@ -359,8 +363,8 @@ proc updateImage*(ctx: Context, path: Hash, image: Image) =
   )
 
 proc logFlippy(flippy: Flippy, file: string) =
-  debug "putFlippy file", fwidth = $flippy.width, fheight = $flippy.height,
-      flippyPath = file
+  debug "putFlippy file",
+    fwidth = $flippy.width, fheight = $flippy.height, flippyPath = file
 
 proc putFlippy*(ctx: Context, path: Hash, flippy: Flippy) =
   logFlippy(flippy, $path)
@@ -409,8 +413,7 @@ proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ctx.indices.buffer.bufferId)
   glDrawElements(
-    GL_TRIANGLES, ctx.indices.buffer.count.GLint,
-    ctx.indices.buffer.componentType, nil
+    GL_TRIANGLES, ctx.indices.buffer.count.GLint, ctx.indices.buffer.componentType, nil
   )
 
   ctx.quadCount = 0
@@ -587,7 +590,6 @@ proc resolveAssetPath(filePath: string): string =
   return filePath
 
 proc loadImage*(ctx: Context, filePath: string): Flippy =
-
   # Need to load imagePath, check to see if the .flippy file is around
   let resolvedPath = resolveAssetPath(filePath)
   logImage(resolvedPath)
@@ -653,8 +655,8 @@ proc drawImageAdj*(
   ## Draws image the UI way - pos at top-left.
   let
     rect = ctx.getImageRect(imageId)
-    adj = vec2(2/ctx.atlasSize.float32)
-  ctx.drawUvRect(pos, pos + size, rect.xy+adj, rect.xy + rect.wh - adj, color)
+    adj = vec2(2 / ctx.atlasSize.float32)
+  ctx.drawUvRect(pos, pos + size, rect.xy + adj, rect.xy + rect.wh - adj, color)
 
 proc drawSprite*(
     ctx: Context,
@@ -716,33 +718,29 @@ proc drawRoundedRectSdf*(
 
   let
     quadHalfExtents = rect.wh * 0.5'f32
-    resolvedShapeSize = (
-      if shapeSize.x > 0.0'f32 and shapeSize.y > 0.0'f32: shapeSize
-      else: rect.wh
-    )
+    resolvedShapeSize =
+      (if shapeSize.x > 0.0'f32 and shapeSize.y > 0.0'f32: shapeSize else: rect.wh)
     shapeHalfExtents = resolvedShapeSize * 0.5'f32
-    params = vec4(
-      quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x,
-      shapeHalfExtents.y
-    )
+    params =
+      vec4(quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x, shapeHalfExtents.y)
     maxRadius = min(shapeHalfExtents.x, shapeHalfExtents.y)
     radiiClamped = [
       dcTopLeft: (
         if radii[dcTopLeft] <= 0.0'f32: 0.0'f32
-      else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
-    ),
+        else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
+      ),
       dcTopRight: (
         if radii[dcTopRight] <= 0.0'f32: 0.0'f32
-      else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
-    ),
+        else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
+      ),
       dcBottomLeft: (
         if radii[dcBottomLeft] <= 0.0'f32: 0.0'f32
-      else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
-    ),
+        else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
+      ),
       dcBottomRight: (
         if radii[dcBottomRight] <= 0.0'f32: 0.0'f32
-      else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
-    ),
+        else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
+      ),
     ]
     # (top-right, bottom-right, top-left, bottom-left)
     r4 = vec4(
@@ -840,8 +838,7 @@ proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
     pos, pos + vec2(w.float32, h.float32), uvRect.xy, uvRect.xy + uvRect.wh, color
   )
 
-proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32,
-    color: Color) =
+proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32, color: Color) =
   for i in 0 ..< poly.len:
     ctx.line(poly[i], poly[(i + 1) mod poly.len], weight, color)
 
@@ -883,7 +880,7 @@ proc endMask*(ctx: Context) =
   assert ctx.maskBegun == true, "ctx.maskBegun has not been called."
   ctx.maskBegun = false
 
-  ctx.flush(ctx.maskTextureWrite-1)
+  ctx.flush(ctx.maskTextureWrite - 1)
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0)
 

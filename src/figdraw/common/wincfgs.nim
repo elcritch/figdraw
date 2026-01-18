@@ -4,10 +4,9 @@ import pkg/chronicles
 
 import appframes
 
-type
-  WindowConfig* = object
-    pos*: IVec2 = ivec2(100, 100)
-    size*: IVec2 = ivec2(0, 0)
+type WindowConfig* = object
+  pos*: IVec2 = ivec2(100, 100)
+  size*: IVec2 = ivec2(0, 0)
 
 proc windowCfgFile*(frame: AppFrame): string =
   frame[].configFile & ".window"

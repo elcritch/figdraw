@@ -17,10 +17,7 @@ const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 type OpenGLRenderer* = ref object
   ctx*: Context
 
-proc takeScreenshot*(
-    frame: Rect = rect(0, 0, 0, 0),
-    readFront: bool = true,
-): Image =
+proc takeScreenshot*(frame: Rect = rect(0, 0, 0, 0), readFront: bool = true): Image =
   var viewport: array[4, GLint]
   glGetIntegerv(GL_VIEWPORT, viewport[0].addr)
 
@@ -42,27 +39,15 @@ proc takeScreenshot*(
   glReadBuffer(if readFront: GL_FRONT else: GL_BACK)
   result = newImage(w, h)
   glReadPixels(
-    x.GLint,
-    y.GLint,
-    w.GLint,
-    h.GLint,
-    GL_RGBA,
-    GL_UNSIGNED_BYTE,
-    result.data[0].addr,
+    x.GLint, y.GLint, w.GLint, h.GLint, GL_RGBA, GL_UNSIGNED_BYTE, result.data[0].addr
   )
   result.flipVertical()
   glReadBuffer(GL_BACK)
 
-proc newOpenGLRenderer*(
-    atlasSize: int,
-    pixelScale = app.pixelScale,
-): OpenGLRenderer =
+proc newOpenGLRenderer*(atlasSize: int, pixelScale = app.pixelScale): OpenGLRenderer =
   result = OpenGLRenderer()
-  result.ctx = newContext(
-    atlasSize = atlasSize,
-    pixelate = false,
-    pixelScale = pixelScale,
-  )
+  result.ctx =
+    newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
 
 proc renderDrawable*(ctx: Context, node: Fig) =
   ## TODO: draw non-node stuff?
@@ -86,10 +71,11 @@ proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
       glyphId = glyph.hash()
       # is 0.84 (or 5/6) factor a constant for all fonts?
       # charPos = vec2(glyph.pos.x, glyph.pos.y - glyph.descent*0.84) # empirically determined
-      charPos = vec2(glyph.pos.x, glyph.pos.y - glyph.descent*1.0) # empirically determined
+      charPos = vec2(glyph.pos.x, glyph.pos.y - glyph.descent * 1.0)
+        # empirically determined
     if glyphId notin ctx.entries:
-      trace "no glyph in context: ", glyphId = glyphId, glyph = glyph.rune,
-          glyphRepr = repr(glyph.rune)
+      trace "no glyph in context: ",
+        glyphId = glyphId, glyph = glyph.rune, glyphRepr = repr(glyph.rune)
       continue
     ctx.drawImage(glyphId, charPos, node.fill)
 
@@ -121,9 +107,7 @@ macro postRender() =
 
 proc drawMasks(ctx: Context, node: Fig) =
   ctx.drawRoundedRectSdf(
-    rect = node.screenBox,
-    color = rgba(255, 0, 0, 255).color,
-    radii = node.corners,
+    rect = node.screenBox, color = rgba(255, 0, 0, 255).color, radii = node.corners
   )
 
 proc renderDropShadows(ctx: Context, node: Fig) =
@@ -159,8 +143,8 @@ proc renderDropShadows(ctx: Context, node: Fig) =
       ## do this with pixie and 9-patch, but that's a headache
       var color = shadow.color
       const N = 3
-      color.a = color.a * 1.0/(N*N*N)
-      let blurAmt = shadow.blur * shadow.spread / (12*N*N)
+      color.a = color.a * 1.0 / (N * N * N)
+      let blurAmt = shadow.blur * shadow.spread / (12 * N * N)
       for i in -N .. N:
         for j in -N .. N:
           let xblur: float32 = i.toFloat() * blurAmt
@@ -205,7 +189,7 @@ proc renderInnerShadows(ctx: Context, node: Fig) =
       ## and I don't actually want to think today ;)
       let n = shadow.blur.toInt
       var color = shadow.color
-      color.a = 2*color.a/n.toFloat
+      color.a = 2 * color.a / n.toFloat
       let blurAmt = shadow.blur / n.toFloat
       for i in 0 .. n:
         let blur: float32 = i.toFloat() * blurAmt
@@ -220,10 +204,7 @@ proc renderInnerShadows(ctx: Context, node: Fig) =
         else:
           box.y += shadow.y + blurAmt
         ctx.strokeRoundedRect(
-          rect = box,
-          color = color,
-          weight = blur,
-          radius = node.corners - blur,
+          rect = box, color = color, weight = blur, radius = node.corners - blur
         )
     else:
       ctx.fillRoundedRectWithShadowSdf(
@@ -256,16 +237,12 @@ proc renderBoxes(ctx: Context, node: Fig) =
   if node.fill.a > 0'f32:
     when not defined(useFigDrawTextures):
       ctx.drawRoundedRectSdf(
-        rect = node.screenBox,
-        color = node.fill,
-        radii = node.corners,
+        rect = node.screenBox, color = node.fill, radii = node.corners
       )
     else:
       if node.corners != [0'f32, 0'f32, 0'f32, 0'f32]:
         ctx.drawRoundedRect(
-          rect = node.screenBox,
-          color = node.fill,
-          radii = node.corners,
+          rect = node.screenBox, color = node.fill, radii = node.corners
         )
       else:
         ctx.drawRect(node.screenBox, node.fill)
@@ -293,8 +270,9 @@ proc renderImage(ctx: Context, node: Fig) =
     return
   let size = vec2(node.screenBox.w, node.screenBox.h)
   if ctx.cacheImage($node.image.name, node.image.id.Hash):
-    ctx.drawImage(node.image.id.Hash, pos = node.screenBox.xy,
-        color = node.image.color, size = size)
+    ctx.drawImage(
+      node.image.id.Hash, pos = node.screenBox.xy, color = node.image.color, size = size
+    )
 
 proc render(
     ctx: Context, nodes: seq[Fig], nodeIdx, parentIdx: FigIdx
@@ -378,8 +356,7 @@ proc render(
   # finally blocks will be run here, in reverse order
   postRender()
 
-proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [
-    AppMainThreadEff].} =
+proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff].} =
   # draw root for each level
   # currLevel = zidx
   var img: (Hash, Image)
@@ -391,8 +368,7 @@ proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [
     for rootIdx in list.rootIds:
       ctx.render(list.nodes, rootIdx, -1.FigIdx)
 
-proc renderFrame*(renderer: OpenGLRenderer, nodes: var Renders,
-    frameSize: Vec2) =
+proc renderFrame*(renderer: OpenGLRenderer, nodes: var Renders, frameSize: Vec2) =
   let ctx: Context = renderer.ctx
   clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
   ctx.beginFrame(frameSize)
@@ -413,10 +389,7 @@ proc renderFrame*(renderer: OpenGLRenderer, nodes: var Renders,
     quit()
 
 proc renderFrame*(
-    ctx: Context,
-    nodes: var Renders,
-    frameSize: Vec2,
-    pixelScale = ctx.pixelScale,
+    ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
 ) =
   clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
   ctx.beginFrame(frameSize)

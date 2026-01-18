@@ -1,4 +1,3 @@
-
 #
 #
 #                                    Nim's Runtime Library
@@ -109,7 +108,10 @@ runnableExamples("--threads:on --gc:orc"):
     assert msg == "World"
 
 when not (defined(gcArc) or defined(gcOrc) or defined(gcAtomicArc) or defined(nimdoc)):
-  {.error: "This module requires one of --mm:arc / --mm:atomicArc / --mm:orc compilation flags".}
+  {.
+    error:
+      "This module requires one of --mm:arc / --mm:atomicArc / --mm:orc compilation flags"
+  .}
 
 import std/[locks, isolation, atomics]
 
@@ -121,9 +123,9 @@ type
   ChannelObj = object
     lock: Lock
     spaceAvailableCV, dataAvailableCV: Cond
-    slots: int         ## Number of item slots in the buffer
-    head: Atomic[int]  ## Write/enqueue/send index
-    tail: Atomic[int]  ## Read/dequeue/receive index
+    slots: int ## Number of item slots in the buffer
+    head: Atomic[int] ## Write/enqueue/send index
+    tail: Atomic[int] ## Read/dequeue/receive index
     atomicCounter: Atomic[int]
     buffer: ptr UncheckedArray[byte]
 
@@ -141,7 +143,9 @@ proc setTail(RChan: ChannelRaw, value: int, order: MemoryOrder = moRelaxed) {.in
 proc setHead(RChan: ChannelRaw, value: int, order: MemoryOrder = moRelaxed) {.inline.} =
   RChan.head.store(value, order)
 
-proc setAtomicCounter(RChan: ChannelRaw, value: int, order: MemoryOrder = moRelaxed) {.inline.} =
+proc setAtomicCounter(
+    RChan: ChannelRaw, value: int, order: MemoryOrder = moRelaxed
+) {.inline.} =
   RChan.atomicCounter.store(value, order)
 
 proc numItems(RChan: ChannelRaw): int {.inline.} =
@@ -164,7 +168,7 @@ proc allocChannel(size, n: int): ChannelRaw =
   result = cast[ChannelRaw](allocShared(sizeof(ChannelObj)))
 
   # To buffer n items, we allocate for n
-  result.buffer = cast[ptr UncheckedArray[byte]](allocShared(n*size))
+  result.buffer = cast[ptr UncheckedArray[byte]](allocShared(n * size))
 
   initLock(result.lock)
   initCond(result.spaceAvailableCV)
@@ -201,12 +205,15 @@ template incrReadIndex(RChan: ChannelRaw) =
   if RChan.getTail() == 2 * RChan.slots:
     RChan.setTail(0)
 
-proc channelSend(RChan: ChannelRaw, data: pointer, size: int, blocking: static bool, overwrite: bool): bool =
+proc channelSend(
+    RChan: ChannelRaw, data: pointer, size: int, blocking: static bool, overwrite: bool
+): bool =
   assert not RChan.isNil
   assert not data.isNil
 
   when not blocking:
-    if RChan.isFull() and not overwrite: return false
+    if RChan.isFull() and not overwrite:
+      return false
 
   acquire(RChan.lock)
 
@@ -239,12 +246,15 @@ proc channelSend(RChan: ChannelRaw, data: pointer, size: int, blocking: static b
   release(RChan.lock)
   result = true
 
-proc channelReceive(RChan: ChannelRaw, data: pointer, size: int, blocking: static bool): bool =
+proc channelReceive(
+    RChan: ChannelRaw, data: pointer, size: int, blocking: static bool
+): bool =
   assert not RChan.isNil
   assert not data.isNil
 
   when not blocking:
-    if RChan.isEmpty(): return false
+    if RChan.isEmpty():
+      return false
 
   acquire(RChan.lock)
 
@@ -276,9 +286,8 @@ proc channelReceive(RChan: ChannelRaw, data: pointer, size: int, blocking: stati
 # Public API
 # ------------------------------------------------------------------------------
 
-type
-  RChan*[T] = object ## Typed channel
-    d: ChannelRaw
+type RChan*[T] = object ## Typed channel
+  d: ChannelRaw
 
 template frees(c) =
   if c.d != nil:
@@ -290,6 +299,7 @@ template frees(c) =
 when defined(nimAllowNonVarDestructor):
   proc `=destroy`*[T](c: RChan[T]) =
     frees(c)
+
 else:
   proc `=destroy`*[T](c: var RChan[T]) =
     frees(c)
@@ -380,7 +390,7 @@ proc send*[T](c: RChan[T], src: sink Isolated[T]) {.inline.} =
   discard channelSend(c.d, src.addr, sizeof(T), true, false)
   wasMoved(src)
 
-template send*[T](c: RChan[T]; src: T) =
+template send*[T](c: RChan[T], src: T) =
   ## Helper template for `send`.
   mixin isolate
   send(c, isolate(src))
@@ -392,10 +402,10 @@ proc push*[T](c: RChan[T], src: sink Isolated[T]) {.inline.} =
   ## The memory of `src` is moved, not copied.
   when defined(gcOrc) and defined(nimSafeOrcSend):
     GC_runOrc()
-  discard channelSend(c.d, src.addr, sizeof(T), true, overwrite=true)
+  discard channelSend(c.d, src.addr, sizeof(T), true, overwrite = true)
   wasMoved(src)
 
-template push*[T](c: RChan[T]; src: T) =
+template push*[T](c: RChan[T], src: T) =
   ## Helper template for `push`.
   mixin isolate
   push(c, isolate(src))

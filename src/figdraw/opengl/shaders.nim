@@ -58,7 +58,8 @@ proc compileComputeShader*(compute: (string, string)): GLuint =
     glGetShaderiv(computeShader, GL_COMPILE_STATUS, isCompiled.addr)
 
     if isCompiled == 0:
-      error "Compute shader compilation failed:", logs = getErrorLog(computeShader, compute[0], glGetShaderiv, glGetShaderInfoLog)
+      error "Compute shader compilation failed:",
+        logs = getErrorLog(computeShader, compute[0], glGetShaderiv, glGetShaderInfoLog)
       quit(22)
 
   result = glCreateProgram()
@@ -100,7 +101,9 @@ proc compileShaderFiles*(vert, frag: (string, string)): GLuint =
     if isCompiled == 0:
       let logs = getErrorLog(vertShader, vert[0], glGetShaderiv, glGetShaderInfoLog)
       if "GLSL 3.30 is not supported" in logs:
-        warn "Vertex shader compilation failed", reason = "GLSL 3.30 is not supported", advice = "Try compiling with `-d:useOpenGlEs`"
+        warn "Vertex shader compilation failed",
+          reason = "GLSL 3.30 is not supported",
+          advice = "Try compiling with `-d:useOpenGlEs`"
         raise newException(ShaderCompilationError, "Vertex shader compilation failed")
       else:
         error "Vertex shader compilation failed:", logs = logs

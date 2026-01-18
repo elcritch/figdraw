@@ -30,11 +30,13 @@ proc initBox*(x, y, w, h: UiScalar | SomeNumber): Box =
 
 proc initPosition*(x, y: UiScalar): Position =
   uiPos(x, y).Position
+
 proc initPosition*(x, y: float32): Position =
   initPosition(x.UiScalar, y.UiScalar)
 
 proc initSize*(w, h: UiScalar): Size =
   uiSize(w, h).Size
+
 proc initSize*(w, h: float32): Size =
   initSize(w.UiScalar, h.UiScalar)
 

@@ -5,7 +5,6 @@ import ./figbasics
 export figbasics
 
 type
-
   RenderList* = object
     nodes*: seq[Fig]
     rootIds*: seq[FigIdx]
@@ -47,8 +46,10 @@ proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"
 
 proc toFigName*(s: string): FigName =
-  toStackString(s[0..<min(s.len(), s.len())], FigStringCap)
-proc toFigName*(s: FigName): FigName = s
+  toStackString(s[0 ..< min(s.len(), s.len())], FigStringCap)
+
+proc toFigName*(s: FigName): FigName =
+  s
 
 proc `+`*(a, b: FigIdx): FigIdx {.borrow.}
 proc `<=`*(a, b: FigIdx): bool {.borrow.}
@@ -71,8 +72,9 @@ proc addRoot*(list: var RenderList, root: Fig): FigIdx {.discardable.} =
   result = newIdx.FigIdx
   list.rootIds.add result
 
-proc addChild*(list: var RenderList, parentIdx: FigIdx,
-    child: Fig): FigIdx {.discardable.} =
+proc addChild*(
+    list: var RenderList, parentIdx: FigIdx, child: Fig
+): FigIdx {.discardable.} =
   ## Appends `child` to `list.nodes`, sets `child.parent` from `parentIdx`,
   ## and increments the parent's `childCount`.
   ##
@@ -94,6 +96,7 @@ proc addChild*(list: var RenderList, parentIdx: FigIdx,
 
 template pairs*(r: Renders): auto =
   r.layers.pairs()
+
 template contains*(r: Renders, lvl: ZLevel): bool =
   r.layers.contains(lvl)
 

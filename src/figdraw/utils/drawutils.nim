@@ -6,7 +6,6 @@ import ../fignodes
 import pkg/chroma
 import pkg/chronicles
 
-
 proc hash(v: Vec2): Hash =
   hash((v.x, v.y))
 
@@ -14,7 +13,9 @@ proc hash(radii: array[DirectionCorners, float32]): Hash =
   for r in radii:
     result = result !& hash(r)
 
-proc clampRadii*(radii: array[DirectionCorners, float32], rect: Rect): array[DirectionCorners, float32] =
+proc clampRadii*(
+    radii: array[DirectionCorners, float32], rect: Rect
+): array[DirectionCorners, float32] =
   let maxRadius = min(rect.w / 2, rect.h / 2)
   result = radii
   for corner in DirectionCorners:
@@ -38,7 +39,7 @@ proc getCircleBoxSizes*(
   let ww = int(weight.round())
   let bw = width.round().int
   let bh = height.round().int
-  let blur = round(1.5*blur).int
+  let blur = round(1.5 * blur).int
   let spread = spread.round().int
   # let padding = max(spread + blur, result.maxRadius)
   let padding = spread + blur
@@ -49,12 +50,15 @@ proc getCircleBoxSizes*(
     result.sideSize = min(result.maxRadius + padding, min(bw, bh)).max(ww)
   else:
     result.sideSize = min(result.maxRadius, min(bw, bh)).max(ww)
-  result.totalSize = 3*result.sidesize + 3*padding
-  result.inner = 3*result.sideSize
+  result.totalSize = 3 * result.sidesize + 3 * padding
+  result.inner = 3 * result.sideSize
   result.weightSize = ww
 
 proc roundedBoxCornerSizes*(
-    cbs: tuple[maxRadius, sideSize, totalSize, padding, paddingOffset, inner, weightSize: int],
+    cbs:
+      tuple[
+        maxRadius, sideSize, totalSize, padding, paddingOffset, inner, weightSize: int
+      ],
     radii: array[DirectionCorners, float32],
     innerShadow: bool,
 ): array[DirectionCorners, tuple[radius, sideSize, inner, sideDelta, center: int]] =
@@ -62,12 +66,16 @@ proc roundedBoxCornerSizes*(
 
   for corner in DirectionCorners:
     let dim =
-      if innerShadow: max(cbs.maxRadius, cbs.paddingOffset)
-      else: max(int(round(radii[corner])), ww)
+      if innerShadow:
+        max(cbs.maxRadius, cbs.paddingOffset)
+      else:
+        max(int(round(radii[corner])), ww)
     let sideSize = cbs.paddingOffset + dim
     let center = sideSize
-    result[corner] = (radius: int(round(radii[corner])),
-                      sideSize: sideSize,
-                      inner: dim,
-                      sideDelta: cbs.sideSize - dim,
-                      center: center)
+    result[corner] = (
+      radius: int(round(radii[corner])),
+      sideSize: sideSize,
+      inner: dim,
+      sideDelta: cbs.sideSize - dim,
+      center: center,
+    )

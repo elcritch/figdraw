@@ -32,18 +32,21 @@ proc fillRoundedRectWithShadowSdf*[R](
 
   # First, draw the shadow
   # Generate shadow key for caching
-  let 
+  let
     w = rect.w.ceil()
     h = rect.h.ceil()
     radii = clampRadii(radii, rect)
     shadowBlur = shadowBlur.round().float32
     shadowSpread = shadowSpread.round().float32
-    cbs  = getCircleBoxSizes(radii, blur = shadowBlur,
-                             spread = shadowSpread,
-                             weight = 0.0,
-                             width = rect.w,
-                             height = rect.h,
-                             innerShadow = innerShadow)
+    cbs = getCircleBoxSizes(
+      radii,
+      blur = shadowBlur,
+      spread = shadowSpread,
+      weight = 0.0,
+      width = rect.w,
+      height = rect.h,
+      innerShadow = innerShadow,
+    )
     maxRadius = cbs.maxRadius
     wh = vec2(cbs.inner.float32, cbs.inner.float32)
     bw = cbs.sideSize.float32
@@ -74,22 +77,24 @@ proc fillRoundedRectWithShadowSdf*[R](
 
       let cornerCbs = cornerCbs[corner]
       let corners = vec4(cornerCbs.radius.float32)
-      let wh = vec2(2*cornerCbs.inner.float32, 2*cornerCbs.inner.float32)
+      let wh = vec2(2 * cornerCbs.inner.float32, 2 * cornerCbs.inner.float32)
 
       let spread = shadowSpread
       let mode = if innerShadow: sdfModeInsetShadow else: sdfModeDropShadow
 
       var shadowImg = newImage(cornerCbs.sideSize, cornerCbs.sideSize)
 
-      drawSdfShape(shadowImg,
-                  center = vec2(cornerCbs.center.float32),
-                  wh = wh,
-                  params = RoundedBoxParams(r: corners),
-                  pos = whiteColor,
-                  neg = whiteColor,
-                  factor = shadowBlur,
-                  spread = spread,
-                  mode = mode)
+      drawSdfShape(
+        shadowImg,
+        center = vec2(cornerCbs.center.float32),
+        wh = wh,
+        params = RoundedBoxParams(r: corners),
+        pos = whiteColor,
+        neg = whiteColor,
+        factor = shadowBlur,
+        spread = spread,
+        mode = mode,
+      )
       ctx.putImage(cornerHashes[corner], shadowImg)
 
     for side in Directions:
@@ -101,19 +106,24 @@ proc fillRoundedRectWithShadowSdf*[R](
       let wh = vec2(1, 12)
 
       let spread = shadowSpread
-      let center = if innerShadow: vec2(cbs.paddingOffset.float32-1, 2) else: vec2(cbs.paddingOffset.float32, 2)
+      let center =
+        if innerShadow:
+          vec2(cbs.paddingOffset.float32 - 1, 2)
+        else:
+          vec2(cbs.paddingOffset.float32, 2)
       let mode = sdfModeDropShadow
 
-
-      drawSdfShape(shadowImg,
-                  center = center,
-                  wh = wh,
-                  params = RoundedBoxParams(r: corners),
-                  pos = whiteColor,
-                  neg = whiteColor,
-                  factor = shadowBlur,
-                  spread = spread,
-                  mode = mode)
+      drawSdfShape(
+        shadowImg,
+        center = center,
+        wh = wh,
+        params = RoundedBoxParams(r: corners),
+        pos = whiteColor,
+        neg = whiteColor,
+        factor = shadowBlur,
+        spread = spread,
+        mode = mode,
+      )
       if innerShadow:
         shadowImg.flipHorizontal()
       ctx.putImage(sideHashes[side], shadowImg)
@@ -129,22 +139,36 @@ proc fillRoundedRectWithShadowSdf*[R](
         dcTopLeft: xy + vec2(0, 0),
         dcTopRight: xy + vec2(w - cornerCbs[dcTopRight].inner.float32, 0),
         dcBottomLeft: xy + vec2(0, h - cornerCbs[dcBottomLeft].inner.float32),
-        dcBottomRight: xy + vec2(w - cornerCbs[dcBottomRight].inner.float32,
-                                 h - cornerCbs[dcBottomRight].inner.float32)
+        dcBottomRight:
+          xy +
+          vec2(
+            w - cornerCbs[dcBottomRight].inner.float32,
+            h - cornerCbs[dcBottomRight].inner.float32,
+          ),
       ]
 
       coffset = [
         dcTopLeft: vec2(-paddingOffset, -paddingOffset),
         dcTopRight: vec2(0, -paddingOffset),
         dcBottomLeft: vec2(-paddingOffset, 0),
-        dcBottomRight: vec2(0, 0)
+        dcBottomRight: vec2(0, 0),
       ]
 
       ccenter = [
-        dcTopLeft: vec2(cornerCbs[dcTopLeft].sideSize.float32, cornerCbs[dcTopLeft].sideSize.float32),
-        dcTopRight: vec2(cornerCbs[dcTopRight].sideSize.float32, cornerCbs[dcTopRight].sideSize.float32),
-        dcBottomLeft: vec2(cornerCbs[dcBottomLeft].sideSize.float32, cornerCbs[dcBottomLeft].sideSize.float32),
-        dcBottomRight: vec2(cornerCbs[dcBottomRight].sideSize.float32, cornerCbs[dcBottomRight].sideSize.float32)
+        dcTopLeft: vec2(
+          cornerCbs[dcTopLeft].sideSize.float32, cornerCbs[dcTopLeft].sideSize.float32
+        ),
+        dcTopRight: vec2(
+          cornerCbs[dcTopRight].sideSize.float32, cornerCbs[dcTopRight].sideSize.float32
+        ),
+        dcBottomLeft: vec2(
+          cornerCbs[dcBottomLeft].sideSize.float32,
+          cornerCbs[dcBottomLeft].sideSize.float32,
+        ),
+        dcBottomRight: vec2(
+          cornerCbs[dcBottomRight].sideSize.float32,
+          cornerCbs[dcBottomRight].sideSize.float32,
+        ),
       ]
 
       darkGrey = rgba(50, 50, 50, 255).to(Color)
@@ -152,16 +176,33 @@ proc fillRoundedRectWithShadowSdf*[R](
 
       angles =
         if innerShadow:
-          [dcTopLeft: 0.0, dcTopRight: -Pi/2 - epsilon(float32), dcBottomLeft: Pi/2 + epsilon(float32), dcBottomRight: -Pi]
+          [
+            dcTopLeft: 0.0,
+            dcTopRight: -Pi / 2 - epsilon(float32),
+            dcBottomLeft: Pi / 2 + epsilon(float32),
+            dcBottomRight: -Pi,
+          ]
         else:
-          [dcTopLeft: 0.0, dcTopRight: -Pi/2 - epsilon(float32), dcBottomLeft: Pi/2 + epsilon(float32), dcBottomRight: -Pi + epsilon(float32)]
+          [
+            dcTopLeft: 0.0,
+            dcTopRight: -Pi / 2 - epsilon(float32),
+            dcBottomLeft: Pi / 2 + epsilon(float32),
+            dcBottomRight: -Pi + epsilon(float32),
+          ]
 
-    let sides = [dcTopLeft: dLeft, dcTopRight: dTop, dcBottomLeft: dBottom, dcBottomRight: dRight]
-    let prevCorner = [dcTopLeft: dcBottomLeft, dcTopRight: dcTopLeft, dcBottomLeft: dcBottomRight, dcBottomRight: dcTopRight]
+    let sides =
+      [dcTopLeft: dLeft, dcTopRight: dTop, dcBottomLeft: dBottom, dcBottomRight: dRight]
+    let prevCorner = [
+      dcTopLeft: dcBottomLeft,
+      dcTopRight: dcTopLeft,
+      dcBottomLeft: dcBottomRight,
+      dcBottomRight: dcTopRight,
+    ]
 
     for corner in DirectionCorners:
       ctx.saveTransform()
-      ctx.translate(floor(cpos[corner] + coffset[corner] + ccenter[corner] / 2)) # important, floor once here, not after
+      ctx.translate(floor(cpos[corner] + coffset[corner] + ccenter[corner] / 2))
+        # important, floor once here, not after
       ctx.rotate(angles[corner])
       ctx.translate((-ccenter[corner] / 2))
       ctx.drawImage(cornerHashes[corner], zero, shadowColor)
@@ -173,26 +214,74 @@ proc fillRoundedRectWithShadowSdf*[R](
 
       if innerShadow:
         if sides[corner] in [dTop, dBottom]:
-          ctx.drawRect(rect(0, 2*paddingOffset.float32, paddingOffset.float32, w - 2*paddingOffset.float32), shadowColor)
+          ctx.drawRect(
+            rect(
+              0,
+              2 * paddingOffset.float32,
+              paddingOffset.float32,
+              w - 2 * paddingOffset.float32,
+            ),
+            shadowColor,
+          )
         else:
-          ctx.drawRect(rect(0, 2*paddingOffset.float32, paddingOffset.float32, h - 2*paddingOffset.float32), shadowColor)
+          ctx.drawRect(
+            rect(
+              0,
+              2 * paddingOffset.float32,
+              paddingOffset.float32,
+              h - 2 * paddingOffset.float32,
+            ),
+            shadowColor,
+          )
       elif cornerCbs[corner].sideDelta > 0:
-        ctx.drawRect(rect(paddingOffset, paddingOffset + inner, inner, sideDelta), shadowColor)
-        ctx.drawRect(rect(paddingOffset + inner, paddingOffset, sideDelta, cbs.maxRadius.float32), shadowColor)
+        ctx.drawRect(
+          rect(paddingOffset, paddingOffset + inner, inner, sideDelta), shadowColor
+        )
+        ctx.drawRect(
+          rect(paddingOffset + inner, paddingOffset, sideDelta, cbs.maxRadius.float32),
+          shadowColor,
+        )
 
       let borderDim = if sides[corner] in [dTop, dBottom]: w else: h
-      let prevSideAdj = (maxRadius.float32 - cornerCbs[prevCorner[corner]].inner.float32)
-      let borderSize = vec2(paddingOffset, borderDim - 2*maxRadius.float32 + sideAdj + prevSideAdj)
+      let prevSideAdj =
+        (maxRadius.float32 - cornerCbs[prevCorner[corner]].inner.float32)
+      let borderSize =
+        vec2(paddingOffset, borderDim - 2 * maxRadius.float32 + sideAdj + prevSideAdj)
       if innerShadow:
-        ctx.drawImageAdj(sideHashes[sides[corner]], vec2(paddingOffset, paddingOffset+cornerCbs[prevCorner[corner]].inner.float32), shadowColor, borderSize)
+        ctx.drawImageAdj(
+          sideHashes[sides[corner]],
+          vec2(
+            paddingOffset, paddingOffset + cornerCbs[prevCorner[corner]].inner.float32
+          ),
+          shadowColor,
+          borderSize,
+        )
       else:
-        ctx.drawImageAdj(sideHashes[sides[corner]], vec2(0, cornerCbs[corner].sideSize.float32), shadowColor, borderSize)
+        ctx.drawImageAdj(
+          sideHashes[sides[corner]],
+          vec2(0, cornerCbs[corner].sideSize.float32),
+          shadowColor,
+          borderSize,
+        )
 
       if not innerShadow and corner == dcTopLeft:
         ctx.translate(vec2(paddingOffset.float32, paddingOffset.float32))
-        ctx.drawRect(rect(maxRadius.float32, 0, w - 2*maxRadius.float32, h), shadowColor)
-        ctx.drawRect(rect(0, 0 + maxRadius.float32, maxRadius.float32, h - 2*maxRadius.float32), shadowColor)
-        ctx.drawRect(rect(w - maxRadius.float32, 0 + maxRadius.float32, maxRadius.float32, h - 2*maxRadius.float32), shadowColor)
+        ctx.drawRect(
+          rect(maxRadius.float32, 0, w - 2 * maxRadius.float32, h), shadowColor
+        )
+        ctx.drawRect(
+          rect(0, 0 + maxRadius.float32, maxRadius.float32, h - 2 * maxRadius.float32),
+          shadowColor,
+        )
+        ctx.drawRect(
+          rect(
+            w - maxRadius.float32,
+            0 + maxRadius.float32,
+            maxRadius.float32,
+            h - 2 * maxRadius.float32,
+          ),
+          shadowColor,
+        )
 
       ctx.restoreTransform()
     # if not innerShadow:

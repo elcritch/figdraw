@@ -57,7 +57,8 @@ type
 
 var
   dataDirStr* {.runtimeVar.}: string = os.getCurrentDir() / "data"
-  app* {.runtimeVar.} = AppState(running: true, uiScale: 1.0, autoUiScale: true, pixelScale: 1.0)
+  app* {.runtimeVar.} =
+    AppState(running: true, uiScale: 1.0, autoUiScale: true, pixelScale: 1.0)
 
 proc figDataDir*(): string =
   dataDirStr

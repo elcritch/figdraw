@@ -65,7 +65,6 @@ proc useDepthBuffer*(on: bool) =
     glDepthMask(GL_FALSE)
     glDisable(GL_DEPTH_TEST)
 
-
 proc startOpenGL*(openglVersion: (int, int)) =
   when not defined(emscripten):
     loadExtensions()

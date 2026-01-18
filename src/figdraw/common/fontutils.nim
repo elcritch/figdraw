@@ -35,7 +35,7 @@ proc hash*(glyph: GlyphPosition): Hash {.inline.} =
 
 proc getId*(typeface: Typeface): TypefaceId =
   result = TypefaceId typeface.hash()
-  for i in 1..100:
+  for i in 1 .. 100:
     if result.int == 0:
       result = TypefaceId(typeface.hash() !& hash(i))
     else:
@@ -118,8 +118,7 @@ proc generateGlyphImage(arrangement: GlyphArrangement) =
         echo "GEN IMG: ", glyph.rune, " wh: ", wh, " snapped: ", snappedBounds
         continue
 
-      let
-        image = newImage(bounds.w.int, bounds.h.int)
+      let image = newImage(bounds.w.int, bounds.h.int)
       # echo "GEN IMG: ", glyph.rune, " bounds: ", bounds
 
       try:
@@ -133,23 +132,24 @@ proc generateGlyphImage(arrangement: GlyphArrangement) =
       except PixieError:
         discard
 
-type
-  TypeFaceKinds* = enum
-    TTF
-    OTF
-    SVG
+type TypeFaceKinds* = enum
+  TTF
+  OTF
+  SVG
 
-proc readTypefaceImpl(name, data: string, kind: TypeFaceKinds): Typeface {.raises: [PixieError].} =
+proc readTypefaceImpl(
+    name, data: string, kind: TypeFaceKinds
+): Typeface {.raises: [PixieError].} =
   ## Loads a typeface from a buffer
   try:
     result =
       case kind
-        of TTF:
-          parseTtf(data)
-        of OTF:
-          parseOtf(data)
-        of SVG:
-          parseSvgFont(data)
+      of TTF:
+        parseTtf(data)
+      of OTF:
+        parseOtf(data)
+      of SVG:
+        parseSvgFont(data)
   except IOError as e:
     raise newException(PixieError, e.msg, e)
 
@@ -219,7 +219,9 @@ proc getLineHeightImpl*(font: UiFont): UiScalar =
   let (_, pf) = font.convertFont()
   result = pf.lineHeight.descaled()
 
-proc calcMinMaxContent(textLayout: GlyphArrangement): tuple[maxSize, minSize: UiSize, bounding: UiBox] =
+proc calcMinMaxContent(
+    textLayout: GlyphArrangement
+): tuple[maxSize, minSize: UiSize, bounding: UiBox] =
   ## estimate the maximum and minimum size of a given typesetting
 
   var longestWord: Slice[int]
@@ -237,15 +239,14 @@ proc calcMinMaxContent(textLayout: GlyphArrangement): tuple[maxSize, minSize: Ui
   # herein max content height is a word on each line
   var idx = 0
   for glyph in textLayout.glyphs():
-
     maxWidth += glyph.rect.w
     rect.x = min(rect.x, glyph.rect.x)
     rect.y = min(rect.y, glyph.rect.y)
-    rect.w = max(rect.w, glyph.rect.x+glyph.rect.w)
-    rect.h = max(rect.h, glyph.rect.y+glyph.rect.h)
+    rect.w = max(rect.w, glyph.rect.x + glyph.rect.w)
+    rect.h = max(rect.h, glyph.rect.y + glyph.rect.h)
 
     if glyph.rune.isWhiteSpace:
-      curr = idx+1..idx
+      curr = idx + 1 .. idx
       currLen = 0.0
     else:
       if curr.len() == 1:
@@ -276,29 +277,35 @@ proc calcMinMaxContent(textLayout: GlyphArrangement): tuple[maxSize, minSize: Ui
 
   result.bounding = rect.descaled()
 
-proc convertArrangement(arrangement: Arrangement, box: Box, uiSpans: openArray[(UiFont, string)], hAlign: FontHorizontal, vAlign: FontVertical, gfonts: seq[GlyphFont]): GlyphArrangement =
-    var
-      lines = newSeqOfCap[Slice[int]](arrangement.lines.len())
-      spanSlices = newSeqOfCap[Slice[int]](arrangement.spans.len())
-      selectionRects = newSeqOfCap[Rect](arrangement.selectionRects.len())
-      # a.mapIt(it[0]..it[1])
-    for line in arrangement.lines:
-      lines.add line[0] .. line[1]
-    for span in arrangement.spans:
-      spanSlices.add span[0] .. span[1]
-    for rect in arrangement.selectionRects:
-      selectionRects.add rect
+proc convertArrangement(
+    arrangement: Arrangement,
+    box: Box,
+    uiSpans: openArray[(UiFont, string)],
+    hAlign: FontHorizontal,
+    vAlign: FontVertical,
+    gfonts: seq[GlyphFont],
+): GlyphArrangement =
+  var
+    lines = newSeqOfCap[Slice[int]](arrangement.lines.len())
+    spanSlices = newSeqOfCap[Slice[int]](arrangement.spans.len())
+    selectionRects = newSeqOfCap[Rect](arrangement.selectionRects.len())
+    # a.mapIt(it[0]..it[1])
+  for line in arrangement.lines:
+    lines.add line[0] .. line[1]
+  for span in arrangement.spans:
+    spanSlices.add span[0] .. span[1]
+  for rect in arrangement.selectionRects:
+    selectionRects.add rect
 
-    result = GlyphArrangement(
-      contentHash: getContentHash(box.wh, uiSpans, hAlign, vAlign),
-      lines: lines, # arrangement.lines.toSlices(),
-      spans: spanSlices, # arrangement.spans.toSlices(),
-      fonts: gfonts,
-      runes: arrangement.runes,
-      positions: arrangement.positions,
-      selectionRects: selectionRects,
-    )
-
+  result = GlyphArrangement(
+    contentHash: getContentHash(box.wh, uiSpans, hAlign, vAlign),
+    lines: lines, # arrangement.lines.toSlices(),
+    spans: spanSlices, # arrangement.spans.toSlices(),
+    fonts: gfonts,
+    runes: arrangement.runes,
+    positions: arrangement.positions,
+    selectionRects: selectionRects,
+  )
 
 proc getTypesetImpl*(
     box: Box,
@@ -333,7 +340,9 @@ proc getTypesetImpl*(
     # echo "LH ADJ: ", lhAdj, " DEF_LH: ", pf.defaultLineHeight(),
     #       " SZ: ", pf.size, " LH: ", pf.lineHeight,
     #       " RATIO: ", pf.lineHeight / pf.defaultLineHeight()
-    gfonts.add GlyphFont(fontId: uiFont.getId(), lineHeight: pf.lineHeight, descentAdj: lhAdj)
+    gfonts.add GlyphFont(
+      fontId: uiFont.getId(), lineHeight: pf.lineHeight, descentAdj: lhAdj
+    )
 
     # font:  56.0  65.69
     # font: 100.0  91.0
@@ -356,7 +365,8 @@ proc getTypesetImpl*(
   of Bottom:
     va = BottomAlign
 
-  let arrangement = pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
+  let arrangement =
+    pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
   result = convertArrangement(arrangement, box, uiSpans, hAlign, vAlign, gfonts)
 
   let content = result.calcMinMaxContent()
@@ -370,33 +380,45 @@ proc getTypesetImpl*(
   if minContent:
     var wh = wh
     wh.y = result.maxSize.h.scaled()
-    let arr = pixie.typeset(spans, bounds = wh, hAlign = LeftAlign, vAlign = TopAlign, wrap = wrap)
+    let arr = pixie.typeset(
+      spans, bounds = wh, hAlign = LeftAlign, vAlign = TopAlign, wrap = wrap
+    )
     let minResult = convertArrangement(arr, box, uiSpans, hAlign, vAlign, gfonts)
 
     let minContent = minResult.calcMinMaxContent()
-    trace "minContent:", boxWh= box.wh, wh= wh,
-      minSize= minContent.minSize, maxSize= minContent.maxSize,
-      bounding= minContent.bounding, boundH= result.bounding.h
+    trace "minContent:",
+      boxWh = box.wh,
+      wh = wh,
+      minSize = minContent.minSize,
+      maxSize = minContent.maxSize,
+      bounding = minContent.bounding,
+      boundH = result.bounding.h
 
     if minContent.bounding.h > result.bounding.h:
       let wh = vec2(wh.x, minContent.bounding.h.scaled())
-      let minAdjusted = pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
+      let minAdjusted =
+        pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
       result = convertArrangement(minAdjusted, box, uiSpans, hAlign, vAlign, gfonts)
       let contentAdjusted = result.calcMinMaxContent()
       result.minSize = contentAdjusted.minSize
       result.maxSize = contentAdjusted.maxSize
       result.bounding = contentAdjusted.bounding
-      trace "minContent:adjusted", boxWh= box.wh, wh= wh, wrap= wrap,
-            minSize= result.minSize, maxSize= result.maxSize, bounding= result.bounding
+      trace "minContent:adjusted",
+        boxWh = box.wh,
+        wh = wh,
+        wrap = wrap,
+        minSize = result.minSize,
+        maxSize = result.maxSize,
+        bounding = result.bounding
 
       result.minSize.h = result.bounding.h
     else:
       result.minSize.h = max(result.minSize.h, result.bounding.h)
 
   let maxLineHeight = max(sz)
-  result.minSize += uiSize(maxLineHeight/2, 0)
-  result.maxSize += uiSize(maxLineHeight/2, 0)
-  result.bounding = result.bounding + uiSize(0, maxLineHeight/2)
+  result.minSize += uiSize(maxLineHeight / 2, 0)
+  result.maxSize += uiSize(maxLineHeight / 2, 0)
+  result.bounding = result.bounding + uiSize(0, maxLineHeight / 2)
   # debug "getTypesetImpl:post:", boxWh= box.wh, wh= wh, contentHash = getContentHash(box.wh, uiSpans, hAlign, vAlign),
   #           minSize = result.minSize, maxSize = result.maxSize, bounding = result.bounding
 

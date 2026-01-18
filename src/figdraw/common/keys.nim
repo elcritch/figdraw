@@ -153,17 +153,15 @@ type
     NumpadDivide
     NumpadEqual
 
-const
-  ModifierButtons* = {
-    KeyLeftControl, KeyRightControl, KeyLeftSuper, KeyRightSuper, KeyLeftAlt,
-    KeyRightAlt, KeyLeftShift, KeyRightShift, KeyMenu,
-  }
+const ModifierButtons* = {
+  KeyLeftControl, KeyRightControl, KeyLeftSuper, KeyRightSuper, KeyLeftAlt, KeyRightAlt,
+  KeyLeftShift, KeyRightShift, KeyMenu,
+}
 
-type
-  ModifierKey* = enum
-    KNone
-    KMeta
-    KControl
-    KAlt
-    KShift
-    KMenu
+type ModifierKey* = enum
+  KNone
+  KMeta
+  KControl
+  KAlt
+  KShift
+  KMenu

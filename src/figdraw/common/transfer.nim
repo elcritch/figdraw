@@ -49,10 +49,9 @@ proc toRenderFig*[N](current: N): Fig =
   result.stroke.weight = current.stroke.weight.scaled
   result.stroke.color = current.stroke.color
 
-
   case current.kind
   of nkRectangle:
-    for i in 0..<min(result.shadows.len(), current.shadows.len()):
+    for i in 0 ..< min(result.shadows.len(), current.shadows.len()):
       var shadow: RenderShadow
       let orig = current.shadows[i]
       shadow.blur = orig.blur.scaled
@@ -64,7 +63,6 @@ proc toRenderFig*[N](current: N): Fig =
 
     for corner in DirectionCorners:
       result.corners[corner] = current.corners[corner].scaled
-
   of nkImage:
     result.image = current.image
   of nkText:
@@ -90,8 +88,7 @@ proc convert*[N](
       renders.layers[zlvl].addChild(parentIdx, render)
 
   for child in current.children:
-    if NfInactive in child.flags or
-        NfDead in child.flags:
+    if NfInactive in child.flags or NfDead in child.flags:
       continue
 
     let childParentIdx =
@@ -108,7 +105,7 @@ proc copyInto*[N](uis: N): Renders =
 
   result.layers.sort(
     proc(x, y: auto): int =
-    cmp(x[0], y[0])
+      cmp(x[0], y[0])
   )
   # echo "nodes:len: ", result.len()
   # printRenders(result)
