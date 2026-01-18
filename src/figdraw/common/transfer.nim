@@ -47,7 +47,6 @@ proc toRenderFig*[N](current: N): Fig =
   result.zlevel = current.zlevel
   result.rotation = current.rotation
   result.fill = current.fill
-  result.highlight = current.highlight
 
   result.stroke.weight = current.stroke.weight.scaled
   result.stroke.color = current.stroke.color

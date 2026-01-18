@@ -270,23 +270,6 @@ proc renderBoxes(ctx: Context, node: Fig) =
       else:
         ctx.drawRect(node.screenBox, node.fill)
 
-  if node.highlight.a > 0'f32:
-    when not defined(useFigDrawTextures):
-      ctx.drawRoundedRectSdf(
-        rect = node.screenBox,
-        color = node.highlight,
-        radii = node.corners,
-      )
-    else:
-      if node.corners != [0'f32, 0'f32, 0'f32, 0'f32]:
-        ctx.drawRoundedRect(
-          rect = node.screenBox,
-          color = node.highlight,
-          radii = node.corners,
-        )
-      else:
-        ctx.drawRect(node.screenBox, node.highlight)
-
   if node.image.id.int != 0:
     let size = vec2(node.screenBox.w, node.screenBox.h)
     if ctx.cacheImage($node.image.name, node.image.id.Hash):

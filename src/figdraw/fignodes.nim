@@ -28,7 +28,6 @@ type
 
     rotation*: float32
     fill*: Color
-    highlight*: Color
     stroke*: RenderStroke
     image*: ImageStyle
 
