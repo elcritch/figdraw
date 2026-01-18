@@ -50,12 +50,9 @@ proc renderAndScreenshotOnce*(
 
   var frame = AppFrame(
     windowTitle: title,
-    windowStyle: FrameStyle.DecoratedResizable,
-    configFile: getCurrentDir() / "tests" / "opengl_screenshot",
-    saveWindowState: false,
   )
   frame.windowInfo = WindowInfo(
-    box: initBox(0, 0, windowW, windowH),
+    box: rect(0, 0, windowW.float32, windowH.float32),
     running: true,
     focused: true,
     minimized: false,

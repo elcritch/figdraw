@@ -182,11 +182,8 @@ proc convertFont*(font: UiFont): (FontId, Font) =
     for pn, a in fieldPairs(pxfont[]):
       for fn, b in fieldPairs(font):
         when pn == fn:
-          when b is UiScalar:
-            a = b.scaled()
-          else:
-            a = b
-    if font.lineHeightOverride == -1.0'ui:
+          a = b
+    if font.lineHeightOverride == -1.0'f32:
       pxfont.lineHeight = font.lineHeightScale * pxfont.defaultLineHeight()
       echo "PIXIE LH: ", pxfont.lineHeight
 
@@ -195,13 +192,13 @@ proc convertFont*(font: UiFont): (FontId, Font) =
   else:
     result = (id, fontTable[id])
 
-proc getLineHeightImpl*(font: UiFont): UiScalar =
+proc getLineHeightImpl*(font: UiFont): float32 =
   let (_, pf) = font.convertFont()
   result = pf.lineHeight.descaled()
 
 proc calcMinMaxContent(
     textLayout: GlyphArrangement
-): tuple[maxSize, minSize: UiSize, bounding: UiBox] =
+): tuple[maxSize, minSize: Vec2, bounding: Rect] =
   ## estimate the maximum and minimum size of a given typesetting
 
   var longestWord: Slice[int]
@@ -247,17 +244,17 @@ proc calcMinMaxContent(
     maxLine = max(maxLine, font.lineHeight)
 
   # set results
-  result.minSize.w = longestWordLen.descaled()
-  result.minSize.h = maxLine.descaled()
+  result.minSize.x = longestWordLen.descaled()
+  result.minSize.y = maxLine.descaled()
 
-  result.maxSize.w = maxWidth.descaled()
-  result.maxSize.h = wordsHeight.descaled()
+  result.maxSize.x = maxWidth.descaled()
+  result.maxSize.y = wordsHeight.descaled()
 
   result.bounding = rect.descaled()
 
 proc convertArrangement(
     arrangement: Arrangement,
-    box: Box,
+    box: Rect,
     uiSpans: openArray[(UiFont, string)],
     hAlign: FontHorizontal,
     vAlign: FontVertical,
@@ -285,7 +282,7 @@ proc convertArrangement(
   )
 
 proc typeset*(
-    box: Box,
+    box: Rect,
     uiSpans: openArray[(UiFont, string)],
     hAlign = FontHorizontal.Left,
     vAlign = FontVertical.Top,
@@ -349,7 +346,7 @@ proc typeset*(
   if minContent:
     ## calcaulate min width of content
     var wh = wh
-    wh.y = result.maxSize.h.scaled()
+    wh.y = result.maxSize.y.scaled()
     let arr = pixie.typeset(
       spans, bounds = wh, hAlign = LeftAlign, vAlign = TopAlign, wrap = wrap
     )
@@ -381,14 +378,14 @@ proc typeset*(
         maxSize = result.maxSize,
         bounding = result.bounding
 
-      result.minSize.h = result.bounding.h
+      result.minSize.y = result.bounding.h
     else:
-      result.minSize.h = max(result.minSize.h, result.bounding.h)
+      result.minSize.y = max(result.minSize.y, result.bounding.h)
 
   let maxLineHeight = max(sz)
-  result.minSize += uiSize(maxLineHeight / 2, 0)
-  result.maxSize += uiSize(maxLineHeight / 2, 0)
-  result.bounding = result.bounding + uiSize(0, maxLineHeight / 2)
+  result.minSize += vec2(maxLineHeight / 2, 0)
+  result.maxSize += vec2(maxLineHeight / 2, 0)
+  result.bounding = result.bounding + rect(0, 0, 0, maxLineHeight / 2)
   # debug "getTypesetImpl:post:", boxWh= box.wh, wh= wh, contentHash = getContentHash(box.wh, uiSpans, hAlign, vAlign),
   #           minSize = result.minSize, maxSize = result.maxSize, bounding = result.bounding
 

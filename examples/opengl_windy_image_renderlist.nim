@@ -14,11 +14,6 @@ import figdraw/utils/glutils
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
 proc setupWindow(frame: AppFrame, window: Window) =
-  let style: WindowStyle = case frame.windowStyle
-    of FrameStyle.DecoratedResizable: WindowStyle.DecoratedResizable
-    of FrameStyle.DecoratedFixedSized: WindowStyle.Decorated
-    of FrameStyle.Undecorated: WindowStyle.Undecorated
-    of FrameStyle.Transparent: WindowStyle.Transparent
 
   if frame.windowInfo.fullscreen:
     window.fullscreen = frame.windowInfo.fullscreen
@@ -27,10 +22,6 @@ proc setupWindow(frame: AppFrame, window: Window) =
 
   window.visible = true
   window.makeContextCurrent()
-
-  let winCfg = frame.loadLastWindow()
-  window.`style=`(style)
-  window.`pos=`(winCfg.pos)
 
 proc newWindyWindow(frame: AppFrame): Window =
   let window = newWindow("FigDraw", ivec2(1280, 800), visible = false)
@@ -93,12 +84,9 @@ when isMainModule:
 
   var frame = AppFrame(
     windowTitle: "figdraw: OpenGL + Windy image",
-    windowStyle: FrameStyle.DecoratedResizable,
-    configFile: getCurrentDir() / "examples" / "opengl_windy_image_renderlist",
-    saveWindowState: false,
   )
   frame.windowInfo = WindowInfo(
-    box: initBox(0, 0, 800, 600),
+    box: rect(0, 0, 800, 600),
     running: true,
     focused: true,
     minimized: false,

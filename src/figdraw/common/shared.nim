@@ -6,8 +6,8 @@ import pkg/variant
 export sequtils, strformat, tables, hashes
 export variant
 
-import extras, uimaths, inputs
-export extras, uimaths, inputs
+import extras, uimaths
+export extras, uimaths
 
 import pkg/chroma
 
@@ -66,29 +66,26 @@ proc figDataDir*(): string =
 proc setFigDataDir*(dir: string) =
   dataDirStr = dir
 
-proc scaled*(a: Box): Rect =
-  toRect(a * app.uiScale.UiScalar)
+proc scaled*(a: Rect): Rect =
+  a * app.uiScale
 
-proc descaled*(a: Rect): Box =
+proc descaled*(a: Rect): Rect =
   let a = a / app.uiScale
-  result.x = a.x.UiScalar
-  result.y = a.y.UiScalar
-  result.w = a.w.UiScalar
-  result.h = a.h.UiScalar
+  result.x = a.x
+  result.y = a.y
+  result.w = a.w
+  result.h = a.h
 
-proc scaled*(a: Position): Vec2 =
-  toVec(a * app.uiScale.UiScalar)
+proc scaled*(a: Vec2): Vec2 =
+  a * app.uiScale
 
-proc scaled*(a: UiSize): Vec2 =
-  toVec(a * app.uiScale.UiScalar)
-
-proc descaled*(a: Vec2): Position =
+proc descaled*(a: Vec2): Vec2 =
   let a = a / app.uiScale
-  result.x = a.x.UiScalar
-  result.y = a.y.UiScalar
+  result.x = a.x
+  result.y = a.y
 
-proc scaled*(a: UiScalar): float32 =
+proc scaled*(a: float32): float32 =
   a.float32 * app.uiScale
 
-proc descaled*(a: float32): UiScalar =
-  UiScalar(a / app.uiScale)
+proc descaled*(a: float32): float32 =
+  a / app.uiScale

@@ -34,9 +34,9 @@ type
 
   UiFont* = object
     typefaceId*: TypefaceId
-    size*: UiScalar = 12.0'ui ## Font size in pixels.
+    size*: float32 = 12.0'f32 ## Font size in pixels.
     lineHeightScale*: float32 = 0.9
-    lineHeightOverride*: UiScalar = -1.0'ui
+    lineHeightOverride*: float32 = -1.0'f32
       ## The line height in pixels or autoLineHeight for the font's default line height.
     fontCase*: FontCase
     underline*: bool ## Apply an underline.
@@ -51,9 +51,9 @@ type
     runes*: seq[Rune] ## The runes of the text.
     positions*: seq[Vec2] ## The positions of the glyphs for each rune.
     selectionRects*: seq[Rect] ## The selection rects for each glyph.
-    maxSize*: UiSize
-    minSize*: UiSize
-    bounding*: UiBox
+    maxSize*: Vec2
+    minSize*: Vec2
+    bounding*: Rect
 
   TextSpan* = object
     text*: string
@@ -70,7 +70,7 @@ proc getId*(font: UiFont): FontId =
   FontId font.hash()
 
 proc getContentHash*(
-    size: UiSize,
+    size: Vec2,
     uiSpans: openArray[(UiFont, string)],
     hAlign = FontHorizontal.Left,
     vAlign = FontVertical.Top,
