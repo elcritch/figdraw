@@ -43,7 +43,7 @@ jobs:
         path: deps/
         key: ${{ runner.os }}-${{ hashFiles('figdraw.nimble') }}
 
-    - name: Install Nimble
+    - name: Install Atlas
       run: |
         nimble install 'https://github.com/nim-lang/atlas@#head'
         echo "Nim:: "
