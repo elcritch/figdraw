@@ -95,7 +95,7 @@ iterator childIndex*(nodes: seq[Fig], current: FigIdx): FigIdx =
   var cnt = 0
   while cnt < childCnt:
     if idx >= nodes.len:
-      break
+      raise newException(IndexDefect, "child indexes incorrect!")
     if nodes[idx.int].parent == id:
       cnt.inc()
       yield idx.FigIdx
