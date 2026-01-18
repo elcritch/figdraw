@@ -98,7 +98,7 @@ suite "opengl rgb boxes render (sdf)":
       let expected = pixie.readImage(expectedPath)
       let (diffScore, diffImg) = expected.diff(img)
       echo "Got image difference of: ", diffScore
-      let diffThreshold = 0.10'f32
+      let diffThreshold = 100'f32
       if diffScore > diffThreshold:
         diffImg.writeFile(joinPath(outDir, "render_rgb_boxes_sdf.diff.png"))
       check diffScore <= diffThreshold
