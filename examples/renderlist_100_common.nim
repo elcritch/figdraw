@@ -5,9 +5,10 @@ import chroma
 import figdraw/commons
 import figdraw/fignodes
 
+const copies {.intdefine: "figdraw.nodes".} = 100
+
 proc makeRenderTree*(w, h: float32; frame: int): Renders =
   var list = RenderList()
-  const copies = 1000
   let t = frame.float32 * 0.02'f32
 
   discard list.addRoot(Fig(

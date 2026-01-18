@@ -19,12 +19,6 @@ const NoSleep {.booldefine: "figdraw.noSleep".}: bool = true
 var globalFrame = 0
 
 proc setupWindow(frame: AppFrame, window: Window) =
-  let style: WindowStyle = case frame.windowStyle
-    of FrameStyle.DecoratedResizable: WindowStyle.DecoratedResizable
-    of FrameStyle.DecoratedFixedSized: WindowStyle.Decorated
-    of FrameStyle.Undecorated: WindowStyle.Undecorated
-    of FrameStyle.Transparent: WindowStyle.Transparent
-
   if frame.windowInfo.fullscreen:
     window.fullscreen = frame.windowInfo.fullscreen
   else:
@@ -32,10 +26,6 @@ proc setupWindow(frame: AppFrame, window: Window) =
 
   window.visible = true
   window.makeContextCurrent()
-
-  let winCfg = frame.loadLastWindow()
-  window.`style=`(style)
-  window.`pos=`(winCfg.pos)
 
 proc newWindyWindow(frame: AppFrame): Window =
   let window = newWindow("Figuro", ivec2(1280, 800), visible = false)
@@ -60,18 +50,15 @@ when isMainModule:
   app.pixelScale = 1.0
 
   let typefaceId = getTypefaceImpl("Ubuntu.ttf")
-  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'ui,
+  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32,
       lineHeightScale: 1.0)
   var fpsText = "0.0 FPS"
 
   var frame = AppFrame(
     windowTitle: "figdraw: OpenGL + Windy RenderList",
-    windowStyle: FrameStyle.DecoratedResizable,
-    configFile: getCurrentDir() / "examples" / "opengl_windy_renderlist",
-    saveWindowState: false,
   )
   frame.windowInfo = WindowInfo(
-    box: initBox(0, 0, 800, 600),
+    box: rect(0, 0, 800, 600),
     running: true,
     focused: true,
     minimized: false,
@@ -131,7 +118,7 @@ when isMainModule:
     )
 
     let fpsLayout = typeset(
-      initBox(0, 0, hudTextRect.w, hudTextRect.h),
+      rect(0, 0, hudTextRect.w, hudTextRect.h),
       [(fpsFont, fpsText)],
       hAlign = Right,
       vAlign = Middle,
