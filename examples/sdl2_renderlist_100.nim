@@ -1,6 +1,8 @@
-import std/[os, times, monotimes]
+import std/[os, times, monotimes, strformat]
 
 import sdl2 except rect
+
+import chroma
 
 import figdraw/commons
 import figdraw/fignodes
@@ -112,10 +114,17 @@ proc closeWindow*(w: SdlWindow) =
   sdl2.quit()
 
 when isMainModule:
+  setFigDataDir(getCurrentDir() / "data")
+
   app.running = true
   app.autoUiScale = false
   app.uiScale = 1.0
   app.pixelScale = 1.0
+
+  let typefaceId = getTypefaceImpl("Ubuntu.ttf")
+  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'ui,
+      lineHeightScale: 1.0)
+  var fpsText = "0.0 FPS"
 
   var frame = AppFrame(
     windowTitle: "figdraw: SDL2 RenderList (100)",
@@ -152,6 +161,52 @@ when isMainModule:
     makeRenderTreeMsSum += float((getMonoTime() - t0).inMilliseconds)
     lastElementCount = renders.layers[0.ZLevel].nodes.len
 
+    let hudMargin = 12.0'f32
+    let hudW = 180.0'f32
+    let hudH = 34.0'f32
+    let hudRect = rect(
+      winInfo.box.w.float32 - hudW - hudMargin,
+      hudMargin,
+      hudW,
+      hudH,
+    )
+
+    discard renders.layers[0.ZLevel].addRoot(Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: hudRect,
+      fill: rgba(0, 0, 0, 155).color,
+      corners: [8.0'f32, 8.0, 8.0, 8.0],
+    ))
+
+    let hudTextPadX = 10.0'f32
+    let hudTextPadY = 6.0'f32
+    let hudTextRect = rect(
+      hudRect.x + hudTextPadX,
+      hudRect.y + hudTextPadY,
+      hudRect.w - hudTextPadX * 2,
+      hudRect.h - hudTextPadY * 2,
+    )
+
+    let fpsLayout = typeset(
+      initBox(0, 0, hudTextRect.w, hudTextRect.h),
+      [(fpsFont, fpsText)],
+      hAlign = Right,
+      vAlign = Middle,
+      minContent = false,
+      wrap = false,
+    )
+
+    discard renders.layers[0.ZLevel].addRoot(Fig(
+      kind: nkText,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: hudTextRect,
+      fill: rgba(255, 255, 255, 245).color,
+      textLayout: fpsLayout,
+    ))
+
     let t1 = getMonoTime()
     renderer.renderFrame(renders, winInfo.box.wh.scaled())
     renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
@@ -173,6 +228,7 @@ when isMainModule:
       let elapsed = now - fpsStart
       if elapsed >= 1.0:
         let fps = fpsFrames.float / elapsed
+        fpsText = fmt"{fps:0.1f} FPS"
         let avgMake = makeRenderTreeMsSum / max(1, fpsFrames).float
         let avgRender = renderFrameMsSum / max(1, fpsFrames).float
         echo "fps: ", fps, " | elems: ", lastElementCount,
