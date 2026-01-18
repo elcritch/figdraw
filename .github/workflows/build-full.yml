@@ -54,7 +54,7 @@ jobs:
     - name: Install Deps
       run: |
         # sync deps
-        atlas install
+        atlas install --feature:windy --feature:sdl2
 
     - name: Build Tests
       env:
