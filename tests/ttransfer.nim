@@ -55,7 +55,7 @@ suite "test layers":
 
   test "basic single layer":
     var self = TestBasic()
-    var frame = newAppFrame(root=self.FigTest, size=(100'f32, 100'f32))
+    var frame = newAppFrame(root = self.FigTest, size = (100'f32, 100'f32))
     var node = self
 
     draw(self)
@@ -71,7 +71,7 @@ suite "test layers":
     let n2 = renders[0.ZLevel]
     # print n2.rootIds
     check n2.rootIds.len() == 1
-    check n2.rootIds[0] == FigIdx 0
+    check n2.rootIds[0] == 0.FigIdx
 
     # let res2 = n2.mapIt(it+1.NodeIdx)
     # check res2.repr == "@[3, 4, 5]"
@@ -79,7 +79,7 @@ suite "test layers":
   test "three layer out of order":
 
     var node = TestFig()
-    var frame = newAppFrame(root=node.FigTest, size=(100'f32, 100'f32))
+    var frame = newAppFrame(root = node.FigTest, size = (100'f32, 100'f32))
 
     draw(node)
     let renders = copyInto(node)
@@ -89,8 +89,7 @@ suite "test layers":
       echo k, v.rootIds
       for n in v.nodes:
         echo "   node: ",
-          " uid:", n.uid,
-          " // ", n.parent,
+          " parent:", n.parent,
           " chCnt:", n.childCount,
           " zlvl:", n.zlevel
 
@@ -142,4 +141,3 @@ suite "test layers":
     # print 20.Zlevel, lispRepr(renders[20.ZLevel])
     # print 30.Zlevel, lispRepr(renders[30.ZLevel])
     # # check uids1.repr == "@[8]"
-

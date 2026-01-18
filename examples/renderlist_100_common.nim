@@ -10,19 +10,13 @@ proc makeRenderTree*(w, h: float32; frame: int): Renders =
   const copies = 2000
   let t = frame.float32 * 0.02'f32
 
-  let rootId = 1.FigID
-  list.nodes.add Fig(
+  discard list.addRoot(Fig(
     kind: nkRectangle,
-    uid: rootId,
-    parent: -1.FigID,
     childCount: 0,
     zlevel: 0.ZLevel,
-    name: "root".toFigName(),
     screenBox: rect(0, 0, w, h),
     fill: rgba(255, 255, 255, 155).color,
-  )
-
-  list.rootIds = @[0.FigIdx]
+  ))
 
   let redStartX = 60.0'f32
   let redStartY = 60.0'f32
@@ -38,7 +32,6 @@ proc makeRenderTree*(w, h: float32; frame: int): Renders =
   var rng = initRand((w.int shl 16) xor h.int xor 12345)
 
   for i in 0 ..< copies:
-    let baseId = 2 + i * 3
     let baseX = rand(rng, 0.0'f32 .. maxX)
     let baseY = rand(rng, 0.0'f32 .. maxY)
     let jitterX = sin((t + i.float32 * 0.15'f32).float64).float32 * 20
@@ -90,29 +83,20 @@ proc makeRenderTree*(w, h: float32; frame: int): Renders =
     let shadowY = 6.0'f32 + 10.0'f32 *
       cos((t * 0.9'f32 + i.float32 * 0.03'f32).float64).float32
 
-    let redIdx = list.nodes.len()
-    list.nodes.add Fig(
+    discard list.addRoot(Fig(
       kind: nkRectangle,
-      uid: FigID(baseId),
-      parent: -1.FigID,
       childCount: 0,
       zlevel: 0.ZLevel,
       corners: [c0, c1, c2, c3],
-      name: ("box-red-" & $i).toFigName(),
       screenBox: rect(redStartX + offsetX, redStartY + offsetY, redW, redH),
       fill: rgba(220, 40, 40, 155).color,
       stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 155).color)
-    )
-    list.rootIds.add(redIdx.FigIdx)
+    ))
 
-    let greenIdx = list.nodes.len()
-    list.nodes.add Fig(
+    discard list.addRoot(Fig(
       kind: nkRectangle,
-      uid: FigID(baseId + 1),
-      parent: -1.FigID,
       childCount: 0,
       zlevel: 0.ZLevel,
-      name: ("box-green-" & $i).toFigName(),
       screenBox: rect(greenStartX + offsetX, greenStartY + offsetY, greenW,
           greenH),
       corners: [g0, g1, g2, g3],
@@ -130,22 +114,16 @@ proc makeRenderTree*(w, h: float32; frame: int): Renders =
       RenderShadow(),
       RenderShadow(),
     ]
-    )
-    list.rootIds.add(greenIdx.FigIdx)
+    ))
 
-    let blueIdx = list.nodes.len()
-    list.nodes.add Fig(
+    discard list.addRoot(Fig(
       kind: nkRectangle,
-      uid: FigID(baseId + 2),
-      parent: -1.FigID,
       childCount: 0,
       zlevel: 0.ZLevel,
-      name: ("box-blue-" & $i).toFigName(),
       screenBox: rect(blueStartX + offsetX, blueStartY + offsetY, blueW,
           blueH),
       fill: rgba(60, 90, 220, 155).color,
-    )
-    list.rootIds.add(blueIdx.FigIdx)
+    ))
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list

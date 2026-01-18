@@ -18,8 +18,7 @@ type
   Fig* = object
     zlevel*: ZLevel
     childCount*: int8
-    uid*: FigID
-    parent*: FigID
+    parent*: FigIdx = (-1).FigIdx
     flags*: set[FigFlags]
 
     offset*: Vec2
@@ -46,7 +45,8 @@ type
     else:
       discard
 
-    name*: FigName
+    when FigDrawNames:
+      name*: FigName
 
 proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"
@@ -71,7 +71,7 @@ proc addRoot*(list: var RenderList, root: Fig): FigIdx {.discardable.} =
   assert newIdx <= high(int16).int
 
   var rootNode = root
-  rootNode.parent = -1.FigID
+  rootNode.parent = (-1).FigIdx
   list.nodes.add rootNode
   result = newIdx.FigIdx
   list.rootIds.add result
@@ -93,7 +93,7 @@ proc addChild*(list: var RenderList, parentIdx: FigIdx,
   inc list.nodes[pidx].childCount
 
   var childNode = child
-  childNode.parent = list.nodes[pidx].uid
+  childNode.parent = parentIdx
   list.nodes.add childNode
   result = newIdx.FigIdx
 
@@ -103,15 +103,14 @@ template contains*(r: Renders, lvl: ZLevel): bool =
   r.layers.contains(lvl)
 
 iterator childIndex*(nodes: seq[Fig], current: FigIdx): FigIdx =
-  let id = nodes[current.int].uid
   let childCnt = nodes[current.int].childCount
 
-  var idx = current.int
+  var idx = current.int + 1
   var cnt = 0
   while cnt < childCnt:
     if idx >= nodes.len:
-      raise newException(IndexDefect, "child indexes incorrect!")
-    if nodes[idx.int].parent == id:
+      break
+    if nodes[idx.int].parent == current:
       cnt.inc()
       yield idx.FigIdx
     idx.inc()

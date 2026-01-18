@@ -13,25 +13,19 @@ import ./opengl_test_utils
 proc makeRenderTree(w, h: float32): Renders =
   var list = RenderList()
 
-  let rootId = 1.FigID
-  list.nodes.add Fig(
+  let rootIdx = list.addRoot(Fig(
     kind: nkRectangle,
-    uid: rootId,
-    parent: -1.FigID,
     childCount: 0,
     zlevel: 0.ZLevel,
     name: "root".toFigName(),
     screenBox: rect(0, 0, w, h),
     fill: rgba(255, 255, 255, 255).color,
-  )
-
-  list.rootIds = @[0.FigIdx]
+  ))
 
   list.addChild(
-    0.FigIdx,
+    rootIdx,
     Fig(
       kind: nkRectangle,
-      uid: 2.FigID,
       childCount: 0,
       zlevel: 0.ZLevel,
       corners: [10.0'f32, 20.0, 30.0, 40.0],
@@ -42,10 +36,9 @@ proc makeRenderTree(w, h: float32): Renders =
     ),
   )
   list.addChild(
-    0.FigIdx,
+    rootIdx,
     Fig(
       kind: nkRectangle,
-      uid: 3.FigID,
       childCount: 0,
       zlevel: 0.ZLevel,
       name: "box-green".toFigName(),
@@ -53,19 +46,19 @@ proc makeRenderTree(w, h: float32): Renders =
       fill: rgba(40, 180, 90, 255).color,
       shadows: [
         RenderShadow(
-          style: DropShadow, blur: 10, spread: 10, x: 10, y: 10, color: blackColor
-        ),
-        RenderShadow(),
-        RenderShadow(),
-        RenderShadow(),
-      ],
+          style: DropShadow, blur: 10, spread: 10, x: 10, y: 10,
+          color: blackColor
+    ),
+    RenderShadow(),
+    RenderShadow(),
+    RenderShadow(),
+  ],
     ),
   )
   list.addChild(
-    0.FigIdx,
+    rootIdx,
     Fig(
       kind: nkRectangle,
-      uid: 4.FigID,
       childCount: 0,
       zlevel: 0.ZLevel,
       name: "box-blue".toFigName(),

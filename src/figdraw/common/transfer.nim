@@ -21,7 +21,9 @@ func `==`*(a, b: RenderTree): bool =
 
 proc toTree*(nodes: seq[Fig], idx = 0.FigIdx, depth = 1): RenderTree =
   let n = nodes[idx.int]
-  result = RenderTree(id: n.uid, name: $n.name)
+  result = RenderTree(id: idx.int)
+  when FigDrawNames:
+    result.name = $n.name
   for ci in nodes.childIndex(idx):
     result.children.add toTree(nodes, ci, depth + 1)
 
@@ -31,48 +33,11 @@ proc toTree*(list: RenderList): RenderTree =
     # echo "toTree:rootIdx: ", rootIdx.int
     result.children.add toTree(list.nodes, rootIdx)
 
-proc findRoot*(list: RenderList, node: Fig): Fig =
-  result = node
-  var cnt = 0
-  var curr = result
-  while result.parent != -1.FigID and result.uid != result.parent:
-    var curr = result
-    for n in list.nodes:
-      if n.uid == result.parent:
-        result = n
-        break
-
-    if curr.uid == result.uid:
-      return
-
-    cnt.inc
-    if cnt > 1_00:
-      raise newException(IndexDefect, "error finding root")
-
-proc add*(list: var RenderList, node: Fig) =
-  ## Adds a Fig to the RenderList and possibly
-  ## to the roots seq if it's a root node.
-  ##
-  ## New roots occur when nodes have different
-  ## zlevels and end up in a the RenderList
-  ## for that ZLevel without their logical parent. 
-  ##
-  if list.rootIds.len() == 0:
-    list.rootIds.add(list.nodes.len().FigIdx)
-  elif node.parent == -1:
-    list.rootIds.add(list.nodes.len().FigIdx)
-  else:
-    let lastRoot = list.nodes[list.rootIds[^1].int]
-    let nr = findRoot(list, node)
-    if nr.uid != lastRoot.uid and node.uid != list.nodes[^1].uid:
-      list.rootIds.add(list.nodes.len().FigIdx)
-  list.nodes.add(node)
-
 proc toRenderFig*[N](current: N): Fig =
   result = Fig(kind: current.kind)
 
-  result.uid = current.uid
-  result.name = current.name.toFigName()
+  when FigDrawNames:
+    result.name = current.name.toFigName()
 
   result.screenBox = current.screenBox.scaled
   result.offset = current.offset.scaled
@@ -113,38 +78,41 @@ proc toRenderFig*[N](current: N): Fig =
     discard
 
 proc convert*[N](
-    renders: var Renders, current: N, parent: FigID, maxzlvl: ZLevel
+    renders: var Renders, current: N, parentIdx: FigIdx, parentZLevel: ZLevel
 ) =
-  # echo "convert:node: ", current.uid, " parent: ", parent
   var render = current.toRenderFig()
-  render.parent = parent
-  render.childCount = current.children.len().int8
   let zlvl = current.zlevel
 
-  for child in current.children:
-    let chlvl = child.zlevel
-    if chlvl != zlvl or
-      NfInactive in child.flags or
-      NfDead in child.flags or
-      Hidden in child.userAttrs:
-      render.childCount.dec()
+  if zlvl notin renders.layers:
+    renders.layers[zlvl] = RenderList()
 
-  renders.layers.mgetOrPut(zlvl, RenderList()).add(render)
+  let currentIdx =
+    if parentIdx.int < 0 or parentZLevel != zlvl:
+      renders.layers[zlvl].addRoot(render)
+    else:
+      renders.layers[zlvl].addChild(parentIdx, render)
+
   for child in current.children:
-    let chlvl = child.zlevel
-    if NfInactive notin child.flags and
-        NfDead notin child.flags and
-        Hidden notin child.userAttrs:
-      renders.convert(child, current.uid, chlvl)
+    if NfInactive in child.flags or
+        NfDead in child.flags or
+        Hidden in child.userAttrs:
+      continue
+
+    let childParentIdx =
+      if child.zlevel == zlvl:
+        currentIdx
+      else:
+        (-1).FigIdx
+    renders.convert(child, childParentIdx, zlvl)
 
 proc copyInto*[N](uis: N): Renders =
   result = Renders()
   result.layers = initOrderedTable[ZLevel, RenderList]()
-  result.convert(uis, -1.FigID, 0.ZLevel)
+  result.convert(uis, (-1).FigIdx, uis.zlevel)
 
   result.layers.sort(
     proc(x, y: auto): int =
-      cmp(x[0], y[0])
+    cmp(x[0], y[0])
   )
   # echo "nodes:len: ", result.len()
   # printRenders(result)

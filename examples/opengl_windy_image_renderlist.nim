@@ -49,23 +49,18 @@ proc getWindowInfo(window: Window): WindowInfo =
 proc makeRenderTree*(w, h: float32): Renders =
   var list = RenderList()
 
-  let rootId = 1.FigID
   let rootIdx = list.addRoot(Fig(
     kind: nkRectangle,
-    uid: rootId,
     childCount: 0,
     zlevel: 0.ZLevel,
-    name: "root".toFigName(),
     screenBox: rect(0, 0, w, h),
     fill: rgba(30, 30, 30, 255).color,
   ))
 
   list.addChild(rootIdx, Fig(
     kind: nkRectangle,
-    uid: 2.FigID,
     childCount: 0,
     zlevel: 0.ZLevel,
-    name: "img-bg".toFigName(),
     screenBox: rect(40, 40, 320, 320),
     fill: rgba(80, 80, 80, 255).color,
     corners: [16.0'f32, 16.0, 16.0, 16.0],
@@ -73,10 +68,8 @@ proc makeRenderTree*(w, h: float32): Renders =
 
   list.addChild(rootIdx, Fig(
     kind: nkImage,
-    uid: 3.FigID,
     childCount: 0,
     zlevel: 0.ZLevel,
-    name: "img1".toFigName(),
     screenBox: rect(60, 60, 280, 280),
     image: ImageStyle(
       name: "img1.png".toFigName(),
