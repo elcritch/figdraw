@@ -52,7 +52,6 @@ proc newOpenGLRenderer*(atlasSize: int, pixelScale = app.pixelScale): OpenGLRend
 proc renderDrawable*(ctx: Context, node: Fig) =
   ## TODO: draw non-node stuff?
   for point in node.points:
-    # ctx.linePolygon(node.poly, node.stroke.weight, node.stroke.color)
     let
       pos = point
       bx = node.screenBox.atXY(pos.x, pos.y)
@@ -69,10 +68,7 @@ proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
 
     let
       glyphId = glyph.hash()
-      # is 0.84 (or 5/6) factor a constant for all fonts?
-      # charPos = vec2(glyph.pos.x, glyph.pos.y - glyph.descent*0.84) # empirically determined
       charPos = vec2(glyph.pos.x, glyph.pos.y - glyph.descent * 1.0)
-        # empirically determined
     if glyphId notin ctx.entries:
       trace "no glyph in context: ",
         glyphId = glyphId, glyph = glyph.rune, glyphRepr = repr(glyph.rune)
@@ -85,6 +81,20 @@ var postRenderImpl {.compileTime.}: seq[NimNode]
 
 macro ifrender(check, code: untyped, post: untyped = nil) =
   ## check if code should be drawn
+  ##
+  ## re-order code from:
+  ## ifrender: a finally: a'
+  ## ifrender: b finally: b'
+  ## ifrender: c finally: c'
+  ##
+  ## to a pyramid form:
+  ## a
+  ##   b
+  ##     c
+  ##     c'
+  ##   b'
+  ## a'
+  ##
   result = newStmtList()
   let checkval = genSym(nskLet, "checkval")
   result.add quote do:
@@ -111,7 +121,7 @@ proc drawMasks(ctx: Context, node: Fig) =
   )
 
 proc renderDropShadows(ctx: Context, node: Fig) =
-  ## drawing shadows with 9-patch technique
+  ## drawing shadows with various techniques
   for shadow in node.shadows:
     if shadow.style != DropShadow:
       continue
@@ -140,7 +150,6 @@ proc renderDropShadows(ctx: Context, node: Fig) =
       )
     elif FastShadows:
       ## should add a primitive to opengl.context to
-      ## do this with pixie and 9-patch, but that's a headache
       var color = shadow.color
       const N = 3
       color.a = color.a * 1.0 / (N * N * N)
@@ -164,7 +173,7 @@ proc renderDropShadows(ctx: Context, node: Fig) =
       )
 
 proc renderInnerShadows(ctx: Context, node: Fig) =
-  ## drawing poor man's inner shadows
+  ## drawing inner shadows with various techniques
   for shadow in node.shadows:
     if shadow.style != InnerShadow:
       continue
@@ -357,11 +366,9 @@ proc render(
   postRender()
 
 proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff].} =
-  # draw root for each level
-  # currLevel = zidx
+  ## draw roots for each level
   var img: (Hash, Image)
   while glyphImageChan.tryRecv(img):
-    # echo "img: ", img
     ctx.putImage(img[0], img[1])
 
   for zlvl, list in nodes.layers.pairs():
