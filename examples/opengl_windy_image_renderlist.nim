@@ -62,7 +62,7 @@ proc makeRenderTree*(w, h: float32): Renders =
   )
   list.rootIds = @[0.FigIdx]
 
-  discard list.addChild(0.FigIdx, Fig(
+  list.addChild(0.FigIdx, Fig(
     kind: nkRectangle,
     uid: 2.FigID,
     childCount: 0,
@@ -73,7 +73,7 @@ proc makeRenderTree*(w, h: float32): Renders =
     corners: [16.0'f32, 16.0, 16.0, 16.0],
   ))
 
-  discard list.addChild(0.FigIdx, Fig(
+  list.addChild(0.FigIdx, Fig(
     kind: nkImage,
     uid: 3.FigID,
     childCount: 0,
