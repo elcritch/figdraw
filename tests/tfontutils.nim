@@ -9,8 +9,8 @@ import figdraw/common/fonttypes
 proc resetFontState() =
   typefaceTable = initTable[TypefaceId, Typeface]()
   fontTable = initTable[FontId, pixie.Font]()
-  withLock imageCachedLock:
-    imageCached.clear()
+  #withLock imageCachedLock:
+  #  imageCached.clear()
 
 suite "fontutils":
   setup:
@@ -29,7 +29,7 @@ suite "fontutils":
   test "convertFont caches pixie font":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = getTypefaceImpl("Ubuntu.ttf", fontData, TTF)
-    let uiFont = UiFont(typefaceId: typefaceId, size: 20.0'ui,
+    let uiFont = UiFont(typefaceId: typefaceId, size: 20.0'f32,
         lineHeightScale: 0.75)
 
     let (fontId1, pf1) = uiFont.convertFont()
@@ -42,7 +42,7 @@ suite "fontutils":
   test "lineHeightScale affects computed lineHeight":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = getTypefaceImpl("Ubuntu.ttf", fontData, TTF)
-    let uiFont = UiFont(typefaceId: typefaceId, size: 32.0'ui,
+    let uiFont = UiFont(typefaceId: typefaceId, size: 32.0'f32,
         lineHeightScale: 0.5)
 
     let (_, pf) = uiFont.convertFont()
@@ -54,8 +54,8 @@ suite "fontutils":
   test "getTypesetImpl returns consistent hashes and generated glyph images":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = getTypefaceImpl("Ubuntu.ttf", fontData, TTF)
-    let uiFont = UiFont(typefaceId: typefaceId, size: 18.0'ui)
-    let box = initBox(0, 0, 240, 60)
+    let uiFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
+    let box = rect(0, 0, 240, 60)
     let spans = [(uiFont, "Hello world")]
 
     let arrangement = typeset(
@@ -72,10 +72,10 @@ suite "fontutils":
     check arrangement.fonts.len == spans.len
     check arrangement.runes.len == arrangement.positions.len
     check arrangement.runes.len == arrangement.selectionRects.len
-    check arrangement.maxSize.w >= arrangement.minSize.w
-    check arrangement.maxSize.h >= arrangement.minSize.h
-    check arrangement.bounding.w > 0'ui
-    check arrangement.bounding.h > 0'ui
+    check arrangement.maxSize.x >= arrangement.minSize.x
+    check arrangement.maxSize.y >= arrangement.minSize.y
+    check arrangement.bounding.w > 0'f32
+    check arrangement.bounding.h > 0'f32
 
     var foundNonWhitespace = false
     for glyph in arrangement.glyphs():

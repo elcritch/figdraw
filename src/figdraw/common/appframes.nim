@@ -1,3 +1,4 @@
+import bumpy, vmath
 
 type
   WindowInfo* = object
