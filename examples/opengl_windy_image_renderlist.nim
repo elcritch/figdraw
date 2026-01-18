@@ -50,19 +50,17 @@ proc makeRenderTree*(w, h: float32): Renders =
   var list = RenderList()
 
   let rootId = 1.FigID
-  list.nodes.add Fig(
+  let rootIdx = list.addRoot(Fig(
     kind: nkRectangle,
     uid: rootId,
-    parent: -1.FigID,
     childCount: 0,
     zlevel: 0.ZLevel,
     name: "root".toFigName(),
     screenBox: rect(0, 0, w, h),
     fill: rgba(30, 30, 30, 255).color,
-  )
-  list.rootIds = @[0.FigIdx]
+  ))
 
-  list.addChild(0.FigIdx, Fig(
+  list.addChild(rootIdx, Fig(
     kind: nkRectangle,
     uid: 2.FigID,
     childCount: 0,
@@ -73,7 +71,7 @@ proc makeRenderTree*(w, h: float32): Renders =
     corners: [16.0'f32, 16.0, 16.0, 16.0],
   ))
 
-  list.addChild(0.FigIdx, Fig(
+  list.addChild(rootIdx, Fig(
     kind: nkImage,
     uid: 3.FigID,
     childCount: 0,

@@ -62,7 +62,22 @@ proc `==`*(a, b: FigIdx): bool {.borrow.}
 proc `[]`*(r: Renders, lvl: ZLevel): RenderList =
   r.layers[lvl]
 
-proc addChild*(list: var RenderList, parentIdx: FigIdx, child: Fig): FigIdx {.discardable.} =
+proc addRoot*(list: var RenderList, root: Fig): FigIdx {.discardable.} =
+  ## Appends `root` to `list.nodes`, sets `root.parent = -1`, and adds the
+  ## node index to `list.rootIds`.
+  ##
+  ## Returns the root's index within `list.nodes`.
+  let newIdx = list.nodes.len
+  assert newIdx <= high(int16).int
+
+  var rootNode = root
+  rootNode.parent = -1.FigID
+  list.nodes.add rootNode
+  result = newIdx.FigIdx
+  list.rootIds.add result
+
+proc addChild*(list: var RenderList, parentIdx: FigIdx,
+    child: Fig): FigIdx {.discardable.} =
   ## Appends `child` to `list.nodes`, sets `child.parent` from `parentIdx`,
   ## and increments the parent's `childCount`.
   ##
