@@ -21,9 +21,6 @@ type
     parent*: FigIdx = (-1).FigIdx
     flags*: set[FigFlags]
 
-    offset*: Vec2
-    scroll*: Vec2
-
     screenBox*: Rect
 
     rotation*: float32

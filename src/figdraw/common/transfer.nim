@@ -40,8 +40,6 @@ proc toRenderFig*[N](current: N): Fig =
     result.name = current.name.toFigName()
 
   result.screenBox = current.screenBox.scaled
-  result.offset = current.offset.scaled
-  result.scroll = current.scroll.scaled
   result.flags = current.flags
 
   result.zlevel = current.zlevel
