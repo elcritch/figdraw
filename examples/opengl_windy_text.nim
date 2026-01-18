@@ -97,7 +97,7 @@ This example uses `src/figdraw/common/fontutils.nim` typesetting + glyph caching
 then renders glyph atlas sprites via the OpenGL renderer.
 """
 
-  let layout = getTypesetImpl(
+  let layout = typeset(
     initBox(0, 0, textRect.w, textRect.h),
     [(uiFont, text)],
     hAlign = Left,

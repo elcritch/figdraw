@@ -301,7 +301,7 @@ proc convertArrangement(
     selectionRects: selectionRects,
   )
 
-proc getTypesetImpl*(
+proc typeset*(
     box: Box,
     uiSpans: openArray[(UiFont, string)],
     hAlign = FontHorizontal.Left,
@@ -329,7 +329,8 @@ proc getTypesetImpl*(
     spans.add(newSpan(txt, pf))
     assert not pf.typeface.isNil
     # There's gotta be a better way. Need to lookup the font formulas or equations or something
-    # let lhAdj = max(pf.lineHeight - pf.size, 0.0)
+    #let lhAdj = pf.lineHeight
+    #let lhAdj = max(pf.lineHeight - pf.size, 0.0)
     let lhAdj = (pf.lineHeight - pf.size * pf.lineHeight / pf.defaultLineHeight()) / 2
     # echo "LH ADJ: ", lhAdj, " DEF_LH: ", pf.defaultLineHeight(),
     #       " SZ: ", pf.size, " LH: ", pf.lineHeight,
