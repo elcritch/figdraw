@@ -12,5 +12,4 @@ type
   AppFrame* = ref object
     windowInfo*: WindowInfo
     windowTitle*: string
-    saveWindowState*: bool
 

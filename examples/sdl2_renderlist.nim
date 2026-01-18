@@ -182,12 +182,9 @@ when isMainModule:
 
   var frame = AppFrame(
     windowTitle: "figdraw: SDL2 RenderList",
-    windowStyle: FrameStyle.DecoratedResizable,
-    configFile: getCurrentDir() / "examples" / "sdl2_renderlist",
-    saveWindowState: false,
   )
   frame.windowInfo = WindowInfo(
-    box: initBox(0, 0, 800, 600),
+    box: rect(0, 0, 800, 600),
     running: true,
     focused: true,
     minimized: false,

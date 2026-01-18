@@ -50,7 +50,6 @@ proc renderAndScreenshotOnce*(
 
   var frame = AppFrame(
     windowTitle: title,
-    saveWindowState: false,
   )
   frame.windowInfo = WindowInfo(
     box: rect(0, 0, windowW.float32, windowH.float32),
