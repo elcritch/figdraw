@@ -42,10 +42,6 @@ proc getId*(typeface: Typeface): TypefaceId =
 iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
   var idx = 0
 
-  # var mlh = 0.0 # maximum line height per row (though this does in total?)
-  # for f in arrangement.fonts:
-  #   mlh = max(f.lineHeight, mlh)
-
   block:
     for i, (span, gfont) in zip(arrangement.spans, arrangement.fonts):
       while idx < arrangement.runes.len():
@@ -66,7 +62,6 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
           lineHeight: gfont.lineHeight,
         )
 
-        # echo "GLYPH: ", rune, " pos: ", pos, " sel: ", selection, " lh: ", gfont.lineHeight, " mlh: ", flh, " : ", flh - gfont.lineHeight
         idx.inc()
         if idx notin span:
           break
@@ -81,8 +76,6 @@ proc generateGlyphImage(arrangement: GlyphArrangement) =
   ## Font Glyphs are generated with Bottom vAlign and Center hAlign
   ## this puts the glyphs in the right position
   ## so that the renderer doesn't need to figure out adjustments
-  #threadEffects:
-  #  AppMainThread
 
   for glyph in arrangement.glyphs():
     if unicode.isWhiteSpace(glyph.rune):
@@ -101,11 +94,11 @@ proc generateGlyphImage(arrangement: GlyphArrangement) =
           @[newSpan(text, font)],
           bounds = wh,
           hAlign = CenterAlign,
-          vAlign = BottomAlign,
+          vAlign = TopAlign,
           wrap = false,
         )
-      var snappedBounds = arrangement.computeBounds().snapToPixels()
-      # echo "GEN IMG: ", glyph.rune, " wh: ", wh, " snapped: ", snappedBounds
+      let
+        snappedBounds = arrangement.computeBounds().snapToPixels()
 
       let
         lh = font.defaultLineHeight()
@@ -117,7 +110,6 @@ proc generateGlyphImage(arrangement: GlyphArrangement) =
 
       try:
         font.paint = parseHex"FFFFFF"
-        # var m = translate(bounds.xy)
         var image = newImage(bounds.w.int, bounds.h.int)
         image.fillText(arrangement)
 
@@ -151,8 +143,6 @@ proc readTypefaceImpl(
 
 proc getTypefaceImpl*(name: string): FontId =
   ## loads a font from a file and adds it to the font index
-  #threadEffects:
-  #  AppMainThread
 
   let
     typefacePath = figDataDir() / name
@@ -167,8 +157,6 @@ proc getTypefaceImpl*(name: string): FontId =
 
 proc getTypefaceImpl*(name, data: string, kind: TypeFaceKinds): FontId =
   ## loads a font from buffer and adds it to the font index
-  threadEffects:
-    AppMainThread
 
   let
     typeface = readTypefaceImpl(name, data, kind)
@@ -180,8 +168,6 @@ proc getTypefaceImpl*(name, data: string, kind: TypeFaceKinds): FontId =
 proc convertFont*(font: UiFont): (FontId, Font) =
   ## does the typesetting using pixie, then converts to Figuro's internal
   ## types
-  threadEffects:
-    AppMainThread
 
   let
     id = font.getId()
@@ -253,9 +239,7 @@ proc calcMinMaxContent(
       longestWord = curr
       longestWordLen = currLen
 
-    # echo "RUNE: ", glyph.rune, " alpha: ", isWhiteSpace(glyph.rune), " idx: ", idx, " lw: ", longestWord, " curr: ", curr, "#", curr.len, " currLen: ", currLen, " x:", glyph.rect
     idx.inc()
-  # echo "LONGEST WORD: ", longestWord, " len: ", longestWordLen, " word cnt: ", words, " height: ", wordsHeight
 
   # find tallest font
   var maxLine = 0.0
@@ -283,7 +267,6 @@ proc convertArrangement(
     lines = newSeqOfCap[Slice[int]](arrangement.lines.len())
     spanSlices = newSeqOfCap[Slice[int]](arrangement.spans.len())
     selectionRects = newSeqOfCap[Rect](arrangement.selectionRects.len())
-    # a.mapIt(it[0]..it[1])
   for line in arrangement.lines:
     lines.add line[0] .. line[1]
   for span in arrangement.spans:
@@ -332,15 +315,9 @@ proc typeset*(
     #let lhAdj = pf.lineHeight
     #let lhAdj = max(pf.lineHeight - pf.size, 0.0)
     let lhAdj = (pf.lineHeight - pf.size * pf.lineHeight / pf.defaultLineHeight()) / 2
-    # echo "LH ADJ: ", lhAdj, " DEF_LH: ", pf.defaultLineHeight(),
-    #       " SZ: ", pf.size, " LH: ", pf.lineHeight,
-    #       " RATIO: ", pf.lineHeight / pf.defaultLineHeight()
     gfonts.add GlyphFont(
       fontId: uiFont.getId(), lineHeight: pf.lineHeight, descentAdj: lhAdj
     )
-
-    # font:  56.0  65.69
-    # font: 100.0  91.0
 
   var ha: HorizontalAlignment
   case hAlign
@@ -369,10 +346,8 @@ proc typeset*(
   result.maxSize = content.maxSize
   result.bounding = content.bounding
 
-  # debug "getTypesetImpl:", boxWh= box.wh, wh= wh, contentHash = getContentHash(box.wh, uiSpans, hAlign, vAlign),
-  #           minSize = result.minSize, maxSize = result.maxSize, bounding = result.bounding
-
   if minContent:
+    ## calcaulate min width of content
     var wh = wh
     wh.y = result.maxSize.h.scaled()
     let arr = pixie.typeset(
