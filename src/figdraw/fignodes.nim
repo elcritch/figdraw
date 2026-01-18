@@ -51,7 +51,7 @@ type
 proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"
 
-proc toFigName*(s: string): FigName = 
+proc toFigName*(s: string): FigName =
   toStackString(s[0..<min(s.len(), s.len())], FigStringCap)
 proc toFigName*(s: FigName): FigName = s
 
@@ -61,6 +61,26 @@ proc `==`*(a, b: FigIdx): bool {.borrow.}
 
 proc `[]`*(r: Renders, lvl: ZLevel): RenderList =
   r.layers[lvl]
+
+proc addChild*(list: var RenderList, parentIdx: FigIdx, child: Fig): FigIdx {.discardable.} =
+  ## Appends `child` to `list.nodes`, sets `child.parent` from `parentIdx`,
+  ## and increments the parent's `childCount`.
+  ##
+  ## Returns the child's index within `list.nodes`.
+  let pidx = parentIdx.int
+  assert pidx >= 0 and pidx < list.nodes.len
+
+  let newIdx = list.nodes.len
+  assert newIdx <= high(int16).int
+
+  if list.nodes[pidx].childCount == high(int8):
+    raise newException(ValueError, "RenderList parent childCount overflow")
+  inc list.nodes[pidx].childCount
+
+  var childNode = child
+  childNode.parent = list.nodes[pidx].uid
+  list.nodes.add childNode
+  result = newIdx.FigIdx
 
 template pairs*(r: Renders): auto =
   r.layers.pairs()
@@ -74,6 +94,8 @@ iterator childIndex*(nodes: seq[Fig], current: FigIdx): FigIdx =
   var idx = current.int
   var cnt = 0
   while cnt < childCnt:
+    if idx >= nodes.len:
+      break
     if nodes[idx.int].parent == id:
       cnt.inc()
       yield idx.FigIdx

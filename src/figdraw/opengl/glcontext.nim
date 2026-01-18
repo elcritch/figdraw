@@ -576,23 +576,38 @@ proc logImage(file: string) =
 proc getImageRect(ctx: Context, imageId: Hash): Rect =
   return ctx.entries[imageId]
 
+proc resolveAssetPath(filePath: string): string =
+  if filePath.len == 0:
+    return ""
+  if fileExists(filePath):
+    return filePath
+  let dataPath = figDataDir() / filePath
+  if fileExists(dataPath):
+    return dataPath
+  return filePath
+
 proc loadImage*(ctx: Context, filePath: string): Flippy =
 
   # Need to load imagePath, check to see if the .flippy file is around
-  logImage(filePath)
-  if not fileExists(filePath):
+  let resolvedPath = resolveAssetPath(filePath)
+  logImage(resolvedPath)
+  if not fileExists(resolvedPath):
     return Flippy()
-  let flippyFilePath = filePath.changeFileExt(".flippy")
+
+  if resolvedPath.endsWith(".flippy"):
+    return loadFlippy(resolvedPath)
+
+  let flippyFilePath = resolvedPath.changeFileExt(".flippy")
   if not fileExists(flippyFilePath):
     # No Flippy file generate new one
-    pngToFlippy(filePath, flippyFilePath)
+    pngToFlippy(resolvedPath, flippyFilePath)
   else:
     let
       mtFlippy = getLastModificationTime(flippyFilePath).toUnix
-      mtImage = getLastModificationTime(filePath).toUnix
+      mtImage = getLastModificationTime(resolvedPath).toUnix
     if mtFlippy < mtImage:
       # Flippy file too old, regenerate
-      pngToFlippy(filePath, flippyFilePath)
+      pngToFlippy(resolvedPath, flippyFilePath)
   result = loadFlippy(flippyFilePath)
 
 proc cacheImage*(ctx: Context, filePath: string, imageId: Hash): bool =

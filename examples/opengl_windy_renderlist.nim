@@ -4,7 +4,7 @@ import chroma
 when defined(useWindex):
   import windex
 else:
-  import windy
+  import figdraw/windyshim
 
 import figdraw/commons
 import figdraw/fignodes
@@ -91,7 +91,7 @@ proc makeRenderTree*(w, h: float32): Renders =
         spread: 10,
         x: 10,
         y: 10,
-        color: rgba(0,0,0,55).color,
+        color: rgba(0, 0, 0, 55).color,
     ),
     RenderShadow(),
     RenderShadow(),

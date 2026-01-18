@@ -2,7 +2,7 @@ import std/os
 import pkg/pixie
 import pkg/opengl
 
-import windy
+import figdraw/windyshim
 
 import figdraw/commons
 import figdraw/fignodes

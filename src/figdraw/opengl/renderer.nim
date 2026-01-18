@@ -311,6 +311,14 @@ proc renderBoxes(ctx: Context, node: Fig) =
         doStroke = true,
       )
 
+proc renderImage(ctx: Context, node: Fig) =
+  if node.image.id.int == 0:
+    return
+  let size = vec2(node.screenBox.w, node.screenBox.h)
+  if ctx.cacheImage($node.image.name, node.image.id.Hash):
+    ctx.drawImage(node.image.id.Hash, pos = node.screenBox.xy,
+        color = node.image.color, size = size)
+
 proc render(
     ctx: Context, nodes: seq[Fig], nodeIdx, parentIdx: FigIdx
 ) {.forbids: [AppMainThreadEff].} =
@@ -366,6 +374,8 @@ proc render(
       ctx.renderDrawable(node)
     elif node.kind == nkRectangle:
       ctx.renderBoxes(node)
+    elif node.kind == nkImage:
+      ctx.renderImage(node)
 
   ifrender node.kind == nkRectangle:
     when not defined(useFigDrawTextures):

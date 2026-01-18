@@ -1,4 +1,5 @@
-import std/[os, times, monotimes]
+import std/[os, times]
+import chroma
 
 when defined(useWindex):
   import windex
@@ -10,11 +11,7 @@ import figdraw/fignodes
 import figdraw/opengl/renderer as glrenderer
 import figdraw/utils/glutils
 
-import renderlist_100_common
-
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
-const NoSleep {.booldefine: "figdraw.noSleep".}: bool = true
-var globalFrame = 0
 
 proc setupWindow(frame: AppFrame, window: Window) =
   let style: WindowStyle = case frame.windowStyle
@@ -36,7 +33,7 @@ proc setupWindow(frame: AppFrame, window: Window) =
   window.`pos=`(winCfg.pos)
 
 proc newWindyWindow(frame: AppFrame): Window =
-  let window = newWindow("Figuro", ivec2(1280, 800), visible = false)
+  let window = newWindow("FigDraw", ivec2(1280, 800), visible = false)
   startOpenGL(openglVersion)
   setupWindow(frame, window)
   result = window
@@ -49,16 +46,62 @@ proc getWindowInfo(window: Window): WindowInfo =
   result.box.w = size.x.float32.descaled()
   result.box.h = size.y.float32.descaled()
 
+proc makeRenderTree*(w, h: float32): Renders =
+  var list = RenderList()
+
+  let rootId = 1.FigID
+  list.nodes.add Fig(
+    kind: nkRectangle,
+    uid: rootId,
+    parent: -1.FigID,
+    childCount: 0,
+    zlevel: 0.ZLevel,
+    name: "root".toFigName(),
+    screenBox: rect(0, 0, w, h),
+    fill: rgba(30, 30, 30, 255).color,
+  )
+  list.rootIds = @[0.FigIdx]
+
+  discard list.addChild(0.FigIdx, Fig(
+    kind: nkRectangle,
+    uid: 2.FigID,
+    childCount: 0,
+    zlevel: 0.ZLevel,
+    name: "img-bg".toFigName(),
+    screenBox: rect(40, 40, 320, 320),
+    fill: rgba(80, 80, 80, 255).color,
+    corners: [16.0'f32, 16.0, 16.0, 16.0],
+  ))
+
+  discard list.addChild(0.FigIdx, Fig(
+    kind: nkImage,
+    uid: 3.FigID,
+    childCount: 0,
+    zlevel: 0.ZLevel,
+    name: "img1".toFigName(),
+    screenBox: rect(60, 60, 280, 280),
+    image: ImageStyle(
+      name: "img1.png".toFigName(),
+      color: rgba(255, 255, 255, 255).color,
+      id: hash("img1.png").ImageId,
+    ),
+  ))
+
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  result.layers[0.ZLevel] = list
+
 when isMainModule:
+  setFigDataDir(getCurrentDir() / "data")
+
   app.running = true
   app.autoUiScale = false
   app.uiScale = 1.0
   app.pixelScale = 1.0
 
   var frame = AppFrame(
-    windowTitle: "figdraw: OpenGL + Windy RenderList",
+    windowTitle: "figdraw: OpenGL + Windy image",
     windowStyle: FrameStyle.DecoratedResizable,
-    configFile: getCurrentDir() / "examples" / "opengl_windy_renderlist",
+    configFile: getCurrentDir() / "examples" / "opengl_windy_image_renderlist",
     saveWindowState: false,
   )
   frame.windowInfo = WindowInfo(
@@ -76,27 +119,14 @@ when isMainModule:
   let window = newWindyWindow(frame)
 
   let renderer = glrenderer.newOpenGLRenderer(
-    atlasSize = when not defined(useFigDrawTextures): 192 else: 2048,
+    atlasSize = 2048,
     pixelScale = app.pixelScale,
   )
 
-  var makeRenderTreeMsSum = 0.0
-  var renderFrameMsSum = 0.0
-  var lastElementCount = 0
-
   proc redraw() =
     let winInfo = window.getWindowInfo()
-
-    let t0 = getMonoTime()
-    var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h),
-      globalFrame)
-    makeRenderTreeMsSum += float((getMonoTime() - t0).inMilliseconds)
-    lastElementCount = renders.layers[0.ZLevel].nodes.len
-
-    let t1 = getMonoTime()
+    var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
     renderer.renderFrame(renders, winInfo.box.wh.scaled())
-    renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
-
     window.swapBuffers()
 
   window.onCloseRequest = proc() =
@@ -110,28 +140,17 @@ when isMainModule:
       redraw()
 
       inc frames
-      inc globalFrame
       inc fpsFrames
       let now = epochTime()
       let elapsed = now - fpsStart
       if elapsed >= 1.0:
         let fps = fpsFrames.float / elapsed
-        let avgMake = makeRenderTreeMsSum / max(1, fpsFrames).float
-        let avgRender = renderFrameMsSum / max(1, fpsFrames).float
-        echo "fps: ", fps, " | elems: ", lastElementCount,
-          " | makeRenderTree avg(ms): ", avgMake, " | renderFrame avg(ms): ",
-          avgRender
+        echo "fps: ", fps
         fpsFrames = 0
         fpsStart = now
-        makeRenderTreeMsSum = 0.0
-        renderFrameMsSum = 0.0
-
-      when RunOnce:
-        if frames >= 1:
-          app.running = false
-
-      when not NoSleep:
-        if app.running:
-          sleep(16)
+      if RunOnce and frames >= 1:
+        app.running = false
+      else:
+        sleep(16)
   finally:
     window.close()
