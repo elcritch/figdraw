@@ -7,7 +7,10 @@ import common/transfer
 import common/appframes
 import common/wincfgs
 import common/fontutils
+import common/imgutils
 
 export shared, uimaths, inputs, keys, rchannels
 export transfer, appframes, wincfgs
 export fontutils
+export imgutils
+

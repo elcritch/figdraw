@@ -72,9 +72,8 @@ proc makeRenderTree*(w, h: float32): Renders =
     zlevel: 0.ZLevel,
     screenBox: rect(60, 60, 280, 280),
     image: ImageStyle(
-      name: "img1.png".toFigName(),
       color: rgba(255, 255, 255, 255).color,
-      id: hash("img1.png").ImageId,
+      id: imgId("img1.png"),
     ),
   ))
 
@@ -84,6 +83,9 @@ proc makeRenderTree*(w, h: float32): Renders =
 when isMainModule:
   setFigDataDir(getCurrentDir() / "data")
 
+  #name: "img1.png".toFigName(),
+  let imgId = loadImage("img1.png")
+  
   app.running = true
   app.autoUiScale = false
   app.uiScale = 1.0

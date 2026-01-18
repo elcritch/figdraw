@@ -5,6 +5,10 @@ const version = 1
 type Flippy* = object
   mipmaps*: seq[Image]
 
+proc copy*(image: Flippy): Flippy =
+  for mip in image.mipmaps:
+    result.mipmaps.add(mip.copy())
+  
 func width*(flippy: Flippy): int =
   flippy.mipmaps[0].width
 
@@ -160,3 +164,4 @@ proc outlineBorder*(image: Image, borderPx: int): Image =
           break
       if filled:
         result.unsafe[x, y] = rgba(255, 255, 255, 255)
+

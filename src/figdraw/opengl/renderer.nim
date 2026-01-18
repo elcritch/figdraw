@@ -278,10 +278,10 @@ proc renderImage(ctx: Context, node: Fig) =
   if node.image.id.int == 0:
     return
   let size = vec2(node.screenBox.w, node.screenBox.h)
-  if ctx.cacheImage($node.image.name, node.image.id.Hash):
-    ctx.drawImage(
-      node.image.id.Hash, pos = node.screenBox.xy, color = node.image.color, size = size
-    )
+  #if ctx.cacheImage($node.image.name, node.image.id.Hash):
+  ctx.drawImage(
+    node.image.id.Hash, pos = node.screenBox.xy, color = node.image.color, size = size
+  )
 
 proc render(
     ctx: Context, nodes: seq[Fig], nodeIdx, parentIdx: FigIdx
@@ -367,9 +367,10 @@ proc render(
 
 proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff].} =
   ## draw roots for each level
-  var img: (Hash, Image)
-  while glyphImageChan.tryRecv(img):
-    ctx.putImage(img[0], img[1])
+  var img: ImgObj
+  while imageChan.tryRecv(img):
+    debug "image loaded", id = $img.id.Hash
+    ctx.putImage(img)
 
   for zlvl, list in nodes.layers.pairs():
     for rootIdx in list.rootIds:

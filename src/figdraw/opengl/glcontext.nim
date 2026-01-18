@@ -1,6 +1,6 @@
 import
   buffers, chroma, pixie, hashes, opengl, os, shaders, strformat, strutils, tables,
-  textures, times, formatflippy
+  textures, times
 
 ## Copied from Fidget backend, copyright from @treeform applies
 
@@ -9,6 +9,7 @@ import pixie/simd
 import pkg/chronicles
 
 import ../commons
+import ../common/formatflippy
 import ../fignodes
 import ../utils/drawextras
 import ../utils/drawboxes
@@ -378,6 +379,14 @@ proc putFlippy*(ctx: Context, path: Hash, flippy: Flippy) =
     x = x div 2
     y = y div 2
 
+proc putImage*(ctx: Context, imgObj: ImgObj) =
+  ## puts an ImgObj wrapper with either a flippy or image format
+  case imgObj.kind:
+  of FlippyImg:
+    ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
+  of PixieImg:
+    ctx.putImage(imgObj.id.Hash, imgObj.pimg)
+
 proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
   ## Flips - draws current buffer and starts a new one.
   if ctx.quadCount == 0:
@@ -573,53 +582,8 @@ proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
 proc drawUvRect(ctx: Context, rect, uvRect: Rect, color: Color) =
   ctx.drawUvRect(rect.xy, rect.xy + rect.wh, uvRect.xy, uvRect.xy + uvRect.wh, color)
 
-proc logImage(file: string) =
-  debug "load image file", flippyPath = file
-
 proc getImageRect(ctx: Context, imageId: Hash): Rect =
   return ctx.entries[imageId]
-
-proc resolveAssetPath(filePath: string): string =
-  if filePath.len == 0:
-    return ""
-  if fileExists(filePath):
-    return filePath
-  let dataPath = figDataDir() / filePath
-  if fileExists(dataPath):
-    return dataPath
-  return filePath
-
-proc loadImage*(ctx: Context, filePath: string): Flippy =
-  # Need to load imagePath, check to see if the .flippy file is around
-  let resolvedPath = resolveAssetPath(filePath)
-  logImage(resolvedPath)
-  if not fileExists(resolvedPath):
-    return Flippy()
-
-  if resolvedPath.endsWith(".flippy"):
-    return loadFlippy(resolvedPath)
-
-  let flippyFilePath = resolvedPath.changeFileExt(".flippy")
-  if not fileExists(flippyFilePath):
-    # No Flippy file generate new one
-    pngToFlippy(resolvedPath, flippyFilePath)
-  else:
-    let
-      mtFlippy = getLastModificationTime(flippyFilePath).toUnix
-      mtImage = getLastModificationTime(resolvedPath).toUnix
-    if mtFlippy < mtImage:
-      # Flippy file too old, regenerate
-      pngToFlippy(resolvedPath, flippyFilePath)
-  result = loadFlippy(flippyFilePath)
-
-proc cacheImage*(ctx: Context, filePath: string, imageId: Hash): bool =
-  if imageId in ctx.entries:
-    return true
-  let image = ctx.loadImage(filePath)
-  if image.width == 0 or image.height == 0:
-    return false
-  ctx.putFlippy(imageId, image)
-  return true
 
 proc drawImage*(
     ctx: Context,

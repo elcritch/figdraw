@@ -3,8 +3,9 @@ import chroma, stack_strings
 
 import common/uimaths
 import common/fonttypes
+import common/imgutils
 
-export uimaths, fonttypes
+export uimaths, fonttypes, imgutils
 export options, chroma, stack_strings
 
 const
@@ -71,11 +72,7 @@ type
     weight*: float32
     color*: Color
 
-  ImageId* = distinct Hash
-
   ImageStyle* = object
-    name*: FigName
     color*: Color
     id*: ImageId
 
-proc `==`*(a, b: ImageId): bool {.borrow.}
