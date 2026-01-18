@@ -14,11 +14,6 @@ import figdraw/utils/glutils
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
 proc setupWindow(frame: AppFrame, window: Window) =
-  let style: WindowStyle = case frame.windowStyle
-    of FrameStyle.DecoratedResizable: WindowStyle.DecoratedResizable
-    of FrameStyle.DecoratedFixedSized: WindowStyle.Decorated
-    of FrameStyle.Undecorated: WindowStyle.Undecorated
-    of FrameStyle.Transparent: WindowStyle.Transparent
 
   if frame.windowInfo.fullscreen:
     window.fullscreen = frame.windowInfo.fullscreen
@@ -28,9 +23,8 @@ proc setupWindow(frame: AppFrame, window: Window) =
   window.visible = true
   window.makeContextCurrent()
 
-  let winCfg = frame.loadLastWindow()
-  window.`style=`(style)
-  window.`pos=`(winCfg.pos)
+  #let winCfg = frame.loadLastWindow()
+  #window.`pos=`(winCfg.pos)
 
 proc newWindyWindow(frame: AppFrame): Window =
   let window = newWindow("FigDraw", ivec2(1280, 800), visible = false)
