@@ -122,18 +122,15 @@ when isMainModule:
   app.pixelScale = 1.0
 
   let typefaceId = getTypefaceImpl("Ubuntu.ttf")
-  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'ui,
+  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32,
       lineHeightScale: 1.0)
   var fpsText = "0.0 FPS"
 
   var frame = AppFrame(
     windowTitle: "figdraw: SDL2 RenderList (100)",
-    windowStyle: FrameStyle.DecoratedResizable,
-    configFile: getCurrentDir() / "examples" / "sdl2_renderlist_100",
-    saveWindowState: false,
   )
   frame.windowInfo = WindowInfo(
-    box: initBox(0, 0, 800, 600),
+    box: rect(0, 0, 800, 600),
     running: true,
     focused: true,
     minimized: false,
@@ -190,7 +187,7 @@ when isMainModule:
     )
 
     let fpsLayout = typeset(
-      initBox(0, 0, hudTextRect.w, hudTextRect.h),
+      rect(0, 0, hudTextRect.w, hudTextRect.h),
       [(fpsFont, fpsText)],
       hAlign = Right,
       vAlign = Middle,
