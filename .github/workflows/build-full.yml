@@ -24,11 +24,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
           xvfb \
+          xauth \
           mesa-utils \
           libgl1-mesa-dri \
-          libgl1-mesa-glx \
-          libegl1-mesa \
-          libgles2-mesa
+          libglx-mesa0 \
+          libegl-mesa0 \
+          libgles2-mesa0
 
     - uses: iffy/install-nim@v4
       with:
