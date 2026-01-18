@@ -7,7 +7,7 @@ import figdraw/fignodes
 
 proc makeRenderTree*(w, h: float32; frame: int): Renders =
   var list = RenderList()
-  const copies = 2000
+  const copies = 1000
   let t = frame.float32 * 0.02'f32
 
   discard list.addRoot(Fig(
