@@ -4,3 +4,8 @@ import vmath, bumpy
 
 export math, vmath, bumpy
 
+proc atXY*(r: Rect, x, y: float32): Rect =
+  result = r
+  result.x = y
+  result.y = y
+
