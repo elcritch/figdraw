@@ -58,7 +58,7 @@ suite "fontutils":
     let box = initBox(0, 0, 240, 60)
     let spans = [(uiFont, "Hello world")]
 
-    let arrangement = getTypesetImpl(
+    let arrangement = typeset(
       box,
       spans,
       hAlign = Left,

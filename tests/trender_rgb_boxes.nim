@@ -95,7 +95,7 @@ suite "opengl rgb boxes render":
 
       let expectedPath = "tests" / "expected" / "render_rgb_boxes.png"
       check fileExists(expectedPath)
-      let expected = readImage(expectedPath)
+      let expected = pixie.readImage(expectedPath)
       let (diffScore, diffImg) = expected.diff(img)
       echo "Got image difference of: ", diffScore
       let diffThreshold = 200.0'f32

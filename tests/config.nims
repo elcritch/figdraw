@@ -1,2 +1,2 @@
 --path:"../src"
---define:figdraw.names
+switch("define", "figdraw.names=true")

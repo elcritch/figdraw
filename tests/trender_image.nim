@@ -29,7 +29,6 @@ proc makeRenderTree(w, h: float32): Renders =
     name: "img".toFigName(),
     screenBox: rect(60, 60, 160, 160),
     image: ImageStyle(
-      name: "img1.png".toFigName(),
       color: rgba(255, 255, 255, 255).color,
       id: hash("img1.png").ImageId,
     ),
@@ -56,7 +55,8 @@ suite "opengl image render":
   test "renders nkImage with texture":
     setFigDataDir(getCurrentDir() / "data")
 
-    let src = readImage(figDataDir() / "img1.png")
+    let imgId = loadImage("img1.png")
+    let src = pixie.readImage(figDataDir() / "img1.png")
     let sample = findMostOpaquePixel(src)
     require sample.a >= 200'u8
 
