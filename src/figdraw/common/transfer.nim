@@ -94,8 +94,7 @@ proc convert*[N](
 
   for child in current.children:
     if NfInactive in child.flags or
-        NfDead in child.flags or
-        Hidden in child.userAttrs:
+        NfDead in child.flags:
       continue
 
     let childParentIdx =

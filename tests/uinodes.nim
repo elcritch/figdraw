@@ -39,8 +39,6 @@ type
     prevSize*: Vec2
 
     flags*: set[FigFlags]
-    fieldSet*: set[FieldSetAttrs]
-    userAttrs*: set[Attributes]
 
     zlevel*: ZLevel
     rotation*: float32
