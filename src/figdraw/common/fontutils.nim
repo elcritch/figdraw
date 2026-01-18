@@ -116,7 +116,7 @@ proc generateGlyphImage(arrangement: GlyphArrangement) =
         continue
 
       try:
-        font.paint = parseHex"#FFFFFF"
+        font.paint = parseHex"FFFFFF"
         # var m = translate(bounds.xy)
         var image = newImage(bounds.w.int, bounds.h.int)
         image.fillText(arrangement)

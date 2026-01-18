@@ -103,7 +103,6 @@ proc loadImage*(filePath: string): ImageId =
   var imgObj = ImgObj(id: result, kind: FlippyImg, flippy: ensureMove flippy)
   sendImageCached(imgObj)
 
-proc loadImage*(id: ImageId, image: var Image) =
-  var imgObj = ImgObj(id: id, kind: PixieImg, pimg: ensureMove image)
+proc loadImage*(id: ImageId, image: Image) =
+  var imgObj = ImgObj(id: id, kind: PixieImg, pimg: image)
   sendImageCached(imgObj)
-
