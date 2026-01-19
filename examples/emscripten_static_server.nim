@@ -99,7 +99,7 @@ proc buildEmscriptenBundle(force: bool): bool =
 
   var args = @["buildWebGL"]
   if force:
-    args.add("--forceBuild:on")
+    args = @["-d:figdrawForceWebGLBuild", "buildWebGL"]
 
   let cmd = quoteShellCommand(@["nim"] & args)
   echo "Building emscripten bundle..."
