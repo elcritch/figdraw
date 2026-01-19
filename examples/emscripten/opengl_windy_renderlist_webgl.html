@@ -38,19 +38,19 @@
     <!--
 Build (requires Emscripten `emcc`):
 
-  nim c -d:emscripten -d:useOpenGlEs \\
-    --os:linux --cpu:wasm32 --cc:clang \\
-    --clang.exe:emcc --clang.linkerexe:emcc \\
-    --nimcache:.nimcache/emscripten_opengl_windy_renderlist_webgl \\
-    --passL:"-s USE_WEBGL2=1 -s MAX_WEBGL_VERSION=2 -s MIN_WEBGL_VERSION=1 -s FULL_ES3=1 -s GL_ENABLE_GET_PROC_ADDRESS=1 -s ALLOW_MEMORY_GROWTH" \\
-    -o:examples/emscripten/opengl_windy_renderlist_webgl.js \\
-    examples/opengl_windy_renderlist_webgl.nim
+  nim buildWebGL
 
 Run (serve over HTTP, don’t use file://):
 
+  # Option A: Nim static server (recommended, sets correct MIME + COOP/COEP):
+  nim r examples/emscripten_static_server.nim
+  # then open:
+  # http://127.0.0.1:8000/opengl_windy_renderlist_webgl.html
+
+  # Option B: Python (may not set COOP/COEP headers needed by some browsers):
   python3 -m http.server
   # then open:
-  # http://localhost:8000/examples/emscripten/opengl_windy_renderlist_webgl.html
+  # http://127.0.0.1:8000/examples/emscripten/opengl_windy_renderlist_webgl.html
     -->
 
     <script type="text/javascript">
