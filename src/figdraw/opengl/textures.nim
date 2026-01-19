@@ -30,7 +30,8 @@ type
     genMipmap*: bool
     textureId*: GLuint
 
-proc bindTextureBufferData*(texture: ptr Texture, buffer: ptr Buffer, data: pointer) =
+proc bindTextureBufferData*(texture: ptr Texture, buffer: ptr Buffer,
+    data: pointer) =
   bindBufferData(buffer, data)
 
   if texture.textureId == 0:
@@ -57,9 +58,11 @@ proc bindTextureData*(texture: ptr Texture, data: pointer) =
   )
 
   if texture.magFilter != magDefault:
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, texture.magFilter.GLint)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+        texture.magFilter.GLint)
   if texture.minFilter != minDefault:
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, texture.minFilter.GLint)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+        texture.minFilter.GLint)
   if texture.wrapS != wDefault:
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, texture.wrapS.GLint)
   if texture.wrapT != wDefault:
@@ -76,7 +79,11 @@ proc initTexture*(image: Image): Texture =
   result.height = image.height.GLint
   result.componentType = GL_UNSIGNED_BYTE
   result.format = image.getFormat()
-  result.internalFormat = GL_RGBA8
+  when defined(emscripten) or defined(useOpenGlEs):
+    # WebGL1 requires `internalFormat == format` for `texImage2D`.
+    result.internalFormat = GL_RGBA
+  else:
+    result.internalFormat = GL_RGBA8
   result.genMipmap = true
   result.minFilter = minLinearMipmapLinear
   result.magFilter = magLinear

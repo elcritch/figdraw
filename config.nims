@@ -10,9 +10,9 @@ task test, "run unit test":
   exec("nim r tests/trender_rgb_boxes_sdf.nim")
 
   exec("nim c examples/opengl_windy_renderlist.nim")
+  exec("nim c examples/opengl_windy_renderlist_webgl.nim")
   exec("nim c examples/opengl_windy_renderlist_100.nim")
   exec("nim c examples/opengl_windy_image_renderlist.nim")
   exec("nim c examples/opengl_windy_text.nim")
   exec("nim c examples/sdl2_renderlist.nim")
   exec("nim c examples/sdl2_renderlist_100.nim")
-

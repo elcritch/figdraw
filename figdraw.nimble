@@ -18,6 +18,9 @@ requires "variant"
 requires "patty"
 requires "supersnappy"
 
+feature "reference":
+  requires "https://github.com/yglukhov/nimx.git"
+
 feature "siwin":
   requires "siwin"
 
