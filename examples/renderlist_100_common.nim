@@ -30,7 +30,8 @@ proc makeRenderTree*(w, h: float32; frame: int): Renders =
   let maxH = 180.0'f32
   let maxX = max(0.0'f32, w - (greenStartX + maxW))
   let maxY = max(0.0'f32, h - (blueStartY + maxH))
-  var rng = initRand((w.int shl 16) xor h.int xor 12345)
+  #var rng = initRand((w.int shl 16) xor h.int xor 12345)
+  var rng = initRand(12345)
 
   for i in 0 ..< copies:
     let baseX = rand(rng, 0.0'f32 .. maxX)

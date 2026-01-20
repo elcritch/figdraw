@@ -81,6 +81,10 @@ when isMainModule:
   var lastElementCount = 0
 
   proc redraw() =
+    inc frames
+    inc globalFrame
+    inc fpsFrames
+
     let winInfo = window.getWindowInfo()
 
     let t0 = getMonoTime()
@@ -151,9 +155,6 @@ when isMainModule:
       pollEvents()
       redraw()
 
-      inc frames
-      inc globalFrame
-      inc fpsFrames
       let now = epochTime()
       let elapsed = now - fpsStart
       if elapsed >= 1.0:
