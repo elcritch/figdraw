@@ -1,0 +1,290 @@
+import std/[os, times, math]
+import chroma
+import pkg/opengl
+import pkg/vmath
+
+when defined(useWindex):
+  import windex
+else:
+  import figdraw/windyshim
+
+import figdraw/commons
+import figdraw/fignodes
+import figdraw/opengl/renderer as glrenderer
+import figdraw/opengl/shaders
+import figdraw/utils/glutils
+
+const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
+
+type PyramidGl = object
+  program: GLuint
+  vao: GLuint
+  vbo: GLuint
+  ebo: GLuint
+  mvpLoc: GLint
+  indexCount: GLsizei
+
+proc setupWindow(frame: AppFrame, window: Window) =
+  if frame.windowInfo.fullscreen:
+    window.fullscreen = frame.windowInfo.fullscreen
+  else:
+    window.size = ivec2(frame.windowInfo.box.wh.scaled())
+
+  window.visible = true
+  window.makeContextCurrent()
+
+proc newWindyWindow(frame: AppFrame): Window =
+  let window = newWindow("FigDraw", ivec2(1280, 800), visible = false)
+  startOpenGL(openglVersion)
+  setupWindow(frame, window)
+  result = window
+
+proc getWindowInfo(window: Window): WindowInfo =
+  app.requestedFrame.inc
+  result.minimized = window.minimized()
+  result.pixelRatio = window.contentScale()
+  let size = window.size()
+  result.box.w = size.x.float32.descaled()
+  result.box.h = size.y.float32.descaled()
+
+proc initPyramid(): PyramidGl =
+  let vertexSrc = """
+#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aColor;
+
+uniform mat4 uMvp;
+out vec3 vColor;
+
+void main() {
+  vColor = aColor;
+  gl_Position = uMvp * vec4(aPos, 1.0);
+}
+"""
+
+  let fragmentSrc = """
+#version 330 core
+in vec3 vColor;
+out vec4 FragColor;
+
+void main() {
+  FragColor = vec4(vColor, 1.0);
+}
+"""
+
+  result.program =
+    compileShaderFiles(("pyramid.vert", vertexSrc), ("pyramid.frag", fragmentSrc))
+  result.mvpLoc = glGetUniformLocation(result.program, "uMvp")
+
+  let vertices: array[30, float32] = [
+    -0.5, 0.0, -0.5, 1.0, 0.2, 0.2,
+     0.5, 0.0, -0.5, 0.2, 1.0, 0.2,
+     0.5, 0.0, 0.5, 0.2, 0.2, 1.0,
+    -0.5, 0.0, 0.5, 1.0, 1.0, 0.2,
+     0.0, 0.8, 0.0, 1.0, 0.2, 1.0,
+  ]
+
+  let indices: array[18, uint16] = [
+    0'u16, 1'u16, 4'u16,
+    1'u16, 2'u16, 4'u16,
+    2'u16, 3'u16, 4'u16,
+    3'u16, 0'u16, 4'u16,
+    0'u16, 1'u16, 2'u16,
+    2'u16, 3'u16, 0'u16,
+  ]
+
+  result.indexCount = indices.len.GLsizei
+
+  glGenVertexArrays(1, result.vao.addr)
+  glGenBuffers(1, result.vbo.addr)
+  glGenBuffers(1, result.ebo.addr)
+
+  glBindVertexArray(result.vao)
+
+  glBindBuffer(GL_ARRAY_BUFFER, result.vbo)
+  glBufferData(
+    GL_ARRAY_BUFFER,
+    sizeof(vertices),
+    vertices[0].addr,
+    GL_STATIC_DRAW
+  )
+
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, result.ebo)
+  glBufferData(
+    GL_ELEMENT_ARRAY_BUFFER,
+    sizeof(indices),
+    indices[0].addr,
+    GL_STATIC_DRAW
+  )
+
+  let stride = (6 * sizeof(float32)).GLsizei
+  glVertexAttribPointer(0, 3, cGL_FLOAT, GL_FALSE, stride, cast[pointer](0))
+  glEnableVertexAttribArray(0)
+
+  glVertexAttribPointer(
+    1,
+    3,
+    cGL_FLOAT,
+    GL_FALSE,
+    stride,
+    cast[pointer](3 * sizeof(float32))
+  )
+  glEnableVertexAttribArray(1)
+
+  glBindVertexArray(0)
+
+proc destroyPyramid(pyramid: PyramidGl) =
+  if pyramid.program != 0:
+    glDeleteProgram(pyramid.program)
+
+  var vao = pyramid.vao
+  if vao != 0:
+    glDeleteVertexArrays(1, vao.addr)
+
+  var vbo = pyramid.vbo
+  if vbo != 0:
+    glDeleteBuffers(1, vbo.addr)
+
+  var ebo = pyramid.ebo
+  if ebo != 0:
+    glDeleteBuffers(1, ebo.addr)
+
+proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, t: float32) =
+  glViewport(0, 0, frameSize.x.GLint, frameSize.y.GLint)
+  let aspect =
+    if frameSize.y > 0: frameSize.x / frameSize.y else: 1.0'f32
+  let proj = perspective(degToRad(45.0'f32), aspect, 0.1'f32, 100.0'f32)
+  let view = lookAt(
+    vec3(1.6'f32, 1.1'f32, 2.2'f32),
+    vec3(0.0'f32, 0.25'f32, 0.0'f32),
+    vec3(0.0'f32, 1.0'f32, 0.0'f32)
+  )
+  let model = rotateY(t * 0.9'f32) * rotateX(-0.4'f32)
+  var mvp = model * view * proj
+
+  glUseProgram(pyramid.program)
+  glUniformMatrix4fv(
+    pyramid.mvpLoc,
+    1,
+    GL_FALSE,
+    cast[ptr GLfloat](mvp.addr)
+  )
+  glBindVertexArray(pyramid.vao)
+  glDrawElements(GL_TRIANGLES, pyramid.indexCount, GL_UNSIGNED_SHORT, nil)
+  glBindVertexArray(0)
+  glUseProgram(0)
+
+proc makeOverlay*(w, h: float32): Renders =
+  var list = RenderList()
+
+  let rootIdx = list.addRoot(Fig(
+    kind: nkRectangle,
+    childCount: 0,
+    zlevel: 0.ZLevel,
+    screenBox: rect(0, 0, w, h),
+    fill: rgba(0, 0, 0, 0).color,
+  ))
+
+  let pad = 24'f32
+  let panelW = min(320'f32, w * 0.4'f32)
+  let panelRect = rect(w - panelW - pad, pad, panelW, h - pad * 2)
+  let panelShadow = RenderShadow(
+    style: DropShadow,
+    blur: 18,
+    spread: 0,
+    x: 0,
+    y: 10,
+    color: rgba(0, 0, 0, 60).color,
+  )
+
+  let panelIdx = list.addChild(rootIdx, Fig(
+    kind: nkRectangle,
+    childCount: 0,
+    zlevel: 0.ZLevel,
+    screenBox: panelRect,
+    fill: rgba(20, 22, 32, 220).color,
+    stroke: RenderStroke(weight: 1.5, color: rgba(255, 255, 255, 40).color),
+    corners: [12.0'f32, 12.0, 12.0, 12.0],
+    shadows: [panelShadow, RenderShadow(), RenderShadow(), RenderShadow()],
+  ))
+
+  let buttonPad = 18'f32
+  let buttonW = panelRect.w - buttonPad * 2
+  var buttonY = panelRect.y + buttonPad
+
+  for i in 0 .. 3:
+    let btnRect = rect(panelRect.x + buttonPad, buttonY, buttonW, 34'f32)
+    discard list.addChild(panelIdx, Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: btnRect,
+      fill: rgba(uint8(40 + i * 8), 90'u8, 160'u8, 200'u8).color,
+      corners: [8.0'f32, 8.0, 8.0, 8.0],
+    ))
+    buttonY += 46'f32
+
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  result.layers[0.ZLevel] = list
+
+when isMainModule:
+  app.running = true
+  app.autoUiScale = false
+  app.uiScale = 1.0
+  app.pixelScale = 1.0
+
+  var frame = AppFrame(
+    windowTitle: "figdraw: OpenGL 3D + overlay",
+  )
+  frame.windowInfo = WindowInfo(
+    box: rect(0, 0, 960, 640),
+    running: true,
+    focused: true,
+    minimized: false,
+    fullscreen: false,
+    pixelRatio: 1.0,
+  )
+
+  let window = newWindyWindow(frame)
+  let renderer = glrenderer.newOpenGLRenderer(
+    atlasSize = 192,
+    pixelScale = app.pixelScale,
+  )
+  let pyramid = initPyramid()
+
+  var lastSize = vec2(0.0'f32, 0.0'f32)
+  var renders = makeOverlay(frame.windowInfo.box.w, frame.windowInfo.box.h)
+  let startTime = epochTime()
+
+  proc redraw() =
+    let winInfo = window.getWindowInfo()
+    let frameSize = winInfo.box.wh.scaled()
+    if frameSize != lastSize:
+      renders = makeOverlay(winInfo.box.w, winInfo.box.h)
+      lastSize = frameSize
+
+    useDepthBuffer(true)
+    glClearColor(0.08, 0.1, 0.14, 1.0)
+    glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
+    drawPyramid(pyramid, frameSize, (epochTime() - startTime).float32)
+
+    useDepthBuffer(false)
+    renderer.renderOverlayFrame(renders, frameSize)
+    window.swapBuffers()
+
+  window.onCloseRequest = proc() =
+    app.running = false
+  window.onResize = proc() =
+    redraw()
+
+  try:
+    while app.running:
+      pollEvents()
+      redraw()
+      if RunOnce:
+        app.running = false
+      else:
+        sleep(16)
+  finally:
+    destroyPyramid(pyramid)
+    window.close()
