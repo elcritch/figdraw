@@ -28,6 +28,11 @@ type
     x: float32
     y: float32
     z: float32
+  Vec4f = object
+    x: float32
+    y: float32
+    z: float32
+    w: float32
   Mat4 = array[16, float32] # Column-major for OpenGL uniforms.
 
 proc v3(x, y, z: float32): Vec3f =
@@ -46,6 +51,9 @@ proc v3Cross(a, b: Vec3f): Vec3f =
     a.x * b.y - a.y * b.x,
   )
 
+proc v4(x, y, z, w: float32): Vec4f =
+  Vec4f(x: x, y: y, z: z, w: w)
+
 proc v3Normalize(v: Vec3f): Vec3f =
   let len = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
   if len <= 0.0'f32:
@@ -61,6 +69,18 @@ proc mat4Mul(a, b: Mat4): Mat4 =
         a[1 * 4 + row] * b[col * 4 + 1] +
         a[2 * 4 + row] * b[col * 4 + 2] +
         a[3 * 4 + row] * b[col * 4 + 3]
+
+proc mat4MulVec4(m: Mat4, v: Vec4f): Vec4f =
+  result.x = m[0] * v.x + m[4] * v.y + m[8] * v.z + m[12] * v.w
+  result.y = m[1] * v.x + m[5] * v.y + m[9] * v.z + m[13] * v.w
+  result.z = m[2] * v.x + m[6] * v.y + m[10] * v.z + m[14] * v.w
+  result.w = m[3] * v.x + m[7] * v.y + m[11] * v.z + m[15] * v.w
+
+proc vec4ToNdc(v: Vec4f): Vec3f =
+  if v.w == 0.0'f32:
+    return v3(0.0'f32, 0.0'f32, 0.0'f32)
+  let inv = 1.0'f32 / v.w
+  v3(v.x * inv, v.y * inv, v.z * inv)
 
 proc mat4Perspective(fovyDeg, aspect, zNear, zFar: float32): Mat4 =
   let fovyRad = fovyDeg * (PI.float32 / 180.0'f32)
@@ -110,6 +130,9 @@ proc mat4RotateY(angle: float32): Mat4 =
   result[10] = c
   result[15] = 1.0'f32
 
+proc pyramidModelMatrix(t: float32): Mat4 =
+  mat4Mul(mat4RotateY(t * 0.9'f32), mat4RotateX(-0.4'f32))
+
 proc cameraEye(): Vec3f =
   v3(1.6'f32, 1.1'f32, 2.2'f32)
 
@@ -124,12 +147,52 @@ proc projectionMatrix(frameSize: Vec2): Mat4 =
     if frameSize.y > 0: frameSize.x / frameSize.y else: 1.0'f32
   mat4Perspective(45.0'f32, aspect, 0.1'f32, 100.0'f32)
 
-proc matrixRowText(matrix: Mat4, row: int): string =
-  let c0 = matrix[0 * 4 + row]
-  let c1 = matrix[1 * 4 + row]
-  let c2 = matrix[2 * 4 + row]
-  let c3 = matrix[3 * 4 + row]
-  result = fmt"{c0:>8.3f} {c1:>8.3f} {c2:>8.3f} {c3:>8.3f}"
+proc formatVec3(label: string, v: Vec3f): string =
+  result = fmt"{label} {v.x:>7.3f} {v.y:>7.3f} {v.z:>7.3f}"
+
+const PyramidVertexStride = 6
+const PyramidVertices: array[30, float32] = [
+  -0.5, 0.0, -0.5, 1.0, 0.2, 0.2,
+  0.5, 0.0, -0.5, 0.2, 1.0, 0.2,
+  0.5, 0.0, 0.5, 0.2, 0.2, 1.0,
+  -0.5, 0.0, 0.5, 1.0, 1.0, 0.2,
+  0.0, 0.8, 0.0, 1.0, 0.2, 1.0,
+]
+const PyramidIndices: array[18, uint16] = [
+  0'u16, 1'u16, 4'u16,
+  1'u16, 2'u16, 4'u16,
+  2'u16, 3'u16, 4'u16,
+  3'u16, 0'u16, 4'u16,
+  0'u16, 1'u16, 2'u16,
+  2'u16, 3'u16, 0'u16,
+]
+
+proc pyramidPosition(index: int): Vec3f =
+  let base = index * PyramidVertexStride
+  v3(PyramidVertices[base], PyramidVertices[base + 1], PyramidVertices[base + 2])
+
+proc triangleInfoRows(mvp: Mat4, triIndex: int): array[4, string] =
+  let base = triIndex * 3
+  let idx0 = PyramidIndices[base + 0].int
+  let idx1 = PyramidIndices[base + 1].int
+  let idx2 = PyramidIndices[base + 2].int
+
+  let v0 = pyramidPosition(idx0)
+  let v1 = pyramidPosition(idx1)
+  let v2 = pyramidPosition(idx2)
+  let ndc0 = vec4ToNdc(mat4MulVec4(mvp, v4(v0.x, v0.y, v0.z, 1.0'f32)))
+  let ndc1 = vec4ToNdc(mat4MulVec4(mvp, v4(v1.x, v1.y, v1.z, 1.0'f32)))
+  let ndc2 = vec4ToNdc(mat4MulVec4(mvp, v4(v2.x, v2.y, v2.z, 1.0'f32)))
+  let centroid = v3(
+    (ndc0.x + ndc1.x + ndc2.x) / 3.0'f32,
+    (ndc0.y + ndc1.y + ndc2.y) / 3.0'f32,
+    (ndc0.z + ndc1.z + ndc2.z) / 3.0'f32,
+  )
+
+  result[0] = formatVec3("v0", ndc0)
+  result[1] = formatVec3("v1", ndc1)
+  result[2] = formatVec3("v2", ndc2)
+  result[3] = formatVec3("ctr", centroid)
 
 proc compileShader(shaderType: GLenum, source, label: string): GLuint =
   var shaderArray = allocCStringArray([source])
@@ -237,24 +300,7 @@ void main() {
   result.program = buildProgram(vertexSrc, fragmentSrc)
   result.mvpLoc = glGetUniformLocation(result.program, "uMvp")
 
-  let vertices: array[30, float32] = [
-    -0.5, 0.0, -0.5, 1.0, 0.2, 0.2,
-     0.5, 0.0, -0.5, 0.2, 1.0, 0.2,
-     0.5, 0.0, 0.5, 0.2, 0.2, 1.0,
-    -0.5, 0.0, 0.5, 1.0, 1.0, 0.2,
-     0.0, 0.8, 0.0, 1.0, 0.2, 1.0,
-  ]
-
-  let indices: array[18, uint16] = [
-    0'u16, 1'u16, 4'u16,
-    1'u16, 2'u16, 4'u16,
-    2'u16, 3'u16, 4'u16,
-    3'u16, 0'u16, 4'u16,
-    0'u16, 1'u16, 2'u16,
-    2'u16, 3'u16, 0'u16,
-  ]
-
-  result.indexCount = indices.len.GLsizei
+  result.indexCount = PyramidIndices.len.GLsizei
 
   glGenVertexArrays(1, result.vao.addr)
   glGenBuffers(1, result.vbo.addr)
@@ -265,16 +311,16 @@ void main() {
   glBindBuffer(GL_ARRAY_BUFFER, result.vbo)
   glBufferData(
     GL_ARRAY_BUFFER,
-    sizeof(vertices),
-    vertices[0].addr,
+    sizeof(PyramidVertices),
+    PyramidVertices[0].addr,
     GL_STATIC_DRAW
   )
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, result.ebo)
   glBufferData(
     GL_ELEMENT_ARRAY_BUFFER,
-    sizeof(indices),
-    indices[0].addr,
+    sizeof(PyramidIndices),
+    PyramidIndices[0].addr,
     GL_STATIC_DRAW
   )
 
@@ -310,11 +356,8 @@ proc destroyPyramid(pyramid: PyramidGl) =
   if ebo != 0:
     glDeleteBuffers(1, ebo.addr)
 
-proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, proj: Mat4, t: float32) =
+proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, mvp: Mat4) =
   glViewport(0, 0, frameSize.x.GLint, frameSize.y.GLint)
-  let view = viewMatrix()
-  let model = mat4Mul(mat4RotateY(t * 0.9'f32), mat4RotateX(-0.4'f32))
-  let mvp = mat4Mul(proj, mat4Mul(view, model))
 
   glUseProgram(pyramid.program)
   glUniformMatrix4fv(
@@ -328,7 +371,11 @@ proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, proj: Mat4, t: float32) =
   glBindVertexArray(0)
   glUseProgram(0)
 
-proc makeOverlay*(w, h: float32, projView: Mat4, monoFont: UiFont): Renders =
+proc makeOverlay*(
+    w, h: float32,
+    rows: array[4, string],
+    monoFont: UiFont,
+): Renders =
   var list = RenderList()
 
   let rootIdx = list.addRoot(Fig(
@@ -386,7 +433,7 @@ proc makeOverlay*(w, h: float32, projView: Mat4, monoFont: UiFont): Renders =
     )
     let rowLayout = typeset(
       rect(0, 0, textRect.w, textRect.h),
-      [(monoFont, matrixRowText(projView, i))],
+      [(monoFont, rows[i])],
       hAlign = Left,
       vAlign = Middle,
       minContent = false,
@@ -436,31 +483,22 @@ when isMainModule:
   )
   let pyramid = initPyramid()
 
-  var lastSize = vec2(0.0'f32, 0.0'f32)
-  var renders = makeOverlay(
-    frame.windowInfo.box.w,
-    frame.windowInfo.box.h,
-    mat4Mul(
-      projectionMatrix(frame.windowInfo.box.wh),
-      viewMatrix(),
-    ),
-    monoFont,
-  )
   let startTime = epochTime()
 
   proc redraw() =
     let winInfo = window.getWindowInfo()
     let frameSize = winInfo.box.wh.scaled()
     let proj = projectionMatrix(frameSize)
-    let projView = mat4Mul(proj, viewMatrix())
-    if frameSize != lastSize:
-      renders = makeOverlay(winInfo.box.w, winInfo.box.h, projView, monoFont)
-      lastSize = frameSize
+    let view = viewMatrix()
+    let model = pyramidModelMatrix((epochTime() - startTime).float32)
+    let mvp = mat4Mul(proj, mat4Mul(view, model))
+    let rows = triangleInfoRows(mvp, 0)
+    var renders = makeOverlay(winInfo.box.w, winInfo.box.h, rows, monoFont)
 
     useDepthBuffer(true)
     glClearColor(0.08, 0.1, 0.14, 1.0)
     glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
-    drawPyramid(pyramid, frameSize, proj, (epochTime() - startTime).float32)
+    drawPyramid(pyramid, frameSize, mvp)
 
     useDepthBuffer(false)
     renderer.renderOverlayFrame(renders, frameSize)
