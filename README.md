@@ -9,6 +9,8 @@
 
 ![RGB boxes render](tests/expected/render_rgb_boxes_sdf.png)
 
+Video:
+
 <video src="data/Demo%20Rendering%20300%20boxes%20with%20shadows.mp4" controls width="720"></video>
 
 ## Status
