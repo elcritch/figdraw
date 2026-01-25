@@ -5,7 +5,9 @@
 
 - A thread-safe renderer pipeline (render tree construction and preparation can be done off the main thread; OpenGL submission stays on the GL thread).
 - An OpenGL backend with SDF (signed-distance-field) primitives for crisp rounded-rect rendering and gaussian based shadows.
-- Font and text support with layout and thread-safe primitives.
+- Font and text support with layout using Pixie and thread-safe primitives.
+- Image rendering using an OpenGL Atlas.
+- Lightweight and high performance by design! Low allocations for each frame.
 
 ![RGB boxes render](tests/expected/render_rgb_boxes_sdf.png)
 
@@ -19,7 +21,7 @@ This repo is still under development but the core support for SDF is running!
 OpenGL backend is the only supported renderer right now
 (`src/figdraw/opengl/`). However there's some work toward supporting Vulkan.
 
-Future directions may include adding support for SDF fields for text rendering using Valve's SDF mapping technique. Other directions in that area would be supporting vector images rasterized to SDF fields as well. 
+Future directions may include adding support for SDF textures for text rendering using Valve's SDF-text mapping technique. Other directions in that area would be supporting vector images rasterized to SDF textures as well. 
 
 The next big item is hopefully setting up some examples of doing WebGL version with Windy.
 
