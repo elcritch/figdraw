@@ -37,6 +37,48 @@ proc getWindowInfo(window: Window): WindowInfo =
   result.box.w = size.x.float32.descaled()
   result.box.h = size.y.float32.descaled()
 
+proc buildBodyTextLayout*(uiFont: UiFont, textRect: Rect): GlyphArrangement =
+  let text = """
+FigDraw text demo
+
+This example uses `src/figdraw/common/fontutils.nim` typesetting + glyph caching,
+then renders glyph atlas sprites via the OpenGL renderer.
+"""
+
+  result = typeset(
+    rect(0, 0, textRect.w, textRect.h),
+    [(uiFont, text)],
+    hAlign = Left,
+    vAlign = Top,
+    minContent = false,
+    wrap = true,
+  )
+
+proc buildMonoGlyphLayout*(
+    monoFont: UiFont,
+    monoText: string,
+    pad: float32,
+): GlyphArrangement =
+  let (_, monoPx) = monoFont.convertFont()
+  let monoLineHeight =
+    (if monoPx.lineHeight >= 0: monoPx.lineHeight else: monoPx.defaultLineHeight())
+      .descaled()
+  let monoAdvance =
+    (monoPx.typeface.getAdvance(Rune('M')) * monoPx.scale).descaled()
+
+  var glyphs: seq[(Rune, Vec2)]
+  var x = pad
+  var y = pad
+  for rune in monoText.runes:
+    if rune == Rune(10):
+      x = pad
+      y += monoLineHeight
+      continue
+    glyphs.add((rune, vec2(x, y)))
+    x += monoAdvance
+
+  result = placeGlyphs(monoFont, glyphs, origin = GlyphTopLeft)
+
 proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
   var list = RenderList()
 
@@ -86,8 +128,6 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
   let monoLineHeight =
     (if monoPx.lineHeight >= 0: monoPx.lineHeight else: monoPx.defaultLineHeight())
       .descaled()
-  let monoAdvance =
-    (monoPx.typeface.getAdvance(Rune('M')) * monoPx.scale).descaled()
   let monoPad = 8'f32
   var monoLines = 1
   for rune in monoText.runes:
@@ -108,21 +148,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
     monoHeight,
   )
 
-  let text = """
-FigDraw text demo
-
-This example uses `src/figdraw/common/fontutils.nim` typesetting + glyph caching,
-then renders glyph atlas sprites via the OpenGL renderer.
-"""
-
-  let layout = typeset(
-    rect(0, 0, textRect.w, textRect.h),
-    [(uiFont, text)],
-    hAlign = Left,
-    vAlign = Top,
-    minContent = false,
-    wrap = true,
-  )
+  let layout = buildBodyTextLayout(uiFont, textRect)
 
   discard list.addChild(cardIdx, Fig(
     kind: nkText,
@@ -133,18 +159,7 @@ then renders glyph atlas sprites via the OpenGL renderer.
     textLayout: layout,
   ))
 
-  var glyphs: seq[(Rune, Vec2)]
-  var x = monoPad
-  var y = monoPad
-  for rune in monoText.runes:
-    if rune == Rune(10):
-      x = monoPad
-      y += monoLineHeight
-      continue
-    glyphs.add((rune, vec2(x, y)))
-    x += monoAdvance
-
-  let monoLayout = placeGlyphs(monoFont, glyphs, origin = GlyphTopLeft)
+  let monoLayout = buildMonoGlyphLayout(monoFont, monoText, monoPad)
   discard list.addChild(cardIdx, Fig(
     kind: nkText,
     childCount: 0,
@@ -187,6 +202,7 @@ when isMainModule:
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
+  var needsRedraw = true
   let window = newWindyWindow(frame)
 
   let renderer = glrenderer.newOpenGLRenderer(
@@ -213,20 +229,21 @@ when isMainModule:
   try:
     while app.running:
       pollEvents()
-      redraw()
+      if needsRedraw:
+        redraw()
+        needsRedraw = false
 
-      inc frames
-      inc fpsFrames
-      let now = epochTime()
-      let elapsed = now - fpsStart
-      if elapsed >= 1.0:
-        let fps = fpsFrames.float / elapsed
-        echo "fps: ", fps
-        fpsFrames = 0
-        fpsStart = now
-      if RunOnce and frames >= 1:
-        app.running = false
-      else:
-        sleep(16)
+        inc frames
+        inc fpsFrames
+        let now = epochTime()
+        let elapsed = now - fpsStart
+        if elapsed >= 1.0:
+          let fps = fpsFrames.float / elapsed
+          echo "fps: ", fps
+          fpsFrames = 0
+          fpsStart = now
+        if RunOnce and frames >= 1:
+          app.running = false
+      sleep(16)
   finally:
     window.close()
