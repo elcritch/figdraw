@@ -15,23 +15,22 @@ https://github.com/user-attachments/assets/aca4783c-86c6-4e52-9a16-0a8556ad1300
 
 ## Status
 
-This repo is actively evolving and the public API is still in flux. The
+This repo is still under development but the core support for SDF is running! 
 OpenGL backend is the only supported renderer right now
-(`src/figdraw/opengl/`).
+(`src/figdraw/opengl/`). However there's some work toward supporting Vulkan.
 
-Expect breaking changes and lean on the examples/tests for the most current
-usage patterns.
+Future directions may include adding support for SDF fields for text rendering using Valve's SDF mapping technique. Other directions in that area would be supporting vector images rasterized to SDF fields as well. 
+
+The next big item is hopefully setting up some examples of doing WebGL version with Windy.
 
 ## Requirements
 
 - Nim `>= 2.0.10` (ARC/ORC-based memory managers; required by `src/figdraw/common/rchannels.nim`)
 - OpenGL (desktop GL by default; GLES/emscripten shader paths via `-d:useOpenGlEs` and/or `-d:emscripten`)
-- Dependencies are managed by Atlas (see `nim.cfg` and `deps/`); Nimble is not supported
 
 ## Quick Start
 
-Dependencies are managed via Atlas. Atlas generates `nim.cfg` and populates
-`deps/`.
+This part assumes a recent Atlas (>= 0.9.6) version:
 
 ```sh
 # Try the repo:
@@ -46,6 +45,10 @@ nim c -r examples/opengl_windy_renderlist.nim
 ```sh
 # Use as a dependency (in your own project):
 atlas use https://github.com/elcritch/figdraw
+```
+
+Alternatively Nimble should work as well:
+```sh
 nimble install https://github.com/elcritch/figdraw
 ```
 
