@@ -7,7 +7,9 @@
 - An OpenGL backend with SDF (signed-distance-field) primitives for crisp rounded-rect rendering and gaussian based shadows.
 - Font and text support with layout and thread-safe primitives.
 
-![RGB boxes render](tests/expected/render_rgb_boxes.png)
+![RGB boxes render](tests/expected/render_rgb_boxes_sdf.png)
+
+<video src="data/Demo%20Rendering%20300%20boxes%20with%20shadows.mp4" controls width="720"></video>
 
 ## Status
 

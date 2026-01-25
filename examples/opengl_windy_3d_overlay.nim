@@ -420,6 +420,14 @@ proc makeOverlay*(
 
   for i, row in rows:
     let btnRect = rect(panelRect.x + buttonPad, buttonY, buttonW, rowHeight)
+    let rowShadow = RenderShadow(
+      style: DropShadow,
+      blur: 6,
+      spread: 0,
+      x: 0,
+      y: 1,
+      color: rgba(255, 255, 255, 36).color,
+    )
     discard list.addChild(panelIdx, Fig(
       kind: nkRectangle,
       childCount: 0,
@@ -427,6 +435,7 @@ proc makeOverlay*(
       screenBox: btnRect,
       fill: rgba(uint8(40 + i * 8), 90'u8, 160'u8, 200'u8).color,
       corners: [8.0'f32, 8.0, 8.0, 8.0],
+      shadows: [rowShadow, RenderShadow(), RenderShadow(), RenderShadow()],
     ))
     let textRect = rect(
       btnRect.x + textPadX,
