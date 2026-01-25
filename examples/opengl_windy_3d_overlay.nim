@@ -1,7 +1,6 @@
-import std/[os, times, math]
+import std/[os, times, math, strformat]
 import chroma
 import pkg/opengl
-import pkg/vmath
 
 when defined(useWindex):
   import windex
@@ -110,6 +109,27 @@ proc mat4RotateY(angle: float32): Mat4 =
   result[8] = s
   result[10] = c
   result[15] = 1.0'f32
+
+proc cameraEye(): Vec3f =
+  v3(1.6'f32, 1.1'f32, 2.2'f32)
+
+proc cameraCenter(): Vec3f =
+  v3(0.0'f32, 0.25'f32, 0.0'f32)
+
+proc viewMatrix(): Mat4 =
+  mat4LookAt(cameraEye(), cameraCenter(), v3(0.0'f32, 1.0'f32, 0.0'f32))
+
+proc projectionMatrix(frameSize: Vec2): Mat4 =
+  let aspect =
+    if frameSize.y > 0: frameSize.x / frameSize.y else: 1.0'f32
+  mat4Perspective(45.0'f32, aspect, 0.1'f32, 100.0'f32)
+
+proc matrixRowText(matrix: Mat4, row: int): string =
+  let c0 = matrix[0 * 4 + row]
+  let c1 = matrix[1 * 4 + row]
+  let c2 = matrix[2 * 4 + row]
+  let c3 = matrix[3 * 4 + row]
+  result = fmt"{c0:>8.3f} {c1:>8.3f} {c2:>8.3f} {c3:>8.3f}"
 
 proc compileShader(shaderType: GLenum, source, label: string): GLuint =
   var shaderArray = allocCStringArray([source])
@@ -290,14 +310,9 @@ proc destroyPyramid(pyramid: PyramidGl) =
   if ebo != 0:
     glDeleteBuffers(1, ebo.addr)
 
-proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, t: float32) =
+proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, proj: Mat4, t: float32) =
   glViewport(0, 0, frameSize.x.GLint, frameSize.y.GLint)
-  let aspect =
-    if frameSize.y > 0: frameSize.x / frameSize.y else: 1.0'f32
-  let proj = mat4Perspective(45.0'f32, aspect, 0.1'f32, 100.0'f32)
-  let eye = v3(1.6'f32, 1.1'f32, 2.2'f32)
-  let center = v3(0.0'f32, 0.25'f32, 0.0'f32)
-  let view = mat4LookAt(eye, center, v3(0.0'f32, 1.0'f32, 0.0'f32))
+  let view = viewMatrix()
   let model = mat4Mul(mat4RotateY(t * 0.9'f32), mat4RotateX(-0.4'f32))
   let mvp = mat4Mul(proj, mat4Mul(view, model))
 
@@ -313,7 +328,7 @@ proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, t: float32) =
   glBindVertexArray(0)
   glUseProgram(0)
 
-proc makeOverlay*(w, h: float32): Renders =
+proc makeOverlay*(w, h: float32, projView: Mat4, monoFont: UiFont): Renders =
   var list = RenderList()
 
   let rootIdx = list.addRoot(Fig(
@@ -325,7 +340,7 @@ proc makeOverlay*(w, h: float32): Renders =
   ))
 
   let pad = 24'f32
-  let panelW = min(320'f32, w * 0.4'f32)
+  let panelW = min(320'f32, w * 0.4'f32) * 1.2'f32
   let panelRect = rect(w - panelW - pad, pad, panelW, h - pad * 2)
   let panelShadow = RenderShadow(
     style: DropShadow,
@@ -349,6 +364,8 @@ proc makeOverlay*(w, h: float32): Renders =
 
   let buttonPad = 18'f32
   let buttonW = panelRect.w - buttonPad * 2
+  let textPadX = 12'f32
+  let textPadY = 8'f32
   var buttonY = panelRect.y + buttonPad
 
   for i in 0 .. 3:
@@ -361,22 +378,50 @@ proc makeOverlay*(w, h: float32): Renders =
       fill: rgba(uint8(40 + i * 8), 90'u8, 160'u8, 200'u8).color,
       corners: [8.0'f32, 8.0, 8.0, 8.0],
     ))
+    let textRect = rect(
+      btnRect.x + textPadX,
+      btnRect.y + textPadY,
+      btnRect.w - textPadX * 2,
+      btnRect.h - textPadY * 2,
+    )
+    let rowLayout = typeset(
+      rect(0, 0, textRect.w, textRect.h),
+      [(monoFont, matrixRowText(projView, i))],
+      hAlign = Left,
+      vAlign = Middle,
+      minContent = false,
+      wrap = false,
+    )
+    discard list.addChild(panelIdx, Fig(
+      kind: nkText,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: textRect,
+      fill: rgba(240, 242, 248, 240).color,
+      textLayout: rowLayout,
+    ))
     buttonY += 46'f32
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
 
 when isMainModule:
+  setFigDataDir(getCurrentDir() / "data")
+
   app.running = true
   app.autoUiScale = false
   app.uiScale = 1.0
   app.pixelScale = 1.0
 
+  let monoTypefaceId = getTypefaceImpl("HackNerdFont-Regular.ttf")
+  let monoFont = UiFont(typefaceId: monoTypefaceId, size: 18.0'f32,
+      lineHeightScale: 1.0)
+
   var frame = AppFrame(
     windowTitle: "figdraw: OpenGL 3D + overlay",
   )
   frame.windowInfo = WindowInfo(
-    box: rect(0, 0, 960, 640),
+    box: rect(0, 0, 1920, 1280),
     running: true,
     focused: true,
     minimized: false,
@@ -392,20 +437,30 @@ when isMainModule:
   let pyramid = initPyramid()
 
   var lastSize = vec2(0.0'f32, 0.0'f32)
-  var renders = makeOverlay(frame.windowInfo.box.w, frame.windowInfo.box.h)
+  var renders = makeOverlay(
+    frame.windowInfo.box.w,
+    frame.windowInfo.box.h,
+    mat4Mul(
+      projectionMatrix(frame.windowInfo.box.wh),
+      viewMatrix(),
+    ),
+    monoFont,
+  )
   let startTime = epochTime()
 
   proc redraw() =
     let winInfo = window.getWindowInfo()
     let frameSize = winInfo.box.wh.scaled()
+    let proj = projectionMatrix(frameSize)
+    let projView = mat4Mul(proj, viewMatrix())
     if frameSize != lastSize:
-      renders = makeOverlay(winInfo.box.w, winInfo.box.h)
+      renders = makeOverlay(winInfo.box.w, winInfo.box.h, projView, monoFont)
       lastSize = frameSize
 
     useDepthBuffer(true)
     glClearColor(0.08, 0.1, 0.14, 1.0)
     glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
-    drawPyramid(pyramid, frameSize, (epochTime() - startTime).float32)
+    drawPyramid(pyramid, frameSize, proj, (epochTime() - startTime).float32)
 
     useDepthBuffer(false)
     renderer.renderOverlayFrame(renders, frameSize)
