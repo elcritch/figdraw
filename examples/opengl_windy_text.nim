@@ -1,5 +1,6 @@
-import std/[os, times]
+import std/[os, times, unicode]
 import chroma
+import pkg/pixie/fonts
 
 when defined(useWindex):
   import windex
@@ -36,7 +37,7 @@ proc getWindowInfo(window: Window): WindowInfo =
   result.box.w = size.x.float32.descaled()
   result.box.h = size.y.float32.descaled()
 
-proc makeRenderTree*(w, h: float32, uiFont: UiFont): Renders =
+proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
   var list = RenderList()
 
   let rootIdx = list.addRoot(Fig(
@@ -73,11 +74,38 @@ proc makeRenderTree*(w, h: float32, uiFont: UiFont): Renders =
   ))
 
   let textPad = 28'f32
-  let textRect = rect(
+  let innerRect = rect(
     cardRect.x + textPad,
     cardRect.y + textPad,
     cardRect.w - textPad * 2,
     cardRect.h - textPad * 2,
+  )
+
+  let monoText = "Manual glyphs: Hack Nerd Font\n$ printf(\"hello\")"
+  let (_, monoPx) = monoFont.convertFont()
+  let monoLineHeight =
+    (if monoPx.lineHeight >= 0: monoPx.lineHeight else: monoPx.defaultLineHeight())
+      .descaled()
+  let monoAdvance =
+    (monoPx.typeface.getAdvance(Rune('M')) * monoPx.scale).descaled()
+  let monoPad = 8'f32
+  var monoLines = 1
+  for rune in monoText.runes:
+    if rune == Rune(10):
+      monoLines.inc
+  let monoHeight = monoLines.float32 * monoLineHeight + monoPad * 2
+
+  let textRect = rect(
+    innerRect.x,
+    innerRect.y,
+    innerRect.w,
+    innerRect.h - monoHeight - 12'f32,
+  )
+  let monoRect = rect(
+    innerRect.x,
+    textRect.y + textRect.h + 12'f32,
+    innerRect.w,
+    monoHeight,
   )
 
   let text = """
@@ -105,6 +133,27 @@ then renders glyph atlas sprites via the OpenGL renderer.
     textLayout: layout,
   ))
 
+  var glyphs: seq[(Rune, Vec2)]
+  var x = monoPad
+  var y = monoPad
+  for rune in monoText.runes:
+    if rune == Rune(10):
+      x = monoPad
+      y += monoLineHeight
+      continue
+    glyphs.add((rune, vec2(x, y)))
+    x += monoAdvance
+
+  let monoLayout = placeGlyphs(monoFont, glyphs, origin = GlyphTopLeft)
+  discard list.addChild(cardIdx, Fig(
+    kind: nkText,
+    childCount: 0,
+    zlevel: 0.ZLevel,
+    screenBox: monoRect,
+    fill: rgba(32, 32, 32, 255).color,
+    textLayout: monoLayout,
+  ))
+
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
 
@@ -119,6 +168,9 @@ when isMainModule:
   let typefaceId = getTypefaceImpl("Ubuntu.ttf")
   let uiFont = UiFont(typefaceId: typefaceId, size: 28.0'f32,
       lineHeightScale: 0.9)
+  let monoTypefaceId = getTypefaceImpl("HackNerdFont-Regular.ttf")
+  let monoFont = UiFont(typefaceId: monoTypefaceId, size: 20.0'f32,
+      lineHeightScale: 1.0)
 
   var frame = AppFrame(
     windowTitle: "figdraw: OpenGL + Windy Text",
@@ -144,7 +196,12 @@ when isMainModule:
 
   proc redraw() =
     let winInfo = window.getWindowInfo()
-    var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h), uiFont)
+    var renders = makeRenderTree(
+      float32(winInfo.box.w),
+      float32(winInfo.box.h),
+      uiFont,
+      monoFont,
+    )
     renderer.renderFrame(renders, winInfo.box.wh.scaled())
     window.swapBuffers()
 
