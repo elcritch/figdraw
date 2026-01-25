@@ -489,12 +489,17 @@ when isMainModule:
   let startTime = epochTime()
   var lastFrameTime = startTime
   var fpsValue = 0.0
+  let fpsAlpha = 0.15
 
   proc redraw() =
     let now = epochTime()
     let dt = now - lastFrameTime
     if dt > 0.0:
-      fpsValue = 1.0 / dt
+      let instFps = 1.0 / dt
+      if fpsValue <= 0.0:
+        fpsValue = instFps
+      else:
+        fpsValue = fpsValue + (instFps - fpsValue) * fpsAlpha
     lastFrameTime = now
 
     let winInfo = window.getWindowInfo()
