@@ -395,3 +395,92 @@ proc typeset*(
   # print arrangement.fonts[0].lineHeight
   # echo "arrangement: "
   # print result
+
+proc glyphFontFor(uiFont: UiFont): tuple[id: FontId, font: Font,
+    glyph: GlyphFont] =
+  let (fontId, pf) = uiFont.convertFont()
+  let defaultLineHeight = pf.defaultLineHeight()
+  let lineHeight =
+    if pf.lineHeight >= 0:
+      pf.lineHeight
+    else:
+      defaultLineHeight
+  let lhAdj =
+    if defaultLineHeight > 0:
+      (lineHeight - pf.size * lineHeight / defaultLineHeight) / 2
+    else:
+      0.0'f32
+  result = (
+    id: fontId,
+    font: pf,
+    glyph: GlyphFont(fontId: fontId, lineHeight: lineHeight, descentAdj: lhAdj),
+  )
+
+proc placeGlyphs*(
+    font: UiFont,
+    glyphs: openArray[(Rune, Vec2)],
+    origin: GlyphOrigin = GlyphTopLeft,
+): GlyphArrangement =
+  ## Builds a glyph arrangement using explicit positions for each glyph.
+  ## `origin` controls whether positions are the glyph's top-left or baseline.
+  threadEffects:
+    AppMainThread
+
+  result = GlyphArrangement()
+  if glyphs.len == 0:
+    return
+
+  let fontInfo = glyphFontFor(font)
+  let cachedFont = (font: fontInfo.font, glyph: fontInfo.glyph)
+
+  var
+    runes = newSeqOfCap[Rune](glyphs.len)
+    positions = newSeqOfCap[Vec2](glyphs.len)
+    selectionRects = newSeqOfCap[Rect](glyphs.len)
+    contentHash = Hash(0)
+
+  for (rune, pos) in glyphs:
+
+    let scaledPos = pos.scaled()
+    let descent = cachedFont.glyph.lineHeight - cachedFont.glyph.descentAdj
+    var baselinePos = scaledPos
+    if origin == GlyphTopLeft:
+      baselinePos.y = scaledPos.y + descent
+
+    runes.add(rune)
+    positions.add(baselinePos)
+
+    let drawPos = vec2(baselinePos.x, baselinePos.y - descent)
+    let advance = cachedFont.font.typeface.getAdvance(rune) *
+        cachedFont.font.scale
+    selectionRects.add(
+      rect(drawPos.x, drawPos.y, advance, cachedFont.glyph.lineHeight)
+    )
+
+    contentHash = contentHash !& hash((font.getId(), rune, pos.x, pos.y, origin))
+
+  result.lines = @[0 .. glyphs.len - 1]
+  result.spans = @[0 .. glyphs.len - 1]
+  result.fonts = @[cachedFont.glyph]
+  result.runes = runes
+  result.positions = positions
+  result.selectionRects = selectionRects
+  result.contentHash = !$contentHash
+
+  var
+    minX = float32.high
+    minY = float32.high
+    maxX = -float32.high
+    maxY = -float32.high
+  for rect in selectionRects:
+    minX = min(minX, rect.x)
+    minY = min(minY, rect.y)
+    maxX = max(maxX, rect.x + rect.w)
+    maxY = max(maxY, rect.y + rect.h)
+  if selectionRects.len > 0:
+    let boundingScaled = rect(minX, minY, maxX - minX, maxY - minY)
+    result.bounding = boundingScaled.descaled()
+    result.minSize = result.bounding.wh
+    result.maxSize = result.bounding.wh
+
+  result.generateGlyphImage()

@@ -25,6 +25,10 @@ type
     Middle
     Bottom
 
+  GlyphOrigin* = enum
+    GlyphTopLeft
+    GlyphBaseline
+
   GlyphFont* = object
     fontId*: FontId
     size*: float32 ## Font size in pixels.
@@ -34,22 +38,22 @@ type
 
   UiFont* = object
     typefaceId*: TypefaceId
-    size*: float32 = 12.0'f32 ## Font size in pixels.
+    size*: float32 = 12.0'f32   ## Font size in pixels.
     lineHeightScale*: float32 = 0.9
     lineHeightOverride*: float32 = -1.0'f32
       ## The line height in pixels or autoLineHeight for the font's default line height.
     fontCase*: FontCase
-    underline*: bool ## Apply an underline.
-    strikethrough*: bool ## Apply a strikethrough.
+    underline*: bool            ## Apply an underline.
+    strikethrough*: bool        ## Apply a strikethrough.
     noKerningAdjustments*: bool ## Optionally disable kerning pair adjustments
 
   GlyphArrangement* = object
     contentHash*: Hash
-    lines*: seq[Slice[int]] ## The (start, stop) of the lines of text.
-    spans*: seq[Slice[int]] ## The (start, stop) of the spans in the text.
-    fonts*: seq[GlyphFont] ## The font for each span.
-    runes*: seq[Rune] ## The runes of the text.
-    positions*: seq[Vec2] ## The positions of the glyphs for each rune.
+    lines*: seq[Slice[int]]    ## The (start, stop) of the lines of text.
+    spans*: seq[Slice[int]]    ## The (start, stop) of the spans in the text.
+    fonts*: seq[GlyphFont]     ## The font for each span.
+    runes*: seq[Rune]          ## The runes of the text.
+    positions*: seq[Vec2]      ## The positions of the glyphs for each rune.
     selectionRects*: seq[Rect] ## The selection rects for each glyph.
     maxSize*: Vec2
     minSize*: Vec2

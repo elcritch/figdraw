@@ -84,3 +84,33 @@ suite "fontutils":
         check hasImage(glyph.hash().ImageId)
         break
     check foundNonWhitespace
+
+  test "placeGlyphs respects positions and caches glyphs":
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = getTypefaceImpl("Ubuntu.ttf", fontData, TTF)
+    let uiFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
+    app.uiScale = 1.0
+
+    let a = "A".runeAt(0)
+    let b = "B".runeAt(0)
+    let positions = [
+      (a, vec2(12, 16)),
+      (b, vec2(40, 16)),
+    ]
+
+    let arrangement = placeGlyphs(uiFont, positions, origin = GlyphTopLeft)
+
+    check arrangement.runes.len == positions.len
+    check arrangement.spans.len == 1
+    check arrangement.fonts.len == 1
+
+    var idx = 0
+    for glyph in arrangement.glyphs():
+      let expected = positions[idx][1]
+      let charPos = vec2(glyph.pos.x, glyph.pos.y - glyph.descent)
+      check abs(charPos.x - expected.x) < 0.01'f32
+      check abs(charPos.y - expected.y) < 0.01'f32
+      if not glyph.rune.isWhiteSpace:
+        check hasImage(glyph.hash().ImageId)
+      inc idx
+    check idx == positions.len
