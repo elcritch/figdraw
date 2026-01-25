@@ -387,7 +387,8 @@ proc makeOverlay*(
   ))
 
   let pad = 24'f32
-  let panelW = min(320'f32, w * 0.4'f32) * 1.2'f32
+  let panelWBase = min(320'f32, w * 0.4'f32) * 1.2'f32
+  let panelW = max(panelWBase, monoFont.size * 16.0'f32) * 1.15'f32
   let panelRect = rect(w - panelW - pad, pad, panelW, h - pad * 2)
   let panelShadow = RenderShadow(
     style: DropShadow,
@@ -411,12 +412,14 @@ proc makeOverlay*(
 
   let buttonPad = 18'f32
   let buttonW = panelRect.w - buttonPad * 2
-  let textPadX = 12'f32
+  let textPadX = max(12'f32, monoFont.size * 0.5'f32)
   let textPadY = 8'f32
+  let rowGap = 12'f32
+  let rowHeight = max(34'f32, monoFont.size + textPadY * 2 + 2'f32)
   var buttonY = panelRect.y + buttonPad
 
   for i, row in rows:
-    let btnRect = rect(panelRect.x + buttonPad, buttonY, buttonW, 34'f32)
+    let btnRect = rect(panelRect.x + buttonPad, buttonY, buttonW, rowHeight)
     discard list.addChild(panelIdx, Fig(
       kind: nkRectangle,
       childCount: 0,
@@ -447,7 +450,7 @@ proc makeOverlay*(
       fill: rgba(240, 242, 248, 240).color,
       textLayout: rowLayout,
     ))
-    buttonY += 46'f32
+    buttonY += rowHeight + rowGap
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
@@ -461,7 +464,7 @@ when isMainModule:
   app.pixelScale = 1.0
 
   let monoTypefaceId = getTypefaceImpl("HackNerdFont-Regular.ttf")
-  let monoFont = UiFont(typefaceId: monoTypefaceId, size: 18.0'f32,
+  let monoFont = UiFont(typefaceId: monoTypefaceId, size: 24.0'f32,
       lineHeightScale: 1.0)
 
   var frame = AppFrame(
