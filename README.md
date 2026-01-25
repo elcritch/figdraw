@@ -9,9 +9,9 @@
 
 ![RGB boxes render](tests/expected/render_rgb_boxes_sdf.png)
 
+Here's a video example (unfortunately capped at 30fps):
 
-https://github.com/user-attachments/assets/0e90f524-0a43-4f93-8b0a-9605acbd487a
-
+https://github.com/user-attachments/assets/aca4783c-86c6-4e52-9a16-0a8556ad1300
 
 ## Status
 
