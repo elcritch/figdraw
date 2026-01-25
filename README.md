@@ -40,7 +40,7 @@ cd figdraw
 atlas install --feature:windy --feature:sdl2
 
 # Run an example:
-nim r examples/opengl_windy_renderlist.nim
+nim c -r examples/opengl_windy_renderlist.nim
 ```
 
 ```sh
