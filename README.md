@@ -25,6 +25,8 @@ Future directions may include adding support for SDF textures for text rendering
 
 The next big item is hopefully setting up some examples of doing WebGL version with Windy.
 
+Finally there will be a C API and a setup to compile FigDraw as a shared library. 
+
 ## Requirements
 
 - Nim `>= 2.0.10` (ARC/ORC-based memory managers; required by `src/figdraw/common/rchannels.nim`)
