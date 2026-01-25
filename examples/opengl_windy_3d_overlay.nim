@@ -373,7 +373,7 @@ proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, mvp: Mat4) =
 
 proc makeOverlay*(
     w, h: float32,
-    rows: array[4, string],
+    rows: openArray[string],
     monoFont: UiFont,
 ): Renders =
   var list = RenderList()
@@ -415,7 +415,7 @@ proc makeOverlay*(
   let textPadY = 8'f32
   var buttonY = panelRect.y + buttonPad
 
-  for i in 0 .. 3:
+  for i, row in rows:
     let btnRect = rect(panelRect.x + buttonPad, buttonY, buttonW, 34'f32)
     discard list.addChild(panelIdx, Fig(
       kind: nkRectangle,
@@ -433,7 +433,7 @@ proc makeOverlay*(
     )
     let rowLayout = typeset(
       rect(0, 0, textRect.w, textRect.h),
-      [(monoFont, rows[i])],
+      [(monoFont, row)],
       hAlign = Left,
       vAlign = Middle,
       minContent = false,
@@ -484,15 +484,27 @@ when isMainModule:
   let pyramid = initPyramid()
 
   let startTime = epochTime()
+  var lastFrameTime = startTime
+  var fpsValue = 0.0
 
   proc redraw() =
+    let now = epochTime()
+    let dt = now - lastFrameTime
+    if dt > 0.0:
+      fpsValue = 1.0 / dt
+    lastFrameTime = now
+
     let winInfo = window.getWindowInfo()
     let frameSize = winInfo.box.wh.scaled()
     let proj = projectionMatrix(frameSize)
     let view = viewMatrix()
-    let model = pyramidModelMatrix((epochTime() - startTime).float32)
+    let model = pyramidModelMatrix((now - startTime).float32)
     let mvp = mat4Mul(proj, mat4Mul(view, model))
-    let rows = triangleInfoRows(mvp, 0)
+    var rows = newSeq[string](0)
+    rows.add(fmt"fps {fpsValue:>7.2f}")
+    let triRows = triangleInfoRows(mvp, 0)
+    for row in triRows:
+      rows.add(row)
     var renders = makeOverlay(winInfo.box.w, winInfo.box.h, rows, monoFont)
 
     useDepthBuffer(true)
@@ -515,8 +527,6 @@ when isMainModule:
       redraw()
       if RunOnce:
         app.running = false
-      else:
-        sleep(16)
   finally:
     destroyPyramid(pyramid)
     window.close()
