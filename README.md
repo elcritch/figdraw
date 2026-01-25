@@ -15,19 +15,23 @@ https://github.com/user-attachments/assets/aca4783c-86c6-4e52-9a16-0a8556ad1300
 
 ## Status
 
-This repo is actively evolving. The OpenGL backend is the primary
-implementation (`src/figdraw/opengl/`).
+This repo is actively evolving and the public API is still in flux. The
+OpenGL backend is the only supported renderer right now
+(`src/figdraw/opengl/`).
+
+Expect breaking changes and lean on the examples/tests for the most current
+usage patterns.
 
 ## Requirements
 
 - Nim `>= 2.0.10` (ARC/ORC-based memory managers; required by `src/figdraw/common/rchannels.nim`)
 - OpenGL (desktop GL by default; GLES/emscripten shader paths via `-d:useOpenGlEs` and/or `-d:emscripten`)
-- Dependencies are managed by Atlas (see `nim.cfg` and `deps/`), though should work with Nimble
+- Dependencies are managed by Atlas (see `nim.cfg` and `deps/`); Nimble is not supported
 
 ## Quick Start
 
-Dependencies are managed via Atlas (not Nimble). Atlas generates `nim.cfg` and
-populates `deps/`.
+Dependencies are managed via Atlas. Atlas generates `nim.cfg` and populates
+`deps/`.
 
 ```sh
 # Try the repo:
@@ -42,7 +46,7 @@ nim r examples/opengl_windy_renderlist.nim
 ```sh
 # Use as a dependency (in your own project):
 atlas use https://github.com/elcritch/figdraw
-atlas install
+nimble install https://github.com/elcritch/figdraw
 ```
 
 ## Using Library
@@ -72,24 +76,28 @@ Run a single test:
 nim r tests/trender_rgb_boxes.nim
 ```
 
-## SDF Rendering (`-d:useSdf`)
+## SDF Rendering (default)
 
-The OpenGL backend supports rendering rounded rectangles using an SDF shader path. This is enabled in the renderer with:
+The OpenGL backend renders rounded rectangles and shadows using an SDF shader
+path by default:
 
 ```sh
 nim r examples/opengl_windy_renderlist.nim
 ```
 
+To force the older texture path, compile with `-d:useFigDrawTextures`.
+
 Notes:
 
 - The main OpenGL shader combines atlas sampling and SDF rendering, switching per-draw via an `sdfMode` attribute (no shader swaps for SDF vs atlas).
 - Masks still use a separate mask shader program.
-- Current SDF modes include clip/AA fills, annular (outline) modes, and drop/inset shadow modes used by the renderer when `-d:useSdf` is enabled.
+- Current SDF modes include clip/AA fills, annular (outline) modes, and drop/inset shadow modes used by the renderer.
 
 ## Useful Defines
 
 - `-d:figdraw.names=true`: enables `Fig.name` for debugging (enabled for tests in `tests/config.nims`)
 - `-d:useOpenGlEs`: select GLES/emscripten shader sources when GLSL 3.30 is not available
+- `-d:useFigDrawTextures`: force the legacy texture-based shape rendering path (disables SDF shapes)
 - `-d:openglMajor=3 -d:openglMinor=3`: override the requested OpenGL version (see `src/figdraw/utils/glutils.nim`)
 
 ## Thread Safety Notes
