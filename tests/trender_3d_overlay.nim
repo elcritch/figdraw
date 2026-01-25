@@ -1,3 +1,4 @@
+import std/math
 import std/os
 import std/unittest
 
@@ -9,7 +10,6 @@ import figdraw/windyshim
 
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/opengl/shaders
 import figdraw/utils/glutils
 
 import ./opengl_test_utils
@@ -21,6 +21,149 @@ type PyramidGl = object
   ebo: GLuint
   mvpLoc: GLint
   indexCount: GLsizei
+
+type
+  PyramidShaderError = object of CatchableError
+  Vec3f = object
+    x: float32
+    y: float32
+    z: float32
+  Mat4 = array[16, float32] # Column-major for OpenGL uniforms.
+
+proc v3(x, y, z: float32): Vec3f =
+  Vec3f(x: x, y: y, z: z)
+
+proc v3Sub(a, b: Vec3f): Vec3f =
+  v3(a.x - b.x, a.y - b.y, a.z - b.z)
+
+proc v3Dot(a, b: Vec3f): float32 =
+  a.x * b.x + a.y * b.y + a.z * b.z
+
+proc v3Cross(a, b: Vec3f): Vec3f =
+  v3(
+    a.y * b.z - a.z * b.y,
+    a.z * b.x - a.x * b.z,
+    a.x * b.y - a.y * b.x,
+  )
+
+proc v3Normalize(v: Vec3f): Vec3f =
+  let len = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+  if len <= 0.0'f32:
+    return v3(0.0'f32, 0.0'f32, 0.0'f32)
+  let inv = 1.0'f32 / len
+  v3(v.x * inv, v.y * inv, v.z * inv)
+
+proc mat4Mul(a, b: Mat4): Mat4 =
+  for col in 0 .. 3:
+    for row in 0 .. 3:
+      result[col * 4 + row] =
+        a[0 * 4 + row] * b[col * 4 + 0] +
+        a[1 * 4 + row] * b[col * 4 + 1] +
+        a[2 * 4 + row] * b[col * 4 + 2] +
+        a[3 * 4 + row] * b[col * 4 + 3]
+
+proc mat4Perspective(fovyDeg, aspect, zNear, zFar: float32): Mat4 =
+  let fovyRad = fovyDeg * (PI.float32 / 180.0'f32)
+  let f = 1.0'f32 / tan(fovyRad * 0.5'f32)
+  let nf = 1.0'f32 / (zNear - zFar)
+  result[0] = f / aspect
+  result[5] = f
+  result[10] = (zFar + zNear) * nf
+  result[11] = -1.0'f32
+  result[14] = (2.0'f32 * zFar * zNear) * nf
+
+proc mat4LookAt(eye, center, up: Vec3f): Mat4 =
+  let f = v3Normalize(v3Sub(center, eye))
+  let s = v3Normalize(v3Cross(f, up))
+  let u = v3Cross(s, f)
+  result[0] = s.x
+  result[1] = s.y
+  result[2] = s.z
+  result[4] = u.x
+  result[5] = u.y
+  result[6] = u.z
+  result[8] = -f.x
+  result[9] = -f.y
+  result[10] = -f.z
+  result[12] = -v3Dot(s, eye)
+  result[13] = -v3Dot(u, eye)
+  result[14] = v3Dot(f, eye)
+  result[15] = 1.0'f32
+
+proc mat4RotateX(angle: float32): Mat4 =
+  let c = cos(angle)
+  let s = sin(angle)
+  result[0] = 1.0'f32
+  result[5] = c
+  result[6] = s
+  result[9] = -s
+  result[10] = c
+  result[15] = 1.0'f32
+
+proc mat4RotateY(angle: float32): Mat4 =
+  let c = cos(angle)
+  let s = sin(angle)
+  result[0] = c
+  result[2] = -s
+  result[5] = 1.0'f32
+  result[8] = s
+  result[10] = c
+  result[15] = 1.0'f32
+
+proc compileShader(shaderType: GLenum, source, label: string): GLuint =
+  var shaderArray = allocCStringArray([source])
+  defer:
+    dealloc(shaderArray)
+
+  let shader = glCreateShader(shaderType)
+  glShaderSource(shader, 1, shaderArray, nil)
+  glCompileShader(shader)
+
+  var status: GLint
+  glGetShaderiv(shader, GL_COMPILE_STATUS, status.addr)
+  if status == 0:
+    var logLen: GLint = 0
+    glGetShaderiv(shader, GL_INFO_LOG_LENGTH, logLen.addr)
+    var log = newString(logLen.int)
+    glGetShaderInfoLog(shader, logLen, nil, log.cstring)
+    glDeleteShader(shader)
+    raise newException(
+      PyramidShaderError,
+      "Shader compile failed (" & label & "): " & log,
+    )
+
+  result = shader
+
+proc buildProgram(vertexSrc, fragmentSrc: string): GLuint =
+  let vertexShader = compileShader(GL_VERTEX_SHADER, vertexSrc, "pyramid.vert")
+  let fragmentShader = compileShader(
+    GL_FRAGMENT_SHADER,
+    fragmentSrc,
+    "pyramid.frag",
+  )
+
+  result = glCreateProgram()
+  glAttachShader(result, vertexShader)
+  glAttachShader(result, fragmentShader)
+  glLinkProgram(result)
+
+  var status: GLint
+  glGetProgramiv(result, GL_LINK_STATUS, status.addr)
+  if status == 0:
+    var logLen: GLint = 0
+    glGetProgramiv(result, GL_INFO_LOG_LENGTH, logLen.addr)
+    var log = newString(logLen.int)
+    glGetProgramInfoLog(result, logLen, nil, log.cstring)
+    glDeleteProgram(result)
+    result = 0
+    glDeleteShader(vertexShader)
+    glDeleteShader(fragmentShader)
+    raise newException(PyramidShaderError, "Shader link failed: " & log)
+
+  glDetachShader(result, vertexShader)
+  glDetachShader(result, fragmentShader)
+  glDeleteShader(vertexShader)
+  glDeleteShader(fragmentShader)
 
 proc initPyramid(): PyramidGl =
   let vertexSrc = """
@@ -47,8 +190,7 @@ void main() {
 }
 """
 
-  result.program =
-    compileShaderFiles(("pyramid.vert", vertexSrc), ("pyramid.frag", fragmentSrc))
+  result.program = buildProgram(vertexSrc, fragmentSrc)
   result.mvpLoc = glGetUniformLocation(result.program, "uMvp")
 
   let vertices: array[30, float32] = [
@@ -128,21 +270,19 @@ proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, t: float32) =
   glViewport(0, 0, frameSize.x.GLint, frameSize.y.GLint)
   let aspect =
     if frameSize.y > 0: frameSize.x / frameSize.y else: 1.0'f32
-  let proj = perspective(45.0'f32, aspect, 0.1'f32, 100.0'f32)
-
-  let eye = vec3(1.6'f32, 1.1'f32, 2.2'f32)
-  let center = vec3(0.0'f32, 0.25'f32, 0.0'f32)
-  let angles = toAngles(eye, center)
-  let view = translate(vec3(-eye.x, -eye.y, -eye.z)) * fromAngles(angles)
-  let model = rotateY(t * 0.9'f32) * rotateX(-0.4'f32)
-  var mvp = model * view * proj
+  let proj = mat4Perspective(45.0'f32, aspect, 0.1'f32, 100.0'f32)
+  let eye = v3(1.6'f32, 1.1'f32, 2.2'f32)
+  let center = v3(0.0'f32, 0.25'f32, 0.0'f32)
+  let view = mat4LookAt(eye, center, v3(0.0'f32, 1.0'f32, 0.0'f32))
+  let model = mat4Mul(mat4RotateY(t * 0.9'f32), mat4RotateX(-0.4'f32))
+  let mvp = mat4Mul(proj, mat4Mul(view, model))
 
   glUseProgram(pyramid.program)
   glUniformMatrix4fv(
     pyramid.mvpLoc,
     1,
     GL_FALSE,
-    cast[ptr GLfloat](mvp.addr)
+    cast[ptr GLfloat](mvp[0].addr)
   )
   glBindVertexArray(pyramid.vao)
   glDrawElements(GL_TRIANGLES, pyramid.indexCount, GL_UNSIGNED_SHORT, nil)
