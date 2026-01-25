@@ -396,10 +396,33 @@ proc renderFrame*(renderer: OpenGLRenderer, nodes: var Renders, frameSize: Vec2)
     img.writeFile("screenshot.png")
     quit()
 
+proc renderOverlayFrame*(
+    renderer: OpenGLRenderer, nodes: var Renders, frameSize: Vec2
+) =
+  ## Render without clearing the color buffer (useful for UI overlays).
+  let ctx: Context = renderer.ctx
+  ctx.beginFrame(frameSize)
+  ctx.saveTransform()
+  ctx.scale(ctx.pixelScale)
+  ctx.renderRoot(nodes)
+  ctx.restoreTransform()
+  ctx.endFrame()
+
 proc renderFrame*(
     ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
 ) =
   clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
+  ctx.beginFrame(frameSize)
+  ctx.saveTransform()
+  ctx.scale(pixelScale)
+  ctx.renderRoot(nodes)
+  ctx.restoreTransform()
+  ctx.endFrame()
+
+proc renderOverlayFrame*(
+    ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
+) =
+  ## Render without clearing the color buffer (useful for UI overlays).
   ctx.beginFrame(frameSize)
   ctx.saveTransform()
   ctx.scale(pixelScale)

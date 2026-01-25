@@ -1,0 +1,390 @@
+import std/math
+import std/os
+import std/unittest
+
+import pkg/chroma
+import pkg/pixie
+import pkg/opengl
+import pkg/vmath
+import figdraw/windyshim
+
+import figdraw/commons
+import figdraw/fignodes
+import figdraw/utils/glutils
+
+import ./opengl_test_utils
+
+type PyramidGl = object
+  program: GLuint
+  vao: GLuint
+  vbo: GLuint
+  ebo: GLuint
+  mvpLoc: GLint
+  indexCount: GLsizei
+
+type
+  PyramidShaderError = object of CatchableError
+  Vec3f = object
+    x: float32
+    y: float32
+    z: float32
+  Mat4 = array[16, float32] # Column-major for OpenGL uniforms.
+
+proc v3(x, y, z: float32): Vec3f =
+  Vec3f(x: x, y: y, z: z)
+
+proc v3Sub(a, b: Vec3f): Vec3f =
+  v3(a.x - b.x, a.y - b.y, a.z - b.z)
+
+proc v3Dot(a, b: Vec3f): float32 =
+  a.x * b.x + a.y * b.y + a.z * b.z
+
+proc v3Cross(a, b: Vec3f): Vec3f =
+  v3(
+    a.y * b.z - a.z * b.y,
+    a.z * b.x - a.x * b.z,
+    a.x * b.y - a.y * b.x,
+  )
+
+proc v3Normalize(v: Vec3f): Vec3f =
+  let len = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+  if len <= 0.0'f32:
+    return v3(0.0'f32, 0.0'f32, 0.0'f32)
+  let inv = 1.0'f32 / len
+  v3(v.x * inv, v.y * inv, v.z * inv)
+
+proc mat4Mul(a, b: Mat4): Mat4 =
+  for col in 0 .. 3:
+    for row in 0 .. 3:
+      result[col * 4 + row] =
+        a[0 * 4 + row] * b[col * 4 + 0] +
+        a[1 * 4 + row] * b[col * 4 + 1] +
+        a[2 * 4 + row] * b[col * 4 + 2] +
+        a[3 * 4 + row] * b[col * 4 + 3]
+
+proc mat4Perspective(fovyDeg, aspect, zNear, zFar: float32): Mat4 =
+  let fovyRad = fovyDeg * (PI.float32 / 180.0'f32)
+  let f = 1.0'f32 / tan(fovyRad * 0.5'f32)
+  let nf = 1.0'f32 / (zNear - zFar)
+  result[0] = f / aspect
+  result[5] = f
+  result[10] = (zFar + zNear) * nf
+  result[11] = -1.0'f32
+  result[14] = (2.0'f32 * zFar * zNear) * nf
+
+proc mat4LookAt(eye, center, up: Vec3f): Mat4 =
+  let f = v3Normalize(v3Sub(center, eye))
+  let s = v3Normalize(v3Cross(f, up))
+  let u = v3Cross(s, f)
+  result[0] = s.x
+  result[1] = s.y
+  result[2] = s.z
+  result[4] = u.x
+  result[5] = u.y
+  result[6] = u.z
+  result[8] = -f.x
+  result[9] = -f.y
+  result[10] = -f.z
+  result[12] = -v3Dot(s, eye)
+  result[13] = -v3Dot(u, eye)
+  result[14] = v3Dot(f, eye)
+  result[15] = 1.0'f32
+
+proc mat4RotateX(angle: float32): Mat4 =
+  let c = cos(angle)
+  let s = sin(angle)
+  result[0] = 1.0'f32
+  result[5] = c
+  result[6] = s
+  result[9] = -s
+  result[10] = c
+  result[15] = 1.0'f32
+
+proc mat4RotateY(angle: float32): Mat4 =
+  let c = cos(angle)
+  let s = sin(angle)
+  result[0] = c
+  result[2] = -s
+  result[5] = 1.0'f32
+  result[8] = s
+  result[10] = c
+  result[15] = 1.0'f32
+
+proc compileShader(shaderType: GLenum, source, label: string): GLuint =
+  var shaderArray = allocCStringArray([source])
+  defer:
+    dealloc(shaderArray)
+
+  let shader = glCreateShader(shaderType)
+  glShaderSource(shader, 1, shaderArray, nil)
+  glCompileShader(shader)
+
+  var status: GLint
+  glGetShaderiv(shader, GL_COMPILE_STATUS, status.addr)
+  if status == 0:
+    var logLen: GLint = 0
+    glGetShaderiv(shader, GL_INFO_LOG_LENGTH, logLen.addr)
+    var log = newString(logLen.int)
+    glGetShaderInfoLog(shader, logLen, nil, log.cstring)
+    glDeleteShader(shader)
+    raise newException(
+      PyramidShaderError,
+      "Shader compile failed (" & label & "): " & log,
+    )
+
+  result = shader
+
+proc buildProgram(vertexSrc, fragmentSrc: string): GLuint =
+  let vertexShader = compileShader(GL_VERTEX_SHADER, vertexSrc, "pyramid.vert")
+  let fragmentShader = compileShader(
+    GL_FRAGMENT_SHADER,
+    fragmentSrc,
+    "pyramid.frag",
+  )
+
+  result = glCreateProgram()
+  glAttachShader(result, vertexShader)
+  glAttachShader(result, fragmentShader)
+  glLinkProgram(result)
+
+  var status: GLint
+  glGetProgramiv(result, GL_LINK_STATUS, status.addr)
+  if status == 0:
+    var logLen: GLint = 0
+    glGetProgramiv(result, GL_INFO_LOG_LENGTH, logLen.addr)
+    var log = newString(logLen.int)
+    glGetProgramInfoLog(result, logLen, nil, log.cstring)
+    glDeleteProgram(result)
+    result = 0
+    glDeleteShader(vertexShader)
+    glDeleteShader(fragmentShader)
+    raise newException(PyramidShaderError, "Shader link failed: " & log)
+
+  glDetachShader(result, vertexShader)
+  glDetachShader(result, fragmentShader)
+  glDeleteShader(vertexShader)
+  glDeleteShader(fragmentShader)
+
+proc initPyramid(): PyramidGl =
+  let vertexSrc = """
+#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aColor;
+
+uniform mat4 uMvp;
+out vec3 vColor;
+
+void main() {
+  vColor = aColor;
+  gl_Position = uMvp * vec4(aPos, 1.0);
+}
+"""
+
+  let fragmentSrc = """
+#version 330 core
+in vec3 vColor;
+out vec4 FragColor;
+
+void main() {
+  FragColor = vec4(vColor, 1.0);
+}
+"""
+
+  result.program = buildProgram(vertexSrc, fragmentSrc)
+  result.mvpLoc = glGetUniformLocation(result.program, "uMvp")
+
+  let vertices: array[30, float32] = [
+    -0.5, 0.0, -0.5, 1.0, 0.2, 0.2,
+     0.5, 0.0, -0.5, 0.2, 1.0, 0.2,
+     0.5, 0.0, 0.5, 0.2, 0.2, 1.0,
+    -0.5, 0.0, 0.5, 1.0, 1.0, 0.2,
+     0.0, 0.8, 0.0, 1.0, 0.2, 1.0,
+  ]
+
+  let indices: array[18, uint16] = [
+    0'u16, 1'u16, 4'u16,
+    1'u16, 2'u16, 4'u16,
+    2'u16, 3'u16, 4'u16,
+    3'u16, 0'u16, 4'u16,
+    0'u16, 1'u16, 2'u16,
+    2'u16, 3'u16, 0'u16,
+  ]
+
+  result.indexCount = indices.len.GLsizei
+
+  glGenVertexArrays(1, result.vao.addr)
+  glGenBuffers(1, result.vbo.addr)
+  glGenBuffers(1, result.ebo.addr)
+
+  glBindVertexArray(result.vao)
+
+  glBindBuffer(GL_ARRAY_BUFFER, result.vbo)
+  glBufferData(
+    GL_ARRAY_BUFFER,
+    sizeof(vertices),
+    vertices[0].addr,
+    GL_STATIC_DRAW
+  )
+
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, result.ebo)
+  glBufferData(
+    GL_ELEMENT_ARRAY_BUFFER,
+    sizeof(indices),
+    indices[0].addr,
+    GL_STATIC_DRAW
+  )
+
+  let stride = (6 * sizeof(float32)).GLsizei
+  glVertexAttribPointer(0, 3, cGL_FLOAT, GL_FALSE, stride, cast[pointer](0))
+  glEnableVertexAttribArray(0)
+
+  glVertexAttribPointer(
+    1,
+    3,
+    cGL_FLOAT,
+    GL_FALSE,
+    stride,
+    cast[pointer](3 * sizeof(float32))
+  )
+  glEnableVertexAttribArray(1)
+
+  glBindVertexArray(0)
+
+proc destroyPyramid(pyramid: PyramidGl) =
+  if pyramid.program != 0:
+    glDeleteProgram(pyramid.program)
+
+  var vao = pyramid.vao
+  if vao != 0:
+    glDeleteVertexArrays(1, vao.addr)
+
+  var vbo = pyramid.vbo
+  if vbo != 0:
+    glDeleteBuffers(1, vbo.addr)
+
+  var ebo = pyramid.ebo
+  if ebo != 0:
+    glDeleteBuffers(1, ebo.addr)
+
+proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, t: float32) =
+  glViewport(0, 0, frameSize.x.GLint, frameSize.y.GLint)
+  let aspect =
+    if frameSize.y > 0: frameSize.x / frameSize.y else: 1.0'f32
+  let proj = mat4Perspective(45.0'f32, aspect, 0.1'f32, 100.0'f32)
+  let eye = v3(1.6'f32, 1.1'f32, 2.2'f32)
+  let center = v3(0.0'f32, 0.25'f32, 0.0'f32)
+  let view = mat4LookAt(eye, center, v3(0.0'f32, 1.0'f32, 0.0'f32))
+  let model = mat4Mul(mat4RotateY(t * 0.9'f32), mat4RotateX(-0.4'f32))
+  let mvp = mat4Mul(proj, mat4Mul(view, model))
+
+  glUseProgram(pyramid.program)
+  glUniformMatrix4fv(
+    pyramid.mvpLoc,
+    1,
+    GL_FALSE,
+    cast[ptr GLfloat](mvp[0].addr)
+  )
+  glBindVertexArray(pyramid.vao)
+  glDrawElements(GL_TRIANGLES, pyramid.indexCount, GL_UNSIGNED_SHORT, nil)
+  glBindVertexArray(0)
+  glUseProgram(0)
+
+proc makeOverlay(w, h: float32): Renders =
+  var list = RenderList()
+
+  let rootIdx = list.addRoot(Fig(
+    kind: nkRectangle,
+    childCount: 0,
+    zlevel: 0.ZLevel,
+    screenBox: rect(0, 0, w, h),
+    fill: rgba(0, 0, 0, 0).color,
+  ))
+
+  let pad = 24'f32
+  let panelW = min(320'f32, w * 0.4'f32)
+  let panelRect = rect(w - panelW - pad, pad, panelW, h - pad * 2)
+  let panelShadow = RenderShadow(
+    style: DropShadow,
+    blur: 18,
+    spread: 0,
+    x: 0,
+    y: 10,
+    color: rgba(0, 0, 0, 60).color,
+  )
+
+  let panelIdx = list.addChild(rootIdx, Fig(
+    kind: nkRectangle,
+    childCount: 0,
+    zlevel: 0.ZLevel,
+    screenBox: panelRect,
+    fill: rgba(20, 22, 32, 220).color,
+    stroke: RenderStroke(weight: 1.5, color: rgba(255, 255, 255, 40).color),
+    corners: [12.0'f32, 12.0, 12.0, 12.0],
+    shadows: [panelShadow, RenderShadow(), RenderShadow(), RenderShadow()],
+  ))
+
+  let buttonPad = 18'f32
+  let buttonW = panelRect.w - buttonPad * 2
+  var buttonY = panelRect.y + buttonPad
+
+  for i in 0 .. 3:
+    let btnRect = rect(panelRect.x + buttonPad, buttonY, buttonW, 34'f32)
+    discard list.addChild(panelIdx, Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: btnRect,
+      fill: rgba(uint8(40 + i * 8), 90'u8, 160'u8, 200'u8).color,
+      corners: [8.0'f32, 8.0, 8.0, 8.0],
+    ))
+    buttonY += 46'f32
+
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  result.layers[0.ZLevel] = list
+
+suite "opengl 3d overlay render":
+  test "renderAndSwap + screenshot":
+    let outDir = ensureTestOutputDir()
+    let outPath = outDir / "render_3d_overlay.png"
+    if fileExists(outPath):
+      removeFile(outPath)
+    block renderOnce:
+      var img: Image
+      var pyramid: PyramidGl
+      var pyramidReady = false
+      try:
+        img = renderAndScreenshotOverlayOnce(
+          drawBackground = proc(frameSize: Vec2) =
+          if not pyramidReady:
+            pyramid = initPyramid()
+            pyramidReady = true
+          useDepthBuffer(true)
+          glClearColor(0.08, 0.1, 0.14, 1.0)
+          glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
+          drawPyramid(pyramid, frameSize, 0.4'f32)
+          useDepthBuffer(false),
+          makeRenders = makeOverlay,
+          outputPath = outPath,
+          title = "figdraw test: 3d overlay",
+        )
+      except WindyError:
+        skip()
+        break renderOnce
+      finally:
+        if pyramidReady:
+          destroyPyramid(pyramid)
+
+      check fileExists(outPath)
+      check getFileSize(outPath) > 0
+
+      let expectedPath = "tests" / "expected" / "render_3d_overlay.png"
+      if not fileExists(expectedPath):
+        skip()
+        break renderOnce
+      let expected = pixie.readImage(expectedPath)
+      let (diffScore, diffImg) = expected.diff(img)
+      echo "Got image difference of: ", diffScore
+      let diffThreshold = 100.0'f32
+      if diffScore > diffThreshold:
+        diffImg.writeFile(joinPath(outDir, "render_3d_overlay.diff.png"))
+      check diffScore <= diffThreshold
