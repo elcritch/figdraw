@@ -1,20 +1,18 @@
-import std/[os, times, math]
-import chroma
+import std/os
+import std/unittest
+
+import pkg/chroma
+import pkg/pixie
 import pkg/opengl
 import pkg/vmath
-
-when defined(useWindex):
-  import windex
-else:
-  import figdraw/windyshim
+import figdraw/windyshim
 
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/opengl/renderer as glrenderer
 import figdraw/opengl/shaders
 import figdraw/utils/glutils
 
-const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
+import ./opengl_test_utils
 
 type PyramidGl = object
   program: GLuint
@@ -23,29 +21,6 @@ type PyramidGl = object
   ebo: GLuint
   mvpLoc: GLint
   indexCount: GLsizei
-
-proc setupWindow(frame: AppFrame, window: Window) =
-  if frame.windowInfo.fullscreen:
-    window.fullscreen = frame.windowInfo.fullscreen
-  else:
-    window.size = ivec2(frame.windowInfo.box.wh.scaled())
-
-  window.visible = true
-  window.makeContextCurrent()
-
-proc newWindyWindow(frame: AppFrame): Window =
-  let window = newWindow("FigDraw", ivec2(1280, 800), visible = false)
-  startOpenGL(openglVersion)
-  setupWindow(frame, window)
-  result = window
-
-proc getWindowInfo(window: Window): WindowInfo =
-  app.requestedFrame.inc
-  result.minimized = window.minimized()
-  result.pixelRatio = window.contentScale()
-  let size = window.size()
-  result.box.w = size.x.float32.descaled()
-  result.box.h = size.y.float32.descaled()
 
 proc initPyramid(): PyramidGl =
   let vertexSrc = """
@@ -154,6 +129,7 @@ proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, t: float32) =
   let aspect =
     if frameSize.y > 0: frameSize.x / frameSize.y else: 1.0'f32
   let proj = perspective(45.0'f32, aspect, 0.1'f32, 100.0'f32)
+
   let eye = vec3(1.6'f32, 1.1'f32, 2.2'f32)
   let center = vec3(0.0'f32, 0.25'f32, 0.0'f32)
   let angles = toAngles(eye, center)
@@ -173,7 +149,7 @@ proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, t: float32) =
   glBindVertexArray(0)
   glUseProgram(0)
 
-proc makeOverlay*(w, h: float32): Renders =
+proc makeOverlay(w, h: float32): Renders =
   var list = RenderList()
 
   let rootIdx = list.addRoot(Fig(
@@ -226,64 +202,49 @@ proc makeOverlay*(w, h: float32): Renders =
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
 
-when isMainModule:
-  app.running = true
-  app.autoUiScale = false
-  app.uiScale = 1.0
-  app.pixelScale = 1.0
+suite "opengl 3d overlay render":
+  test "renderAndSwap + screenshot":
+    let outDir = ensureTestOutputDir()
+    let outPath = outDir / "render_3d_overlay.png"
+    if fileExists(outPath):
+      removeFile(outPath)
+    block renderOnce:
+      var img: Image
+      var pyramid: PyramidGl
+      var pyramidReady = false
+      try:
+        img = renderAndScreenshotOverlayOnce(
+          drawBackground = proc(frameSize: Vec2) =
+          if not pyramidReady:
+            pyramid = initPyramid()
+            pyramidReady = true
+          useDepthBuffer(true)
+          glClearColor(0.08, 0.1, 0.14, 1.0)
+          glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
+          drawPyramid(pyramid, frameSize, 0.4'f32)
+          useDepthBuffer(false),
+          makeRenders = makeOverlay,
+          outputPath = outPath,
+          title = "figdraw test: 3d overlay",
+        )
+      except WindyError:
+        skip()
+        break renderOnce
+      finally:
+        if pyramidReady:
+          destroyPyramid(pyramid)
 
-  var frame = AppFrame(
-    windowTitle: "figdraw: OpenGL 3D + overlay",
-  )
-  frame.windowInfo = WindowInfo(
-    box: rect(0, 0, 960, 640),
-    running: true,
-    focused: true,
-    minimized: false,
-    fullscreen: false,
-    pixelRatio: 1.0,
-  )
+      check fileExists(outPath)
+      check getFileSize(outPath) > 0
 
-  let window = newWindyWindow(frame)
-  let renderer = glrenderer.newOpenGLRenderer(
-    atlasSize = 192,
-    pixelScale = app.pixelScale,
-  )
-  let pyramid = initPyramid()
-
-  var lastSize = vec2(0.0'f32, 0.0'f32)
-  var renders = makeOverlay(frame.windowInfo.box.w, frame.windowInfo.box.h)
-  let startTime = epochTime()
-
-  proc redraw() =
-    let winInfo = window.getWindowInfo()
-    let frameSize = winInfo.box.wh.scaled()
-    if frameSize != lastSize:
-      renders = makeOverlay(winInfo.box.w, winInfo.box.h)
-      lastSize = frameSize
-
-    useDepthBuffer(true)
-    glClearColor(0.08, 0.1, 0.14, 1.0)
-    glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
-    drawPyramid(pyramid, frameSize, (epochTime() - startTime).float32)
-
-    useDepthBuffer(false)
-    renderer.renderOverlayFrame(renders, frameSize)
-    window.swapBuffers()
-
-  window.onCloseRequest = proc() =
-    app.running = false
-  window.onResize = proc() =
-    redraw()
-
-  try:
-    while app.running:
-      pollEvents()
-      redraw()
-      if RunOnce:
-        app.running = false
-      else:
-        sleep(16)
-  finally:
-    destroyPyramid(pyramid)
-    window.close()
+      let expectedPath = "tests" / "expected" / "render_3d_overlay.png"
+      if not fileExists(expectedPath):
+        skip()
+        break renderOnce
+      let expected = pixie.readImage(expectedPath)
+      let (diffScore, diffImg) = expected.diff(img)
+      echo "Got image difference of: ", diffScore
+      let diffThreshold = 100.0'f32
+      if diffScore > diffThreshold:
+        diffImg.writeFile(joinPath(outDir, "render_3d_overlay.diff.png"))
+      check diffScore <= diffThreshold

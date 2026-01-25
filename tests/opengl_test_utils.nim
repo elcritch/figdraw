@@ -80,3 +80,52 @@ proc renderAndScreenshotOnce*(
     result.writeFile(outputPath)
   finally:
     window.close()
+
+proc renderAndScreenshotOverlayOnce*(
+    drawBackground: proc(frameSize: Vec2) {.closure.},
+    makeRenders: proc(w, h: float32): Renders {.closure.},
+    outputPath: string,
+    windowW = 800,
+    windowH = 600,
+    atlasSize = 2048,
+    title = "figdraw test: opengl overlay screenshot",
+): Image =
+  app.running = true
+  app.autoUiScale = false
+  app.uiScale = 1.0
+  app.pixelScale = 1.0
+
+  var frame = AppFrame(
+    windowTitle: title,
+  )
+  frame.windowInfo = WindowInfo(
+    box: rect(0, 0, windowW.float32, windowH.float32),
+    running: true,
+    focused: true,
+    minimized: false,
+    fullscreen: false,
+    pixelRatio: 1.0,
+  )
+
+  let window = newTestWindow(frame)
+  if glGetString(GL_VERSION) == nil:
+    raise newException(WindyError, "OpenGL context unavailable")
+
+  let renderer = glrenderer.newOpenGLRenderer(
+    atlasSize = atlasSize,
+    pixelScale = app.pixelScale,
+  )
+
+  try:
+    pollEvents()
+    let winInfo = window.getWindowInfo()
+    let frameSize = winInfo.box.wh.scaled()
+    var renders = makeRenders(winInfo.box.w.scaled(), winInfo.box.h.scaled())
+    drawBackground(frameSize)
+    renderer.renderOverlayFrame(renders, frameSize)
+    window.swapBuffers()
+
+    result = glrenderer.takeScreenshot(readFront = true)
+    result.writeFile(outputPath)
+  finally:
+    window.close()
