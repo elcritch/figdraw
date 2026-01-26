@@ -37,10 +37,15 @@
           return canvas;
         })(),
         setCanvasSize: function(width, height) {
+          var dpr = Math.max(1, window.devicePixelRatio || 1);
           var canvas = document.getElementById('canvas');
-          if (canvas.width !== width || canvas.height !== height) {
-            canvas.width = width;
-            canvas.height = height;
+          var targetWidth = Math.floor(width * dpr);
+          var targetHeight = Math.floor(height * dpr);
+          if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+            canvas.style.width = width + "px";
+            canvas.style.height = height + "px";
           }
         },
         totalDependencies: 0,
