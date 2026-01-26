@@ -19,6 +19,10 @@ Here's it running as an overlay on top of a 3D scene:
 
 ![3D Pyramid overlay](data/Pyramid-3D-Overlay.png)
 
+Here's text rendering curtesy of Pixie. Note that Pixie's layout can be used or custom layout, e.g. for monospaced renderers:
+
+![Text Rendering](data/Text-Example.png)
+
 Here's a video example (unfortunately capped at 30fps) of real time shadows, borders, and corners chaning fluidly at 120 FPS:
 
 https://github.com/user-attachments/assets/aca4783c-86c6-4e52-9a16-0a8556ad1300
