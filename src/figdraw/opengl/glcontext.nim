@@ -25,6 +25,11 @@ proc round*(v: Vec2): Vec2 =
 
 const quadLimit = 10_921
 
+when defined(emscripten):
+  type SdfModeData = float32
+else:
+  type SdfModeData = uint16
+
 type Context* = ref object
   mainShader, maskShader, activeShader: Shader
   atlasTexture: Texture
@@ -54,7 +59,7 @@ type Context* = ref object
     ## Vec4: (halfExtents.xy, strokeWidth, unused)
   sdfRadii: tuple[buffer: Buffer, data: seq[float32]]
     ## Vec4: (topRight, bottomRight, topLeft, bottomLeft)
-  sdfModeAttr: tuple[buffer: Buffer, data: seq[uint16]] ## SDFMode value (uint16)
+  sdfModeAttr: tuple[buffer: Buffer, data: seq[SdfModeData]] ## SDFMode value
   sdfFactors: tuple[buffer: Buffer, data: seq[float32]] ## Vec2: (factor, spread)
 
   # SDF shader uniforms (global)
@@ -208,12 +213,15 @@ proc newContext*(
   result.sdfRadii.data =
     newSeq[float32](result.sdfRadii.buffer.kind.componentCount() * maxQuads * 4)
 
-  result.sdfModeAttr.buffer.componentType = GL_UNSIGNED_SHORT
+  when defined(emscripten):
+    result.sdfModeAttr.buffer.componentType = cGL_FLOAT
+  else:
+    result.sdfModeAttr.buffer.componentType = GL_UNSIGNED_SHORT
   result.sdfModeAttr.buffer.kind = bkSCALAR
   result.sdfModeAttr.buffer.target = GL_ARRAY_BUFFER
   result.sdfModeAttr.buffer.usage = GL_STREAM_DRAW
   result.sdfModeAttr.data =
-    newSeq[uint16](result.sdfModeAttr.buffer.kind.componentCount() * maxQuads * 4)
+    newSeq[SdfModeData](result.sdfModeAttr.buffer.kind.componentCount() * maxQuads * 4)
 
   result.sdfFactors.buffer.componentType = cGL_FLOAT
   result.sdfFactors.buffer.kind = bkVEC2
@@ -496,10 +504,14 @@ proc drawQuad*(
   ctx.sdfFactors.data.setVert2(offset + 3, defaultFactors)
 
   # atlas fragment mode
-  ctx.sdfModeAttr.data[offset + 0] = 0'u16
-  ctx.sdfModeAttr.data[offset + 1] = 0'u16
-  ctx.sdfModeAttr.data[offset + 2] = 0'u16
-  ctx.sdfModeAttr.data[offset + 3] = 0'u16
+  when defined(emscripten):
+    let modeVal = 0.0'f32
+  else:
+    let modeVal = 0'u16
+  ctx.sdfModeAttr.data[offset + 0] = modeVal
+  ctx.sdfModeAttr.data[offset + 1] = modeVal
+  ctx.sdfModeAttr.data[offset + 2] = modeVal
+  ctx.sdfModeAttr.data[offset + 3] = modeVal
 
   inc ctx.quadCount
 
@@ -572,10 +584,14 @@ proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
   ctx.sdfFactors.data.setVert2(offset + 2, defaultFactors)
   ctx.sdfFactors.data.setVert2(offset + 3, defaultFactors)
 
-  ctx.sdfModeAttr.data[offset + 0] = 0'u16
-  ctx.sdfModeAttr.data[offset + 1] = 0'u16
-  ctx.sdfModeAttr.data[offset + 2] = 0'u16
-  ctx.sdfModeAttr.data[offset + 3] = 0'u16
+  when defined(emscripten):
+    let modeVal = 0.0'f32
+  else:
+    let modeVal = 0'u16
+  ctx.sdfModeAttr.data[offset + 0] = modeVal
+  ctx.sdfModeAttr.data[offset + 1] = modeVal
+  ctx.sdfModeAttr.data[offset + 2] = modeVal
+  ctx.sdfModeAttr.data[offset + 3] = modeVal
 
   inc ctx.quadCount
 
@@ -768,7 +784,10 @@ proc drawRoundedRectSdf*(
   ctx.sdfFactors.data.setVert2(offset + 2, factors)
   ctx.sdfFactors.data.setVert2(offset + 3, factors)
 
-  let modeVal = mode.int.uint16
+  when defined(emscripten):
+    let modeVal = mode.int.float32
+  else:
+    let modeVal = mode.int.uint16
   ctx.sdfModeAttr.data[offset + 0] = modeVal
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal

@@ -409,7 +409,8 @@ proc bindAttrib*(shader: Shader, name: string, buffer: Buffer) =
 
   for attrib in shader.attribs:
     if name == attrib.name:
-      if buffer.normalized or buffer.kind != bkSCALAR:
+      if buffer.componentType == cGL_FLOAT or buffer.normalized or
+          buffer.kind != bkSCALAR:
         glVertexAttribPointer(
           attrib.location.GLuint,
           buffer.kind.componentCount().GLint,
