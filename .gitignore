@@ -16,3 +16,6 @@ nimble.paths
 deps/
 .nimcache
 nimbledeps
+examples/emscripten/opengl_windy_renderlist_100_emscripten.js
+examples/emscripten/opengl_windy_renderlist_100_emscripten.wasm
+examples/emscripten/opengl_windy_renderlist_100_emscripten.data
