@@ -1,11 +1,11 @@
 # FigDraw
 
-`figdraw` is a Nim rendering library for building and rendering 2D scene graphs
+`figdraw` is a pure Nim rendering library for building and rendering 2D scene graphs
 (`Fig` nodes) with a focus on:
 
 - A thread-safe renderer pipeline (render tree construction and preparation can be done off the main thread; OpenGL submission stays on the GL thread).
 - An OpenGL backend with SDF (signed-distance-field) primitives for crisp rounded-rect rendering and gaussian based shadows.
-- Font and text support with layout using Pixie and thread-safe primitives.
+- Modern and fast text rendering and layout using [Pixie](https://github.com/treeform/pixie/) with a thread-safe API.
 - Image rendering using an OpenGL Atlas.
 - Lightweight and high performance by design! Low allocations for each frame.
 
