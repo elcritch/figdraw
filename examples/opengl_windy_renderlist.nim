@@ -1,4 +1,4 @@
-import std/[os, times]
+import std/times
 import chroma
 
 when defined(useWindex):
@@ -14,19 +14,26 @@ import figdraw/utils/glutils
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
 proc setupWindow(frame: AppFrame, window: Window) =
+  when not defined(emscripten):
+    if frame.windowInfo.fullscreen:
+      window.fullscreen = frame.windowInfo.fullscreen
+    else:
+      window.size = ivec2(frame.windowInfo.box.wh.scaled())
 
-  if frame.windowInfo.fullscreen:
-    window.fullscreen = frame.windowInfo.fullscreen
-  else:
-    window.size = ivec2(frame.windowInfo.box.wh.scaled())
-
-  window.visible = true
+    window.visible = true
   window.makeContextCurrent()
 
 proc newWindyWindow(frame: AppFrame): Window =
-  let window = newWindow("Figuro", ivec2(1280, 800), visible = false)
-  startOpenGL(openglVersion)
-  setupWindow(frame, window)
+  let window = when defined(emscripten):
+      newWindow("Figuro", ivec2(0, 0), visible = false)
+    else:
+      newWindow("Figuro", ivec2(1280, 800), visible = false)
+  when defined(emscripten):
+    setupWindow(frame, window)
+    startOpenGL(openglVersion)
+  else:
+    startOpenGL(openglVersion)
+    setupWindow(frame, window)
   result = window
 
 proc getWindowInfo(window: Window): WindowInfo =
@@ -116,10 +123,15 @@ when isMainModule:
     pixelScale = app.pixelScale,
   )
 
-  let winInfo = window.getWindowInfo()
-  var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
+  var renders = makeRenderTree(0.0'f32, 0.0'f32)
+  var lastSize = vec2(0.0'f32, 0.0'f32)
 
   proc redraw() =
+    let winInfo = window.getWindowInfo()
+    let boxSize = vec2(winInfo.box.w.float32, winInfo.box.h.float32)
+    if boxSize != lastSize:
+      lastSize = boxSize
+      renders = makeRenderTree(boxSize.x, boxSize.y)
     renderer.renderFrame(renders, winInfo.box.wh.scaled())
     window.swapBuffers()
 
@@ -145,6 +157,8 @@ when isMainModule:
       if RunOnce and frames >= 1:
         app.running = false
       else:
-        sleep(16)
+        when not defined(emscripten):
+          sleep(16)
   finally:
-    window.close()
+    when not defined(emscripten):
+      window.close()

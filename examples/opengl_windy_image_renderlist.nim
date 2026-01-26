@@ -1,4 +1,7 @@
-import std/[os, times]
+when defined(emscripten):
+  import std/times
+else:
+  import std/[os, times]
 import chroma
 
 when defined(useWindex):
@@ -14,19 +17,26 @@ import figdraw/utils/glutils
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
 proc setupWindow(frame: AppFrame, window: Window) =
+  when not defined(emscripten):
+    if frame.windowInfo.fullscreen:
+      window.fullscreen = frame.windowInfo.fullscreen
+    else:
+      window.size = ivec2(frame.windowInfo.box.wh.scaled())
 
-  if frame.windowInfo.fullscreen:
-    window.fullscreen = frame.windowInfo.fullscreen
-  else:
-    window.size = ivec2(frame.windowInfo.box.wh.scaled())
-
-  window.visible = true
+    window.visible = true
   window.makeContextCurrent()
 
 proc newWindyWindow(frame: AppFrame): Window =
-  let window = newWindow("FigDraw", ivec2(1280, 800), visible = false)
-  startOpenGL(openglVersion)
-  setupWindow(frame, window)
+  let window = when defined(emscripten):
+      newWindow("FigDraw", ivec2(0, 0), visible = false)
+    else:
+      newWindow("FigDraw", ivec2(1280, 800), visible = false)
+  when defined(emscripten):
+    setupWindow(frame, window)
+    startOpenGL(openglVersion)
+  else:
+    startOpenGL(openglVersion)
+    setupWindow(frame, window)
   result = window
 
 proc getWindowInfo(window: Window): WindowInfo =
@@ -72,11 +82,14 @@ proc makeRenderTree*(w, h: float32): Renders =
   result.layers[0.ZLevel] = list
 
 when isMainModule:
-  setFigDataDir(getCurrentDir() / "data")
+  when defined(emscripten):
+    setFigDataDir("/data")
+  else:
+    setFigDataDir(getCurrentDir() / "data")
 
   #name: "img1.png".toFigName(),
-  let imgId = loadImage("img1.png")
-  
+  discard loadImage("img1.png")
+
   app.running = true
   app.autoUiScale = false
   app.uiScale = 1.0
@@ -132,6 +145,8 @@ when isMainModule:
       if RunOnce and frames >= 1:
         app.running = false
       else:
-        sleep(16)
+        when not defined(emscripten):
+          sleep(16)
   finally:
-    window.close()
+    when not defined(emscripten):
+      window.close()

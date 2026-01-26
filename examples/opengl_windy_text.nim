@@ -1,4 +1,7 @@
-import std/[os, times, unicode]
+when defined(emscripten):
+  import std/[times, unicode]
+else:
+  import std/[os, times, unicode]
 import chroma
 import pkg/pixie/fonts
 
@@ -15,18 +18,26 @@ import figdraw/utils/glutils
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
 proc setupWindow(frame: AppFrame, window: Window) =
-  if frame.windowInfo.fullscreen:
-    window.fullscreen = frame.windowInfo.fullscreen
-  else:
-    window.size = ivec2(frame.windowInfo.box.wh.scaled())
+  when not defined(emscripten):
+    if frame.windowInfo.fullscreen:
+      window.fullscreen = frame.windowInfo.fullscreen
+    else:
+      window.size = ivec2(frame.windowInfo.box.wh.scaled())
 
-  window.visible = true
+    window.visible = true
   window.makeContextCurrent()
 
 proc newWindyWindow(frame: AppFrame): Window =
-  let window = newWindow("FigDraw", ivec2(1280, 800), visible = false)
-  startOpenGL(openglVersion)
-  setupWindow(frame, window)
+  let window = when defined(emscripten):
+      newWindow("FigDraw", ivec2(0, 0), visible = false)
+    else:
+      newWindow("FigDraw", ivec2(1280, 800), visible = false)
+  when defined(emscripten):
+    setupWindow(frame, window)
+    startOpenGL(openglVersion)
+  else:
+    startOpenGL(openglVersion)
+    setupWindow(frame, window)
   result = window
 
 proc getWindowInfo(window: Window): WindowInfo =
@@ -173,7 +184,10 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
   result.layers[0.ZLevel] = list
 
 when isMainModule:
-  setFigDataDir(getCurrentDir() / "data")
+  when defined(emscripten):
+    setFigDataDir("/data")
+  else:
+    setFigDataDir(getCurrentDir() / "data")
 
   app.running = true
   app.autoUiScale = false
@@ -244,6 +258,8 @@ when isMainModule:
           fpsStart = now
         if RunOnce and frames >= 1:
           app.running = false
-      sleep(16)
+      when not defined(emscripten):
+        sleep(16)
   finally:
-    window.close()
+    when not defined(emscripten):
+      window.close()
