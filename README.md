@@ -89,18 +89,12 @@ proc makeRenders(w, h: float32): Renders =
 
   let rootIdx = list.addRoot(Fig(
     kind: nkRectangle,
-    childCount: 0,
-    zlevel: 0.ZLevel,
-    name: "root".toFigName(),
     screenBox: rect(0, 0, w, h),
     fill: rgba(255, 255, 255, 255).color,
   ))
 
   list.addChild(rootIdx, Fig(
     kind: nkRectangle,
-    childCount: 0,
-    zlevel: 0.ZLevel,
-    name: "card".toFigName(),
     screenBox: rect(80, 60, 240, 140),
     fill: rgba(220, 40, 40, 255).color,
     corners: [12.0'f32, 12.0, 12.0, 12.0],
