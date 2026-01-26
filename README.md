@@ -9,9 +9,17 @@
 - Image rendering using an OpenGL Atlas.
 - Lightweight and high performance by design! Low allocations for each frame.
 
+## What's It Look Like?
+
+Here's the primary rounded rect primitive with corners, borders, and shadows:
+
 ![RGB boxes render](tests/expected/render_rgb_boxes_sdf.png)
 
-Here's a video example (unfortunately capped at 30fps):
+Here's it running as an overlay on top of a 3D scene:
+
+![3D Pyramid overlay](tests/Pyramid-3D-Overlay.png)
+
+Here's a video example (unfortunately capped at 30fps) of real time shadows, borders, and corners chaning fluidly at 120 FPS:
 
 https://github.com/user-attachments/assets/aca4783c-86c6-4e52-9a16-0a8556ad1300
 
