@@ -17,7 +17,7 @@ Here's the primary rounded rect primitive with corners, borders, and shadows:
 
 Here's it running as an overlay on top of a 3D scene:
 
-![3D Pyramid overlay](tests/Pyramid-3D-Overlay.png)
+![3D Pyramid overlay](data/Pyramid-3D-Overlay.png)
 
 Here's a video example (unfortunately capped at 30fps) of real time shadows, borders, and corners chaning fluidly at 120 FPS:
 
