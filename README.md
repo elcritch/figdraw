@@ -7,6 +7,7 @@
 - An OpenGL backend with SDF (signed-distance-field) primitives for crisp rounded-rect rendering and gaussian based shadows.
 - Modern and fast text rendering and layout using [Pixie](https://github.com/treeform/pixie/) with a thread-safe API.
 - Image rendering using an OpenGL Atlas.
+- Supports layering and multiple "roots" per layer - great for menus, overlays, etc.
 - Lightweight and high performance by design! Low allocations for each frame.
 
 ## What's It Look Like?
@@ -75,6 +76,42 @@ The most stable entry points today are:
 - Core types/utilities: `import figdraw/commons`
 - Scene graph nodes: `import figdraw/fignodes`
 - OpenGL backend: `import figdraw/opengl/renderer`
+
+Render list example (build a small scene tree):
+
+```nim
+import figdraw/commons
+import figdraw/fignodes
+import chroma
+
+proc makeRenders(w, h: float32): Renders =
+  var list = RenderList()
+
+  let rootIdx = list.addRoot(Fig(
+    kind: nkRectangle,
+    childCount: 0,
+    zlevel: 0.ZLevel,
+    name: "root".toFigName(),
+    screenBox: rect(0, 0, w, h),
+    fill: rgba(255, 255, 255, 255).color,
+  ))
+
+  list.addChild(rootIdx, Fig(
+    kind: nkRectangle,
+    childCount: 0,
+    zlevel: 0.ZLevel,
+    name: "card".toFigName(),
+    screenBox: rect(80, 60, 240, 140),
+    fill: rgba(220, 40, 40, 255).color,
+    corners: [12.0'f32, 12.0, 12.0, 12.0],
+    stroke: RenderStroke(weight: 3.0, color: rgba(0, 0, 0, 255).color),
+  ))
+
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  result.layers[0.ZLevel] = list
+```
+
+Feed the resulting `Renders` into the OpenGL backend; see the examples below for a full render loop.
 
 For a complete working example (window + GL context + render loop), see:
 
