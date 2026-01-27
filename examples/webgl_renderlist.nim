@@ -21,32 +21,61 @@ proc rgba(r, g, b: int; a: int = 255): array[4, float32] =
     a.float32 / 255'f32,
   ]
 
+proc addRect(list: var seq[Rect]; x, y, w, h: float32;
+    color: array[4, float32]) =
+  list.add Rect(x: x, y: y, w: w, h: h, color: color)
+
+proc addBorder(list: var seq[Rect]; x, y, w, h: float32; weight: float32;
+    color: array[4, float32]) =
+  list.add Rect(
+    x: x - weight,
+    y: y - weight,
+    w: w + weight * 2'f32,
+    h: h + weight * 2'f32,
+    color: color,
+  )
+
+proc addShadow(list: var seq[Rect]; x, y, w, h: float32; offsetX,
+    offsetY: float32;spread: float32; color: array[4, float32]) =
+  list.add Rect(
+    x: x + offsetX - spread,
+    y: y + offsetY - spread,
+    w: w + spread * 2'f32,
+    h: h + spread * 2'f32,
+    color: color,
+  )
+
 proc makeRenderList(width, height: float32): seq[Rect] =
   let sx = width / baseWidth
   let sy = height / baseHeight
-  result = @[
-    Rect(
-      x: 60'f32 * sx,
-      y: 60'f32 * sy,
-      w: 220'f32 * sx,
-      h: 140'f32 * sy,
-      color: rgba(220, 40, 40),
-    ),
-    Rect(
-      x: 320'f32 * sx,
-      y: 120'f32 * sy,
-      w: 220'f32 * sx,
-      h: 140'f32 * sy,
-      color: rgba(40, 180, 90),
-    ),
-    Rect(
-      x: 180'f32 * sx,
-      y: 300'f32 * sy,
-      w: 220'f32 * sx,
-      h: 140'f32 * sy,
-      color: rgba(60, 90, 220),
-    ),
-  ]
+  let s = min(sx, sy)
+  let borderWeight = 5'f32 * s
+  let shadowOffsetX = 10'f32 * sx
+  let shadowOffsetY = 10'f32 * sy
+  let shadowSpread = 10'f32 * s
+
+  result = @[]
+
+  let r1x = 60'f32 * sx
+  let r1y = 60'f32 * sy
+  let r1w = 220'f32 * sx
+  let r1h = 140'f32 * sy
+  addBorder(result, r1x, r1y, r1w, r1h, borderWeight, rgba(0, 0, 0))
+  addRect(result, r1x, r1y, r1w, r1h, rgba(220, 40, 40))
+
+  let r2x = 320'f32 * sx
+  let r2y = 120'f32 * sy
+  let r2w = 220'f32 * sx
+  let r2h = 140'f32 * sy
+  addShadow(result, r2x, r2y, r2w, r2h, shadowOffsetX, shadowOffsetY,
+    shadowSpread, rgba(0, 0, 0, 55))
+  addRect(result, r2x, r2y, r2w, r2h, rgba(40, 180, 90))
+
+  let r3x = 180'f32 * sx
+  let r3y = 300'f32 * sy
+  let r3w = 220'f32 * sx
+  let r3h = 140'f32 * sy
+  addRect(result, r3x, r3y, r3w, r3h, rgba(60, 90, 220))
 
 proc appendRect(data: var seq[float32]; rect: Rect) =
   let x0 = rect.x
@@ -154,6 +183,9 @@ proc main() =
   if gl.isNull or gl.isUndefined:
     console.error("WebGL not available")
     return
+
+  gl.enable(BLEND)
+  gl.blendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
 
   let vertexSource = cstring("""
     attribute vec2 a_position;

@@ -135,6 +135,9 @@ const
   FLOAT* = 0x1406.GLenum
   TRIANGLES* = 0x0004.GLenum
   COLOR_BUFFER_BIT* = 0x4000.GLenum
+  BLEND* = 0x0BE2.GLenum
+  SRC_ALPHA* = 0x0302.GLenum
+  ONE_MINUS_SRC_ALPHA* = 0x0303.GLenum
   VERTEX_SHADER* = 0x8B31.GLenum
   FRAGMENT_SHADER* = 0x8B30.GLenum
   COMPILE_STATUS* = 0x8B81.GLenum
@@ -269,6 +272,12 @@ proc clearColor*(gl: WebGLRenderingContext; r, g, b, a: GLclampf)
 
 proc clear*(gl: WebGLRenderingContext; mask: GLbitfield)
   {.importjs: "#.clear(#)".}
+
+proc enable*(gl: WebGLRenderingContext; cap: GLenum)
+  {.importjs: "#.enable(#)".}
+
+proc blendFunc*(gl: WebGLRenderingContext; sfactor: GLenum; dfactor: GLenum)
+  {.importjs: "#.blendFunc(#, #)".}
 
 proc viewport*(gl: WebGLRenderingContext; x, y: GLint; width, height: GLsizei)
   {.importjs: "#.viewport(#, #, #, #)".}
