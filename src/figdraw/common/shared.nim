@@ -1,10 +1,13 @@
 import std/[sequtils, tables, hashes]
 import std/[unicode, strformat]
-import std/os
-import pkg/variant
+when not defined(js):
+  import std/os
+when not defined(js):
+  import pkg/variant
 
 export sequtils, strformat, tables, hashes
-export variant
+when not defined(js):
+  export variant
 
 import extras, uimaths
 export extras, uimaths
@@ -56,7 +59,11 @@ type
     pixelScale*: float32
 
 var
-  dataDirStr* {.runtimeVar.}: string = os.getCurrentDir() / "data"
+  dataDirStr* {.runtimeVar.}: string =
+    when defined(js):
+      "data"
+    else:
+      os.getCurrentDir() / "data"
   app* {.runtimeVar.} =
     AppState(running: true, uiScale: 1.0, autoUiScale: true, pixelScale: 1.0)
 

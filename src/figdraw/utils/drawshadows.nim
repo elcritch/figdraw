@@ -3,7 +3,7 @@ import std/hashes
 import std/fenv
 
 import pkg/chroma
-import pkg/chronicles
+import logging
 import pkg/pixie
 import pkg/sdfy
 
@@ -140,11 +140,11 @@ proc fillRoundedRectWithShadowSdf*[R](
         dcTopRight: xy + vec2(w - cornerCbs[dcTopRight].inner.float32, 0),
         dcBottomLeft: xy + vec2(0, h - cornerCbs[dcBottomLeft].inner.float32),
         dcBottomRight:
-          xy +
-          vec2(
-            w - cornerCbs[dcBottomRight].inner.float32,
-            h - cornerCbs[dcBottomRight].inner.float32,
-          ),
+        xy +
+        vec2(
+          w - cornerCbs[dcBottomRight].inner.float32,
+          h - cornerCbs[dcBottomRight].inner.float32,
+        ),
       ]
 
       coffset = [
@@ -156,10 +156,12 @@ proc fillRoundedRectWithShadowSdf*[R](
 
       ccenter = [
         dcTopLeft: vec2(
-          cornerCbs[dcTopLeft].sideSize.float32, cornerCbs[dcTopLeft].sideSize.float32
+          cornerCbs[dcTopLeft].sideSize.float32, cornerCbs[
+              dcTopLeft].sideSize.float32
         ),
         dcTopRight: vec2(
-          cornerCbs[dcTopRight].sideSize.float32, cornerCbs[dcTopRight].sideSize.float32
+          cornerCbs[dcTopRight].sideSize.float32, cornerCbs[
+              dcTopRight].sideSize.float32
         ),
         dcBottomLeft: vec2(
           cornerCbs[dcBottomLeft].sideSize.float32,
@@ -191,7 +193,8 @@ proc fillRoundedRectWithShadowSdf*[R](
           ]
 
     let sides =
-      [dcTopLeft: dLeft, dcTopRight: dTop, dcBottomLeft: dBottom, dcBottomRight: dRight]
+      [dcTopLeft: dLeft, dcTopRight: dTop, dcBottomLeft: dBottom,
+          dcBottomRight: dRight]
     let prevCorner = [
       dcTopLeft: dcBottomLeft,
       dcTopRight: dcTopLeft,
@@ -238,7 +241,8 @@ proc fillRoundedRectWithShadowSdf*[R](
           rect(paddingOffset, paddingOffset + inner, inner, sideDelta), shadowColor
         )
         ctx.drawRect(
-          rect(paddingOffset + inner, paddingOffset, sideDelta, cbs.maxRadius.float32),
+          rect(paddingOffset + inner, paddingOffset, sideDelta,
+              cbs.maxRadius.float32),
           shadowColor,
         )
 
@@ -251,7 +255,8 @@ proc fillRoundedRectWithShadowSdf*[R](
         ctx.drawImageAdj(
           sideHashes[sides[corner]],
           vec2(
-            paddingOffset, paddingOffset + cornerCbs[prevCorner[corner]].inner.float32
+            paddingOffset, paddingOffset + cornerCbs[prevCorner[
+                corner]].inner.float32
           ),
           shadowColor,
           borderSize,
@@ -270,7 +275,8 @@ proc fillRoundedRectWithShadowSdf*[R](
           rect(maxRadius.float32, 0, w - 2 * maxRadius.float32, h), shadowColor
         )
         ctx.drawRect(
-          rect(0, 0 + maxRadius.float32, maxRadius.float32, h - 2 * maxRadius.float32),
+          rect(0, 0 + maxRadius.float32, maxRadius.float32, h - 2 *
+              maxRadius.float32),
           shadowColor,
         )
         ctx.drawRect(

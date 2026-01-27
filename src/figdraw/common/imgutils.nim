@@ -4,7 +4,7 @@ import std/[isolation, locks, times]
 import pkg/vmath
 import pkg/pixie
 import pkg/pixie/fonts
-import chronicles
+import ../utils/logging
 
 import ./rchannels
 import ./formatflippy

@@ -1,21 +1,28 @@
 import
-  buffers, chroma, pixie, hashes, opengl, os, shaders, strformat, strutils, tables,
+  buffers, chroma, hashes, glapi, os, shaders, strformat, strutils, tables,
   textures, times
+when not defined(js):
+  import pixie
+  import pixie/simd
+else:
+  type Image* = object
 
 ## Copied from Fidget backend, copyright from @treeform applies
 
-import pixie/simd
-
-import pkg/chronicles
+import ../utils/logging
 
 import ../commons
-import ../common/formatflippy
+when not defined(js):
+  import ../common/formatflippy
+else:
+  type Flippy* = object
 import ../fignodes
-import ../utils/drawextras
-import ../utils/drawboxes
-import ../utils/drawshadows
+when not defined(js):
+  import ../utils/drawextras
+  import ../utils/drawboxes
+  import ../utils/drawshadows
 
-export drawextras
+  export drawextras
 
 logScope:
   scope = "opengl"
@@ -25,7 +32,7 @@ proc round*(v: Vec2): Vec2 =
 
 const quadLimit = 10_921
 
-when defined(emscripten):
+when defined(emscripten) or defined(js):
   type SdfModeData = float32
 else:
   type SdfModeData = uint16
@@ -33,22 +40,23 @@ else:
 type Context* = ref object
   mainShader, maskShader, activeShader: Shader
   atlasTexture: Texture
-  maskTextureWrite: int ## Index into max textures for writing.
-  maskTextures: seq[Texture] ## Masks array for pushing and popping.
-  atlasSize: int ## Size x size dimensions of the atlas
-  atlasMargin: int ## Default margin between images
-  quadCount: int ## Number of quads drawn so far
-  maxQuads: int ## Max quads to draw before issuing an OpenGL call
-  mat*: Mat4 ## Current matrix
-  mats: seq[Mat4] ## Matrix stack
+  maskTextureWrite: int       ## Index into max textures for writing.
+  maskTextures: seq[Texture]  ## Masks array for pushing and popping.
+  atlasSize: int              ## Size x size dimensions of the atlas
+  atlasMargin: int            ## Default margin between images
+  quadCount: int              ## Number of quads drawn so far
+  maxQuads: int               ## Max quads to draw before issuing an OpenGL call
+  mat*: Mat4                  ## Current matrix
+  mats: seq[Mat4]             ## Matrix stack
   entries*: Table[Hash, Rect] ## Mapping of image name to atlas UV position
-  heights: seq[uint16] ## Height map of the free space in the atlas
+  heights: seq[uint16]        ## Height map of the free space in the atlas
   proj*: Mat4
-  frameSize: Vec2 ## Dimensions of the window frame
-  vertexArrayId, maskFramebufferId: GLuint
+  frameSize: Vec2             ## Dimensions of the window frame
+  vertexArrayId: GlVertexArrayId
+  maskFramebufferId: GlFramebufferId
   frameBegun, maskBegun: bool
-  pixelate*: bool ## Makes texture look pixelated, like a pixel game.
-  pixelScale*: float32 ## Multiple scaling factor.
+  pixelate*: bool             ## Makes texture look pixelated, like a pixel game.
+  pixelScale*: float32        ## Multiple scaling factor.
 
   # Buffer data for OpenGL
   indices: tuple[buffer: Buffer, data: seq[uint16]]
@@ -79,17 +87,28 @@ proc upload(ctx: Context) =
   ctx.colors.buffer.count = ctx.quadCount * 4
   ctx.uvs.buffer.count = ctx.quadCount * 4
   ctx.indices.buffer.count = ctx.quadCount * 6
-  bindBufferData(ctx.positions.buffer.addr, ctx.positions.data[0].addr)
-  bindBufferData(ctx.colors.buffer.addr, ctx.colors.data[0].addr)
-  bindBufferData(ctx.uvs.buffer.addr, ctx.uvs.data[0].addr)
+  when defined(js):
+    bindBufferData(ctx.positions.buffer.addr, ctx.positions.data)
+    bindBufferData(ctx.colors.buffer.addr, ctx.colors.data)
+    bindBufferData(ctx.uvs.buffer.addr, ctx.uvs.data)
+  else:
+    bindBufferData(ctx.positions.buffer.addr, ctx.positions.data[0].addr)
+    bindBufferData(ctx.colors.buffer.addr, ctx.colors.data[0].addr)
+    bindBufferData(ctx.uvs.buffer.addr, ctx.uvs.data[0].addr)
   ctx.sdfParams.buffer.count = ctx.quadCount * 4
   ctx.sdfRadii.buffer.count = ctx.quadCount * 4
   ctx.sdfModeAttr.buffer.count = ctx.quadCount * 4
   ctx.sdfFactors.buffer.count = ctx.quadCount * 4
-  bindBufferData(ctx.sdfParams.buffer.addr, ctx.sdfParams.data[0].addr)
-  bindBufferData(ctx.sdfRadii.buffer.addr, ctx.sdfRadii.data[0].addr)
-  bindBufferData(ctx.sdfModeAttr.buffer.addr, ctx.sdfModeAttr.data[0].addr)
-  bindBufferData(ctx.sdfFactors.buffer.addr, ctx.sdfFactors.data[0].addr)
+  when defined(js):
+    bindBufferData(ctx.sdfParams.buffer.addr, ctx.sdfParams.data)
+    bindBufferData(ctx.sdfRadii.buffer.addr, ctx.sdfRadii.data)
+    bindBufferData(ctx.sdfModeAttr.buffer.addr, ctx.sdfModeAttr.data)
+    bindBufferData(ctx.sdfFactors.buffer.addr, ctx.sdfFactors.data)
+  else:
+    bindBufferData(ctx.sdfParams.buffer.addr, ctx.sdfParams.data[0].addr)
+    bindBufferData(ctx.sdfRadii.buffer.addr, ctx.sdfRadii.data[0].addr)
+    bindBufferData(ctx.sdfModeAttr.buffer.addr, ctx.sdfModeAttr.data[0].addr)
+    bindBufferData(ctx.sdfFactors.buffer.addr, ctx.sdfFactors.data[0].addr)
 
 proc setUpMaskFramebuffer(ctx: Context) =
   glBindFramebuffer(GL_FRAMEBUFFER, ctx.maskFramebufferId)
@@ -102,8 +121,12 @@ proc setUpMaskFramebuffer(ctx: Context) =
   )
 
 proc createAtlasTexture(ctx: Context, size: int): Texture =
-  result.width = size.GLint
-  result.height = size.GLint
+  when defined(js):
+    result.width = int32(size)
+    result.height = int32(size)
+  else:
+    result.width = size.GLint
+    result.height = size.GLint
   result.componentType = GL_UNSIGNED_BYTE
   result.format = GL_RGBA
   result.internalFormat = GL_RGBA8
@@ -123,7 +146,7 @@ proc addMaskTexture(ctx: Context, frameSize = vec2(1, 1)) =
   maskTexture.height = frameSize.y.int32
   maskTexture.componentType = GL_UNSIGNED_BYTE
   maskTexture.format = GL_RGBA
-  when defined(emscripten):
+  when defined(emscripten) or defined(js):
     maskTexture.internalFormat = GL_RGBA8
   else:
     maskTexture.internalFormat = GL_R8
@@ -161,7 +184,12 @@ proc newContext*(
 
   result.addMaskTexture()
 
-  when defined(emscripten) or defined(useOpenGlEs):
+  when defined(js):
+    result.maskShader =
+      newShaderStatic("glsl/webgl2/atlas.vert", "glsl/webgl2/mask.frag")
+    result.mainShader =
+      newShaderStatic("glsl/webgl2/atlas.vert", "glsl/webgl2/atlas.frag")
+  elif defined(emscripten) or defined(useOpenGlEs):
     result.maskShader =
       newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
     result.mainShader =
@@ -213,7 +241,7 @@ proc newContext*(
   result.sdfRadii.data =
     newSeq[float32](result.sdfRadii.buffer.kind.componentCount() * maxQuads * 4)
 
-  when defined(emscripten):
+  when defined(emscripten) or defined(js):
     result.sdfModeAttr.buffer.componentType = cGL_FLOAT
   else:
     result.sdfModeAttr.buffer.componentType = GL_UNSIGNED_SHORT
@@ -221,7 +249,8 @@ proc newContext*(
   result.sdfModeAttr.buffer.target = GL_ARRAY_BUFFER
   result.sdfModeAttr.buffer.usage = GL_STREAM_DRAW
   result.sdfModeAttr.data =
-    newSeq[SdfModeData](result.sdfModeAttr.buffer.kind.componentCount() * maxQuads * 4)
+    newSeq[SdfModeData](result.sdfModeAttr.buffer.kind.componentCount() *
+        maxQuads * 4)
 
   result.sdfFactors.buffer.componentType = cGL_FLOAT
   result.sdfFactors.buffer.kind = bkVEC2
@@ -250,14 +279,21 @@ proc newContext*(
     )
 
   # Indices are only uploaded once
-  bindBufferData(result.indices.buffer.addr, result.indices.data[0].addr)
+  when defined(js):
+    bindBufferData(result.indices.buffer.addr, result.indices.data)
+  else:
+    bindBufferData(result.indices.buffer.addr, result.indices.data[0].addr)
 
   result.upload()
 
   result.activeShader = result.mainShader
 
-  glGenVertexArrays(1, result.vertexArrayId.addr)
-  glBindVertexArray(result.vertexArrayId)
+  when defined(js):
+    result.vertexArrayId = glCreateVertexArray()
+    glBindVertexArray(result.vertexArrayId)
+  else:
+    glGenVertexArrays(1, result.vertexArrayId.addr)
+    glBindVertexArray(result.vertexArrayId)
 
   # Main shader (atlas + SDF).
   result.mainShader.bindAttrib("vertexPos", result.positions.buffer)
@@ -277,14 +313,20 @@ proc newContext*(
   result.maskShader.bindAttrib("vertexSdfMode", result.sdfModeAttr.buffer)
 
   # Create mask framebuffer
-  glGenFramebuffers(1, result.maskFramebufferId.addr)
+  when defined(js):
+    result.maskFramebufferId = glCreateFramebuffer()
+  else:
+    glGenFramebuffers(1, result.maskFramebufferId.addr)
   result.setUpMaskFramebuffer()
 
   let status = glCheckFramebufferStatus(GL_FRAMEBUFFER)
   if status != GL_FRAMEBUFFER_COMPLETE:
     quit(&"Something wrong with mask framebuffer: {toHex(status.int32, 4)}")
 
-  glBindFramebuffer(GL_FRAMEBUFFER, 0)
+  when defined(js):
+    glBindFramebuffer(GL_FRAMEBUFFER, nil)
+  else:
+    glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
 func `[]=`(t: var Table[Hash, Rect], key: string, rect: Rect) =
   t[hash(key)] = rect
@@ -347,53 +389,73 @@ proc findEmptyRect(ctx: Context, width, height: int): Rect =
 
   return rect
 
-proc putImage*(ctx: Context, path: Hash, image: Image) =
-  # Reminder: This does not set mipmaps (used for text, should it?)
-  let rect = ctx.findEmptyRect(image.width, image.height)
-  ctx.entries[path] = rect / float(ctx.atlasSize)
-  updateSubImage(ctx.atlasTexture, int(rect.x), int(rect.y), image)
+when not defined(js):
+  proc putImage*(ctx: Context, path: Hash, image: Image) =
+    # Reminder: This does not set mipmaps (used for text, should it?)
+    let rect = ctx.findEmptyRect(image.width, image.height)
+    ctx.entries[path] = rect / float(ctx.atlasSize)
+    updateSubImage(ctx.atlasTexture, int(rect.x), int(rect.y), image)
 
-proc addImage*(ctx: Context, key: Hash, image: Image) =
-  ctx.putImage(key, image)
+  proc addImage*(ctx: Context, key: Hash, image: Image) =
+    ctx.putImage(key, image)
 
-proc updateImage*(ctx: Context, path: Hash, image: Image) =
-  ## Updates an image that was put there with putImage.
-  ## Useful for things like video.
-  ## * Must be the same size.
-  ## * This does not set mipmaps.
-  let rect = ctx.entries[path]
-  assert rect.w == image.width.float / float(ctx.atlasSize)
-  assert rect.h == image.height.float / float(ctx.atlasSize)
-  updateSubImage(
-    ctx.atlasTexture,
-    int(rect.x * ctx.atlasSize.float),
-    int(rect.y * ctx.atlasSize.float),
-    image,
-  )
+  proc updateImage*(ctx: Context, path: Hash, image: Image) =
+    ## Updates an image that was put there with putImage.
+    ## Useful for things like video.
+    ## * Must be the same size.
+    ## * This does not set mipmaps.
+    let rect = ctx.entries[path]
+    assert rect.w == image.width.float / float(ctx.atlasSize)
+    assert rect.h == image.height.float / float(ctx.atlasSize)
+    updateSubImage(
+      ctx.atlasTexture,
+      int(rect.x * ctx.atlasSize.float),
+      int(rect.y * ctx.atlasSize.float),
+      image,
+    )
+else:
+  proc putImage*(ctx: Context, path: Hash, image: Image) =
+    discard
 
-proc logFlippy(flippy: Flippy, file: string) =
-  debug "putFlippy file",
-    fwidth = $flippy.width, fheight = $flippy.height, flippyPath = file
+  proc addImage*(ctx: Context, key: Hash, image: Image) =
+    discard
 
-proc putFlippy*(ctx: Context, path: Hash, flippy: Flippy) =
-  logFlippy(flippy, $path)
-  let rect = ctx.findEmptyRect(flippy.width, flippy.height)
-  ctx.entries[path] = rect / float(ctx.atlasSize)
-  var
-    x = int(rect.x)
-    y = int(rect.y)
-  for level, mip in flippy.mipmaps:
-    updateSubImage(ctx.atlasTexture, x, y, mip, level)
-    x = x div 2
-    y = y div 2
+  proc updateImage*(ctx: Context, path: Hash, image: Image) =
+    discard
 
-proc putImage*(ctx: Context, imgObj: ImgObj) =
-  ## puts an ImgObj wrapper with either a flippy or image format
-  case imgObj.kind:
-  of FlippyImg:
-    ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
-  of PixieImg:
-    ctx.putImage(imgObj.id.Hash, imgObj.pimg)
+when not defined(js):
+  proc logFlippy(flippy: Flippy, file: string) =
+    debug "putFlippy file",
+      fwidth = $flippy.width, fheight = $flippy.height, flippyPath = file
+
+  proc putFlippy*(ctx: Context, path: Hash, flippy: Flippy) =
+    logFlippy(flippy, $path)
+    let rect = ctx.findEmptyRect(flippy.width, flippy.height)
+    ctx.entries[path] = rect / float(ctx.atlasSize)
+    var
+      x = int(rect.x)
+      y = int(rect.y)
+    for level, mip in flippy.mipmaps:
+      updateSubImage(ctx.atlasTexture, x, y, mip, level)
+      x = x div 2
+      y = y div 2
+
+  proc putImage*(ctx: Context, imgObj: ImgObj) =
+    ## puts an ImgObj wrapper with either a flippy or image format
+    case imgObj.kind:
+    of FlippyImg:
+      ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
+    of PixieImg:
+      ctx.putImage(imgObj.id.Hash, imgObj.pimg)
+else:
+  proc logFlippy(flippy: Flippy, file: string) =
+    discard
+
+  proc putFlippy*(ctx: Context, path: Hash, flippy: Flippy) =
+    discard
+
+  proc putImage*(ctx: Context, imgObj: ImgObj) =
+    discard
 
 proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
   ## Flips - draws current buffer and starts a new one.
@@ -429,9 +491,20 @@ proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
   ctx.activeShader.bindUniforms()
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ctx.indices.buffer.bufferId)
-  glDrawElements(
-    GL_TRIANGLES, ctx.indices.buffer.count.GLint, ctx.indices.buffer.componentType, nil
-  )
+  when defined(js):
+    glDrawElements(
+      GL_TRIANGLES,
+      int32(ctx.indices.buffer.count),
+      ctx.indices.buffer.componentType,
+      0.GLintptr,
+    )
+  else:
+    glDrawElements(
+      GL_TRIANGLES,
+      ctx.indices.buffer.count.GLint,
+      ctx.indices.buffer.componentType,
+      nil,
+    )
 
   ctx.quadCount = 0
 
@@ -504,7 +577,7 @@ proc drawQuad*(
   ctx.sdfFactors.data.setVert2(offset + 3, defaultFactors)
 
   # atlas fragment mode
-  when defined(emscripten):
+  when defined(emscripten) or defined(js):
     let modeVal = 0.0'f32
   else:
     let modeVal = 0'u16
@@ -584,7 +657,7 @@ proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
   ctx.sdfFactors.data.setVert2(offset + 2, defaultFactors)
   ctx.sdfFactors.data.setVert2(offset + 3, defaultFactors)
 
-  when defined(emscripten):
+  when defined(emscripten) or defined(js):
     let modeVal = 0.0'f32
   else:
     let modeVal = 0'u16
@@ -601,84 +674,155 @@ proc drawUvRect(ctx: Context, rect, uvRect: Rect, color: Color) =
 proc getImageRect(ctx: Context, imageId: Hash): Rect =
   return ctx.entries[imageId]
 
-proc drawImage*(
+when not defined(js):
+  proc drawImage*(
+      ctx: Context,
+      imageId: Hash,
+      pos: Vec2 = vec2(0, 0),
+      color = color(1, 1, 1, 1),
+      scale = 1.0,
+  ) =
+    ## Draws image the UI way - pos at top-left.
+    let
+      rect = ctx.getImageRect(imageId)
+      wh = rect.wh * ctx.atlasSize.float32 * scale
+    ctx.drawUvRect(pos, pos + wh, rect.xy, rect.xy + rect.wh, color)
+else:
+  proc drawImage*(
+      ctx: Context,
+      imageId: Hash,
+      pos: Vec2 = vec2(0, 0),
+      color = color(1, 1, 1, 1),
+      scale = 1.0,
+  ) =
+    discard
+
+when not defined(js):
+  proc drawImage*(
+      ctx: Context,
+      imageId: Hash,
+      pos: Vec2 = vec2(0, 0),
+      color = color(1, 1, 1, 1),
+      size: Vec2,
+  ) =
+    ## Draws image the UI way - pos at top-left.
+    let rect = ctx.getImageRect(imageId)
+    ctx.drawUvRect(pos, pos + size, rect.xy, rect.xy + rect.wh, color)
+else:
+  proc drawImage*(
+      ctx: Context,
+      imageId: Hash,
+      pos: Vec2 = vec2(0, 0),
+      color = color(1, 1, 1, 1),
+      size: Vec2,
+  ) =
+    discard
+
+when not defined(js):
+  proc drawImageAdj*(
+      ctx: Context,
+      imageId: Hash,
+      pos: Vec2 = vec2(0, 0),
+      color = color(1, 1, 1, 1),
+      size: Vec2,
+  ) =
+    ## Draws image the UI way - pos at top-left.
+    let
+      rect = ctx.getImageRect(imageId)
+      adj = vec2(2 / ctx.atlasSize.float32)
+    ctx.drawUvRect(pos, pos + size, rect.xy + adj, rect.xy + rect.wh - adj, color)
+else:
+  proc drawImageAdj*(
+      ctx: Context,
+      imageId: Hash,
+      pos: Vec2 = vec2(0, 0),
+      color = color(1, 1, 1, 1),
+      size: Vec2,
+  ) =
+    discard
+
+when not defined(js):
+  proc drawSprite*(
+      ctx: Context,
+      imageId: Hash,
+      pos: Vec2 = vec2(0, 0),
+      color = color(1, 1, 1, 1),
+      scale = 1.0,
+  ) =
+    ## Draws image the game way - pos at center.
+    let
+      rect = ctx.getImageRect(imageId)
+      wh = rect.wh * ctx.atlasSize.float32 * scale
+    ctx.drawUvRect(pos - wh / 2, pos + wh / 2, rect.xy, rect.xy + rect.wh, color)
+else:
+  proc drawSprite*(
+      ctx: Context,
+      imageId: Hash,
+      pos: Vec2 = vec2(0, 0),
+      color = color(1, 1, 1, 1),
+      scale = 1.0,
+  ) =
+    discard
+
+when not defined(js):
+  proc drawSprite*(
+      ctx: Context,
+      imageId: Hash,
+      pos: Vec2 = vec2(0, 0),
+      color = color(1, 1, 1, 1),
+      size: Vec2,
+  ) =
+    ## Draws image the game way - pos at center.
+    let rect = ctx.getImageRect(imageId)
+    ctx.drawUvRect(
+      pos - size / 2, pos + size / 2, rect.xy, rect.xy + rect.wh, color
+    )
+else:
+  proc drawSprite*(
+      ctx: Context,
+      imageId: Hash,
+      pos: Vec2 = vec2(0, 0),
+      color = color(1, 1, 1, 1),
+      size: Vec2,
+  ) =
+    discard
+
+proc drawRoundedRectSdf*(
     ctx: Context,
-    imageId: Hash,
-    pos: Vec2 = vec2(0, 0),
-    color = color(1, 1, 1, 1),
-    scale = 1.0,
-) =
-  ## Draws image the UI way - pos at top-left.
-  let
-    rect = ctx.getImageRect(imageId)
-    wh = rect.wh * ctx.atlasSize.float32 * scale
-  ctx.drawUvRect(pos, pos + wh, rect.xy, rect.xy + rect.wh, color)
+    rect: Rect,
+    color: Color,
+    radii: array[DirectionCorners, float32],
+    mode: SdfMode = sdfModeClipAA,
+    factor: float32 = 4.0,
+    spread: float32 = 0.0,
+    shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+)
 
-proc drawImage*(
-    ctx: Context,
-    imageId: Hash,
-    pos: Vec2 = vec2(0, 0),
-    color = color(1, 1, 1, 1),
-    size: Vec2,
-) =
-  ## Draws image the UI way - pos at top-left.
-  let rect = ctx.getImageRect(imageId)
-  ctx.drawUvRect(pos, pos + size, rect.xy, rect.xy + rect.wh, color)
+when not defined(js):
+  proc drawRect*(ctx: Context, rect: Rect, color: Color) =
+    const imgKey = hash("rect")
+    if imgKey notin ctx.entries:
+      var image = newImage(4, 4)
+      image.fill(rgba(255, 255, 255, 255))
+      ctx.putImage(imgKey, image)
 
-proc drawImageAdj*(
-    ctx: Context,
-    imageId: Hash,
-    pos: Vec2 = vec2(0, 0),
-    color = color(1, 1, 1, 1),
-    size: Vec2,
-) =
-  ## Draws image the UI way - pos at top-left.
-  let
-    rect = ctx.getImageRect(imageId)
-    adj = vec2(2 / ctx.atlasSize.float32)
-  ctx.drawUvRect(pos, pos + size, rect.xy + adj, rect.xy + rect.wh - adj, color)
-
-proc drawSprite*(
-    ctx: Context,
-    imageId: Hash,
-    pos: Vec2 = vec2(0, 0),
-    color = color(1, 1, 1, 1),
-    scale = 1.0,
-) =
-  ## Draws image the game way - pos at center.
-  let
-    rect = ctx.getImageRect(imageId)
-    wh = rect.wh * ctx.atlasSize.float32 * scale
-  ctx.drawUvRect(pos - wh / 2, pos + wh / 2, rect.xy, rect.xy + rect.wh, color)
-
-proc drawSprite*(
-    ctx: Context,
-    imageId: Hash,
-    pos: Vec2 = vec2(0, 0),
-    color = color(1, 1, 1, 1),
-    size: Vec2,
-) =
-  ## Draws image the game way - pos at center.
-  let rect = ctx.getImageRect(imageId)
-  ctx.drawUvRect(pos - size / 2, pos + size / 2, rect.xy, rect.xy + rect.wh, color)
-
-proc drawRect*(ctx: Context, rect: Rect, color: Color) =
-  const imgKey = hash("rect")
-  if imgKey notin ctx.entries:
-    var image = newImage(4, 4)
-    image.fill(rgba(255, 255, 255, 255))
-    ctx.putImage(imgKey, image)
-
-  let
-    uvRect = ctx.entries[imgKey]
-    wh = rect.wh * float32(ctx.atlasSize)
-  ctx.drawUvRect(
-    rect.xy,
-    rect.xy + rect.wh,
-    uvRect.xy + uvRect.wh / 2,
-    uvRect.xy + uvRect.wh / 2,
-    color,
-  )
+    let
+      uvRect = ctx.entries[imgKey]
+      wh = rect.wh * float32(ctx.atlasSize)
+    ctx.drawUvRect(
+      rect.xy,
+      rect.xy + rect.wh,
+      uvRect.xy + uvRect.wh / 2,
+      uvRect.xy + uvRect.wh / 2,
+      color,
+    )
+else:
+  proc drawRect*(ctx: Context, rect: Rect, color: Color) =
+    ctx.drawRoundedRectSdf(
+      rect = rect,
+      color = color,
+      radii = [0'f32, 0'f32, 0'f32, 0'f32],
+    )
 
 proc drawRoundedRectSdf*(
     ctx: Context,
@@ -699,28 +843,30 @@ proc drawRoundedRectSdf*(
   let
     quadHalfExtents = rect.wh * 0.5'f32
     resolvedShapeSize =
-      (if shapeSize.x > 0.0'f32 and shapeSize.y > 0.0'f32: shapeSize else: rect.wh)
+      (if shapeSize.x > 0.0'f32 and shapeSize.y >
+          0.0'f32: shapeSize else: rect.wh)
     shapeHalfExtents = resolvedShapeSize * 0.5'f32
     params =
-      vec4(quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x, shapeHalfExtents.y)
+      vec4(quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x,
+          shapeHalfExtents.y)
     maxRadius = min(shapeHalfExtents.x, shapeHalfExtents.y)
     radiiClamped = [
       dcTopLeft: (
         if radii[dcTopLeft] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
-      ),
+      else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
+    ),
       dcTopRight: (
         if radii[dcTopRight] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
-      ),
+      else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
+    ),
       dcBottomLeft: (
         if radii[dcBottomLeft] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
-      ),
+      else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
+    ),
       dcBottomRight: (
         if radii[dcBottomRight] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
-      ),
+      else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
+    ),
     ]
     # (top-right, bottom-right, top-left, bottom-left)
     r4 = vec4(
@@ -784,7 +930,7 @@ proc drawRoundedRectSdf*(
   ctx.sdfFactors.data.setVert2(offset + 2, factors)
   ctx.sdfFactors.data.setVert2(offset + 3, factors)
 
-  when defined(emscripten):
+  when defined(emscripten) or defined(js):
     let modeVal = mode.int.float32
   else:
     let modeVal = mode.int.uint16
@@ -795,33 +941,38 @@ proc drawRoundedRectSdf*(
 
   inc ctx.quadCount
 
-proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
-  let hash = hash((2345, a, b, (weight * 100).int, hash(color)))
+when not defined(js):
+  proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
+    let hash = hash((2345, a, b, (weight * 100).int, hash(color)))
 
-  let
-    w = ceil(abs(b.x - a.x)).int
-    h = ceil(abs(a.y - b.y)).int
-    pos = vec2(min(a.x, b.x), min(a.y, b.y))
-
-  if w == 0 or h == 0:
-    return
-
-  if hash notin ctx.entries:
     let
-      image = newImage(w, h)
-      c = newContext(image)
-    c.fillStyle = rgba(255, 255, 255, 255)
-    c.lineWidth = weight
-    c.strokeSegment(segment(a - pos, b - pos))
-    ctx.putImage(hash, image)
-  let
-    uvRect = ctx.entries[hash]
-    wh = vec2(w.float32, h.float32) * ctx.atlasSize.float32
-  ctx.drawUvRect(
-    pos, pos + vec2(w.float32, h.float32), uvRect.xy, uvRect.xy + uvRect.wh, color
-  )
+      w = ceil(abs(b.x - a.x)).int
+      h = ceil(abs(a.y - b.y)).int
+      pos = vec2(min(a.x, b.x), min(a.y, b.y))
 
-proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32, color: Color) =
+    if w == 0 or h == 0:
+      return
+
+    if hash notin ctx.entries:
+      let
+        image = newImage(w, h)
+        c = newContext(image)
+      c.fillStyle = rgba(255, 255, 255, 255)
+      c.lineWidth = weight
+      c.strokeSegment(segment(a - pos, b - pos))
+      ctx.putImage(hash, image)
+    let
+      uvRect = ctx.entries[hash]
+      wh = vec2(w.float32, h.float32) * ctx.atlasSize.float32
+    ctx.drawUvRect(
+      pos, pos + vec2(w.float32, h.float32), uvRect.xy, uvRect.xy + uvRect.wh, color
+    )
+else:
+  proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
+    discard
+
+proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32,
+    color: Color) =
   for i in 0 ..< poly.len:
     ctx.line(poly[i], poly[(i + 1) mod poly.len], weight, color)
 
@@ -836,7 +987,10 @@ proc clearMask*(ctx: Context) =
   glClearColor(1, 1, 1, 1)
   glClear(GL_COLOR_BUFFER_BIT)
 
-  glBindFramebuffer(GL_FRAMEBUFFER, 0)
+  when defined(js):
+    glBindFramebuffer(GL_FRAMEBUFFER, nil)
+  else:
+    glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
 proc beginMask*(ctx: Context) =
   ## Starts drawing into a mask.
@@ -851,7 +1005,10 @@ proc beginMask*(ctx: Context) =
     ctx.addMaskTexture(ctx.frameSize)
 
   ctx.setUpMaskFramebuffer()
-  glViewport(0, 0, ctx.frameSize.x.GLint, ctx.frameSize.y.GLint)
+  when defined(js):
+    glViewport(0, 0, int32(ctx.frameSize.x), int32(ctx.frameSize.y))
+  else:
+    glViewport(0, 0, ctx.frameSize.x.GLint, ctx.frameSize.y.GLint)
 
   glClearColor(0, 0, 0, 0)
   glClear(GL_COLOR_BUFFER_BIT)
@@ -865,7 +1022,10 @@ proc endMask*(ctx: Context) =
 
   ctx.flush(ctx.maskTextureWrite - 1)
 
-  glBindFramebuffer(GL_FRAMEBUFFER, 0)
+  when defined(js):
+    glBindFramebuffer(GL_FRAMEBUFFER, nil)
+  else:
+    glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
   ctx.activeShader = ctx.mainShader
 
@@ -892,7 +1052,10 @@ proc beginFrame*(ctx: Context, frameSize: Vec2, proj: Mat4) =
         # Never resize the 0th mask because its just white.
         bindTextureData(ctx.maskTextures[i].addr, nil)
 
-  glViewport(0, 0, ctx.frameSize.x.GLint, ctx.frameSize.y.GLint)
+  when defined(js):
+    glViewport(0, 0, int32(ctx.frameSize.x), int32(ctx.frameSize.y))
+  else:
+    glViewport(0, 0, ctx.frameSize.x.GLint, ctx.frameSize.y.GLint)
 
   ctx.clearMask()
 

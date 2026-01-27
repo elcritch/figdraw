@@ -1,15 +1,19 @@
 import std/[hashes, math, tables, unicode]
 export tables
 
-from pixie import Image, newImage, flipVertical
+when not defined(js):
+  from pixie import Image, newImage, flipVertical
+else:
+  type Image* = object
 import pkg/chroma
-import pkg/chronicles
-import pkg/opengl
+import ../utils/logging
+import glapi
 
 import ../commons
 import ../utils/glutils
-import ../utils/drawshadows
-import ../utils/drawboxes
+when not defined(js):
+  import ../utils/drawshadows
+  import ../utils/drawboxes
 import glcommons, glcontext
 
 const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
@@ -17,32 +21,39 @@ const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 type OpenGLRenderer* = ref object
   ctx*: Context
 
-proc takeScreenshot*(frame: Rect = rect(0, 0, 0, 0), readFront: bool = true): Image =
-  var viewport: array[4, GLint]
-  glGetIntegerv(GL_VIEWPORT, viewport[0].addr)
+when not defined(js):
+  proc takeScreenshot*(frame: Rect = rect(0, 0, 0, 0),
+      readFront: bool = true): Image =
+    var viewport: array[4, GLint]
+    glGetIntegerv(GL_VIEWPORT, viewport[0].addr)
 
-  let
-    viewportWidth = viewport[2].int
-    viewportHeight = viewport[3].int
+    let
+      viewportWidth = viewport[2].int
+      viewportHeight = viewport[3].int
 
-  var x = frame.x.int
-  var y = frame.y.int
-  var w = frame.w.int
-  var h = frame.h.int
+    var x = frame.x.int
+    var y = frame.y.int
+    var w = frame.w.int
+    var h = frame.h.int
 
-  if w <= 0 or h <= 0:
-    x = 0
-    y = 0
-    w = viewportWidth
-    h = viewportHeight
+    if w <= 0 or h <= 0:
+      x = 0
+      y = 0
+      w = viewportWidth
+      h = viewportHeight
 
-  glReadBuffer(if readFront: GL_FRONT else: GL_BACK)
-  result = newImage(w, h)
-  glReadPixels(
-    x.GLint, y.GLint, w.GLint, h.GLint, GL_RGBA, GL_UNSIGNED_BYTE, result.data[0].addr
-  )
-  result.flipVertical()
-  glReadBuffer(GL_BACK)
+    glReadBuffer(if readFront: GL_FRONT else: GL_BACK)
+    result = newImage(w, h)
+    glReadPixels(
+      x.GLint, y.GLint, w.GLint, h.GLint, GL_RGBA, GL_UNSIGNED_BYTE,
+      result.data[0].addr,
+    )
+    result.flipVertical()
+    glReadBuffer(GL_BACK)
+else:
+  proc takeScreenshot*(frame: Rect = rect(0, 0, 0, 0),
+      readFront: bool = true): Image =
+    Image()
 
 proc newOpenGLRenderer*(atlasSize: int, pixelScale = app.pixelScale): OpenGLRenderer =
   result = OpenGLRenderer()
@@ -57,23 +68,27 @@ proc renderDrawable*(ctx: Context, node: Fig) =
       bx = node.screenBox.atXY(pos.x, pos.y)
     ctx.drawRect(bx, node.fill)
 
-proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
-  ## draw characters (glyphs)
+when not defined(js):
+  proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
+    ## draw characters (glyphs)
 
-  for glyph in node.textLayout.glyphs():
-    if unicode.isWhiteSpace(glyph.rune):
-      # Don't draw space, even if font has a char for it.
-      # FIXME: use unicode 'is whitespace' ?
-      continue
+    for glyph in node.textLayout.glyphs():
+      if unicode.isWhiteSpace(glyph.rune):
+        # Don't draw space, even if font has a char for it.
+        # FIXME: use unicode 'is whitespace' ?
+        continue
 
-    let
-      glyphId = glyph.hash()
-      charPos = vec2(glyph.pos.x, glyph.pos.y - glyph.descent * 1.0)
-    if glyphId notin ctx.entries:
-      trace "no glyph in context: ",
-        glyphId = glyphId, glyph = glyph.rune, glyphRepr = repr(glyph.rune)
-      continue
-    ctx.drawImage(glyphId, charPos, node.fill)
+      let
+        glyphId = glyph.hash()
+        charPos = vec2(glyph.pos.x, glyph.pos.y - glyph.descent * 1.0)
+      if glyphId notin ctx.entries:
+        trace "no glyph in context: ",
+          glyphId = glyphId, glyph = glyph.rune, glyphRepr = repr(glyph.rune)
+        continue
+      ctx.drawImage(glyphId, charPos, node.fill)
+else:
+  proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
+    discard
 
 import macros except `$`
 
@@ -117,7 +132,8 @@ macro postRender() =
 
 proc drawMasks(ctx: Context, node: Fig) =
   ctx.drawRoundedRectSdf(
-    rect = node.screenBox, color = rgba(255, 0, 0, 255).color, radii = node.corners
+    rect = node.screenBox, color = rgba(255, 0, 0, 255).color,
+        radii = node.corners
   )
 
 proc renderDropShadows(ctx: Context, node: Fig) =
@@ -274,14 +290,21 @@ proc renderBoxes(ctx: Context, node: Fig) =
         doStroke = true,
       )
 
-proc renderImage(ctx: Context, node: Fig) =
-  if node.image.id.int == 0:
-    return
-  let size = vec2(node.screenBox.w, node.screenBox.h)
-  #if ctx.cacheImage($node.image.name, node.image.id.Hash):
-  ctx.drawImage(
-    node.image.id.Hash, pos = node.screenBox.xy, color = node.image.color, size = size
-  )
+when not defined(js):
+  proc renderImage(ctx: Context, node: Fig) =
+    if node.image.id.int == 0:
+      return
+    let size = vec2(node.screenBox.w, node.screenBox.h)
+    #if ctx.cacheImage($node.image.name, node.image.id.Hash):
+    ctx.drawImage(
+      node.image.id.Hash,
+      pos = node.screenBox.xy,
+      color = node.image.color,
+      size = size,
+    )
+else:
+  proc renderImage(ctx: Context, node: Fig) =
+    discard
 
 proc render(
     ctx: Context, nodes: seq[Fig], nodeIdx, parentIdx: FigIdx
@@ -365,18 +388,21 @@ proc render(
   # finally blocks will be run here, in reverse order
   postRender()
 
-proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff].} =
+proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [
+    AppMainThreadEff].} =
   ## draw roots for each level
-  var img: ImgObj
-  while imageChan.tryRecv(img):
-    debug "image loaded", id = $img.id.Hash
-    ctx.putImage(img)
+  when not defined(js):
+    var img: ImgObj
+    while imageChan.tryRecv(img):
+      debug "image loaded", id = $img.id.Hash
+      ctx.putImage(img)
 
   for zlvl, list in nodes.layers.pairs():
     for rootIdx in list.rootIds:
       ctx.render(list.nodes, rootIdx, -1.FigIdx)
 
-proc renderFrame*(renderer: OpenGLRenderer, nodes: var Renders, frameSize: Vec2) =
+proc renderFrame*(renderer: OpenGLRenderer, nodes: var Renders,
+    frameSize: Vec2) =
   let ctx: Context = renderer.ctx
   clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
   ctx.beginFrame(frameSize)
@@ -389,7 +415,7 @@ proc renderFrame*(renderer: OpenGLRenderer, nodes: var Renders, frameSize: Vec2)
   ctx.restoreTransform()
   ctx.endFrame()
 
-  when defined(testOneFrame):
+  when defined(testOneFrame) and not defined(js):
     ## This is used for test only
     ## Take a screen shot of the first frame and exit.
     var img = takeScreenshot()
@@ -409,7 +435,8 @@ proc renderOverlayFrame*(
   ctx.endFrame()
 
 proc renderFrame*(
-    ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
+    ctx: Context, nodes: var Renders, frameSize: Vec2,
+        pixelScale = ctx.pixelScale
 ) =
   clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
   ctx.beginFrame(frameSize)
@@ -420,7 +447,8 @@ proc renderFrame*(
   ctx.endFrame()
 
 proc renderOverlayFrame*(
-    ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
+    ctx: Context, nodes: var Renders, frameSize: Vec2,
+        pixelScale = ctx.pixelScale
 ) =
   ## Render without clearing the color buffer (useful for UI overlays).
   ctx.beginFrame(frameSize)

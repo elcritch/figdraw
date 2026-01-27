@@ -1,12 +1,19 @@
 import std/[options, hashes]
-import chroma, stack_strings
+import chroma
+when not defined(js):
+  import stack_strings
 
 import common/uimaths
 import common/fonttypes
-import common/imgutils
+when defined(js):
+  import common/imgutils_js as imgutils
+else:
+  import common/imgutils
 
 export uimaths, fonttypes, imgutils
-export options, chroma, stack_strings
+export options, chroma
+when not defined(js):
+  export stack_strings
 
 const
   FigStringCap* {.intdefine.} = 48
@@ -14,8 +21,12 @@ const
   FigDrawNames* {.booldefine: "figdraw.names".}: bool = false
 
 type
-  FigName* = StackString[FigStringCap]
   FigID* = int64
+
+when defined(js):
+  type FigName* = string
+else:
+  type FigName* = StackString[FigStringCap]
 
 type
   Directions* = enum
@@ -75,4 +86,3 @@ type
   ImageStyle* = object
     color*: Color
     id*: ImageId
-

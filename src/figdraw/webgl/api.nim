@@ -4,9 +4,10 @@ when not defined(js) and not defined(nimsuggest):
 import std/[dom, jsffi]
 
 type
-  GLenum* = uint32
+  # Use signed 32-bit integers in JS to avoid BigInt interop in WebGL calls.
+  GLenum* = int32
   GLboolean* = bool
-  GLbitfield* = uint32
+  GLbitfield* = int32
   GLbyte* = int8
   GLshort* = int16
   GLint* = int32
@@ -16,7 +17,7 @@ type
   GLsizeiptr* = int32
   GLubyte* = uint8
   GLushort* = uint16
-  GLuint* = uint32
+  GLuint* = int32
   GLfloat* = float32
   GLclampf* = float32
   GLint64* = int64
@@ -26,6 +27,9 @@ type
   WebGLRenderingContext* {.importc.} = ref object of JsRoot
   WebGL2RenderingContext* {.importc.} = ref object of WebGLRenderingContext
   WebGLActiveInfo* {.importc.} = ref object of JsRoot
+    size*: int
+    `type`* {.importc: "type".}: GLenum
+    name*: cstring
   WebGLBuffer* {.importc.} = ref object of JsRoot
   WebGLContextEvent* {.importc.} = ref object of Event
   WebGLFramebuffer* {.importc.} = ref object of JsRoot
@@ -48,6 +52,7 @@ type
   Float32Array* {.importc.} = ref object of JsRoot
   Uint16Array* {.importc.} = ref object of JsRoot
   Uint32Array* {.importc.} = ref object of JsRoot
+  Uint8Array* {.importc.} = ref object of JsRoot
 
 type
   WebGLExtension* = ref object of JsRoot
@@ -154,6 +159,9 @@ proc newUint16Array*(data: openArray[uint16]): Uint16Array
 
 proc newUint32Array*(data: openArray[uint32]): Uint32Array
   {.importjs: "new Uint32Array(#)".}
+
+proc newUint8Array*(data: openArray[uint8]): Uint8Array
+  {.importjs: "new Uint8Array(#)".}
 
 proc getContext*(canvas: HTMLCanvasElement;
     contextId: cstring): WebGLRenderingContext

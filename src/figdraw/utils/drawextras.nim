@@ -5,7 +5,7 @@ import ../commons
 import ../fignodes
 
 import pkg/chroma
-import pkg/chronicles
+import logging
 import pkg/pixie
 
 import ./drawutils

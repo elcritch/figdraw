@@ -1,4 +1,4 @@
-import pkg/opengl
+import ../opengl/glapi
 import pkg/chroma
 
 const
@@ -66,7 +66,7 @@ proc useDepthBuffer*(on: bool) =
     glDisable(GL_DEPTH_TEST)
 
 proc startOpenGL*(openglVersion: (int, int)) =
-  when not defined(emscripten):
+  when not defined(emscripten) and not defined(js):
     loadExtensions()
 
   openglDebug()
