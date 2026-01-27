@@ -1,28 +1,25 @@
+## Copied from Fidget backend, copyright from @treeform applies
+
 import
   buffers, chroma, hashes, glapi, os, shaders, strformat, strutils, tables,
   textures, times
-when not defined(js):
+
+when defined(js):
+  type Flippy* = object
+  type Image* = object
+else:
   import pixie
   import pixie/simd
-else:
-  type Image* = object
 
-## Copied from Fidget backend, copyright from @treeform applies
-
-import ../utils/logging
-
-import ../commons
-when not defined(js):
   import ../common/formatflippy
-else:
-  type Flippy* = object
-import ../fignodes
-when not defined(js):
   import ../utils/drawextras
   import ../utils/drawboxes
   import ../utils/drawshadows
-
   export drawextras
+
+import ../utils/logging
+import ../commons
+import ../fignodes
 
 logScope:
   scope = "opengl"
