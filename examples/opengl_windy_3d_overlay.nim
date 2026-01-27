@@ -1,4 +1,7 @@
-import std/[os, times, math, strformat]
+when defined(emscripten):
+  import std/[times, math, strformat]
+else:
+  import std/[os, times, math, strformat]
 import chroma
 import pkg/opengl
 
@@ -250,18 +253,26 @@ proc buildProgram(vertexSrc, fragmentSrc: string): GLuint =
   glDeleteShader(fragmentShader)
 
 proc setupWindow(frame: AppFrame, window: Window) =
-  if frame.windowInfo.fullscreen:
-    window.fullscreen = frame.windowInfo.fullscreen
-  else:
-    window.size = ivec2(frame.windowInfo.box.wh.scaled())
+  when not defined(emscripten):
+    if frame.windowInfo.fullscreen:
+      window.fullscreen = frame.windowInfo.fullscreen
+    else:
+      window.size = ivec2(frame.windowInfo.box.wh.scaled())
 
-  window.visible = true
+    window.visible = true
   window.makeContextCurrent()
 
 proc newWindyWindow(frame: AppFrame): Window =
-  let window = newWindow("FigDraw", ivec2(1280, 800), visible = false)
-  startOpenGL(openglVersion)
-  setupWindow(frame, window)
+  let window = when defined(emscripten):
+      newWindow("FigDraw", ivec2(0, 0), visible = false)
+    else:
+      newWindow("FigDraw", ivec2(1280, 800), visible = false)
+  when defined(emscripten):
+    setupWindow(frame, window)
+    startOpenGL(openglVersion)
+  else:
+    startOpenGL(openglVersion)
+    setupWindow(frame, window)
   result = window
 
 proc getWindowInfo(window: Window): WindowInfo =
@@ -273,7 +284,24 @@ proc getWindowInfo(window: Window): WindowInfo =
   result.box.h = size.y.float32.descaled()
 
 proc initPyramid(): PyramidGl =
-  let vertexSrc = """
+  let vertexSrc = when defined(emscripten):
+      """
+#version 300 es
+precision highp float;
+
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aColor;
+
+uniform mat4 uMvp;
+out vec3 vColor;
+
+void main() {
+  vColor = aColor;
+  gl_Position = uMvp * vec4(aPos, 1.0);
+}
+"""
+    else:
+      """
 #version 330 core
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aColor;
@@ -287,7 +315,20 @@ void main() {
 }
 """
 
-  let fragmentSrc = """
+  let fragmentSrc = when defined(emscripten):
+      """
+#version 300 es
+precision highp float;
+
+in vec3 vColor;
+out vec4 fragColor;
+
+void main() {
+  fragColor = vec4(vColor, 1.0);
+}
+"""
+    else:
+      """
 #version 330 core
 in vec3 vColor;
 out vec4 FragColor;
@@ -465,7 +506,10 @@ proc makeOverlay*(
   result.layers[0.ZLevel] = list
 
 when isMainModule:
-  setFigDataDir(getCurrentDir() / "data")
+  when defined(emscripten):
+    setFigDataDir("/data")
+  else:
+    setFigDataDir(getCurrentDir() / "data")
 
   app.running = true
   app.autoUiScale = false
@@ -546,4 +590,5 @@ when isMainModule:
         app.running = false
   finally:
     destroyPyramid(pyramid)
-    window.close()
+    when not defined(emscripten):
+      window.close()

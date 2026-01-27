@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Emscripten-Generated Code</title>
+    <style>
+      body {
+        margin: 0px;
+        padding: 0px;
+      }
+      canvas.emscripten {
+        border: none;
+        background-color: black;
+        position: absolute;
+        left: 0px;
+        right: 0px;
+        outline: none;
+      }
+      #loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at 20% 20%, #1e2530, #0c0f14 60%, #050608 100%);
+        color: #e6e6e6;
+        font: 14px/1.4 "Verdana", "Arial", sans-serif;
+        letter-spacing: 0.04em;
+        z-index: 10;
+      }
+      #loading .panel {
+        width: min(420px, 80vw);
+        padding: 24px 22px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 12px;
+        background: rgba(8, 10, 14, 0.8);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+      }
+      #loading .title {
+        font-size: 13px;
+        text-transform: uppercase;
+        margin-bottom: 10px;
+        color: #9fb4c8;
+      }
+      #loading .status {
+        font-size: 16px;
+        margin-bottom: 16px;
+      }
+      #loading .bar {
+        height: 8px;
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      #loading .bar span {
+        display: block;
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #5cc8ff, #7dffb0);
+        transition: width 120ms ease-out;
+      }
+      #loading .detail {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #7f8b99;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="loading">
+      <div class="panel">
+        <div class="title">Loading</div>
+        <div class="status" id="loading-status">Preparing...</div>
+        <div class="bar"><span id="loading-bar"></span></div>
+        <div class="detail" id="loading-detail">Starting runtime...</div>
+      </div>
+    </div>
+    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
+    <script type='text/javascript'>
+      var loadingStatus = document.getElementById('loading-status');
+      var loadingDetail = document.getElementById('loading-detail');
+      var loadingBar = document.getElementById('loading-bar');
+      var loadingRoot = document.getElementById('loading');
+      function setLoading(progress, statusText, detailText) {
+        if (loadingStatus) {
+          loadingStatus.textContent = statusText || 'Loading...';
+        }
+        if (loadingDetail) {
+          loadingDetail.textContent = detailText || '';
+        }
+        if (loadingBar) {
+          var pct = Math.max(0, Math.min(1, progress || 0));
+          loadingBar.style.width = Math.round(pct * 100) + '%';
+        }
+      }
+      function hideLoading() {
+        if (!loadingRoot) return;
+        loadingRoot.style.opacity = '0';
+        setTimeout(function() {
+          if (loadingRoot) loadingRoot.style.display = 'none';
+        }, 200);
+      }
+
+      var Module = {
+        preRun: [],
+        postRun: [],
+        canvas: (function() {
+          var canvas = document.getElementById('canvas');
+          canvas.addEventListener(
+            "webglcontextlost",
+            function(e) {
+              console.error('WebGL context lost. You will need to reload the page.');
+              e.preventDefault();
+            }, false);
+
+          return canvas;
+        })(),
+        setCanvasSize: function(width, height) {
+          var dpr = Math.max(1, window.devicePixelRatio || 1);
+          var canvas = document.getElementById('canvas');
+          var targetWidth = Math.floor(width * dpr);
+          var targetHeight = Math.floor(height * dpr);
+          if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+            canvas.style.width = width + "px";
+            canvas.style.height = height + "px";
+          }
+        },
+        totalDependencies: 0,
+        monitorRunDependencies: function(left) {
+          if (left > 0) {
+            Module.totalDependencies = Math.max(Module.totalDependencies, left);
+            var progress = 1 - left / Module.totalDependencies;
+            setLoading(progress, 'Loading assets...', left + ' item(s) remaining');
+          } else {
+            setLoading(1, 'Finalizing...', 'Starting runtime...');
+          }
+        },
+        onRuntimeInitialized: function() {
+          setTimeout(function() {
+            Module.setCanvasSize(window.innerWidth, window.innerHeight);
+            hideLoading();
+            console.info('WASM Runtime Initialized');
+          }, 0);
+        }
+      };
+      window.onerror = function() {
+        console.info('Exception thrown, see JavaScript console');
+        setLoading(1, 'Error', 'See JavaScript console for details.');
+      };
+      window.onresize = function() {
+        var canvas = document.getElementById('canvas');
+        Module.setCanvasSize(window.innerWidth, window.innerHeight);
+      };
+    </script>
+    {{{ SCRIPT }}}
+  </body>
+</html>

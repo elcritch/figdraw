@@ -1,4 +1,7 @@
-import std/[os, times, monotimes, strformat]
+when defined(emscripten):
+  import std/[times, monotimes, strformat]
+else:
+  import std/[os, times, monotimes, strformat]
 
 when defined(useWindex):
   import windex
@@ -19,18 +22,26 @@ const NoSleep {.booldefine: "figdraw.noSleep".}: bool = true
 var globalFrame = 0
 
 proc setupWindow(frame: AppFrame, window: Window) =
-  if frame.windowInfo.fullscreen:
-    window.fullscreen = frame.windowInfo.fullscreen
-  else:
-    window.size = ivec2(frame.windowInfo.box.wh.scaled())
+  when not defined(emscripten):
+    if frame.windowInfo.fullscreen:
+      window.fullscreen = frame.windowInfo.fullscreen
+    else:
+      window.size = ivec2(frame.windowInfo.box.wh.scaled())
 
-  window.visible = true
+    window.visible = true
   window.makeContextCurrent()
 
 proc newWindyWindow(frame: AppFrame): Window =
-  let window = newWindow("Figuro", ivec2(1280, 800), visible = false)
-  startOpenGL(openglVersion)
-  setupWindow(frame, window)
+  let window = when defined(emscripten):
+      newWindow("Figuro", ivec2(0, 0), visible = false)
+    else:
+      newWindow("Figuro", ivec2(1280, 800), visible = false)
+  when defined(emscripten):
+    setupWindow(frame, window)
+    startOpenGL(openglVersion)
+  else:
+    startOpenGL(openglVersion)
+    setupWindow(frame, window)
   result = window
 
 proc getWindowInfo(window: Window): WindowInfo =
@@ -42,7 +53,10 @@ proc getWindowInfo(window: Window): WindowInfo =
   result.box.h = size.y.float32.descaled()
 
 when isMainModule:
-  setFigDataDir(getCurrentDir() / "data")
+  when defined(emscripten):
+    setFigDataDir("/data")
+  else:
+    setFigDataDir(getCurrentDir() / "data")
 
   app.running = true
   app.autoUiScale = false
@@ -174,8 +188,9 @@ when isMainModule:
         if frames >= 1:
           app.running = false
 
-      when not NoSleep:
+      when not NoSleep and not defined(emscripten):
         if app.running:
           sleep(16)
   finally:
-    window.close()
+    when not defined(emscripten):
+      window.close()
