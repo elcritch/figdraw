@@ -1,486 +1,531 @@
-import std/[os, unicode, sequtils, tables, strutils, sets, hashes]
-import std/isolation
+when defined(js):
+  import ./fonttypes
+  import ./uimaths
 
-import pkg/vmath
-import pkg/pixie
-import pkg/pixie/fonts
-import ../utils/logging
+  type TypeFaceKinds* = enum
+    TTF
+    OTF
+    SVG
 
-import ./rchannels
-import ./imgutils
-import ./fonttypes
-import ./shared
+  type Box* = Rect
 
-type GlyphPosition* = ref object ## Represents a glyph position after typesetting.
-  fontId*: FontId
-  rune*: Rune
-  pos*: Vec2 # Where to draw the image character.
-  rect*: Rect
-  descent*: float32
-  lineHeight*: float32
+  proc getTypefaceImpl*(name: string): FontId =
+    FontId(0)
 
-proc toSlices*[T: SomeInteger](a: openArray[(T, T)]): seq[Slice[T]] =
-  a.mapIt(it[0] .. it[1])
+  proc getTypefaceImpl*(name, data: string, kind: TypeFaceKinds): FontId =
+    FontId(0)
 
-proc hash*(tp: Typeface): Hash =
-  var h = Hash(0)
-  h = h !& hash tp.filePath
-  result = !$h
+  proc getLineHeightImpl*(font: UiFont): float32 =
+    0.0
 
-proc hash*(glyph: GlyphPosition): Hash {.inline.} =
-  result = hash((2344, glyph.fontId, glyph.rune))
+  proc getTypesetImpl*(
+      box: Box,
+      spans: openArray[(UiFont, string)],
+      hAlign = Left,
+      vAlign = Top,
+      minContent = false,
+      wrap = true,
+  ): GlyphArrangement =
+    GlyphArrangement()
 
-proc getId*(typeface: Typeface): TypefaceId =
-  result = TypefaceId typeface.hash()
-  for i in 1 .. 100:
-    if result.int == 0:
-      result = TypefaceId(typeface.hash() !& hash(i))
-    else:
-      break
-  doAssert result.int != 0, "Typeface hash results in invalid id"
+else:
+  import std/[os, unicode, sequtils, tables, strutils, sets, hashes]
+  import std/isolation
 
-iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
-  var idx = 0
+  import pkg/vmath
+  import pkg/pixie
+  import pkg/pixie/fonts
+  import ../utils/logging
 
-  block:
-    for i, (span, gfont) in zip(arrangement.spans, arrangement.fonts):
-      while idx < arrangement.runes.len():
-        let
-          pos = arrangement.positions[idx]
-          rune = arrangement.runes[idx]
-          selection = arrangement.selectionRects[idx]
+  import ./rchannels
+  import ./imgutils
+  import ./fonttypes
+  import ./shared
 
-        let descent = gfont.lineHeight - gfont.descentAdj
+  type GlyphPosition* = ref object ## Represents a glyph position after typesetting.
+    fontId*: FontId
+    rune*: Rune
+    pos*: Vec2 # Where to draw the image character.
+    rect*: Rect
+    descent*: float32
+    lineHeight*: float32
 
-        yield GlyphPosition(
-          fontId: gfont.fontId,
-          # fontSize: gfont.size,
-          rune: rune,
-          pos: pos,
-          rect: selection,
-          descent: descent,
-          lineHeight: gfont.lineHeight,
-        )
+  proc toSlices*[T: SomeInteger](a: openArray[(T, T)]): seq[Slice[T]] =
+    a.mapIt(it[0] .. it[1])
 
-        idx.inc()
-        if idx notin span:
-          break
+  proc hash*(tp: Typeface): Hash =
+    var h = Hash(0)
+    h = h !& hash tp.filePath
+    result = !$h
 
-var
-  typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
-  fontTable* {.threadvar.}: Table[FontId, pixie.Font]
+  proc hash*(glyph: GlyphPosition): Hash {.inline.} =
+    result = hash((2344, glyph.fontId, glyph.rune))
 
-proc generateGlyphImage(arrangement: GlyphArrangement) =
-  ## returns Glyph's hash, will generate glyph if needed
-  ##
-  ## Font Glyphs are generated with Bottom vAlign and Center hAlign
-  ## this puts the glyphs in the right position
-  ## so that the renderer doesn't need to figure out adjustments
+  proc getId*(typeface: Typeface): TypefaceId =
+    result = TypefaceId typeface.hash()
+    for i in 1 .. 100:
+      if result.int == 0:
+        result = TypefaceId(typeface.hash() !& hash(i))
+      else:
+        break
+    doAssert result.int != 0, "Typeface hash results in invalid id"
 
-  for glyph in arrangement.glyphs():
-    if unicode.isWhiteSpace(glyph.rune):
-      # echo "skipped:rune: ", glyph.rune, " ", glyph.rune.int
-      continue
+  iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
+    var idx = 0
 
-    let hashFill = glyph.hash()
+    block:
+      for i, (span, gfont) in zip(arrangement.spans, arrangement.fonts):
+        while idx < arrangement.runes.len():
+          let
+            pos = arrangement.positions[idx]
+            rune = arrangement.runes[idx]
+            selection = arrangement.selectionRects[idx]
 
-    if not hasImage(hashFill.ImageId):
-      let
-        wh = glyph.rect.wh
-        fontId = glyph.fontId
-        font = fontTable[fontId]
-        text = $glyph.rune
-        arrangement = pixie.typeset(
-          @[newSpan(text, font)],
-          bounds = wh,
-          hAlign = CenterAlign,
-          vAlign = TopAlign,
-          wrap = false,
-        )
-      let
-        snappedBounds = arrangement.computeBounds().snapToPixels()
+          let descent = gfont.lineHeight - gfont.descentAdj
 
-      let
-        lh = font.defaultLineHeight()
-        bounds = rect(0, 0, snappedBounds.w + snappedBounds.x, lh)
+          yield GlyphPosition(
+            fontId: gfont.fontId,
+            # fontSize: gfont.size,
+            rune: rune,
+            pos: pos,
+            rect: selection,
+            descent: descent,
+            lineHeight: gfont.lineHeight,
+          )
 
-      if bounds.w == 0 or bounds.h == 0:
-        echo "GEN IMG: ", glyph.rune, " wh: ", wh, " snapped: ", snappedBounds
+          idx.inc()
+          if idx notin span:
+            break
+
+  var
+    typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
+    fontTable* {.threadvar.}: Table[FontId, pixie.Font]
+
+  proc generateGlyphImage(arrangement: GlyphArrangement) =
+    ## returns Glyph's hash, will generate glyph if needed
+    ##
+    ## Font Glyphs are generated with Bottom vAlign and Center hAlign
+    ## this puts the glyphs in the right position
+    ## so that the renderer doesn't need to figure out adjustments
+
+    for glyph in arrangement.glyphs():
+      if unicode.isWhiteSpace(glyph.rune):
+        # echo "skipped:rune: ", glyph.rune, " ", glyph.rune.int
         continue
 
-      try:
-        font.paint = parseHex"FFFFFF"
-        var image = newImage(bounds.w.int, bounds.h.int)
-        image.fillText(arrangement)
+      let hashFill = glyph.hash()
 
-        # put into cache
-        loadImage(hashFill.ImageId, image)
-      except PixieError:
-        discard
+      if not hasImage(hashFill.ImageId):
+        let
+          wh = glyph.rect.wh
+          fontId = glyph.fontId
+          font = fontTable[fontId]
+          text = $glyph.rune
+          arrangement = pixie.typeset(
+            @[newSpan(text, font)],
+            bounds = wh,
+            hAlign = CenterAlign,
+            vAlign = TopAlign,
+            wrap = false,
+          )
+        let
+          snappedBounds = arrangement.computeBounds().snapToPixels()
 
-type TypeFaceKinds* = enum
-  TTF
-  OTF
-  SVG
+        let
+          lh = font.defaultLineHeight()
+          bounds = rect(0, 0, snappedBounds.w + snappedBounds.x, lh)
 
-proc readTypefaceImpl(
-    name, data: string, kind: TypeFaceKinds
-): Typeface {.raises: [PixieError].} =
-  ## Loads a typeface from a buffer
-  try:
-    result =
-      case kind
-      of TTF:
-        parseTtf(data)
-      of OTF:
-        parseOtf(data)
-      of SVG:
-        parseSvgFont(data)
-  except IOError as e:
-    raise newException(PixieError, e.msg, e)
+        if bounds.w == 0 or bounds.h == 0:
+          echo "GEN IMG: ", glyph.rune, " wh: ", wh, " snapped: ", snappedBounds
+          continue
 
-  result.filePath = name
+        try:
+          font.paint = parseHex"FFFFFF"
+          var image = newImage(bounds.w.int, bounds.h.int)
+          image.fillText(arrangement)
 
-proc getTypefaceImpl*(name: string): FontId =
-  ## loads a font from a file and adds it to the font index
+          # put into cache
+          loadImage(hashFill.ImageId, image)
+        except PixieError:
+          discard
 
-  let
-    typefacePath = figDataDir() / name
-    typeface = readTypeface(typefacePath)
-    id = typeface.getId()
+  type TypeFaceKinds* = enum
+    TTF
+    OTF
+    SVG
 
-  doAssert id != 0
-  if id in typefaceTable:
-    doAssert typefaceTable[id] == typeface
-  typefaceTable[id] = typeface
-  result = id
+  proc readTypefaceImpl(
+      name, data: string, kind: TypeFaceKinds
+  ): Typeface {.raises: [PixieError].} =
+    ## Loads a typeface from a buffer
+    try:
+      result =
+        case kind
+        of TTF:
+          parseTtf(data)
+        of OTF:
+          parseOtf(data)
+        of SVG:
+          parseSvgFont(data)
+    except IOError as e:
+      raise newException(PixieError, e.msg, e)
 
-proc getTypefaceImpl*(name, data: string, kind: TypeFaceKinds): FontId =
-  ## loads a font from buffer and adds it to the font index
+    result.filePath = name
 
-  let
-    typeface = readTypefaceImpl(name, data, kind)
-    id = typeface.getId()
+  proc getTypefaceImpl*(name: string): FontId =
+    ## loads a font from a file and adds it to the font index
 
-  typefaceTable[id] = typeface
-  result = id
+    let
+      typefacePath = figDataDir() / name
+      typeface = readTypeface(typefacePath)
+      id = typeface.getId()
 
-proc convertFont*(font: UiFont): (FontId, Font) =
-  ## does the typesetting using pixie, then converts to Figuro's internal
-  ## types
+    doAssert id != 0
+    if id in typefaceTable:
+      doAssert typefaceTable[id] == typeface
+    typefaceTable[id] = typeface
+    result = id
 
-  let
-    id = font.getId()
-    typeface = typefaceTable[font.typefaceId]
+  proc getTypefaceImpl*(name, data: string, kind: TypeFaceKinds): FontId =
+    ## loads a font from buffer and adds it to the font index
 
-  if not fontTable.hasKey(id):
-    var pxfont = newFont(typeface)
-    pxfont.size = font.size.scaled
-    pxfont.typeface = typeface
-    pxfont.textCase = parseEnum[TextCase]($font.fontCase)
-    # copy rest of the fields with matching names
-    for pn, a in fieldPairs(pxfont[]):
-      for fn, b in fieldPairs(font):
-        when pn == fn:
-          a = b
-    if font.lineHeightOverride == -1.0'f32:
-      pxfont.lineHeight = font.lineHeightScale * pxfont.defaultLineHeight()
-      echo "PIXIE LH: ", pxfont.lineHeight
+    let
+      typeface = readTypefaceImpl(name, data, kind)
+      id = typeface.getId()
 
-    fontTable[id] = pxfont
-    result = (id, pxfont)
-  else:
-    result = (id, fontTable[id])
+    typefaceTable[id] = typeface
+    result = id
 
-proc getLineHeightImpl*(font: UiFont): float32 =
-  let (_, pf) = font.convertFont()
-  result = pf.lineHeight.descaled()
+  proc convertFont*(font: UiFont): (FontId, Font) =
+    ## does the typesetting using pixie, then converts to Figuro's internal
+    ## types
 
-proc calcMinMaxContent(
-    textLayout: GlyphArrangement
-): tuple[maxSize, minSize: Vec2, bounding: Rect] =
-  ## estimate the maximum and minimum size of a given typesetting
+    let
+      id = font.getId()
+      typeface = typefaceTable[font.typefaceId]
 
-  var longestWord: Slice[int]
-  var longestWordLen: float
+    if not fontTable.hasKey(id):
+      var pxfont = newFont(typeface)
+      pxfont.size = font.size.scaled
+      pxfont.typeface = typeface
+      pxfont.textCase = parseEnum[TextCase]($font.fontCase)
+      # copy rest of the fields with matching names
+      for pn, a in fieldPairs(pxfont[]):
+        for fn, b in fieldPairs(font):
+          when pn == fn:
+            a = b
+      if font.lineHeightOverride == -1.0'f32:
+        pxfont.lineHeight = font.lineHeightScale * pxfont.defaultLineHeight()
+        echo "PIXIE LH: ", pxfont.lineHeight
 
-  var words = 0
-  var wordsHeight = 0.0
-  var curr: Slice[int]
-  var currLen: float
-  var maxWidth: float
-  var rect: Rect = rect(float32.high, float32.high, 0, 0)
-
-  # find longest word and count the number of words
-  # herein min content width is longest word
-  # herein max content height is a word on each line
-  var idx = 0
-  for glyph in textLayout.glyphs():
-    maxWidth += glyph.rect.w
-    rect.x = min(rect.x, glyph.rect.x)
-    rect.y = min(rect.y, glyph.rect.y)
-    rect.w = max(rect.w, glyph.rect.x + glyph.rect.w)
-    rect.h = max(rect.h, glyph.rect.y + glyph.rect.h)
-
-    if glyph.rune.isWhiteSpace:
-      curr = idx + 1 .. idx
-      currLen = 0.0
+      fontTable[id] = pxfont
+      result = (id, pxfont)
     else:
-      if curr.len() == 1:
-        words.inc
-        wordsHeight += glyph.lineHeight
-      curr.b = idx
-      currLen += glyph.rect.w
+      result = (id, fontTable[id])
 
-    if currLen > longestWordLen:
-      longestWord = curr
-      longestWordLen = currLen
+  proc getLineHeightImpl*(font: UiFont): float32 =
+    let (_, pf) = font.convertFont()
+    result = pf.lineHeight.descaled()
 
-    idx.inc()
+  proc calcMinMaxContent(
+      textLayout: GlyphArrangement
+  ): tuple[maxSize, minSize: Vec2, bounding: Rect] =
+    ## estimate the maximum and minimum size of a given typesetting
 
-  # find tallest font
-  var maxLine = 0.0
-  for font in textLayout.fonts:
-    maxLine = max(maxLine, font.lineHeight)
+    var longestWord: Slice[int]
+    var longestWordLen: float
 
-  # set results
-  result.minSize.x = longestWordLen.descaled()
-  result.minSize.y = maxLine.descaled()
+    var words = 0
+    var wordsHeight = 0.0
+    var curr: Slice[int]
+    var currLen: float
+    var maxWidth: float
+    var rect: Rect = rect(float32.high, float32.high, 0, 0)
 
-  result.maxSize.x = maxWidth.descaled()
-  result.maxSize.y = wordsHeight.descaled()
+    # find longest word and count the number of words
+    # herein min content width is longest word
+    # herein max content height is a word on each line
+    var idx = 0
+    for glyph in textLayout.glyphs():
+      maxWidth += glyph.rect.w
+      rect.x = min(rect.x, glyph.rect.x)
+      rect.y = min(rect.y, glyph.rect.y)
+      rect.w = max(rect.w, glyph.rect.x + glyph.rect.w)
+      rect.h = max(rect.h, glyph.rect.y + glyph.rect.h)
 
-  result.bounding = rect.descaled()
+      if glyph.rune.isWhiteSpace:
+        curr = idx + 1 .. idx
+        currLen = 0.0
+      else:
+        if curr.len() == 1:
+          words.inc
+          wordsHeight += glyph.lineHeight
+        curr.b = idx
+        currLen += glyph.rect.w
 
-proc convertArrangement(
-    arrangement: Arrangement,
-    box: Rect,
-    uiSpans: openArray[(UiFont, string)],
-    hAlign: FontHorizontal,
-    vAlign: FontVertical,
-    gfonts: seq[GlyphFont],
-): GlyphArrangement =
-  var
-    lines = newSeqOfCap[Slice[int]](arrangement.lines.len())
-    spanSlices = newSeqOfCap[Slice[int]](arrangement.spans.len())
-    selectionRects = newSeqOfCap[Rect](arrangement.selectionRects.len())
-  for line in arrangement.lines:
-    lines.add line[0] .. line[1]
-  for span in arrangement.spans:
-    spanSlices.add span[0] .. span[1]
-  for rect in arrangement.selectionRects:
-    selectionRects.add rect
+      if currLen > longestWordLen:
+        longestWord = curr
+        longestWordLen = currLen
 
-  result = GlyphArrangement(
-    contentHash: getContentHash(box.wh, uiSpans, hAlign, vAlign),
-    lines: lines, # arrangement.lines.toSlices(),
-    spans: spanSlices, # arrangement.spans.toSlices(),
-    fonts: gfonts,
-    runes: arrangement.runes,
-    positions: arrangement.positions,
-    selectionRects: selectionRects,
-  )
+      idx.inc()
 
-proc typeset*(
-    box: Rect,
-    uiSpans: openArray[(UiFont, string)],
-    hAlign = FontHorizontal.Left,
-    vAlign = FontVertical.Top,
-    minContent: bool,
-    wrap: bool,
-): GlyphArrangement =
-  ## does the typesetting using pixie, then converts the typeseet results
-  ## into Figuro's own internal types
-  ## Primarily done for thread safety
-  threadEffects:
-    AppMainThread
+    # find tallest font
+    var maxLine = 0.0
+    for font in textLayout.fonts:
+      maxLine = max(maxLine, font.lineHeight)
 
-  var
-    wh = box.scaled().wh
-    sz = uiSpans.mapIt(it[0].size.float)
-    minSz = sz.foldl(max(a, b), 0.0)
+    # set results
+    result.minSize.x = longestWordLen.descaled()
+    result.minSize.y = maxLine.descaled()
 
-  var spans: seq[Span]
-  var pfs: seq[Font]
-  var gfonts: seq[GlyphFont]
-  for (uiFont, txt) in uiSpans:
-    let (_, pf) = uiFont.convertFont()
-    pfs.add(pf)
-    spans.add(newSpan(txt, pf))
-    assert not pf.typeface.isNil
-    # There's gotta be a better way. Need to lookup the font formulas or equations or something
-    #let lhAdj = pf.lineHeight
-    #let lhAdj = max(pf.lineHeight - pf.size, 0.0)
-    let lhAdj = (pf.lineHeight - pf.size * pf.lineHeight / pf.defaultLineHeight()) / 2
-    gfonts.add GlyphFont(
-      fontId: uiFont.getId(), lineHeight: pf.lineHeight, descentAdj: lhAdj
+    result.maxSize.x = maxWidth.descaled()
+    result.maxSize.y = wordsHeight.descaled()
+
+    result.bounding = rect.descaled()
+
+  proc convertArrangement(
+      arrangement: Arrangement,
+      box: Rect,
+      uiSpans: openArray[(UiFont, string)],
+      hAlign: FontHorizontal,
+      vAlign: FontVertical,
+      gfonts: seq[GlyphFont],
+  ): GlyphArrangement =
+    var
+      lines = newSeqOfCap[Slice[int]](arrangement.lines.len())
+      spanSlices = newSeqOfCap[Slice[int]](arrangement.spans.len())
+      selectionRects = newSeqOfCap[Rect](arrangement.selectionRects.len())
+    for line in arrangement.lines:
+      lines.add line[0] .. line[1]
+    for span in arrangement.spans:
+      spanSlices.add span[0] .. span[1]
+    for rect in arrangement.selectionRects:
+      selectionRects.add rect
+
+    result = GlyphArrangement(
+      contentHash: getContentHash(box.wh, uiSpans, hAlign, vAlign),
+      lines: lines, # arrangement.lines.toSlices(),
+      spans: spanSlices, # arrangement.spans.toSlices(),
+      fonts: gfonts,
+      runes: arrangement.runes,
+      positions: arrangement.positions,
+      selectionRects: selectionRects,
     )
 
-  var ha: HorizontalAlignment
-  case hAlign
-  of Left:
-    ha = LeftAlign
-  of Center:
-    ha = CenterAlign
-  of Right:
-    ha = RightAlign
+  proc typeset*(
+      box: Rect,
+      uiSpans: openArray[(UiFont, string)],
+      hAlign = FontHorizontal.Left,
+      vAlign = FontVertical.Top,
+      minContent: bool,
+      wrap: bool,
+  ): GlyphArrangement =
+    ## does the typesetting using pixie, then converts the typeseet results
+    ## into Figuro's own internal types
+    ## Primarily done for thread safety
+    threadEffects:
+      AppMainThread
 
-  var va: VerticalAlignment
-  case vAlign
-  of Top:
-    va = TopAlign
-  of Middle:
-    va = MiddleAlign
-  of Bottom:
-    va = BottomAlign
+    var
+      wh = box.scaled().wh
+      sz = uiSpans.mapIt(it[0].size.float)
+      minSz = sz.foldl(max(a, b), 0.0)
 
-  let arrangement =
-    pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
-  result = convertArrangement(arrangement, box, uiSpans, hAlign, vAlign, gfonts)
+    var spans: seq[Span]
+    var pfs: seq[Font]
+    var gfonts: seq[GlyphFont]
+    for (uiFont, txt) in uiSpans:
+      let (_, pf) = uiFont.convertFont()
+      pfs.add(pf)
+      spans.add(newSpan(txt, pf))
+      assert not pf.typeface.isNil
+      # There's gotta be a better way. Need to lookup the font formulas or equations or something
+      #let lhAdj = pf.lineHeight
+      #let lhAdj = max(pf.lineHeight - pf.size, 0.0)
+      let lhAdj = (pf.lineHeight - pf.size * pf.lineHeight /
+          pf.defaultLineHeight()) / 2
+      gfonts.add GlyphFont(
+        fontId: uiFont.getId(), lineHeight: pf.lineHeight, descentAdj: lhAdj
+      )
 
-  let content = result.calcMinMaxContent()
-  result.minSize = content.minSize
-  result.maxSize = content.maxSize
-  result.bounding = content.bounding
+    var ha: HorizontalAlignment
+    case hAlign
+    of Left:
+      ha = LeftAlign
+    of Center:
+      ha = CenterAlign
+    of Right:
+      ha = RightAlign
 
-  if minContent:
-    ## calcaulate min width of content
-    var wh = wh
-    wh.y = result.maxSize.y.scaled()
-    let arr = pixie.typeset(
-      spans, bounds = wh, hAlign = LeftAlign, vAlign = TopAlign, wrap = wrap
-    )
-    let minResult = convertArrangement(arr, box, uiSpans, hAlign, vAlign, gfonts)
+    var va: VerticalAlignment
+    case vAlign
+    of Top:
+      va = TopAlign
+    of Middle:
+      va = MiddleAlign
+    of Bottom:
+      va = BottomAlign
 
-    let minContent = minResult.calcMinMaxContent()
-    trace "minContent:",
-      boxWh = box.wh,
-      wh = wh,
-      minSize = minContent.minSize,
-      maxSize = minContent.maxSize,
-      bounding = minContent.bounding,
-      boundH = result.bounding.h
+    let arrangement =
+      pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
+    result = convertArrangement(arrangement, box, uiSpans, hAlign, vAlign, gfonts)
 
-    if minContent.bounding.h > result.bounding.h:
-      let wh = vec2(wh.x, minContent.bounding.h.scaled())
-      let minAdjusted =
-        pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
-      result = convertArrangement(minAdjusted, box, uiSpans, hAlign, vAlign, gfonts)
-      let contentAdjusted = result.calcMinMaxContent()
-      result.minSize = contentAdjusted.minSize
-      result.maxSize = contentAdjusted.maxSize
-      result.bounding = contentAdjusted.bounding
-      trace "minContent:adjusted",
+    let content = result.calcMinMaxContent()
+    result.minSize = content.minSize
+    result.maxSize = content.maxSize
+    result.bounding = content.bounding
+
+    if minContent:
+      ## calcaulate min width of content
+      var wh = wh
+      wh.y = result.maxSize.y.scaled()
+      let arr = pixie.typeset(
+        spans, bounds = wh, hAlign = LeftAlign, vAlign = TopAlign, wrap = wrap
+      )
+      let minResult = convertArrangement(arr, box, uiSpans, hAlign, vAlign, gfonts)
+
+      let minContent = minResult.calcMinMaxContent()
+      trace "minContent:",
         boxWh = box.wh,
         wh = wh,
-        wrap = wrap,
-        minSize = result.minSize,
-        maxSize = result.maxSize,
-        bounding = result.bounding
+        minSize = minContent.minSize,
+        maxSize = minContent.maxSize,
+        bounding = minContent.bounding,
+        boundH = result.bounding.h
 
-      result.minSize.y = result.bounding.h
-    else:
-      result.minSize.y = max(result.minSize.y, result.bounding.h)
+      if minContent.bounding.h > result.bounding.h:
+        let wh = vec2(wh.x, minContent.bounding.h.scaled())
+        let minAdjusted =
+          pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
+        result = convertArrangement(minAdjusted, box, uiSpans, hAlign, vAlign, gfonts)
+        let contentAdjusted = result.calcMinMaxContent()
+        result.minSize = contentAdjusted.minSize
+        result.maxSize = contentAdjusted.maxSize
+        result.bounding = contentAdjusted.bounding
+        trace "minContent:adjusted",
+          boxWh = box.wh,
+          wh = wh,
+          wrap = wrap,
+          minSize = result.minSize,
+          maxSize = result.maxSize,
+          bounding = result.bounding
 
-  let maxLineHeight = max(sz)
-  result.minSize += vec2(maxLineHeight / 2, 0)
-  result.maxSize += vec2(maxLineHeight / 2, 0)
-  result.bounding = result.bounding + rect(0, 0, 0, maxLineHeight / 2)
-  # debug "getTypesetImpl:post:", boxWh= box.wh, wh= wh, contentHash = getContentHash(box.wh, uiSpans, hAlign, vAlign),
-  #           minSize = result.minSize, maxSize = result.maxSize, bounding = result.bounding
+        result.minSize.y = result.bounding.h
+      else:
+        result.minSize.y = max(result.minSize.y, result.bounding.h)
 
-  result.generateGlyphImage()
-  # echo "font: "
-  # print arrangement.fonts[0].size
-  # print arrangement.fonts[0].lineHeight
-  # echo "arrangement: "
-  # print result
+    let maxLineHeight = max(sz)
+    result.minSize += vec2(maxLineHeight / 2, 0)
+    result.maxSize += vec2(maxLineHeight / 2, 0)
+    result.bounding = result.bounding + rect(0, 0, 0, maxLineHeight / 2)
+    # debug "getTypesetImpl:post:", boxWh= box.wh, wh= wh, contentHash = getContentHash(box.wh, uiSpans, hAlign, vAlign),
+    #           minSize = result.minSize, maxSize = result.maxSize, bounding = result.bounding
 
-proc glyphFontFor(uiFont: UiFont): tuple[id: FontId, font: Font,
-    glyph: GlyphFont] =
-  let (fontId, pf) = uiFont.convertFont()
-  let defaultLineHeight = pf.defaultLineHeight()
-  let lineHeight =
-    if pf.lineHeight >= 0:
-      pf.lineHeight
-    else:
-      defaultLineHeight
-  let lhAdj =
-    if defaultLineHeight > 0:
-      (lineHeight - pf.size * lineHeight / defaultLineHeight) / 2
-    else:
-      0.0'f32
-  result = (
-    id: fontId,
-    font: pf,
-    glyph: GlyphFont(fontId: fontId, lineHeight: lineHeight, descentAdj: lhAdj),
-  )
+    result.generateGlyphImage()
+    # echo "font: "
+    # print arrangement.fonts[0].size
+    # print arrangement.fonts[0].lineHeight
+    # echo "arrangement: "
+    # print result
 
-proc placeGlyphs*(
-    font: UiFont,
-    glyphs: openArray[(Rune, Vec2)],
-    origin: GlyphOrigin = GlyphTopLeft,
-): GlyphArrangement =
-  ## Builds a glyph arrangement using explicit positions for each glyph.
-  ## `origin` controls whether positions are the glyph's top-left or baseline.
-  threadEffects:
-    AppMainThread
-
-  result = GlyphArrangement()
-  if glyphs.len == 0:
-    return
-
-  let fontInfo = glyphFontFor(font)
-  let cachedFont = (font: fontInfo.font, glyph: fontInfo.glyph)
-
-  var
-    runes = newSeqOfCap[Rune](glyphs.len)
-    positions = newSeqOfCap[Vec2](glyphs.len)
-    selectionRects = newSeqOfCap[Rect](glyphs.len)
-    contentHash = Hash(0)
-
-  for (rune, pos) in glyphs:
-
-    let scaledPos = pos.scaled()
-    let descent = cachedFont.glyph.lineHeight - cachedFont.glyph.descentAdj
-    var baselinePos = scaledPos
-    if origin == GlyphTopLeft:
-      baselinePos.y = scaledPos.y + descent
-
-    runes.add(rune)
-    positions.add(baselinePos)
-
-    let drawPos = vec2(baselinePos.x, baselinePos.y - descent)
-    let advance = cachedFont.font.typeface.getAdvance(rune) *
-        cachedFont.font.scale
-    selectionRects.add(
-      rect(drawPos.x, drawPos.y, advance, cachedFont.glyph.lineHeight)
+  proc glyphFontFor(uiFont: UiFont): tuple[id: FontId, font: Font,
+      glyph: GlyphFont] =
+    let (fontId, pf) = uiFont.convertFont()
+    let defaultLineHeight = pf.defaultLineHeight()
+    let lineHeight =
+      if pf.lineHeight >= 0:
+        pf.lineHeight
+      else:
+        defaultLineHeight
+    let lhAdj =
+      if defaultLineHeight > 0:
+        (lineHeight - pf.size * lineHeight / defaultLineHeight) / 2
+      else:
+        0.0'f32
+    result = (
+      id: fontId,
+      font: pf,
+      glyph: GlyphFont(fontId: fontId, lineHeight: lineHeight,
+          descentAdj: lhAdj),
     )
 
-    contentHash = contentHash !& hash((font.getId(), rune, pos.x, pos.y, origin))
+  proc placeGlyphs*(
+      font: UiFont,
+      glyphs: openArray[(Rune, Vec2)],
+      origin: GlyphOrigin = GlyphTopLeft,
+  ): GlyphArrangement =
+    ## Builds a glyph arrangement using explicit positions for each glyph.
+    ## `origin` controls whether positions are the glyph's top-left or baseline.
+    threadEffects:
+      AppMainThread
 
-  result.lines = @[0 .. glyphs.len - 1]
-  result.spans = @[0 .. glyphs.len - 1]
-  result.fonts = @[cachedFont.glyph]
-  result.runes = runes
-  result.positions = positions
-  result.selectionRects = selectionRects
-  result.contentHash = !$contentHash
+    result = GlyphArrangement()
+    if glyphs.len == 0:
+      return
 
-  var
-    minX = float32.high
-    minY = float32.high
-    maxX = -float32.high
-    maxY = -float32.high
-  for rect in selectionRects:
-    minX = min(minX, rect.x)
-    minY = min(minY, rect.y)
-    maxX = max(maxX, rect.x + rect.w)
-    maxY = max(maxY, rect.y + rect.h)
-  if selectionRects.len > 0:
-    let boundingScaled = rect(minX, minY, maxX - minX, maxY - minY)
-    result.bounding = boundingScaled.descaled()
-    result.minSize = result.bounding.wh
-    result.maxSize = result.bounding.wh
+    let fontInfo = glyphFontFor(font)
+    let cachedFont = (font: fontInfo.font, glyph: fontInfo.glyph)
 
-  result.generateGlyphImage()
+    var
+      runes = newSeqOfCap[Rune](glyphs.len)
+      positions = newSeqOfCap[Vec2](glyphs.len)
+      selectionRects = newSeqOfCap[Rect](glyphs.len)
+      contentHash = Hash(0)
+
+    for (rune, pos) in glyphs:
+
+      let scaledPos = pos.scaled()
+      let descent = cachedFont.glyph.lineHeight - cachedFont.glyph.descentAdj
+      var baselinePos = scaledPos
+      if origin == GlyphTopLeft:
+        baselinePos.y = scaledPos.y + descent
+
+      runes.add(rune)
+      positions.add(baselinePos)
+
+      let drawPos = vec2(baselinePos.x, baselinePos.y - descent)
+      let advance = cachedFont.font.typeface.getAdvance(rune) *
+          cachedFont.font.scale
+      selectionRects.add(
+        rect(drawPos.x, drawPos.y, advance, cachedFont.glyph.lineHeight)
+      )
+
+      contentHash = contentHash !& hash((font.getId(), rune, pos.x, pos.y, origin))
+
+    result.lines = @[0 .. glyphs.len - 1]
+    result.spans = @[0 .. glyphs.len - 1]
+    result.fonts = @[cachedFont.glyph]
+    result.runes = runes
+    result.positions = positions
+    result.selectionRects = selectionRects
+    result.contentHash = !$contentHash
+
+    var
+      minX = float32.high
+      minY = float32.high
+      maxX = -float32.high
+      maxY = -float32.high
+    for rect in selectionRects:
+      minX = min(minX, rect.x)
+      minY = min(minY, rect.y)
+      maxX = max(maxX, rect.x + rect.w)
+      maxY = max(maxY, rect.y + rect.h)
+    if selectionRects.len > 0:
+      let boundingScaled = rect(minX, minY, maxX - minX, maxY - minY)
+      result.bounding = boundingScaled.descaled()
+      result.minSize = result.bounding.wh
+      result.maxSize = result.bounding.wh
+
+    result.generateGlyphImage()
+
+  type Box* = Rect
+
+  proc getTypesetImpl*(
+      box: Box,
+      spans: openArray[(UiFont, string)],
+      hAlign = Left,
+      vAlign = Top,
+      minContent = false,
+      wrap = true,
+  ): GlyphArrangement =
+    typeset(box, spans, hAlign, vAlign, minContent, wrap)
