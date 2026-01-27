@@ -27,6 +27,9 @@ feature "sdl2":
 feature "windy":
   requires "windy"
 
+feature "vulkan":
+  requires "https://github.com/planetis-m/vulkan"
+
 feature "windex":
   requires "https://github.com/elcritch/windex"
 
