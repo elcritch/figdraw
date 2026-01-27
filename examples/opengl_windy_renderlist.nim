@@ -1,4 +1,6 @@
 import std/times
+when not defined(emscripten):
+  import std/os
 import chroma
 
 when defined(useWindex):
