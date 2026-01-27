@@ -2,7 +2,6 @@ import std/[sequtils, tables, hashes]
 import std/[unicode, strformat]
 when not defined(js):
   import std/os
-when not defined(js):
   import pkg/variant
 
 export sequtils, strformat, tables, hashes

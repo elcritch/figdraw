@@ -106,7 +106,7 @@ proc copyInto*[N](uis: N): Renders =
 
   result.layers.sort(
     proc(x, y: auto): int =
-    cmp(x[0], y[0])
+      cmp(x[0], y[0])
   )
   # echo "nodes:len: ", result.len()
   # printRenders(result)
