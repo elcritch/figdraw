@@ -6,11 +6,12 @@ else:
   import common/rchannels
 import common/transfer
 import common/appframes
-import common/fontutils
 when defined(js):
   import common/imgutils_js as imgutils
+  import common/fontutils_js as fontutils
 else:
   import common/imgutils
+  import common/fontutils
 
 export shared, uimaths, rchannels
 export transfer, appframes
