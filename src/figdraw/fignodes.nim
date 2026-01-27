@@ -45,11 +45,10 @@ type
 proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"
 
-when defined(js):
-  proc toFigName*(s: string): FigName =
+proc toFigName*(s: string): FigName =
+  when defined(js):
     s
-else:
-  proc toFigName*(s: string): FigName =
+  else:
     toStackString(s[0 ..< min(s.len(), s.len())], FigStringCap)
 
 when not defined(js):

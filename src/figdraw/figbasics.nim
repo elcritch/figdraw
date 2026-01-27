@@ -1,7 +1,5 @@
 import std/[options, hashes]
 import chroma
-when not defined(js):
-  import stack_strings
 
 import common/uimaths
 import common/fonttypes
@@ -12,8 +10,6 @@ else:
 
 export uimaths, fonttypes, imgutils
 export options, chroma
-when not defined(js):
-  export stack_strings
 
 const
   FigStringCap* {.intdefine.} = 48
@@ -26,6 +22,8 @@ type
 when defined(js):
   type FigName* = string
 else:
+  import stack_strings
+  export stack_strings
   type FigName* = StackString[FigStringCap]
 
 type
