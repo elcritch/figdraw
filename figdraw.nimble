@@ -28,7 +28,7 @@ feature "windy":
   requires "windy"
 
 feature "vulkan":
-  requires "https://github.com/planetis-m/vulkan"
+  requires "https://github.com/planetis-m/vulkan#head"
 
 feature "windex":
   requires "https://github.com/elcritch/windex"
