@@ -46,10 +46,14 @@ proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"
 
 proc toFigName*(s: string): FigName =
-  toStackString(s[0 ..< min(s.len(), s.len())], FigStringCap)
+  when defined(js):
+    s
+  else:
+    toStackString(s[0 ..< min(s.len(), s.len())], FigStringCap)
 
-proc toFigName*(s: FigName): FigName =
-  s
+when not defined(js):
+  proc toFigName*(s: FigName): FigName =
+    s
 
 proc `+`*(a, b: FigIdx): FigIdx {.borrow.}
 proc `<=`*(a, b: FigIdx): bool {.borrow.}

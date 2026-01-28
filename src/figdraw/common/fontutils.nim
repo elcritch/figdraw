@@ -4,7 +4,7 @@ import std/isolation
 import pkg/vmath
 import pkg/pixie
 import pkg/pixie/fonts
-import pkg/chronicles
+import ../utils/logging
 
 import ./rchannels
 import ./imgutils

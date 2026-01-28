@@ -1,5 +1,6 @@
 import std/sequtils
-import stack_strings
+when not defined(js):
+  import stack_strings
 import ../fignodes
 
 type RenderTree* = ref object

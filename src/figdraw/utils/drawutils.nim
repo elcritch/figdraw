@@ -4,7 +4,7 @@ import ../commons
 import ../fignodes
 
 import pkg/chroma
-import pkg/chronicles
+import logging
 
 proc hash(v: Vec2): Hash =
   hash((v.x, v.y))
@@ -32,7 +32,8 @@ proc getCircleBoxSizes*(
     width = float32.high(),
     height = float32.high(),
     innerShadow = false,
-): tuple[maxRadius, sideSize, totalSize, padding, paddingOffset, inner, weightSize: int] =
+): tuple[maxRadius, sideSize, totalSize, padding, paddingOffset, inner,
+    weightSize: int] =
   result.maxRadius = 0
   for r in radii:
     result.maxRadius = max(result.maxRadius, r.round().int)
@@ -57,11 +58,13 @@ proc getCircleBoxSizes*(
 proc roundedBoxCornerSizes*(
     cbs:
       tuple[
-        maxRadius, sideSize, totalSize, padding, paddingOffset, inner, weightSize: int
+        maxRadius, sideSize, totalSize, padding, paddingOffset, inner,
+            weightSize: int
       ],
     radii: array[DirectionCorners, float32],
     innerShadow: bool,
-): array[DirectionCorners, tuple[radius, sideSize, inner, sideDelta, center: int]] =
+): array[DirectionCorners, tuple[radius, sideSize, inner, sideDelta,
+    center: int]] =
   let ww = cbs.weightSize
 
   for corner in DirectionCorners:

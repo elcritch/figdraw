@@ -112,6 +112,10 @@ For a complete working example (window + GL context + render loop), see:
 - `examples/opengl_windy_renderlist.nim`
 - `examples/sdl2_renderlist.nim`
 
+For a Nim JS + WebGL example (no Windy), see:
+
+- `examples/webgl_renderlist.nim` (paired with `examples/webgl_renderlist.html`)
+
 ## Run Tests
 
 Runs all tests + compiles all examples listed in `config.nims`:
