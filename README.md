@@ -112,6 +112,12 @@ For a complete working example (window + GL context + render loop), see:
 - `examples/opengl_windy_renderlist.nim`
 - `examples/sdl2_renderlist.nim`
 
+## MSDF Bitmap based SDF Rendering
+
+<img width="842" height="582" alt="starstruck32" src="https://github.com/user-attachments/assets/f70437ad-c22e-4160-8c48-c480156d709d" />
+
+See [examples/opengl_windy_msdf_star.nim](examples/opengl_windy_msdf_star.nim) for more info.
+
 ## Run Tests
 
 Runs all tests + compiles all examples listed in `config.nims`:
