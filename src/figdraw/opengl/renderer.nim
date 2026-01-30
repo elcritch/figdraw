@@ -278,10 +278,36 @@ proc renderImage(ctx: Context, node: Fig) =
   if node.image.id.int == 0:
     return
   let size = vec2(node.screenBox.w, node.screenBox.h)
-  #if ctx.cacheImage($node.image.name, node.image.id.Hash):
-  ctx.drawImage(
-    node.image.id.Hash, pos = node.screenBox.xy, color = node.image.color, size = size
-  )
+  let pxRange =
+    if node.image.msdfPxRange > 0.0'f32: node.image.msdfPxRange else: 4.0'f32
+  let sdThreshold =
+    if node.image.msdfThreshold > 0.0'f32 and node.image.msdfThreshold < 1.0'f32:
+      node.image.msdfThreshold
+    else:
+      0.5'f32
+  case node.image.mode
+  of irmBitmap:
+    ctx.drawImage(
+      node.image.id.Hash, pos = node.screenBox.xy, color = node.image.color, size = size
+    )
+  of irmMsdf:
+    ctx.drawMsdfImage(
+      node.image.id.Hash,
+      pos = node.screenBox.xy,
+      color = node.image.color,
+      size = size,
+      pxRange = pxRange,
+      sdThreshold = sdThreshold,
+    )
+  of irmMtsdf:
+    ctx.drawMtsdfImage(
+      node.image.id.Hash,
+      pos = node.screenBox.xy,
+      color = node.image.color,
+      size = size,
+      pxRange = pxRange,
+      sdThreshold = sdThreshold,
+    )
 
 proc render(
     ctx: Context, nodes: seq[Fig], nodeIdx, parentIdx: FigIdx
@@ -311,9 +337,9 @@ proc render(
   # handle node rotation
   ifrender node.rotation != 0:
     ctx.saveTransform()
-    ctx.translate(node.screenBox.wh / 2)
+    ctx.translate(node.screenBox.xy + node.screenBox.wh / 2)
     ctx.rotate(node.rotation / 180 * PI)
-    ctx.translate(-node.screenBox.wh / 2)
+    ctx.translate(-(node.screenBox.xy + node.screenBox.wh / 2))
   finally:
     ctx.restoreTransform()
 
