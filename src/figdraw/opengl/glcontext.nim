@@ -33,22 +33,22 @@ else:
 type Context* = ref object
   mainShader, maskShader, activeShader: Shader
   atlasTexture: Texture
-  maskTextureWrite: int       ## Index into max textures for writing.
-  maskTextures: seq[Texture]  ## Masks array for pushing and popping.
-  atlasSize: int              ## Size x size dimensions of the atlas
-  atlasMargin: int            ## Default margin between images
-  quadCount: int              ## Number of quads drawn so far
-  maxQuads: int               ## Max quads to draw before issuing an OpenGL call
-  mat*: Mat4                  ## Current matrix
-  mats: seq[Mat4]             ## Matrix stack
+  maskTextureWrite: int ## Index into max textures for writing.
+  maskTextures: seq[Texture] ## Masks array for pushing and popping.
+  atlasSize: int ## Size x size dimensions of the atlas
+  atlasMargin: int ## Default margin between images
+  quadCount: int ## Number of quads drawn so far
+  maxQuads: int ## Max quads to draw before issuing an OpenGL call
+  mat*: Mat4 ## Current matrix
+  mats: seq[Mat4] ## Matrix stack
   entries*: Table[Hash, Rect] ## Mapping of image name to atlas UV position
-  heights: seq[uint16]        ## Height map of the free space in the atlas
+  heights: seq[uint16] ## Height map of the free space in the atlas
   proj*: Mat4
-  frameSize: Vec2             ## Dimensions of the window frame
+  frameSize: Vec2 ## Dimensions of the window frame
   vertexArrayId, maskFramebufferId: GLuint
   frameBegun, maskBegun: bool
-  pixelate*: bool             ## Makes texture look pixelated, like a pixel game.
-  pixelScale*: float32        ## Multiple scaling factor.
+  pixelate*: bool ## Makes texture look pixelated, like a pixel game.
+  pixelScale*: float32 ## Multiple scaling factor.
 
   # Buffer data for OpenGL
   indices: tuple[buffer: Buffer, data: seq[uint16]]
@@ -221,8 +221,7 @@ proc newContext*(
   result.sdfModeAttr.buffer.target = GL_ARRAY_BUFFER
   result.sdfModeAttr.buffer.usage = GL_STREAM_DRAW
   result.sdfModeAttr.data =
-    newSeq[SdfModeData](result.sdfModeAttr.buffer.kind.componentCount() *
-        maxQuads * 4)
+    newSeq[SdfModeData](result.sdfModeAttr.buffer.kind.componentCount() * maxQuads * 4)
 
   result.sdfFactors.buffer.componentType = cGL_FLOAT
   result.sdfFactors.buffer.kind = bkVEC2
@@ -390,7 +389,7 @@ proc putFlippy*(ctx: Context, path: Hash, flippy: Flippy) =
 
 proc putImage*(ctx: Context, imgObj: ImgObj) =
   ## puts an ImgObj wrapper with either a flippy or image format
-  case imgObj.kind:
+  case imgObj.kind
   of FlippyImg:
     ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
   of PixieImg:
@@ -431,8 +430,7 @@ proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ctx.indices.buffer.bufferId)
   glDrawElements(
-    GL_TRIANGLES, ctx.indices.buffer.count.GLint,
-    ctx.indices.buffer.componentType, nil
+    GL_TRIANGLES, ctx.indices.buffer.count.GLint, ctx.indices.buffer.componentType, nil
   )
 
   ctx.quadCount = 0
@@ -818,30 +816,28 @@ proc drawRoundedRectSdf*(
   let
     quadHalfExtents = rect.wh * 0.5'f32
     resolvedShapeSize =
-      (if shapeSize.x > 0.0'f32 and shapeSize.y >
-          0.0'f32: shapeSize else: rect.wh)
+      (if shapeSize.x > 0.0'f32 and shapeSize.y > 0.0'f32: shapeSize else: rect.wh)
     shapeHalfExtents = resolvedShapeSize * 0.5'f32
     params =
-      vec4(quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x,
-          shapeHalfExtents.y)
+      vec4(quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x, shapeHalfExtents.y)
     maxRadius = min(shapeHalfExtents.x, shapeHalfExtents.y)
     radiiClamped = [
       dcTopLeft: (
         if radii[dcTopLeft] <= 0.0'f32: 0.0'f32
-      else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
-    ),
+        else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
+      ),
       dcTopRight: (
         if radii[dcTopRight] <= 0.0'f32: 0.0'f32
-      else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
-    ),
+        else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
+      ),
       dcBottomLeft: (
         if radii[dcBottomLeft] <= 0.0'f32: 0.0'f32
-      else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
-    ),
+        else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
+      ),
       dcBottomRight: (
         if radii[dcBottomRight] <= 0.0'f32: 0.0'f32
-      else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
-    ),
+        else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
+      ),
     ]
     # (top-right, bottom-right, top-left, bottom-left)
     r4 = vec4(
@@ -942,8 +938,7 @@ proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
     pos, pos + vec2(w.float32, h.float32), uvRect.xy, uvRect.xy + uvRect.wh, color
   )
 
-proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32,
-    color: Color) =
+proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32, color: Color) =
   for i in 0 ..< poly.len:
     ctx.line(poly[i], poly[(i + 1) mod poly.len], weight, color)
 

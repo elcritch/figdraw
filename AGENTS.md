@@ -14,7 +14,7 @@
 ## Coding Style & Naming
 - Indentation: 2 spaces; no tabs.
 - Nim style: Types in `PascalCase`, procs/vars in `camelCase`, modules in `lowercase` or concise `lowerCamel` (e.g., `threadAsyncs.nim`).
-- Formatting: run `nimpretty --backup:off src/*.nim` and format any touched test files.
+- Formatting: run `nph src/*.nim` and format any touched test files.
 
 ## Testing Guidelines
 - Framework: `unittest` with descriptive `suite` and `test` names.

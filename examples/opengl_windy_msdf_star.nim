@@ -1,7 +1,7 @@
 when defined(emscripten):
-  import std/times
+  import std/[times, monotimes, strformat]
 else:
-  import std/[os, times]
+  import std/[os, times, monotimes, strformat]
 
 import std/math
 import chroma
@@ -23,6 +23,48 @@ const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
 proc centeredRect(center, size: Vec2): Rect =
   rect(center.x - size.x / 2.0'f32, center.y - size.y / 2.0'f32, size.x, size.y)
+
+proc addLabel(
+    list: var RenderList,
+    parentIdx: FigIdx,
+    font: UiFont,
+    r: Rect,
+    text: string,
+) =
+  let labelH = 28.0'f32
+  let labelMargin = 8.0'f32
+  let labelRect = rect(
+    r.x,
+    max(0.0'f32, r.y - labelH - labelMargin),
+    r.w,
+    labelH,
+  )
+
+  discard list.addChild(parentIdx, Fig(
+    kind: nkRectangle,
+    childCount: 0,
+    zlevel: 0.ZLevel,
+    screenBox: labelRect,
+    fill: rgba(0, 0, 0, 155).color,
+    corners: [8.0'f32, 8.0, 8.0, 8.0],
+  ))
+
+  let layout = typeset(
+    rect(0, 0, labelRect.w, labelRect.h),
+    [(font, text)],
+    hAlign = Center,
+    vAlign = Middle,
+    minContent = false,
+    wrap = false,
+  )
+  discard list.addChild(parentIdx, Fig(
+    kind: nkText,
+    childCount: 0,
+    zlevel: 0.ZLevel,
+    screenBox: labelRect,
+    fill: rgba(255, 255, 255, 245).color,
+    textLayout: layout,
+  ))
 
 proc setupWindow(frame: AppFrame, window: Window) =
   when not defined(emscripten):
@@ -55,7 +97,12 @@ proc getWindowInfo(window: Window): WindowInfo =
   result.box.w = size.x.float32.descaled()
   result.box.h = size.y.float32.descaled()
 
-proc makeRenderTree*(w, h: float32, pxRange: float32, t: float32): Renders =
+proc makeRenderTree*(
+    w, h: float32,
+    pxRange: float32,
+    t: float32,
+    labelFont: UiFont,
+): Renders =
   var list = RenderList()
 
   let rootIdx = list.addRoot(Fig(
@@ -139,11 +186,12 @@ proc makeRenderTree*(w, h: float32, pxRange: float32, t: float32): Renders =
   ))
 
   ## Side-by-side comparison: same bitmap, different render mode.
+  let msdfRect = centeredRect(smallLeftCenter, smallBaseSize * smallScaleA)
   list.addChild(rootIdx, Fig(
     kind: nkImage,
     childCount: 0,
     zlevel: 0.ZLevel,
-    screenBox: centeredRect(smallLeftCenter, smallBaseSize * smallScaleA),
+    screenBox: msdfRect,
     rotation: smallRotationA,
     image: ImageStyle(
       color: rgba(255, 215, 0, 255).color,
@@ -152,11 +200,14 @@ proc makeRenderTree*(w, h: float32, pxRange: float32, t: float32): Renders =
       msdfPxRange: pxRange,
     ),
   ))
+  list.addLabel(rootIdx, labelFont, msdfRect, "MSDF (median)")
+
+  let mtsdfRect = centeredRect(smallRightCenter, smallBaseSize * smallScaleB)
   list.addChild(rootIdx, Fig(
     kind: nkImage,
     childCount: 0,
     zlevel: 0.ZLevel,
-    screenBox: centeredRect(smallRightCenter, smallBaseSize * smallScaleB),
+    screenBox: mtsdfRect,
     rotation: smallRotationB,
     image: ImageStyle(
       color: rgba(255, 215, 0, 255).color,
@@ -165,15 +216,17 @@ proc makeRenderTree*(w, h: float32, pxRange: float32, t: float32): Renders =
       msdfPxRange: pxRange,
     ),
   ))
+  list.addLabel(rootIdx, labelFont, mtsdfRect, "MTSDF (alpha)")
 
   ## Bitmap comparison: a normal 64x64 RGBA image rendered from the MSDF field.
   let bitmapCenter =
     vec2(rightRect.x + rightRect.w / 2.0'f32, rightRect.y + rightRect.h * 0.72'f32)
+  let bitmapRect = centeredRect(bitmapCenter, smallBaseSize * smallScaleC)
   list.addChild(rootIdx, Fig(
     kind: nkImage,
     childCount: 0,
     zlevel: 0.ZLevel,
-    screenBox: centeredRect(bitmapCenter, smallBaseSize * smallScaleC),
+    screenBox: bitmapRect,
     rotation: smallRotationC,
     image: ImageStyle(
       color: rgba(255, 215, 0, 255).color,
@@ -181,6 +234,7 @@ proc makeRenderTree*(w, h: float32, pxRange: float32, t: float32): Renders =
       mode: irmBitmap,
     ),
   ))
+  list.addLabel(rootIdx, labelFont, bitmapRect, "Bitmap (renderMsdf 64x64)")
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
@@ -216,6 +270,13 @@ when isMainModule:
   app.uiScale = 1.0
   app.pixelScale = 1.0
 
+  let typefaceId = getTypefaceImpl("Ubuntu.ttf")
+  let labelFont = UiFont(typefaceId: typefaceId, size: 18.0'f32,
+      lineHeightScale: 1.0)
+  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32,
+      lineHeightScale: 1.0)
+  var fpsText = "0.0 FPS"
+
   var frame = AppFrame(
     windowTitle: "figdraw: OpenGL + Windy MSDF/MTSDF",
   )
@@ -239,13 +300,78 @@ when isMainModule:
     pixelScale = app.pixelScale,
   )
 
+  var makeRenderTreeMsSum = 0.0
+  var renderFrameMsSum = 0.0
+  var lastElementCount = 0
+
   proc redraw() =
+    inc frames
+    inc fpsFrames
+
     let winInfo = window.getWindowInfo()
     let t = (epochTime() - animStart).float32
-    var renders =
-      makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h),
-          renderPxRange, t)
+
+    let t0 = getMonoTime()
+    var renders = makeRenderTree(
+      float32(winInfo.box.w),
+      float32(winInfo.box.h),
+      renderPxRange,
+      t,
+      labelFont,
+    )
+    makeRenderTreeMsSum += float((getMonoTime() - t0).inMilliseconds)
+    lastElementCount = renders.layers[0.ZLevel].nodes.len
+
+    let hudMargin = 12.0'f32
+    let hudW = 180.0'f32
+    let hudH = 34.0'f32
+    let hudRect = rect(
+      winInfo.box.w.float32 - hudW - hudMargin,
+      hudMargin,
+      hudW,
+      hudH,
+    )
+
+    discard renders.layers[0.ZLevel].addRoot(Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: hudRect,
+      fill: rgba(0, 0, 0, 155).color,
+      corners: [8.0'f32, 8.0, 8.0, 8.0],
+    ))
+
+    let hudTextPadX = 10.0'f32
+    let hudTextPadY = 6.0'f32
+    let hudTextRect = rect(
+      hudRect.x + hudTextPadX,
+      hudRect.y + hudTextPadY,
+      hudRect.w - hudTextPadX * 2,
+      hudRect.h - hudTextPadY * 2,
+    )
+
+    let fpsLayout = typeset(
+      rect(0, 0, hudTextRect.w, hudTextRect.h),
+      [(fpsFont, fpsText)],
+      hAlign = Right,
+      vAlign = Middle,
+      minContent = false,
+      wrap = false,
+    )
+
+    discard renders.layers[0.ZLevel].addRoot(Fig(
+      kind: nkText,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: hudTextRect,
+      fill: rgba(255, 255, 255, 245).color,
+      textLayout: fpsLayout,
+    ))
+
+    let t1 = getMonoTime()
     renderer.renderFrame(renders, winInfo.box.wh.scaled())
+    renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
+
     window.swapBuffers()
 
   window.onCloseRequest = proc() =
@@ -258,15 +384,20 @@ when isMainModule:
       pollEvents()
       redraw()
 
-      inc frames
-      inc fpsFrames
       let now = epochTime()
       let elapsed = now - fpsStart
       if elapsed >= 1.0:
         let fps = fpsFrames.float / elapsed
-        echo "fps: ", fps
+        fpsText = fmt"{fps:0.1f} FPS"
+        let avgMake = makeRenderTreeMsSum / max(1, fpsFrames).float
+        let avgRender = renderFrameMsSum / max(1, fpsFrames).float
+        echo "fps: ", fps, " | elems: ", lastElementCount,
+          " | makeRenderTree avg(ms): ", avgMake, " | renderFrame avg(ms): ",
+          avgRender
         fpsFrames = 0
         fpsStart = now
+        makeRenderTreeMsSum = 0.0
+        renderFrameMsSum = 0.0
       if RunOnce and frames >= 1:
         app.running = false
   finally:
