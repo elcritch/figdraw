@@ -5,6 +5,7 @@ else:
 
 import std/math
 import chroma
+import pkg/pixie as pix
 import pkg/sdfy
 import pkg/sdfy/msdfgenSvg
 
@@ -94,8 +95,11 @@ proc makeRenderTree*(w, h: float32, pxRange: float32, t: float32): Renders =
   let smallScaleA = 0.80'f32 + 0.25'f32 * (0.5'f32 + 0.5'f32 * sin(t * 2.3'f32))
   let smallScaleB =
     0.80'f32 + 0.25'f32 * (0.5'f32 + 0.5'f32 * sin(t * 2.3'f32 + PI.float32))
+  let smallScaleC =
+    0.80'f32 + 0.25'f32 * (0.5'f32 + 0.5'f32 * sin(t * 2.3'f32 + PI.float32 * 0.5'f32))
   let smallRotationA = -t * 90.0'f32
   let smallRotationB = t * 75.0'f32
+  let smallRotationC = -t * 60.0'f32
 
   list.addChild(rootIdx, Fig(
     kind: nkRectangle,
@@ -162,6 +166,22 @@ proc makeRenderTree*(w, h: float32, pxRange: float32, t: float32): Renders =
     ),
   ))
 
+  ## Bitmap comparison: a normal 64x64 RGBA image rendered from the MSDF field.
+  let bitmapCenter =
+    vec2(rightRect.x + rightRect.w / 2.0'f32, rightRect.y + rightRect.h * 0.72'f32)
+  list.addChild(rootIdx, Fig(
+    kind: nkImage,
+    childCount: 0,
+    zlevel: 0.ZLevel,
+    screenBox: centeredRect(bitmapCenter, smallBaseSize * smallScaleC),
+    rotation: smallRotationC,
+    image: ImageStyle(
+      color: rgba(255, 215, 0, 255).color,
+      id: imgId("star-bitmap"),
+      mode: irmBitmap,
+    ),
+  ))
+
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
 
@@ -183,6 +203,13 @@ when isMainModule:
 
   loadImage(imgId("star-msdf"), starMsdf.image)
   loadImage(imgId("star-mtsdf"), starMtsdf.image)
+
+  let rendered = renderMsdf(starMsdf)
+  let bitmap = pix.newImage(fieldSize, fieldSize)
+  for i in 0 ..< bitmap.data.len:
+    let v = rendered.data[i].r
+    bitmap.data[i] = pix.rgba(255'u8, 255'u8, 255'u8, v).rgbx()
+  loadImage(imgId("star-bitmap"), bitmap)
 
   app.running = true
   app.autoUiScale = false
