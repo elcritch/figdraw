@@ -339,9 +339,9 @@ proc render(
   # handle node rotation
   ifrender node.rotation != 0:
     ctx.saveTransform()
-    ctx.translate(node.screenBox.wh / 2)
+    ctx.translate(node.screenBox.xy + node.screenBox.wh / 2)
     ctx.rotate(node.rotation / 180 * PI)
-    ctx.translate(-node.screenBox.wh / 2)
+    ctx.translate(-(node.screenBox.xy + node.screenBox.wh / 2))
   finally:
     ctx.restoreTransform()
 
