@@ -36,6 +36,10 @@ type
       points*: seq[Vec2]
     of nkImage:
       image*: ImageStyle
+    of nkMsdfImage:
+      msdfImage*: MsdfImageStyle
+    of nkMtsdfImage:
+      mtsdfImage*: MsdfImageStyle
     else:
       discard
 

@@ -171,66 +171,66 @@ proc makeRenderTree*(
 
   ## MSDF star: shadow via MTSDF alpha, then solid fill via MSDF median.
   list.addChild(rootIdx, Fig(
-    kind: nkImage,
+    kind: nkMtsdfImage,
     childCount: 0,
     zlevel: 0.ZLevel,
     screenBox: centeredRect(bigCenter + shadowOffset, bigSize),
     rotation: bigRotation,
-    image: ImageStyle(
+    mtsdfImage: MsdfImageStyle(
       color: rgba(0, 0, 0, 140).color,
       id: imgId("star-mtsdf"),
-      mode: irmMtsdf,
-      msdfPxRange: pxRange,
+      pxRange: pxRange,
+      sdThreshold: 0.5'f32,
     ),
   ))
   list.addChild(rootIdx, Fig(
-    kind: nkImage,
+    kind: nkMsdfImage,
     childCount: 0,
     zlevel: 0.ZLevel,
     screenBox: centeredRect(bigCenter, bigSize),
     rotation: bigRotation,
-    image: ImageStyle(
+    msdfImage: MsdfImageStyle(
       color: rgba(255, 215, 0, 255).color,
       id: imgId("star-msdf"),
-      mode: irmMsdf,
-      msdfPxRange: pxRange,
+      pxRange: pxRange,
+      sdThreshold: 0.5'f32,
     ),
   ))
 
   ## Side-by-side comparison: same bitmap, different render mode.
   let msdfRect = centeredRect(smallLeftCenter, smallBaseSize * smallScaleA)
   list.addChild(rootIdx, Fig(
-    kind: nkImage,
+    kind: nkMsdfImage,
     childCount: 0,
     zlevel: 0.ZLevel,
     screenBox: msdfRect,
     rotation: smallRotationA,
-    image: ImageStyle(
+    msdfImage: MsdfImageStyle(
       color: rgba(255, 215, 0, 255).color,
       id: imgId("star-msdf"),
-      mode: irmMsdf,
-      msdfPxRange: pxRange,
+      pxRange: pxRange,
+      sdThreshold: 0.5'f32,
     ),
   ))
   list.addLabel(rootIdx, labelFont, w, msdfRect, "MSDF (median)")
 
   let mtsdfRect = centeredRect(smallRightCenter, smallBaseSize * smallScaleB)
   list.addChild(rootIdx, Fig(
-    kind: nkImage,
+    kind: nkMtsdfImage,
     childCount: 0,
     zlevel: 0.ZLevel,
     screenBox: mtsdfRect,
     rotation: smallRotationB,
-    image: ImageStyle(
+    mtsdfImage: MsdfImageStyle(
       color: rgba(255, 215, 0, 255).color,
       id: imgId("star-mtsdf"),
-      mode: irmMtsdf,
-      msdfPxRange: pxRange,
+      pxRange: pxRange,
+      sdThreshold: 0.5'f32,
     ),
   ))
   list.addLabel(rootIdx, labelFont, w, mtsdfRect, "MTSDF (alpha)")
 
-  ## Bitmap comparison: a normal 32x32 RGBA image rendered from the MSDF field.
+  ## Bitmap comparison: a normal 64x64 RGBA image rendered from the MSDF field.
   let bitmapCenter =
     vec2(rightRect.x + rightRect.w / 2.0'f32, rightRect.y + rightRect.h * 0.78'f32)
   let bitmapRect = centeredRect(bitmapCenter, smallBaseSize * smallScaleC)
@@ -243,10 +243,9 @@ proc makeRenderTree*(
     image: ImageStyle(
       color: rgba(255, 215, 0, 255).color,
       id: imgId("star-bitmap"),
-      mode: irmBitmap,
     ),
   ))
-  list.addLabel(rootIdx, labelFont, w, bitmapRect, "Bitmap (renderMsdf 32x32)")
+  list.addLabel(rootIdx, labelFont, w, bitmapRect, "Bitmap (renderMsdf 64x64)")
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
@@ -403,9 +402,6 @@ when isMainModule:
         fpsText = fmt"{fps:0.1f} FPS"
         let avgMake = makeRenderTreeMsSum / max(1, fpsFrames).float
         let avgRender = renderFrameMsSum / max(1, fpsFrames).float
-        echo "fps: ", fps, " | elems: ", lastElementCount,
-          " | makeRenderTree avg(ms): ", avgMake, " | renderFrame avg(ms): ",
-          avgRender
         fpsFrames = 0
         fpsStart = now
         makeRenderTreeMsSum = 0.0
