@@ -38,6 +38,8 @@ type
     nkDrawable
     nkScrollBar
     nkImage
+    nkMsdfImage
+    nkMtsdfImage
 
   FigFlags* = enum
     NfClipContent
@@ -76,3 +78,8 @@ type
     color*: Color
     id*: ImageId
 
+  MsdfImageStyle* = object
+    color*: Color
+    id*: ImageId
+    pxRange*: float32
+    sdThreshold*: float32

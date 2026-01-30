@@ -17,7 +17,8 @@ const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 type OpenGLRenderer* = ref object
   ctx*: Context
 
-proc takeScreenshot*(frame: Rect = rect(0, 0, 0, 0), readFront: bool = true): Image =
+proc takeScreenshot*(frame: Rect = rect(0, 0, 0, 0),
+    readFront: bool = true): Image =
   var viewport: array[4, GLint]
   glGetIntegerv(GL_VIEWPORT, viewport[0].addr)
 
@@ -117,7 +118,8 @@ macro postRender() =
 
 proc drawMasks(ctx: Context, node: Fig) =
   ctx.drawRoundedRectSdf(
-    rect = node.screenBox, color = rgba(255, 0, 0, 255).color, radii = node.corners
+    rect = node.screenBox, color = rgba(255, 0, 0, 255).color,
+        radii = node.corners
   )
 
 proc renderDropShadows(ctx: Context, node: Fig) =
@@ -278,9 +280,54 @@ proc renderImage(ctx: Context, node: Fig) =
   if node.image.id.int == 0:
     return
   let size = vec2(node.screenBox.w, node.screenBox.h)
-  #if ctx.cacheImage($node.image.name, node.image.id.Hash):
   ctx.drawImage(
     node.image.id.Hash, pos = node.screenBox.xy, color = node.image.color, size = size
+  )
+
+proc renderMsdfImage(ctx: Context, node: Fig) =
+  if node.msdfImage.id.int == 0:
+    return
+  let size = vec2(node.screenBox.w, node.screenBox.h)
+  let pxRange =
+    if node.msdfImage.pxRange > 0.0'f32:
+      node.msdfImage.pxRange
+    else:
+      4.0'f32
+  let sdThreshold =
+    if node.msdfImage.sdThreshold > 0.0'f32 and node.msdfImage.sdThreshold < 1.0'f32:
+      node.msdfImage.sdThreshold
+    else:
+      0.5'f32
+  ctx.drawMsdfImage(
+    node.msdfImage.id.Hash,
+    pos = node.screenBox.xy,
+    color = node.msdfImage.color,
+    size = size,
+    pxRange = pxRange,
+    sdThreshold = sdThreshold,
+  )
+
+proc renderMtsdfImage(ctx: Context, node: Fig) =
+  if node.mtsdfImage.id.int == 0:
+    return
+  let size = vec2(node.screenBox.w, node.screenBox.h)
+  let pxRange =
+    if node.mtsdfImage.pxRange > 0.0'f32:
+      node.mtsdfImage.pxRange
+    else:
+      4.0'f32
+  let sdThreshold =
+    if node.mtsdfImage.sdThreshold > 0.0'f32 and node.mtsdfImage.sdThreshold < 1.0'f32:
+      node.mtsdfImage.sdThreshold
+    else:
+      0.5'f32
+  ctx.drawMtsdfImage(
+    node.mtsdfImage.id.Hash,
+    pos = node.screenBox.xy,
+    color = node.mtsdfImage.color,
+    size = size,
+    pxRange = pxRange,
+    sdThreshold = sdThreshold,
   )
 
 proc render(
@@ -311,9 +358,9 @@ proc render(
   # handle node rotation
   ifrender node.rotation != 0:
     ctx.saveTransform()
-    ctx.translate(node.screenBox.wh / 2)
+    ctx.translate(node.screenBox.xy + node.screenBox.wh / 2)
     ctx.rotate(node.rotation / 180 * PI)
-    ctx.translate(-node.screenBox.wh / 2)
+    ctx.translate(-(node.screenBox.xy + node.screenBox.wh / 2))
   finally:
     ctx.restoreTransform()
 
@@ -340,6 +387,10 @@ proc render(
       ctx.renderBoxes(node)
     elif node.kind == nkImage:
       ctx.renderImage(node)
+    elif node.kind == nkMsdfImage:
+      ctx.renderMsdfImage(node)
+    elif node.kind == nkMtsdfImage:
+      ctx.renderMtsdfImage(node)
 
   ifrender node.kind == nkRectangle:
     when not defined(useFigDrawTextures):
@@ -365,7 +416,8 @@ proc render(
   # finally blocks will be run here, in reverse order
   postRender()
 
-proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff].} =
+proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [
+    AppMainThreadEff].} =
   ## draw roots for each level
   var img: ImgObj
   while imageChan.tryRecv(img):
@@ -376,7 +428,8 @@ proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff]
     for rootIdx in list.rootIds:
       ctx.render(list.nodes, rootIdx, -1.FigIdx)
 
-proc renderFrame*(renderer: OpenGLRenderer, nodes: var Renders, frameSize: Vec2) =
+proc renderFrame*(renderer: OpenGLRenderer, nodes: var Renders,
+    frameSize: Vec2) =
   let ctx: Context = renderer.ctx
   clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
   ctx.beginFrame(frameSize)
@@ -409,7 +462,8 @@ proc renderOverlayFrame*(
   ctx.endFrame()
 
 proc renderFrame*(
-    ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
+    ctx: Context, nodes: var Renders, frameSize: Vec2,
+        pixelScale = ctx.pixelScale
 ) =
   clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
   ctx.beginFrame(frameSize)
@@ -420,7 +474,8 @@ proc renderFrame*(
   ctx.endFrame()
 
 proc renderOverlayFrame*(
-    ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
+    ctx: Context, nodes: var Renders, frameSize: Vec2,
+        pixelScale = ctx.pixelScale
 ) =
   ## Render without clearing the color buffer (useful for UI overlays).
   ctx.beginFrame(frameSize)

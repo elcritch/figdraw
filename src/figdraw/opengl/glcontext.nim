@@ -389,7 +389,7 @@ proc putFlippy*(ctx: Context, path: Hash, flippy: Flippy) =
 
 proc putImage*(ctx: Context, imgObj: ImgObj) =
   ## puts an ImgObj wrapper with either a flippy or image format
-  case imgObj.kind:
+  case imgObj.kind
   of FlippyImg:
     ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
   of PixieImg:
@@ -517,6 +517,7 @@ proc drawQuad*(
 
 type SdfMode* {.pure.} = enum
   ## Subset of `sdfy/sdfytypes.SDFMode` with stable numeric values.
+  sdfModeAtlas = 0
   sdfModeClipAA = 3
   sdfModeDropShadow = 7
   sdfModeDropShadowAA = 8
@@ -524,6 +525,122 @@ type SdfMode* {.pure.} = enum
   sdfModeInsetShadowAnnular = 10
   sdfModeAnnular = 11
   sdfModeAnnularAA = 12
+  sdfModeMsdf = 13
+  sdfModeMtsdf = 14
+
+proc drawUvRectAtlasSdf(
+    ctx: Context,
+    at, to: Vec2,
+    uvAt, uvTo: Vec2,
+    color: Color,
+    mode: SdfMode,
+    factors: Vec2,
+) =
+  ctx.checkBatch()
+
+  assert ctx.quadCount < ctx.maxQuads
+
+  let
+    posQuad = [
+      ceil(ctx.mat * vec2(at.x, to.y)),
+      ceil(ctx.mat * vec2(to.x, to.y)),
+      ceil(ctx.mat * vec2(to.x, at.y)),
+      ceil(ctx.mat * vec2(at.x, at.y)),
+    ]
+    uvQuad = [
+      vec2(uvAt.x, uvTo.y),
+      vec2(uvTo.x, uvTo.y),
+      vec2(uvTo.x, uvAt.y),
+      vec2(uvAt.x, uvAt.y),
+    ]
+
+  let offset = ctx.quadCount * 4
+  ctx.positions.data.setVert2(offset + 0, posQuad[0])
+  ctx.positions.data.setVert2(offset + 1, posQuad[1])
+  ctx.positions.data.setVert2(offset + 2, posQuad[2])
+  ctx.positions.data.setVert2(offset + 3, posQuad[3])
+
+  ctx.uvs.data.setVert2(offset + 0, uvQuad[0])
+  ctx.uvs.data.setVert2(offset + 1, uvQuad[1])
+  ctx.uvs.data.setVert2(offset + 2, uvQuad[2])
+  ctx.uvs.data.setVert2(offset + 3, uvQuad[3])
+
+  let rgba = color.rgba()
+  ctx.colors.data.setVertColor(offset + 0, rgba)
+  ctx.colors.data.setVertColor(offset + 1, rgba)
+  ctx.colors.data.setVertColor(offset + 2, rgba)
+  ctx.colors.data.setVertColor(offset + 3, rgba)
+
+  let zero4 =
+    if mode == sdfModeMsdf or mode == sdfModeMtsdf:
+      vec4(ctx.atlasSize.float32, 0.0'f32, 0.0'f32, 0.0'f32)
+    else:
+      vec4(0.0'f32)
+  ctx.sdfParams.data.setVert4(offset + 0, zero4)
+  ctx.sdfParams.data.setVert4(offset + 1, zero4)
+  ctx.sdfParams.data.setVert4(offset + 2, zero4)
+  ctx.sdfParams.data.setVert4(offset + 3, zero4)
+
+  ctx.sdfRadii.data.setVert4(offset + 0, zero4)
+  ctx.sdfRadii.data.setVert4(offset + 1, zero4)
+  ctx.sdfRadii.data.setVert4(offset + 2, zero4)
+  ctx.sdfRadii.data.setVert4(offset + 3, zero4)
+
+  ctx.sdfFactors.data.setVert2(offset + 0, factors)
+  ctx.sdfFactors.data.setVert2(offset + 1, factors)
+  ctx.sdfFactors.data.setVert2(offset + 2, factors)
+  ctx.sdfFactors.data.setVert2(offset + 3, factors)
+
+  when defined(emscripten):
+    let modeVal = mode.int.float32
+  else:
+    let modeVal = mode.int.uint16
+  ctx.sdfModeAttr.data[offset + 0] = modeVal
+  ctx.sdfModeAttr.data[offset + 1] = modeVal
+  ctx.sdfModeAttr.data[offset + 2] = modeVal
+  ctx.sdfModeAttr.data[offset + 3] = modeVal
+
+  inc ctx.quadCount
+
+proc drawMsdfImage*(
+    ctx: Context,
+    imageId: Hash,
+    pos: Vec2 = vec2(0, 0),
+    color = color(1, 1, 1, 1),
+    size: Vec2,
+    pxRange: float32,
+    sdThreshold: float32 = 0.5,
+) =
+  let rect = ctx.entries[imageId]
+  ctx.drawUvRectAtlasSdf(
+    at = pos,
+    to = pos + size,
+    uvAt = rect.xy,
+    uvTo = rect.xy + rect.wh,
+    color = color,
+    mode = sdfModeMsdf,
+    factors = vec2(pxRange, sdThreshold),
+  )
+
+proc drawMtsdfImage*(
+    ctx: Context,
+    imageId: Hash,
+    pos: Vec2 = vec2(0, 0),
+    color = color(1, 1, 1, 1),
+    size: Vec2,
+    pxRange: float32,
+    sdThreshold: float32 = 0.5,
+) =
+  let rect = ctx.entries[imageId]
+  ctx.drawUvRectAtlasSdf(
+    at = pos,
+    to = pos + size,
+    uvAt = rect.xy,
+    uvTo = rect.xy + rect.wh,
+    color = color,
+    mode = sdfModeMtsdf,
+    factors = vec2(pxRange, sdThreshold),
+  )
 
 proc setSdfGlobals*(ctx: Context, aaFactor: float32) =
   if ctx.aaFactor == aaFactor:

@@ -65,6 +65,12 @@ proc toRenderFig*[N](current: N): Fig =
       result.corners[corner] = current.corners[corner].scaled
   of nkImage:
     result.image = current.image
+  of nkMsdfImage:
+    when compiles(current.msdfImage):
+      result.msdfImage = current.msdfImage
+  of nkMtsdfImage:
+    when compiles(current.mtsdfImage):
+      result.mtsdfImage = current.mtsdfImage
   of nkText:
     result.textLayout = current.textLayout
   of nkDrawable:
@@ -105,7 +111,7 @@ proc copyInto*[N](uis: N): Renders =
 
   result.layers.sort(
     proc(x, y: auto): int =
-      cmp(x[0], y[0])
+    cmp(x[0], y[0])
   )
   # echo "nodes:len: ", result.len()
   # printRenders(result)
