@@ -28,15 +28,28 @@ proc addLabel(
     list: var RenderList,
     parentIdx: FigIdx,
     font: UiFont,
+    windowW: float32,
     r: Rect,
     text: string,
 ) =
   let labelH = 28.0'f32
   let labelMargin = 8.0'f32
+  let layout = typeset(
+    rect(0, 0, max(1.0'f32, windowW), labelH),
+    [(font, text)],
+    hAlign = Left,
+    vAlign = Middle,
+    minContent = true,
+    wrap = false,
+  )
+  let padX = 10.0'f32
+  let desiredW = ceil(layout.bounding.w + padX * 2.0'f32)
+  let maxW = max(r.w, windowW - 24.0'f32)
+  let labelW = min(max(r.w, desiredW), maxW)
   let labelRect = rect(
-    r.x,
+    (r.x + r.w / 2.0'f32) - labelW / 2.0'f32,
     max(0.0'f32, r.y - labelH - labelMargin),
-    r.w,
+    labelW,
     labelH,
   )
 
@@ -49,21 +62,20 @@ proc addLabel(
     corners: [8.0'f32, 8.0, 8.0, 8.0],
   ))
 
-  let layout = typeset(
-    rect(0, 0, labelRect.w, labelRect.h),
-    [(font, text)],
-    hAlign = Center,
-    vAlign = Middle,
-    minContent = false,
-    wrap = false,
-  )
   discard list.addChild(parentIdx, Fig(
     kind: nkText,
     childCount: 0,
     zlevel: 0.ZLevel,
     screenBox: labelRect,
     fill: rgba(255, 255, 255, 245).color,
-    textLayout: layout,
+    textLayout: typeset(
+      rect(0, 0, labelRect.w, labelRect.h),
+      [(font, text)],
+      hAlign = Center,
+      vAlign = Middle,
+      minContent = false,
+      wrap = false,
+    ),
   ))
 
 proc setupWindow(frame: AppFrame, window: Window) =
@@ -135,7 +147,7 @@ proc makeRenderTree*(
 
   let smallBase = min((rightRect.w - gap) / 2.0'f32, rightRect.h * 0.45'f32)
   let smallBaseSize = vec2(smallBase, smallBase)
-  let smallRowY = rightRect.y + smallBase / 2.0'f32 + rightRect.h * 0.05'f32
+  let smallRowY = rightRect.y + smallBase / 2.0'f32 + rightRect.h * 0.12'f32
   let smallLeftCenter = vec2(rightRect.x + smallBase / 2.0'f32, smallRowY)
   let smallRightCenter =
     vec2(rightRect.x + smallBase * 1.5'f32 + gap, smallRowY)
@@ -200,7 +212,7 @@ proc makeRenderTree*(
       msdfPxRange: pxRange,
     ),
   ))
-  list.addLabel(rootIdx, labelFont, msdfRect, "MSDF (median)")
+  list.addLabel(rootIdx, labelFont, w, msdfRect, "MSDF (median)")
 
   let mtsdfRect = centeredRect(smallRightCenter, smallBaseSize * smallScaleB)
   list.addChild(rootIdx, Fig(
@@ -216,11 +228,11 @@ proc makeRenderTree*(
       msdfPxRange: pxRange,
     ),
   ))
-  list.addLabel(rootIdx, labelFont, mtsdfRect, "MTSDF (alpha)")
+  list.addLabel(rootIdx, labelFont, w, mtsdfRect, "MTSDF (alpha)")
 
   ## Bitmap comparison: a normal 64x64 RGBA image rendered from the MSDF field.
   let bitmapCenter =
-    vec2(rightRect.x + rightRect.w / 2.0'f32, rightRect.y + rightRect.h * 0.72'f32)
+    vec2(rightRect.x + rightRect.w / 2.0'f32, rightRect.y + rightRect.h * 0.78'f32)
   let bitmapRect = centeredRect(bitmapCenter, smallBaseSize * smallScaleC)
   list.addChild(rootIdx, Fig(
     kind: nkImage,
@@ -234,7 +246,7 @@ proc makeRenderTree*(
       mode: irmBitmap,
     ),
   ))
-  list.addLabel(rootIdx, labelFont, bitmapRect, "Bitmap (renderMsdf 64x64)")
+  list.addLabel(rootIdx, labelFont, w, bitmapRect, "Bitmap (renderMsdf 64x64)")
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
