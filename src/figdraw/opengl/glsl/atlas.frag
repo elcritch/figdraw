@@ -24,6 +24,18 @@ const int sdfModeInsetShadow = 9;
 const int sdfModeInsetShadowAnnular = 10;
 const int sdfModeAnnular = 11;
 const int sdfModeAnnularAA = 12;
+const int sdfModeMsdf = 13;
+const int sdfModeMtsdf = 14;
+
+float median(float a, float b, float c) {
+  return max(min(a, b), min(max(a, b), c));
+}
+
+float msdfScreenPxRange(float pxRange) {
+  vec2 unitRange = vec2(pxRange) / vec2(textureSize(atlasTex, 0));
+  vec2 screenTexSize = vec2(1.0) / fwidth(uv);
+  return max(0.5 * dot(unitRange, screenTexSize), 1.0);
+}
 
 float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
   float rr;
@@ -74,6 +86,15 @@ void main() {
       tex.z * color.z,
       tex.w * color.w
     );
+  } else if (sdfModeInt == sdfModeMsdf || sdfModeInt == sdfModeMtsdf) {
+    float pxRange = sdfFactors.x;
+    float sdThreshold = sdfFactors.y;
+
+    vec4 tex = textureLod(atlasTex, uv, 0.0);
+    float sd = (sdfModeInt == sdfModeMtsdf) ? tex.w : median(tex.x, tex.y, tex.z);
+    float screenPxDistance = msdfScreenPxRange(pxRange) * (sd - sdThreshold);
+    alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+    fragColor = vec4(color.xyz, color.w * alpha);
   } else {
     float stdDevFactor = 1.0 / 2.2;
     switch (sdfModeInt) {

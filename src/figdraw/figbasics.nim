@@ -72,7 +72,14 @@ type
     weight*: float32
     color*: Color
 
+  ImageRenderMode* = enum
+    irmBitmap
+    irmMsdf
+    irmMtsdf
+
   ImageStyle* = object
     color*: Color
     id*: ImageId
-
+    mode*: ImageRenderMode
+    msdfPxRange*: float32
+    msdfThreshold*: float32

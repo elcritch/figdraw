@@ -33,22 +33,22 @@ else:
 type Context* = ref object
   mainShader, maskShader, activeShader: Shader
   atlasTexture: Texture
-  maskTextureWrite: int ## Index into max textures for writing.
-  maskTextures: seq[Texture] ## Masks array for pushing and popping.
-  atlasSize: int ## Size x size dimensions of the atlas
-  atlasMargin: int ## Default margin between images
-  quadCount: int ## Number of quads drawn so far
-  maxQuads: int ## Max quads to draw before issuing an OpenGL call
-  mat*: Mat4 ## Current matrix
-  mats: seq[Mat4] ## Matrix stack
+  maskTextureWrite: int       ## Index into max textures for writing.
+  maskTextures: seq[Texture]  ## Masks array for pushing and popping.
+  atlasSize: int              ## Size x size dimensions of the atlas
+  atlasMargin: int            ## Default margin between images
+  quadCount: int              ## Number of quads drawn so far
+  maxQuads: int               ## Max quads to draw before issuing an OpenGL call
+  mat*: Mat4                  ## Current matrix
+  mats: seq[Mat4]             ## Matrix stack
   entries*: Table[Hash, Rect] ## Mapping of image name to atlas UV position
-  heights: seq[uint16] ## Height map of the free space in the atlas
+  heights: seq[uint16]        ## Height map of the free space in the atlas
   proj*: Mat4
-  frameSize: Vec2 ## Dimensions of the window frame
+  frameSize: Vec2             ## Dimensions of the window frame
   vertexArrayId, maskFramebufferId: GLuint
   frameBegun, maskBegun: bool
-  pixelate*: bool ## Makes texture look pixelated, like a pixel game.
-  pixelScale*: float32 ## Multiple scaling factor.
+  pixelate*: bool             ## Makes texture look pixelated, like a pixel game.
+  pixelScale*: float32        ## Multiple scaling factor.
 
   # Buffer data for OpenGL
   indices: tuple[buffer: Buffer, data: seq[uint16]]
@@ -221,7 +221,8 @@ proc newContext*(
   result.sdfModeAttr.buffer.target = GL_ARRAY_BUFFER
   result.sdfModeAttr.buffer.usage = GL_STREAM_DRAW
   result.sdfModeAttr.data =
-    newSeq[SdfModeData](result.sdfModeAttr.buffer.kind.componentCount() * maxQuads * 4)
+    newSeq[SdfModeData](result.sdfModeAttr.buffer.kind.componentCount() *
+        maxQuads * 4)
 
   result.sdfFactors.buffer.componentType = cGL_FLOAT
   result.sdfFactors.buffer.kind = bkVEC2
@@ -430,7 +431,8 @@ proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ctx.indices.buffer.bufferId)
   glDrawElements(
-    GL_TRIANGLES, ctx.indices.buffer.count.GLint, ctx.indices.buffer.componentType, nil
+    GL_TRIANGLES, ctx.indices.buffer.count.GLint,
+    ctx.indices.buffer.componentType, nil
   )
 
   ctx.quadCount = 0
@@ -517,6 +519,7 @@ proc drawQuad*(
 
 type SdfMode* {.pure.} = enum
   ## Subset of `sdfy/sdfytypes.SDFMode` with stable numeric values.
+  sdfModeAtlas = 0
   sdfModeClipAA = 3
   sdfModeDropShadow = 7
   sdfModeDropShadowAA = 8
@@ -524,6 +527,122 @@ type SdfMode* {.pure.} = enum
   sdfModeInsetShadowAnnular = 10
   sdfModeAnnular = 11
   sdfModeAnnularAA = 12
+  sdfModeMsdf = 13
+  sdfModeMtsdf = 14
+
+proc drawUvRectAtlasSdf(
+    ctx: Context,
+    at, to: Vec2,
+    uvAt, uvTo: Vec2,
+    color: Color,
+    mode: SdfMode,
+    factors: Vec2,
+) =
+  ctx.checkBatch()
+
+  assert ctx.quadCount < ctx.maxQuads
+
+  let
+    posQuad = [
+      ceil(ctx.mat * vec2(at.x, to.y)),
+      ceil(ctx.mat * vec2(to.x, to.y)),
+      ceil(ctx.mat * vec2(to.x, at.y)),
+      ceil(ctx.mat * vec2(at.x, at.y)),
+    ]
+    uvQuad = [
+      vec2(uvAt.x, uvTo.y),
+      vec2(uvTo.x, uvTo.y),
+      vec2(uvTo.x, uvAt.y),
+      vec2(uvAt.x, uvAt.y),
+    ]
+
+  let offset = ctx.quadCount * 4
+  ctx.positions.data.setVert2(offset + 0, posQuad[0])
+  ctx.positions.data.setVert2(offset + 1, posQuad[1])
+  ctx.positions.data.setVert2(offset + 2, posQuad[2])
+  ctx.positions.data.setVert2(offset + 3, posQuad[3])
+
+  ctx.uvs.data.setVert2(offset + 0, uvQuad[0])
+  ctx.uvs.data.setVert2(offset + 1, uvQuad[1])
+  ctx.uvs.data.setVert2(offset + 2, uvQuad[2])
+  ctx.uvs.data.setVert2(offset + 3, uvQuad[3])
+
+  let rgba = color.rgba()
+  ctx.colors.data.setVertColor(offset + 0, rgba)
+  ctx.colors.data.setVertColor(offset + 1, rgba)
+  ctx.colors.data.setVertColor(offset + 2, rgba)
+  ctx.colors.data.setVertColor(offset + 3, rgba)
+
+  let zero4 =
+    if mode == sdfModeMsdf or mode == sdfModeMtsdf:
+      vec4(ctx.atlasSize.float32, 0.0'f32, 0.0'f32, 0.0'f32)
+    else:
+      vec4(0.0'f32)
+  ctx.sdfParams.data.setVert4(offset + 0, zero4)
+  ctx.sdfParams.data.setVert4(offset + 1, zero4)
+  ctx.sdfParams.data.setVert4(offset + 2, zero4)
+  ctx.sdfParams.data.setVert4(offset + 3, zero4)
+
+  ctx.sdfRadii.data.setVert4(offset + 0, zero4)
+  ctx.sdfRadii.data.setVert4(offset + 1, zero4)
+  ctx.sdfRadii.data.setVert4(offset + 2, zero4)
+  ctx.sdfRadii.data.setVert4(offset + 3, zero4)
+
+  ctx.sdfFactors.data.setVert2(offset + 0, factors)
+  ctx.sdfFactors.data.setVert2(offset + 1, factors)
+  ctx.sdfFactors.data.setVert2(offset + 2, factors)
+  ctx.sdfFactors.data.setVert2(offset + 3, factors)
+
+  when defined(emscripten):
+    let modeVal = mode.int.float32
+  else:
+    let modeVal = mode.int.uint16
+  ctx.sdfModeAttr.data[offset + 0] = modeVal
+  ctx.sdfModeAttr.data[offset + 1] = modeVal
+  ctx.sdfModeAttr.data[offset + 2] = modeVal
+  ctx.sdfModeAttr.data[offset + 3] = modeVal
+
+  inc ctx.quadCount
+
+proc drawMsdfImage*(
+    ctx: Context,
+    imageId: Hash,
+    pos: Vec2 = vec2(0, 0),
+    color = color(1, 1, 1, 1),
+    size: Vec2,
+    pxRange: float32,
+    sdThreshold: float32 = 0.5,
+) =
+  let rect = ctx.entries[imageId]
+  ctx.drawUvRectAtlasSdf(
+    at = pos,
+    to = pos + size,
+    uvAt = rect.xy,
+    uvTo = rect.xy + rect.wh,
+    color = color,
+    mode = sdfModeMsdf,
+    factors = vec2(pxRange, sdThreshold),
+  )
+
+proc drawMtsdfImage*(
+    ctx: Context,
+    imageId: Hash,
+    pos: Vec2 = vec2(0, 0),
+    color = color(1, 1, 1, 1),
+    size: Vec2,
+    pxRange: float32,
+    sdThreshold: float32 = 0.5,
+) =
+  let rect = ctx.entries[imageId]
+  ctx.drawUvRectAtlasSdf(
+    at = pos,
+    to = pos + size,
+    uvAt = rect.xy,
+    uvTo = rect.xy + rect.wh,
+    color = color,
+    mode = sdfModeMtsdf,
+    factors = vec2(pxRange, sdThreshold),
+  )
 
 proc setSdfGlobals*(ctx: Context, aaFactor: float32) =
   if ctx.aaFactor == aaFactor:
@@ -699,28 +818,30 @@ proc drawRoundedRectSdf*(
   let
     quadHalfExtents = rect.wh * 0.5'f32
     resolvedShapeSize =
-      (if shapeSize.x > 0.0'f32 and shapeSize.y > 0.0'f32: shapeSize else: rect.wh)
+      (if shapeSize.x > 0.0'f32 and shapeSize.y >
+          0.0'f32: shapeSize else: rect.wh)
     shapeHalfExtents = resolvedShapeSize * 0.5'f32
     params =
-      vec4(quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x, shapeHalfExtents.y)
+      vec4(quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x,
+          shapeHalfExtents.y)
     maxRadius = min(shapeHalfExtents.x, shapeHalfExtents.y)
     radiiClamped = [
       dcTopLeft: (
         if radii[dcTopLeft] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
-      ),
+      else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
+    ),
       dcTopRight: (
         if radii[dcTopRight] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
-      ),
+      else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
+    ),
       dcBottomLeft: (
         if radii[dcBottomLeft] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
-      ),
+      else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
+    ),
       dcBottomRight: (
         if radii[dcBottomRight] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
-      ),
+      else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
+    ),
     ]
     # (top-right, bottom-right, top-left, bottom-left)
     r4 = vec4(
@@ -821,7 +942,8 @@ proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
     pos, pos + vec2(w.float32, h.float32), uvRect.xy, uvRect.xy + uvRect.wh, color
   )
 
-proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32, color: Color) =
+proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32,
+    color: Color) =
   for i in 0 ..< poly.len:
     ctx.line(poly[i], poly[(i + 1) mod poly.len], weight, color)
 

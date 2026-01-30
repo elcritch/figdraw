@@ -1,6 +1,7 @@
 #version 100
 
 precision highp float;
+#extension GL_OES_standard_derivatives : enable
 
 varying vec2 pos;
 varying vec2 uv;
@@ -24,6 +25,19 @@ const int sdfModeInsetShadow = 9;
 const int sdfModeInsetShadowAnnular = 10;
 const int sdfModeAnnular = 11;
 const int sdfModeAnnularAA = 12;
+const int sdfModeMsdf = 13;
+const int sdfModeMtsdf = 14;
+
+float median(float a, float b, float c) {
+  return max(min(a, b), min(max(a, b), c));
+}
+
+float msdfScreenPxRange(float pxRange) {
+  float atlasSize = sdfParams.x;
+  vec2 unitRange = vec2(pxRange / atlasSize);
+  vec2 screenTexSize = vec2(1.0) / fwidth(uv);
+  return max(0.5 * dot(unitRange, screenTexSize), 1.0);
+}
 
 float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
   float rr;
@@ -75,6 +89,15 @@ void main() {
       tex.z * color.z,
       tex.w * color.w
     );
+  } else if (sdfModeInt == sdfModeMsdf || sdfModeInt == sdfModeMtsdf) {
+    float pxRange = sdfFactors.x;
+    float sdThreshold = sdfFactors.y;
+
+    vec4 tex = texture2D(atlasTex, uv);
+    float sd = (sdfModeInt == sdfModeMtsdf) ? tex.w : median(tex.x, tex.y, tex.z);
+    float screenPxDistance = msdfScreenPxRange(pxRange) * (sd - sdThreshold);
+    alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+    fragColor = vec4(color.rgb, color.a * alpha);
   } else {
     float stdDevFactor = 1.0 / 2.2;
     if (sdfModeInt == sdfModeAnnular) {
