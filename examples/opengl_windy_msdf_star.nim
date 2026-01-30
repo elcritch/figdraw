@@ -68,7 +68,7 @@ proc makeRenderTree*(w, h: float32, pxRange: float32): Renders =
     kind: nkRectangle,
     childCount: 0,
     zlevel: 0.ZLevel,
-    screenBox: rect(40, 40, 520, 520),
+    screenBox: rect(40, 40, 1024, 520),
     fill: rgba(80, 80, 80, 255).color,
     corners: [16.0'f32, 16.0, 16.0, 16.0],
   ))
