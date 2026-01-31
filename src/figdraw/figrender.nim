@@ -11,7 +11,7 @@ import ./utils/drawboxes
 import ./opengl/glcommons
 
 when UseMetalBackend:
-  import ./opengl/glcontext_metal
+  import ./metal/glcontext_metal
   import metalx/metal
 else:
   import pkg/opengl
@@ -37,7 +37,7 @@ when UseMetalBackend:
 when UseMetalBackend:
   proc metalDevice*(ctx: Context): MTLDevice =
     ## Convenience re-export so callers using `figdraw/figrender` don't also
-    ## need to import `figdraw/opengl/glcontext_metal`.
+    ## need to import `figdraw/metal/glcontext_metal`.
     glcontext_metal.metalDevice(ctx)
 
 proc takeScreenshot*(frame: Rect = rect(0, 0, 0, 0), readFront: bool = true): Image =
