@@ -46,7 +46,7 @@ jobs:
 
     - name: Install Atlas
       run: |
-        nimble install 'https://github.com/nim-lang/atlas@#head'
+        #nimble install 'https://github.com/nim-lang/atlas@#head'
         echo "Nim:: "
         nim -v
         echo "Nimble:: "
