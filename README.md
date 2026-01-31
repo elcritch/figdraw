@@ -69,6 +69,14 @@ Alternatively Nimble should work as well:
 nimble install https://github.com/elcritch/figdraw
 ```
 
+Note that to use features like metal, you'll need to add it to requires:
+
+```nim
+requires "https://github.com/elcritch/figdraw[metal]"
+```
+
+Alternatively, install metalx and pass `-d:figdraw.metal=true`.
+
 ## Using Library
 
 The most stable entry points today are:
