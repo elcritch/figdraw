@@ -56,7 +56,7 @@ cd figdraw
 atlas install --feature:windy --feature:sdl2
 
 # Run an example:
-nim c -r examples/opengl_windy_renderlist.nim
+nim c -r examples/windy_renderlist.nim
 ```
 
 ```sh
@@ -109,14 +109,14 @@ Feed the resulting `Renders` into the OpenGL backend; see the examples below for
 
 For a complete working example (window + GL context + render loop), see:
 
-- `examples/opengl_windy_renderlist.nim`
+- `examples/windy_renderlist.nim`
 - `examples/sdl2_renderlist.nim`
 
 ## MSDF Bitmap based SDF Rendering
 
 <img width="842" height="582" alt="starstruck32" src="https://github.com/user-attachments/assets/f70437ad-c22e-4160-8c48-c480156d709d" />
 
-See [examples/opengl_windy_msdf_star.nim](examples/opengl_windy_msdf_star.nim) for more info.
+See [examples/windy_msdf_star.nim](examples/windy_msdf_star.nim) for more info.
 
 ## Run Tests
 
@@ -138,7 +138,7 @@ The OpenGL backend renders rounded rectangles and shadows using an SDF shader
 path by default:
 
 ```sh
-nim r examples/opengl_windy_renderlist.nim
+nim r examples/windy_renderlist.nim
 ```
 
 To force the older texture path, compile with `-d:useFigDrawTextures`.
