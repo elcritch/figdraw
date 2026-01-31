@@ -39,12 +39,13 @@ proc newWindyWindow(frame: AppFrame): Window =
       newWindow("Figuro", ivec2(1280, 800), visible = false)
   when defined(emscripten):
     setupWindow(frame, window)
-    when not UseMetalBackend:
-      startOpenGL(openglVersion)
-  else:
-    when not UseMetalBackend:
-      startOpenGL(openglVersion)
+    startOpenGL(openglVersion)
+  elif UseMetalBackend:
     setupWindow(frame, window)
+  else:
+    startOpenGL(openglVersion)
+    setupWindow(frame, window)
+  
   result = window
 
 proc getWindowInfo(window: Window): WindowInfo =

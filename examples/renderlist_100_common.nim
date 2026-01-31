@@ -5,7 +5,7 @@ import chroma
 import figdraw/commons
 import figdraw/fignodes
 
-const copies {.intdefine: "figdraw.nodes".} = 600
+const copies {.intdefine: "figdraw.nodes".} = 100
 
 proc makeRenderTree*(w, h: float32, frame: int): Renders =
   var list = RenderList()
