@@ -8,13 +8,13 @@ import pkg/pixie/simd
 import pkg/chroma
 import pkg/chronicles
 import metalx/[cametal, metal]
+import metalx/objc_owned
 
 import ../commons
 import ./metal_sources
 import ../common/formatflippy
 import ../fignodes
 import ../utils/drawextras
-import ./objc_owned
 
 export drawextras
 
