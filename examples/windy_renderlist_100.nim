@@ -12,9 +12,7 @@ import chroma
 
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/figrender as glrenderer
-when not UseMetalBackend:
-  import figdraw/utils/glutils
+import figdraw/figrender
 
 import renderlist_100_common
 
@@ -87,8 +85,8 @@ when isMainModule:
   var fpsStart = epochTime()
   let window = newWindyWindow(frame)
 
-  let renderer = glrenderer.newFigRenderer(
-    atlasSize = when not defined(useFigDrawTextures): 1024 else: 2048,
+  let renderer = newFigRenderer(
+    atlasSize = when not defined(useFigDrawTextures): 128 else: 2048,
     pixelScale = app.pixelScale,
   )
 

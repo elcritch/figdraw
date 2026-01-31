@@ -64,9 +64,15 @@ jobs:
         atlas install --feature:windy --feature:sdl2
 
     - name: Build Tests
+      if: runner.os == 'Linux'
       env:
         LIBGL_ALWAYS_SOFTWARE: "1"
         MESA_GL_VERSION_OVERRIDE: "3.3"
         MESA_GLSL_VERSION_OVERRIDE: "330"
       run: |
         xvfb-run -a -s "-screen 0 1280x1024x24" nim test
+
+    - name: Build Tests
+      if: runner.os == 'macOS'
+      run: |
+        nim test
