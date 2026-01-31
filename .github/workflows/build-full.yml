@@ -16,6 +16,7 @@ jobs:
           - '2.2.6'
         os:
           - ubuntu-24.04
+          - macos-latest
     steps:
     - uses: actions/checkout@v1
 
