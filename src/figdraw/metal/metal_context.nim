@@ -915,6 +915,10 @@ proc beginFrame*(ctx: Context, frameSize: Vec2, proj: Mat4, clearMain = false) =
   ctx.ensureDeviceAndPipelines()
   ctx.ensureMask0()
 
+  if not ctx.lastCommitted.isNil:
+    # Avoid overlapping command buffers that write to the same offscreen texture.
+    waitUntilCompleted(ctx.lastCommitted)
+
   ctx.maskBegun = false
   ctx.maskTextureWrite = 0
 
@@ -929,7 +933,6 @@ proc beginFrame*(ctx: Context, frameSize: Vec2, proj: Mat4, clearMain = false) =
   ctx.commandBuffer = commandBuffer(ctx.queue)
   if ctx.commandBuffer.isNil:
     raise newException(ValueError, "Failed to create Metal command buffer")
-  ctx.lastCommitted = ctx.commandBuffer
 
   # Always start in main pass.
   ctx.ensureMainPass(
@@ -954,14 +957,18 @@ proc endFrame*(ctx: Context) =
   ctx.endEncoder()
 
   if not ctx.presentLayer.isNil:
-    let drawable = ctx.presentLayer.nextDrawable()
+    var drawable = ctx.presentLayer.nextDrawable()
+    if drawable.isNil and not ctx.lastCommitted.isNil:
+      # If we missed the drawable timeout, wait for the previous frame to
+      # finish and retry once to avoid presenting a cleared frame.
+      waitUntilCompleted(ctx.lastCommitted)
+      drawable = ctx.presentLayer.nextDrawable()
     if not drawable.isNil:
       let pass = MTLRenderPassDescriptor.renderPassDescriptor()
       let att0 = objectAtIndexedSubscript(colorAttachments(pass), 0)
       setTexture(att0, texture(drawable))
-      setLoadAction(att0, MTLLoadActionClear)
+      setLoadAction(att0, MTLLoadActionLoad)
       setStoreAction(att0, MTLStoreActionStore)
-      setClearColor(att0, MTLClearColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0))
       let enc = renderCommandEncoderWithDescriptor(ctx.commandBuffer, pass)
       if not enc.isNil:
         setRenderPipelineState(enc, ctx.pipelineBlit)
@@ -971,7 +978,9 @@ proc endFrame*(ctx: Context) =
       presentDrawable(ctx.commandBuffer, cast[MTLDrawable](drawable))
 
   commit(ctx.commandBuffer)
-  ctx.lastCommitted = ctx.commandBuffer
+  if not ctx.lastCommitted.isNil:
+    release(ctx.lastCommitted)
+  ctx.lastCommitted = retain(ctx.commandBuffer)
 
 proc translate*(ctx: Context, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
