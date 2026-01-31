@@ -30,6 +30,9 @@ feature "windy":
 feature "vulkan":
   requires "https://github.com/planetis-m/vulkan#head"
 
+feature "metal":
+  requires "https://github.com/elcritch/metalx"
+
 feature "windex":
   requires "https://github.com/elcritch/windex"
 

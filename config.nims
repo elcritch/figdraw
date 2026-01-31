@@ -22,3 +22,7 @@ task emscripten, "build emscripten examples":
   exec("nim c -d:emscripten examples/opengl_windy_image_renderlist.nim")
   exec("nim c -d:emscripten examples/opengl_windy_text.nim")
   exec("nim c -d:emscripten examples/opengl_windy_3d_overlay.nim")
+# begin Nimble config (version 2)
+when withDir(thisDir(), system.fileExists("nimble.paths")):
+  include "nimble.paths"
+# end Nimble config
