@@ -19,8 +19,6 @@ else:
 import figdraw/commons
 import figdraw/fignodes
 import figdraw/renderer as glrenderer
-when not UseMetalBackend:
-  import figdraw/utils/glutils
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
