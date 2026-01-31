@@ -230,7 +230,7 @@ proc makeRenderTree*(
   ))
   list.addLabel(rootIdx, labelFont, w, mtsdfRect, "MTSDF (alpha)")
 
-  ## Bitmap comparison: a normal 64x64 RGBA image rendered from the MSDF field.
+  ## Bitmap comparison: a normal 32x32 RGBA image rendered from the MSDF field.
   let bitmapCenter =
     vec2(rightRect.x + rightRect.w / 2.0'f32, rightRect.y + rightRect.h * 0.78'f32)
   let bitmapRect = centeredRect(bitmapCenter, smallBaseSize * smallScaleC)
@@ -245,7 +245,7 @@ proc makeRenderTree*(
       id: imgId("star-bitmap"),
     ),
   ))
-  list.addLabel(rootIdx, labelFont, w, bitmapRect, "Bitmap (renderMsdf 64x64)")
+  list.addLabel(rootIdx, labelFont, w, bitmapRect, "Bitmap (renderMsdf 32x32)")
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
