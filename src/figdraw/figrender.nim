@@ -17,6 +17,7 @@ else:
   import pkg/opengl
   import ./utils/glutils
   import ./opengl/glcontext
+  export glutils
 
 const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
