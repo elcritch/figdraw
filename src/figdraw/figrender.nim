@@ -20,7 +20,7 @@ else:
 
 const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
-type OpenGLRenderer* = ref object
+type FigRenderer* = ref object
   when UseMetalBackend:
     ctx*: glcontext_metal.Context
   else:
@@ -36,7 +36,7 @@ when UseMetalBackend:
 
 when UseMetalBackend:
   proc metalDevice*(ctx: Context): MTLDevice =
-    ## Convenience re-export so callers using `figdraw/renderer` don't also
+    ## Convenience re-export so callers using `figdraw/figrender` don't also
     ## need to import `figdraw/opengl/glcontext_metal`.
     glcontext_metal.metalDevice(ctx)
 
@@ -75,8 +75,8 @@ proc takeScreenshot*(frame: Rect = rect(0, 0, 0, 0), readFront: bool = true): Im
     result.flipVertical()
     glReadBuffer(GL_BACK)
 
-proc newOpenGLRenderer*(atlasSize: int, pixelScale = app.pixelScale): OpenGLRenderer =
-  result = OpenGLRenderer()
+proc newRenderer*(atlasSize: int, pixelScale = app.pixelScale): FigRenderer =
+  result = FigRenderer()
   when UseMetalBackend:
     result.ctx = glcontext_metal.newContext(
       atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
@@ -86,9 +86,9 @@ proc newOpenGLRenderer*(atlasSize: int, pixelScale = app.pixelScale): OpenGLRend
       atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
     )
 
-proc newOpenGLRenderer*(ctx: Context): OpenGLRenderer =
+proc newRenderer*(ctx: Context): FigRenderer =
   ## Uses a caller-created backend context.
-  result = OpenGLRenderer(ctx: ctx)
+  result = FigRenderer(ctx: ctx)
 
 proc renderDrawable*(ctx: Context, node: Fig) =
   ## TODO: draw non-node stuff?
@@ -441,7 +441,7 @@ proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff]
     for rootIdx in list.rootIds:
       ctx.render(list.nodes, rootIdx, -1.FigIdx)
 
-proc renderFrame*(renderer: OpenGLRenderer, nodes: var Renders, frameSize: Vec2) =
+proc renderFrame*(renderer: FigRenderer, nodes: var Renders, frameSize: Vec2) =
   let ctx: Context = renderer.ctx
   when UseMetalBackend:
     ctx.beginFrame(frameSize, clearMain = true)
@@ -465,9 +465,7 @@ proc renderFrame*(renderer: OpenGLRenderer, nodes: var Renders, frameSize: Vec2)
     img.writeFile("screenshot.png")
     quit()
 
-proc renderOverlayFrame*(
-    renderer: OpenGLRenderer, nodes: var Renders, frameSize: Vec2
-) =
+proc renderOverlayFrame*(renderer: FigRenderer, nodes: var Renders, frameSize: Vec2) =
   ## Render without clearing the color buffer (useful for UI overlays).
   let ctx: Context = renderer.ctx
   when UseMetalBackend:

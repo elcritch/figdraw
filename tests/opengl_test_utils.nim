@@ -5,7 +5,7 @@ import figdraw/windyshim
 
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/renderer as glrenderer
+import figdraw/figrender as glrenderer
 
 when not UseMetalBackend:
   import pkg/opengl
@@ -64,7 +64,7 @@ proc renderAndScreenshotOnce*(
   when UseMetalBackend:
     try:
       let renderer =
-        glrenderer.newOpenGLRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
+        glrenderer.newRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
 
       var renders = makeRenders(windowW.float32.scaled(), windowH.float32.scaled())
       renderer.renderFrame(renders, vec2(windowW.float32, windowH.float32).scaled())
@@ -79,7 +79,7 @@ proc renderAndScreenshotOnce*(
       raise newException(WindyError, "OpenGL context unavailable")
 
     let renderer =
-      glrenderer.newOpenGLRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
+      glrenderer.newRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
 
     try:
       pollEvents()
@@ -120,7 +120,7 @@ proc renderAndScreenshotOverlayOnce*(
   when UseMetalBackend:
     try:
       let renderer =
-        glrenderer.newOpenGLRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
+        glrenderer.newRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
       let frameSize = vec2(windowW.float32, windowH.float32).scaled()
       var renders = makeRenders(windowW.float32.scaled(), windowH.float32.scaled())
       drawBackground(frameSize)
@@ -136,7 +136,7 @@ proc renderAndScreenshotOverlayOnce*(
       raise newException(WindyError, "OpenGL context unavailable")
 
     let renderer =
-      glrenderer.newOpenGLRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
+      glrenderer.newRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
 
     try:
       pollEvents()

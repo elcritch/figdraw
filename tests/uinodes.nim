@@ -6,13 +6,19 @@ import std/tables
 import figdraw/commons
 import figdraw/figbasics
 
-proc scaled*(x: int8): int8 = x
-proc scaled*(x: float32): float32 = x
-proc scaled*(v: Vec2): Vec2 = vec2(v.x.scaled, v.y.scaled)
-proc scaled*(r: Rect): Rect = rect(r.x.scaled, r.y.scaled, r.w.scaled, r.h.scaled)
+proc scaled*(x: int8): int8 =
+  x
+
+proc scaled*(x: float32): float32 =
+  x
+
+proc scaled*(v: Vec2): Vec2 =
+  vec2(v.x.scaled, v.y.scaled)
+
+proc scaled*(r: Rect): Rect =
+  rect(r.x.scaled, r.y.scaled, r.w.scaled, r.h.scaled)
 
 type
-
   Shadow* = object
     kind*: ShadowStyle
     blur*: float32
@@ -25,8 +31,7 @@ type
     root: FigTest
     size: Vec2
 
-  FigTest* = ref object of RootObj
-    #parent*: ptr Figuro
+  FigTest* = ref object of RootObj #parent*: ptr Figuro
     uid*: FigID
     name*: string
     children*: seq[FigTest]

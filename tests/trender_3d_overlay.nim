@@ -28,6 +28,7 @@ type
     x: float32
     y: float32
     z: float32
+
   Mat4 = array[16, float32] # Column-major for OpenGL uniforms.
 
 proc v3(x, y, z: float32): Vec3f =
@@ -40,11 +41,7 @@ proc v3Dot(a, b: Vec3f): float32 =
   a.x * b.x + a.y * b.y + a.z * b.z
 
 proc v3Cross(a, b: Vec3f): Vec3f =
-  v3(
-    a.y * b.z - a.z * b.y,
-    a.z * b.x - a.x * b.z,
-    a.x * b.y - a.y * b.x,
-  )
+  v3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x)
 
 proc v3Normalize(v: Vec3f): Vec3f =
   let len = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
@@ -57,10 +54,8 @@ proc mat4Mul(a, b: Mat4): Mat4 =
   for col in 0 .. 3:
     for row in 0 .. 3:
       result[col * 4 + row] =
-        a[0 * 4 + row] * b[col * 4 + 0] +
-        a[1 * 4 + row] * b[col * 4 + 1] +
-        a[2 * 4 + row] * b[col * 4 + 2] +
-        a[3 * 4 + row] * b[col * 4 + 3]
+        a[0 * 4 + row] * b[col * 4 + 0] + a[1 * 4 + row] * b[col * 4 + 1] +
+        a[2 * 4 + row] * b[col * 4 + 2] + a[3 * 4 + row] * b[col * 4 + 3]
 
 proc mat4Perspective(fovyDeg, aspect, zNear, zFar: float32): Mat4 =
   let fovyRad = fovyDeg * (PI.float32 / 180.0'f32)
@@ -127,20 +122,14 @@ proc compileShader(shaderType: GLenum, source, label: string): GLuint =
     var log = newString(logLen.int)
     glGetShaderInfoLog(shader, logLen, nil, log.cstring)
     glDeleteShader(shader)
-    raise newException(
-      PyramidShaderError,
-      "Shader compile failed (" & label & "): " & log,
-    )
+    raise
+      newException(PyramidShaderError, "Shader compile failed (" & label & "): " & log)
 
   result = shader
 
 proc buildProgram(vertexSrc, fragmentSrc: string): GLuint =
   let vertexShader = compileShader(GL_VERTEX_SHADER, vertexSrc, "pyramid.vert")
-  let fragmentShader = compileShader(
-    GL_FRAGMENT_SHADER,
-    fragmentSrc,
-    "pyramid.frag",
-  )
+  let fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSrc, "pyramid.frag")
 
   result = glCreateProgram()
   glAttachShader(result, vertexShader)
@@ -166,7 +155,8 @@ proc buildProgram(vertexSrc, fragmentSrc: string): GLuint =
   glDeleteShader(fragmentShader)
 
 proc initPyramid(): PyramidGl =
-  let vertexSrc = """
+  let vertexSrc =
+    """
 #version 330 core
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aColor;
@@ -180,7 +170,8 @@ void main() {
 }
 """
 
-  let fragmentSrc = """
+  let fragmentSrc =
+    """
 #version 330 core
 in vec3 vColor;
 out vec4 FragColor;
@@ -194,20 +185,13 @@ void main() {
   result.mvpLoc = glGetUniformLocation(result.program, "uMvp")
 
   let vertices: array[30, float32] = [
-    -0.5, 0.0, -0.5, 1.0, 0.2, 0.2,
-     0.5, 0.0, -0.5, 0.2, 1.0, 0.2,
-     0.5, 0.0, 0.5, 0.2, 0.2, 1.0,
-    -0.5, 0.0, 0.5, 1.0, 1.0, 0.2,
-     0.0, 0.8, 0.0, 1.0, 0.2, 1.0,
+    -0.5, 0.0, -0.5, 1.0, 0.2, 0.2, 0.5, 0.0, -0.5, 0.2, 1.0, 0.2, 0.5, 0.0, 0.5, 0.2,
+    0.2, 1.0, -0.5, 0.0, 0.5, 1.0, 1.0, 0.2, 0.0, 0.8, 0.0, 1.0, 0.2, 1.0,
   ]
 
   let indices: array[18, uint16] = [
-    0'u16, 1'u16, 4'u16,
-    1'u16, 2'u16, 4'u16,
-    2'u16, 3'u16, 4'u16,
-    3'u16, 0'u16, 4'u16,
-    0'u16, 1'u16, 2'u16,
-    2'u16, 3'u16, 0'u16,
+    0'u16, 1'u16, 4'u16, 1'u16, 2'u16, 4'u16, 2'u16, 3'u16, 4'u16, 3'u16, 0'u16, 4'u16,
+    0'u16, 1'u16, 2'u16, 2'u16, 3'u16, 0'u16,
   ]
 
   result.indexCount = indices.len.GLsizei
@@ -219,19 +203,11 @@ void main() {
   glBindVertexArray(result.vao)
 
   glBindBuffer(GL_ARRAY_BUFFER, result.vbo)
-  glBufferData(
-    GL_ARRAY_BUFFER,
-    sizeof(vertices),
-    vertices[0].addr,
-    GL_STATIC_DRAW
-  )
+  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices[0].addr, GL_STATIC_DRAW)
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, result.ebo)
   glBufferData(
-    GL_ELEMENT_ARRAY_BUFFER,
-    sizeof(indices),
-    indices[0].addr,
-    GL_STATIC_DRAW
+    GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices[0].addr, GL_STATIC_DRAW
   )
 
   let stride = (6 * sizeof(float32)).GLsizei
@@ -239,12 +215,7 @@ void main() {
   glEnableVertexAttribArray(0)
 
   glVertexAttribPointer(
-    1,
-    3,
-    cGL_FLOAT,
-    GL_FALSE,
-    stride,
-    cast[pointer](3 * sizeof(float32))
+    1, 3, cGL_FLOAT, GL_FALSE, stride, cast[pointer](3 * sizeof(float32))
   )
   glEnableVertexAttribArray(1)
 
@@ -269,7 +240,10 @@ proc destroyPyramid(pyramid: PyramidGl) =
 proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, t: float32) =
   glViewport(0, 0, frameSize.x.GLint, frameSize.y.GLint)
   let aspect =
-    if frameSize.y > 0: frameSize.x / frameSize.y else: 1.0'f32
+    if frameSize.y > 0:
+      frameSize.x / frameSize.y
+    else:
+      1.0'f32
   let proj = mat4Perspective(45.0'f32, aspect, 0.1'f32, 100.0'f32)
   let eye = v3(1.6'f32, 1.1'f32, 2.2'f32)
   let center = v3(0.0'f32, 0.25'f32, 0.0'f32)
@@ -278,12 +252,7 @@ proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, t: float32) =
   let mvp = mat4Mul(proj, mat4Mul(view, model))
 
   glUseProgram(pyramid.program)
-  glUniformMatrix4fv(
-    pyramid.mvpLoc,
-    1,
-    GL_FALSE,
-    cast[ptr GLfloat](mvp[0].addr)
-  )
+  glUniformMatrix4fv(pyramid.mvpLoc, 1, GL_FALSE, cast[ptr GLfloat](mvp[0].addr))
   glBindVertexArray(pyramid.vao)
   glDrawElements(GL_TRIANGLES, pyramid.indexCount, GL_UNSIGNED_SHORT, nil)
   glBindVertexArray(0)
@@ -292,36 +261,36 @@ proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, t: float32) =
 proc makeOverlay(w, h: float32): Renders =
   var list = RenderList()
 
-  let rootIdx = list.addRoot(Fig(
-    kind: nkRectangle,
-    childCount: 0,
-    zlevel: 0.ZLevel,
-    screenBox: rect(0, 0, w, h),
-    fill: rgba(0, 0, 0, 0).color,
-  ))
+  let rootIdx = list.addRoot(
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: rect(0, 0, w, h),
+      fill: rgba(0, 0, 0, 0).color,
+    )
+  )
 
   let pad = 24'f32
   let panelW = min(320'f32, w * 0.4'f32)
   let panelRect = rect(w - panelW - pad, pad, panelW, h - pad * 2)
   let panelShadow = RenderShadow(
-    style: DropShadow,
-    blur: 18,
-    spread: 0,
-    x: 0,
-    y: 10,
-    color: rgba(0, 0, 0, 60).color,
+    style: DropShadow, blur: 18, spread: 0, x: 0, y: 10, color: rgba(0, 0, 0, 60).color
   )
 
-  let panelIdx = list.addChild(rootIdx, Fig(
-    kind: nkRectangle,
-    childCount: 0,
-    zlevel: 0.ZLevel,
-    screenBox: panelRect,
-    fill: rgba(20, 22, 32, 220).color,
-    stroke: RenderStroke(weight: 1.5, color: rgba(255, 255, 255, 40).color),
-    corners: [12.0'f32, 12.0, 12.0, 12.0],
-    shadows: [panelShadow, RenderShadow(), RenderShadow(), RenderShadow()],
-  ))
+  let panelIdx = list.addChild(
+    rootIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: panelRect,
+      fill: rgba(20, 22, 32, 220).color,
+      stroke: RenderStroke(weight: 1.5, color: rgba(255, 255, 255, 40).color),
+      corners: [12.0'f32, 12.0, 12.0, 12.0],
+      shadows: [panelShadow, RenderShadow(), RenderShadow(), RenderShadow()],
+    ),
+  )
 
   let buttonPad = 18'f32
   let buttonW = panelRect.w - buttonPad * 2
@@ -329,14 +298,17 @@ proc makeOverlay(w, h: float32): Renders =
 
   for i in 0 .. 3:
     let btnRect = rect(panelRect.x + buttonPad, buttonY, buttonW, 34'f32)
-    discard list.addChild(panelIdx, Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      zlevel: 0.ZLevel,
-      screenBox: btnRect,
-      fill: rgba(uint8(40 + i * 8), 90'u8, 160'u8, 200'u8).color,
-      corners: [8.0'f32, 8.0, 8.0, 8.0],
-    ))
+    discard list.addChild(
+      panelIdx,
+      Fig(
+        kind: nkRectangle,
+        childCount: 0,
+        zlevel: 0.ZLevel,
+        screenBox: btnRect,
+        fill: rgba(uint8(40 + i * 8), 90'u8, 160'u8, 200'u8).color,
+        corners: [8.0'f32, 8.0, 8.0, 8.0],
+      ),
+    )
     buttonY += 46'f32
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
@@ -355,14 +327,14 @@ suite "opengl 3d overlay render":
       try:
         img = renderAndScreenshotOverlayOnce(
           drawBackground = proc(frameSize: Vec2) =
-          if not pyramidReady:
-            pyramid = initPyramid()
-            pyramidReady = true
-          useDepthBuffer(true)
-          glClearColor(0.08, 0.1, 0.14, 1.0)
-          glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
-          drawPyramid(pyramid, frameSize, 0.4'f32)
-          useDepthBuffer(false),
+            if not pyramidReady:
+              pyramid = initPyramid()
+              pyramidReady = true
+            useDepthBuffer(true)
+            glClearColor(0.08, 0.1, 0.14, 1.0)
+            glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
+            drawPyramid(pyramid, frameSize, 0.4'f32)
+            useDepthBuffer(false),
           makeRenders = makeOverlay,
           outputPath = outPath,
           title = "figdraw test: 3d overlay",

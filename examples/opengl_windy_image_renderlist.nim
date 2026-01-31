@@ -11,9 +11,7 @@ else:
 
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/renderer as glrenderer
-when not UseMetalBackend:
-  import figdraw/utils/glutils
+import figdraw/figrender as glrenderer
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
@@ -120,8 +118,7 @@ when isMainModule:
   var fpsStart = epochTime()
   let window = newWindyWindow(frame)
 
-  let renderer =
-    glrenderer.newOpenGLRenderer(atlasSize = 2048, pixelScale = app.pixelScale)
+  let renderer = glrenderer.newRenderer(atlasSize = 2048, pixelScale = app.pixelScale)
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())

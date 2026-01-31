@@ -14,7 +14,7 @@ else:
 
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/renderer as glrenderer
+import figdraw/figrender as glrenderer
 when not UseMetalBackend:
   import figdraw/utils/glutils
 
@@ -524,8 +524,7 @@ when isMainModule:
   )
 
   let window = newWindyWindow(frame)
-  let renderer =
-    glrenderer.newOpenGLRenderer(atlasSize = 192, pixelScale = app.pixelScale)
+  let renderer = glrenderer.newRenderer(atlasSize = 192, pixelScale = app.pixelScale)
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
     renderer.ctx.presentLayer = metalHandle.layer

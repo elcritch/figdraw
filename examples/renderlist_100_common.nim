@@ -7,17 +7,19 @@ import figdraw/fignodes
 
 const copies {.intdefine: "figdraw.nodes".} = 100
 
-proc makeRenderTree*(w, h: float32; frame: int): Renders =
+proc makeRenderTree*(w, h: float32, frame: int): Renders =
   var list = RenderList()
   let t = frame.float32 * 0.02'f32
 
-  discard list.addRoot(Fig(
-    kind: nkRectangle,
-    childCount: 0,
-    zlevel: 0.ZLevel,
-    screenBox: rect(0, 0, w, h),
-    fill: rgba(255, 255, 255, 155).color,
-  ))
+  discard list.addRoot(
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: rect(0, 0, w, h),
+      fill: rgba(255, 255, 255, 155).color,
+    )
+  )
 
   let redStartX = 60.0'f32
   let redStartY = 60.0'f32
@@ -41,10 +43,10 @@ proc makeRenderTree*(w, h: float32; frame: int): Renders =
     let offsetX = min(max(baseX + jitterX, 0.0'f32), maxX)
     let offsetY = min(max(baseY + jitterY, 0.0'f32), maxY)
 
-    let sizePulseW = 0.5'f32 + 0.5'f32 *
-      sin((t * 0.8'f32 + i.float32 * 0.07'f32).float64).float32
-    let sizePulseH = 0.5'f32 + 0.5'f32 *
-      cos((t * 0.65'f32 + i.float32 * 0.09'f32).float64).float32
+    let sizePulseW =
+      0.5'f32 + 0.5'f32 * sin((t * 0.8'f32 + i.float32 * 0.07'f32).float64).float32
+    let sizePulseH =
+      0.5'f32 + 0.5'f32 * cos((t * 0.65'f32 + i.float32 * 0.09'f32).float64).float32
 
     let redW = 160.0'f32 + 100.0'f32 * sizePulseW
     let redH = 110.0'f32 + 70.0'f32 * sizePulseH
@@ -53,79 +55,86 @@ proc makeRenderTree*(w, h: float32; frame: int): Renders =
     let blueW = 160.0'f32 + 100.0'f32 * (1.0'f32 - sizePulseW)
     let blueH = 110.0'f32 + 70.0'f32 * (1.0'f32 - sizePulseH)
 
-    let cornerPulse = 0.5'f32 + 0.5'f32 *
-      sin((t * 1.25'f32 + i.float32 * 0.11'f32).float64).float32
+    let cornerPulse =
+      0.5'f32 + 0.5'f32 * sin((t * 1.25'f32 + i.float32 * 0.11'f32).float64).float32
     let c0 = 4.0'f32 + 26.0'f32 * cornerPulse
     let c1 = 6.0'f32 + 22.0'f32 * (1.0'f32 - cornerPulse)
-    let c2 = 8.0'f32 + 18.0'f32 *
-      (0.5'f32 + 0.5'f32 *
-        sin((t * 0.7'f32 + i.float32 * 0.05'f32).float64).float32)
-    let c3 = 10.0'f32 + 16.0'f32 *
-      (0.5'f32 + 0.5'f32 *
-        cos((t * 0.8'f32 + i.float32 * 0.06'f32).float64).float32)
+    let c2 =
+      8.0'f32 +
+      18.0'f32 *
+      (0.5'f32 + 0.5'f32 * sin((t * 0.7'f32 + i.float32 * 0.05'f32).float64).float32)
+    let c3 =
+      10.0'f32 +
+      16.0'f32 *
+      (0.5'f32 + 0.5'f32 * cos((t * 0.8'f32 + i.float32 * 0.06'f32).float64).float32)
 
-    let greenCornerPulse = 0.5'f32 + 0.5'f32 *
-      cos((t * 0.95'f32 + i.float32 * 0.08'f32).float64).float32
+    let greenCornerPulse =
+      0.5'f32 + 0.5'f32 * cos((t * 0.95'f32 + i.float32 * 0.08'f32).float64).float32
     let g0 = 6.0'f32 + 22.0'f32 * greenCornerPulse
     let g1 = 8.0'f32 + 18.0'f32 * (1.0'f32 - greenCornerPulse)
-    let g2 = 10.0'f32 + 16.0'f32 *
-      (0.5'f32 + 0.5'f32 *
-        cos((t * 0.75'f32 + i.float32 * 0.04'f32).float64).float32)
-    let g3 = 12.0'f32 + 14.0'f32 *
-      (0.5'f32 + 0.5'f32 *
-        sin((t * 0.85'f32 + i.float32 * 0.05'f32).float64).float32)
+    let g2 =
+      10.0'f32 +
+      16.0'f32 *
+      (0.5'f32 + 0.5'f32 * cos((t * 0.75'f32 + i.float32 * 0.04'f32).float64).float32)
+    let g3 =
+      12.0'f32 +
+      14.0'f32 *
+      (0.5'f32 + 0.5'f32 * sin((t * 0.85'f32 + i.float32 * 0.05'f32).float64).float32)
 
-    let shadowPulse = 0.5'f32 + 0.5'f32 *
-      sin((t * 1.1'f32 + i.float32 * 0.05'f32).float64).float32
+    let shadowPulse =
+      0.5'f32 + 0.5'f32 * sin((t * 1.1'f32 + i.float32 * 0.05'f32).float64).float32
     let shadowBlur = max(0.0'f32, 6.0'f32 + 18.0'f32 * shadowPulse)
-    let shadowSpread = max(0.0'f32, 4.0'f32 + 20.0'f32 * (1.0'f32 -
-        shadowPulse))
-    let shadowX = 6.0'f32 + 10.0'f32 *
-      sin((t * 0.9'f32 + i.float32 * 0.03'f32).float64).float32
-    let shadowY = 6.0'f32 + 10.0'f32 *
-      cos((t * 0.9'f32 + i.float32 * 0.03'f32).float64).float32
+    let shadowSpread = max(0.0'f32, 4.0'f32 + 20.0'f32 * (1.0'f32 - shadowPulse))
+    let shadowX =
+      6.0'f32 + 10.0'f32 * sin((t * 0.9'f32 + i.float32 * 0.03'f32).float64).float32
+    let shadowY =
+      6.0'f32 + 10.0'f32 * cos((t * 0.9'f32 + i.float32 * 0.03'f32).float64).float32
 
-    discard list.addRoot(Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      zlevel: 0.ZLevel,
-      corners: [c0, c1, c2, c3],
-      screenBox: rect(redStartX + offsetX, redStartY + offsetY, redW, redH),
-      fill: rgba(220, 40, 40, 155).color,
-      stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 155).color)
-    ))
+    discard list.addRoot(
+      Fig(
+        kind: nkRectangle,
+        childCount: 0,
+        zlevel: 0.ZLevel,
+        corners: [c0, c1, c2, c3],
+        screenBox: rect(redStartX + offsetX, redStartY + offsetY, redW, redH),
+        fill: rgba(220, 40, 40, 155).color,
+        stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 155).color),
+      )
+    )
 
-    discard list.addRoot(Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      zlevel: 0.ZLevel,
-      screenBox: rect(greenStartX + offsetX, greenStartY + offsetY, greenW,
-          greenH),
-      corners: [g0, g1, g2, g3],
-      fill: rgba(40, 180, 90, 155).color,
-      shadows: [
-        RenderShadow(
-          style: DropShadow,
-          blur: shadowBlur,
-          spread: shadowSpread,
-          x: shadowX,
-          y: shadowY,
-          color: rgba(0, 0, 0, 155).color,
-      ),
-      RenderShadow(),
-      RenderShadow(),
-      RenderShadow(),
-    ]
-    ))
+    discard list.addRoot(
+      Fig(
+        kind: nkRectangle,
+        childCount: 0,
+        zlevel: 0.ZLevel,
+        screenBox: rect(greenStartX + offsetX, greenStartY + offsetY, greenW, greenH),
+        corners: [g0, g1, g2, g3],
+        fill: rgba(40, 180, 90, 155).color,
+        shadows: [
+          RenderShadow(
+            style: DropShadow,
+            blur: shadowBlur,
+            spread: shadowSpread,
+            x: shadowX,
+            y: shadowY,
+            color: rgba(0, 0, 0, 155).color,
+          ),
+          RenderShadow(),
+          RenderShadow(),
+          RenderShadow(),
+        ],
+      )
+    )
 
-    discard list.addRoot(Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      zlevel: 0.ZLevel,
-      screenBox: rect(blueStartX + offsetX, blueStartY + offsetY, blueW,
-          blueH),
-      fill: rgba(60, 90, 220, 155).color,
-    ))
+    discard list.addRoot(
+      Fig(
+        kind: nkRectangle,
+        childCount: 0,
+        zlevel: 0.ZLevel,
+        screenBox: rect(blueStartX + offsetX, blueStartY + offsetY, blueW, blueH),
+        fill: rgba(60, 90, 220, 155).color,
+      )
+    )
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
