@@ -5,7 +5,7 @@ import figdraw/windyshim
 
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/opengl/renderer as glrenderer
+import figdraw/renderer as glrenderer
 
 const UseMetalBackend = defined(macosx) and defined(feature.figdraw.metal)
 

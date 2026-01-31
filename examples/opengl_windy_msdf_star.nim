@@ -18,7 +18,7 @@ else:
 
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/opengl/renderer as glrenderer
+import figdraw/renderer as glrenderer
 when not UseMetalBackend:
   import figdraw/utils/glutils
 

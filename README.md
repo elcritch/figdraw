@@ -75,7 +75,7 @@ The most stable entry points today are:
 
 - Core types/utilities: `import figdraw/commons`
 - Scene graph nodes: `import figdraw/fignodes`
-- OpenGL backend: `import figdraw/opengl/renderer`
+- OpenGL backend: `import figdraw/renderer`
 
 Render list example (build a small scene tree):
 

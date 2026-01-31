@@ -5,7 +5,7 @@ import sdl2 except rect
 
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/opengl/renderer as glrenderer
+import figdraw/renderer as glrenderer
 import figdraw/utils/glutils
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false

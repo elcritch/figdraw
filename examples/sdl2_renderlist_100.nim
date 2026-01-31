@@ -6,7 +6,7 @@ import chroma
 
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/opengl/renderer as glrenderer
+import figdraw/renderer as glrenderer
 import figdraw/utils/glutils
 
 import renderlist_100_common

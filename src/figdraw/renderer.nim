@@ -5,20 +5,20 @@ from pkg/pixie import Image, newImage, flipVertical
 import pkg/chroma
 import pkg/chronicles
 
-import ../commons
-import ../utils/drawshadows
-import ../utils/drawboxes
-import glcommons
+import ./commons
+import ./utils/drawshadows
+import ./utils/drawboxes
+import ./opengl/glcommons
 
 const UseMetalBackend = defined(macosx) and defined(feature.figdraw.metal)
 
 when UseMetalBackend:
-  import ./glcontext_metal
+  import ./opengl/glcontext_metal
   import metalx/metal
 else:
   import pkg/opengl
-  import ../utils/glutils
-  import ./glcontext_gl
+  import ./utils/glutils
+  import ./opengl/glcontext_gl
 
 const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
@@ -38,7 +38,7 @@ when UseMetalBackend:
 
 when UseMetalBackend:
   proc metalDevice*(ctx: Context): MTLDevice =
-    ## Convenience re-export so callers using `figdraw/opengl/renderer` don't also
+    ## Convenience re-export so callers using `figdraw/renderer` don't also
     ## need to import `figdraw/opengl/glcontext_metal`.
     glcontext_metal.metalDevice(ctx)
 
