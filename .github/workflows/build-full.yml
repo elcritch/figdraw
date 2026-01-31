@@ -39,6 +39,11 @@ jobs:
         echo "$HOME/.local/share/grabnim/current/bin" >> $GITHUB_PATH
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
+    - name: Install Nim
+      run: |
+        grabnim ${{ matrix.nimversion }}
+        nim -v
+
     - name: Install Atlas
       run: |
         #nimble install 'https://github.com/nim-lang/atlas@#head'
