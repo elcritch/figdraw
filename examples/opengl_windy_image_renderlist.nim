@@ -4,6 +4,8 @@ else:
   import std/[os, times]
 import chroma
 
+const UseMetalBackend = defined(macosx) and defined(feature.figdraw.metal)
+
 when defined(useWindex):
   import windex
 else:
@@ -12,7 +14,8 @@ else:
 import figdraw/commons
 import figdraw/fignodes
 import figdraw/opengl/renderer as glrenderer
-import figdraw/utils/glutils
+when not UseMetalBackend:
+  import figdraw/utils/glutils
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
@@ -24,7 +27,8 @@ proc setupWindow(frame: AppFrame, window: Window) =
       window.size = ivec2(frame.windowInfo.box.wh.scaled())
 
     window.visible = true
-  window.makeContextCurrent()
+  when not UseMetalBackend:
+    window.makeContextCurrent()
 
 proc newWindyWindow(frame: AppFrame): Window =
   let window = when defined(emscripten):
@@ -33,9 +37,11 @@ proc newWindyWindow(frame: AppFrame): Window =
       newWindow("FigDraw", ivec2(1280, 800), visible = false)
   when defined(emscripten):
     setupWindow(frame, window)
-    startOpenGL(openglVersion)
+    when not UseMetalBackend:
+      startOpenGL(openglVersion)
   else:
-    startOpenGL(openglVersion)
+    when not UseMetalBackend:
+      startOpenGL(openglVersion)
     setupWindow(frame, window)
   result = window
 
@@ -117,11 +123,22 @@ when isMainModule:
     pixelScale = app.pixelScale,
   )
 
+  when UseMetalBackend:
+    let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
+    renderer.ctx.presentLayer = metalHandle.layer
+
+  when UseMetalBackend:
+    proc updateMetalLayer() =
+      metalHandle.updateMetalLayer(window)
+
   proc redraw() =
+    when UseMetalBackend:
+      updateMetalLayer()
     let winInfo = window.getWindowInfo()
     var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
     renderer.renderFrame(renders, winInfo.box.wh.scaled())
-    window.swapBuffers()
+    when not UseMetalBackend:
+      window.swapBuffers()
 
   window.onCloseRequest = proc() =
     app.running = false
