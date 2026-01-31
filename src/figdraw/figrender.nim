@@ -16,7 +16,7 @@ when UseMetalBackend:
 else:
   import pkg/opengl
   import ./utils/glutils
-  import ./opengl/glcontext_gl
+  import ./opengl/glcontext
 
 const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
@@ -66,11 +66,11 @@ proc takeScreenshot*(
 proc newFigRenderer*(atlasSize: int, pixelScale = app.pixelScale): FigRenderer =
   result = FigRenderer()
   when UseMetalBackend:
-    result.ctx = glcontext_metal.newContext(
+    result.ctx = newContext(
       atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
     )
   else:
-    result.ctx = glcontext_gl.newContext(
+    result.ctx = newContext(
       atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
     )
 
