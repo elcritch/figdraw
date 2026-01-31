@@ -69,7 +69,7 @@ proc renderAndScreenshotOnce*(
       var renders = makeRenders(windowW.float32.scaled(), windowH.float32.scaled())
       renderer.renderFrame(renders, vec2(windowW.float32, windowH.float32).scaled())
 
-      result = glrenderer.takeScreenshot()
+      result = glrenderer.takeScreenshot(renderer)
       result.writeFile(outputPath)
     except ValueError:
       raise newException(WindyError, "Metal device not available")
@@ -88,7 +88,7 @@ proc renderAndScreenshotOnce*(
       renderer.renderFrame(renders, winInfo.box.wh.scaled())
       window.swapBuffers()
 
-      result = glrenderer.takeScreenshot(readFront = true)
+      result = glrenderer.takeScreenshot(renderer, readFront = true)
       result.writeFile(outputPath)
     finally:
       window.close()
@@ -126,7 +126,7 @@ proc renderAndScreenshotOverlayOnce*(
       drawBackground(frameSize)
       renderer.renderOverlayFrame(renders, frameSize)
 
-      result = glrenderer.takeScreenshot()
+      result = glrenderer.takeScreenshot(renderer)
       result.writeFile(outputPath)
     except ValueError:
       raise newException(WindyError, "Metal device not available")
@@ -147,7 +147,7 @@ proc renderAndScreenshotOverlayOnce*(
       renderer.renderOverlayFrame(renders, frameSize)
       window.swapBuffers()
 
-      result = glrenderer.takeScreenshot(readFront = true)
+      result = glrenderer.takeScreenshot(renderer, readFront = true)
       result.writeFile(outputPath)
     finally:
       window.close()

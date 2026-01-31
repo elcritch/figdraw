@@ -24,21 +24,18 @@ type FigRenderer* = ref object
   ctx*: Context
 
 when UseMetalBackend:
-  var lastCtx: Context
-
   proc metalDevice*(ctx: Context): MTLDevice =
     ## Convenience re-export so callers using `figdraw/figrender` don't also
     ## need to import `figdraw/metal/glcontext_metal`.
     glcontext_metal.metalDevice(ctx)
 
-proc takeScreenshot*(frame: Rect = rect(0, 0, 0, 0), readFront: bool = true): Image =
+proc takeScreenshot*(
+    renderer: FigRenderer, frame: Rect = rect(0, 0, 0, 0), readFront: bool = true
+): Image =
   discard readFront
+  let ctx: Context = renderer.ctx
   when UseMetalBackend:
-    if lastCtx.isNil:
-      raise newException(
-        ValueError, "takeScreenshot called before any Metal frame was rendered"
-      )
-    result = lastCtx.readPixels(frame)
+    result = ctx.readPixels(frame)
   else:
     var viewport: array[4, GLint]
     glGetIntegerv(GL_VIEWPORT, viewport[0].addr)
@@ -446,13 +443,10 @@ proc renderFrame*(renderer: FigRenderer, nodes: var Renders, frameSize: Vec2) =
   ctx.restoreTransform()
   ctx.endFrame()
 
-  when UseMetalBackend:
-    lastCtx = ctx
-
   when defined(testOneFrame) and not UseMetalBackend:
     ## This is used for test only
     ## Take a screen shot of the first frame and exit.
-    var img = takeScreenshot()
+    var img = takeScreenshot(renderer)
     img.writeFile("screenshot.png")
     quit()
 
@@ -470,9 +464,6 @@ proc renderOverlayFrame*(renderer: FigRenderer, nodes: var Renders, frameSize: V
   ctx.restoreTransform()
   ctx.endFrame()
 
-  when UseMetalBackend:
-    lastCtx = ctx
-
 proc renderFrame*(
     ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
 ) =
@@ -488,9 +479,6 @@ proc renderFrame*(
   ctx.restoreTransform()
   ctx.endFrame()
 
-  when UseMetalBackend:
-    lastCtx = ctx
-
 proc renderOverlayFrame*(
     ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
 ) =
@@ -505,6 +493,3 @@ proc renderOverlayFrame*(
   ctx.renderRoot(nodes)
   ctx.restoreTransform()
   ctx.endFrame()
-
-  when UseMetalBackend:
-    lastCtx = ctx
