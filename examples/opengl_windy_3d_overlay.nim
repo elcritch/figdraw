@@ -4,8 +4,6 @@ else:
   import std/[os, times, math, strformat]
 import chroma
 
-const UseMetalBackend = defined(macosx) and defined(feature.figdraw.metal)
-
 when not UseMetalBackend:
   import pkg/opengl
 
@@ -37,11 +35,13 @@ type
     x: float32
     y: float32
     z: float32
+
   Vec4f = object
     x: float32
     y: float32
     z: float32
     w: float32
+
   Mat4 = array[16, float32] # Column-major for OpenGL uniforms.
 
 proc v3(x, y, z: float32): Vec3f =
@@ -54,11 +54,7 @@ proc v3Dot(a, b: Vec3f): float32 =
   a.x * b.x + a.y * b.y + a.z * b.z
 
 proc v3Cross(a, b: Vec3f): Vec3f =
-  v3(
-    a.y * b.z - a.z * b.y,
-    a.z * b.x - a.x * b.z,
-    a.x * b.y - a.y * b.x,
-  )
+  v3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x)
 
 proc v4(x, y, z, w: float32): Vec4f =
   Vec4f(x: x, y: y, z: z, w: w)
@@ -74,10 +70,8 @@ proc mat4Mul(a, b: Mat4): Mat4 =
   for col in 0 .. 3:
     for row in 0 .. 3:
       result[col * 4 + row] =
-        a[0 * 4 + row] * b[col * 4 + 0] +
-        a[1 * 4 + row] * b[col * 4 + 1] +
-        a[2 * 4 + row] * b[col * 4 + 2] +
-        a[3 * 4 + row] * b[col * 4 + 3]
+        a[0 * 4 + row] * b[col * 4 + 0] + a[1 * 4 + row] * b[col * 4 + 1] +
+        a[2 * 4 + row] * b[col * 4 + 2] + a[3 * 4 + row] * b[col * 4 + 3]
 
 proc mat4MulVec4(m: Mat4, v: Vec4f): Vec4f =
   result.x = m[0] * v.x + m[4] * v.y + m[8] * v.z + m[12] * v.w
@@ -153,7 +147,10 @@ proc viewMatrix(): Mat4 =
 
 proc projectionMatrix(frameSize: Vec2): Mat4 =
   let aspect =
-    if frameSize.y > 0: frameSize.x / frameSize.y else: 1.0'f32
+    if frameSize.y > 0:
+      frameSize.x / frameSize.y
+    else:
+      1.0'f32
   mat4Perspective(45.0'f32, aspect, 0.1'f32, 100.0'f32)
 
 proc formatVec3(label: string, v: Vec3f): string =
@@ -161,19 +158,12 @@ proc formatVec3(label: string, v: Vec3f): string =
 
 const PyramidVertexStride = 6
 const PyramidVertices: array[30, float32] = [
-  -0.5, 0.0, -0.5, 1.0, 0.2, 0.2,
-  0.5, 0.0, -0.5, 0.2, 1.0, 0.2,
-  0.5, 0.0, 0.5, 0.2, 0.2, 1.0,
-  -0.5, 0.0, 0.5, 1.0, 1.0, 0.2,
-  0.0, 0.8, 0.0, 1.0, 0.2, 1.0,
+  -0.5, 0.0, -0.5, 1.0, 0.2, 0.2, 0.5, 0.0, -0.5, 0.2, 1.0, 0.2, 0.5, 0.0, 0.5, 0.2,
+  0.2, 1.0, -0.5, 0.0, 0.5, 1.0, 1.0, 0.2, 0.0, 0.8, 0.0, 1.0, 0.2, 1.0,
 ]
 const PyramidIndices: array[18, uint16] = [
-  0'u16, 1'u16, 4'u16,
-  1'u16, 2'u16, 4'u16,
-  2'u16, 3'u16, 4'u16,
-  3'u16, 0'u16, 4'u16,
-  0'u16, 1'u16, 2'u16,
-  2'u16, 3'u16, 0'u16,
+  0'u16, 1'u16, 4'u16, 1'u16, 2'u16, 4'u16, 2'u16, 3'u16, 4'u16, 3'u16, 0'u16, 4'u16,
+  0'u16, 1'u16, 2'u16, 2'u16, 3'u16, 0'u16,
 ]
 
 proc pyramidPosition(index: int): Vec3f =
@@ -222,19 +212,14 @@ when not UseMetalBackend:
       glGetShaderInfoLog(shader, logLen, nil, log.cstring)
       glDeleteShader(shader)
       raise newException(
-        PyramidShaderError,
-        "Shader compile failed (" & label & "): " & log,
+        PyramidShaderError, "Shader compile failed (" & label & "): " & log
       )
 
     result = shader
 
   proc buildProgram(vertexSrc, fragmentSrc: string): GLuint =
     let vertexShader = compileShader(GL_VERTEX_SHADER, vertexSrc, "pyramid.vert")
-    let fragmentShader = compileShader(
-      GL_FRAGMENT_SHADER,
-      fragmentSrc,
-      "pyramid.frag",
-    )
+    let fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSrc, "pyramid.frag")
 
     result = glCreateProgram()
     glAttachShader(result, vertexShader)
@@ -271,7 +256,8 @@ proc setupWindow(frame: AppFrame, window: Window) =
     window.makeContextCurrent()
 
 proc newWindyWindow(frame: AppFrame): Window =
-  let window = when defined(emscripten):
+  let window =
+    when defined(emscripten):
       newWindow("FigDraw", ivec2(0, 0), visible = false)
     else:
       newWindow("FigDraw", ivec2(1280, 800), visible = false)
@@ -295,7 +281,8 @@ proc getWindowInfo(window: Window): WindowInfo =
 
 when not UseMetalBackend:
   proc initPyramid(): PyramidGl =
-    let vertexSrc = when defined(emscripten):
+    let vertexSrc =
+      when defined(emscripten):
         """
 #version 300 es
 precision highp float;
@@ -326,7 +313,8 @@ void main() {
 }
 """
 
-    let fragmentSrc = when defined(emscripten):
+    let fragmentSrc =
+      when defined(emscripten):
         """
 #version 300 es
 precision highp float;
@@ -362,10 +350,7 @@ void main() {
 
     glBindBuffer(GL_ARRAY_BUFFER, result.vbo)
     glBufferData(
-      GL_ARRAY_BUFFER,
-      sizeof(PyramidVertices),
-      PyramidVertices[0].addr,
-      GL_STATIC_DRAW
+      GL_ARRAY_BUFFER, sizeof(PyramidVertices), PyramidVertices[0].addr, GL_STATIC_DRAW
     )
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, result.ebo)
@@ -373,7 +358,7 @@ void main() {
       GL_ELEMENT_ARRAY_BUFFER,
       sizeof(PyramidIndices),
       PyramidIndices[0].addr,
-      GL_STATIC_DRAW
+      GL_STATIC_DRAW,
     )
 
     let stride = (6 * sizeof(float32)).GLsizei
@@ -381,12 +366,7 @@ void main() {
     glEnableVertexAttribArray(0)
 
     glVertexAttribPointer(
-      1,
-      3,
-      cGL_FLOAT,
-      GL_FALSE,
-      stride,
-      cast[pointer](3 * sizeof(float32))
+      1, 3, cGL_FLOAT, GL_FALSE, stride, cast[pointer](3 * sizeof(float32))
     )
     glEnableVertexAttribArray(1)
 
@@ -412,12 +392,7 @@ void main() {
     glViewport(0, 0, frameSize.x.GLint, frameSize.y.GLint)
 
     glUseProgram(pyramid.program)
-    glUniformMatrix4fv(
-      pyramid.mvpLoc,
-      1,
-      GL_FALSE,
-      cast[ptr GLfloat](mvp[0].addr)
-    )
+    glUniformMatrix4fv(pyramid.mvpLoc, 1, GL_FALSE, cast[ptr GLfloat](mvp[0].addr))
     glBindVertexArray(pyramid.vao)
     glDrawElements(GL_TRIANGLES, pyramid.indexCount, GL_UNSIGNED_SHORT, nil)
     glBindVertexArray(0)
@@ -431,37 +406,37 @@ proc makeOverlay*(
 ): Renders =
   var list = RenderList()
 
-  let rootIdx = list.addRoot(Fig(
-    kind: nkRectangle,
-    childCount: 0,
-    zlevel: 0.ZLevel,
-    screenBox: rect(0, 0, w, h),
-    fill: bg,
-  ))
+  let rootIdx = list.addRoot(
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: rect(0, 0, w, h),
+      fill: bg,
+    )
+  )
 
   let pad = 24'f32
   let panelWBase = min(320'f32, w * 0.4'f32) * 1.2'f32
   let panelW = max(panelWBase, monoFont.size * 16.0'f32) * 1.15'f32
   let panelRect = rect(w - panelW - pad, pad, panelW, h - pad * 2)
   let panelShadow = RenderShadow(
-    style: DropShadow,
-    blur: 18,
-    spread: 0,
-    x: 0,
-    y: 10,
-    color: rgba(0, 0, 0, 60).color,
+    style: DropShadow, blur: 18, spread: 0, x: 0, y: 10, color: rgba(0, 0, 0, 60).color
   )
 
-  let panelIdx = list.addChild(rootIdx, Fig(
-    kind: nkRectangle,
-    childCount: 0,
-    zlevel: 0.ZLevel,
-    screenBox: panelRect,
-    fill: rgba(20, 22, 32, 220).color,
-    stroke: RenderStroke(weight: 1.5, color: rgba(255, 255, 255, 40).color),
-    corners: [12.0'f32, 12.0, 12.0, 12.0],
-    shadows: [panelShadow, RenderShadow(), RenderShadow(), RenderShadow()],
-  ))
+  let panelIdx = list.addChild(
+    rootIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: panelRect,
+      fill: rgba(20, 22, 32, 220).color,
+      stroke: RenderStroke(weight: 1.5, color: rgba(255, 255, 255, 40).color),
+      corners: [12.0'f32, 12.0, 12.0, 12.0],
+      shadows: [panelShadow, RenderShadow(), RenderShadow(), RenderShadow()],
+    ),
+  )
 
   let buttonPad = 18'f32
   let buttonW = panelRect.w - buttonPad * 2
@@ -481,15 +456,18 @@ proc makeOverlay*(
       y: 1,
       color: rgba(255, 255, 255, 36).color,
     )
-    discard list.addChild(panelIdx, Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      zlevel: 0.ZLevel,
-      screenBox: btnRect,
-      fill: rgba(uint8(40 + i * 8), 90'u8, 160'u8, 200'u8).color,
-      corners: [8.0'f32, 8.0, 8.0, 8.0],
-      shadows: [rowShadow, RenderShadow(), RenderShadow(), RenderShadow()],
-    ))
+    discard list.addChild(
+      panelIdx,
+      Fig(
+        kind: nkRectangle,
+        childCount: 0,
+        zlevel: 0.ZLevel,
+        screenBox: btnRect,
+        fill: rgba(uint8(40 + i * 8), 90'u8, 160'u8, 200'u8).color,
+        corners: [8.0'f32, 8.0, 8.0, 8.0],
+        shadows: [rowShadow, RenderShadow(), RenderShadow(), RenderShadow()],
+      ),
+    )
     let textRect = rect(
       btnRect.x + textPadX,
       btnRect.y + textPadY,
@@ -504,14 +482,17 @@ proc makeOverlay*(
       minContent = false,
       wrap = false,
     )
-    discard list.addChild(panelIdx, Fig(
-      kind: nkText,
-      childCount: 0,
-      zlevel: 0.ZLevel,
-      screenBox: textRect,
-      fill: rgba(240, 242, 248, 240).color,
-      textLayout: rowLayout,
-    ))
+    discard list.addChild(
+      panelIdx,
+      Fig(
+        kind: nkText,
+        childCount: 0,
+        zlevel: 0.ZLevel,
+        screenBox: textRect,
+        fill: rgba(240, 242, 248, 240).color,
+        textLayout: rowLayout,
+      ),
+    )
     buttonY += rowHeight + rowGap
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
@@ -529,12 +510,10 @@ when isMainModule:
   app.pixelScale = 1.0
 
   let monoTypefaceId = getTypefaceImpl("HackNerdFont-Regular.ttf")
-  let monoFont = UiFont(typefaceId: monoTypefaceId, size: 24.0'f32,
-      lineHeightScale: 1.0)
+  let monoFont =
+    UiFont(typefaceId: monoTypefaceId, size: 24.0'f32, lineHeightScale: 1.0)
 
-  var frame = AppFrame(
-    windowTitle: "figdraw: OpenGL 3D + overlay",
-  )
+  var frame = AppFrame(windowTitle: "figdraw: OpenGL 3D + overlay")
   frame.windowInfo = WindowInfo(
     box: rect(0, 0, 1920, 1280),
     running: true,
@@ -545,10 +524,8 @@ when isMainModule:
   )
 
   let window = newWindyWindow(frame)
-  let renderer = glrenderer.newOpenGLRenderer(
-    atlasSize = 192,
-    pixelScale = app.pixelScale,
-  )
+  let renderer =
+    glrenderer.newOpenGLRenderer(atlasSize = 192, pixelScale = app.pixelScale)
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
     renderer.ctx.presentLayer = metalHandle.layer
@@ -606,11 +583,7 @@ when isMainModule:
       window.swapBuffers()
     else:
       var renders = makeOverlay(
-        winInfo.box.w,
-        winInfo.box.h,
-        rows,
-        monoFont,
-        bg = rgba(20, 25, 36, 255).color,
+        winInfo.box.w, winInfo.box.h, rows, monoFont, bg = rgba(20, 25, 36, 255).color
       )
       renderer.renderFrame(renders, frameSize)
 

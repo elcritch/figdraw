@@ -10,8 +10,6 @@ import ./utils/drawshadows
 import ./utils/drawboxes
 import ./opengl/glcommons
 
-const UseMetalBackend = defined(macosx) and defined(feature.figdraw.metal)
-
 when UseMetalBackend:
   import ./opengl/glcontext_metal
   import metalx/metal

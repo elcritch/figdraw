@@ -7,8 +7,6 @@ import figdraw/commons
 import figdraw/fignodes
 import figdraw/renderer as glrenderer
 
-const UseMetalBackend = defined(macosx) and defined(feature.figdraw.metal)
-
 when not UseMetalBackend:
   import pkg/opengl
   import figdraw/utils/glutils

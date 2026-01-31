@@ -3,8 +3,6 @@ when not defined(emscripten):
   import std/os
 import chroma
 
-const UseMetalBackend = defined(macosx) and defined(feature.figdraw.metal)
-
 when defined(useWindex):
   import windex
 else:
