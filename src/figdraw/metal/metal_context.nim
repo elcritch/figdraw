@@ -294,27 +294,21 @@ proc upload(ctx: Context) =
   if vertexCount <= 0:
     return
 
-  template copySeqToBuf(buf: MTLBuffer, src: untyped, bytes: int) =
-    let dst = buf.contents()
-    if dst.isNil:
-      raise newException(ValueError, "MTLBuffer.contents() returned nil")
-    copyMem(dst, src[0].addr, bytes)
-
-  copySeqToBuf(
+  copyToBuf(
     ctx.positions.buffer, ctx.positions.data, vertexCount * 2 * sizeof(float32)
   )
-  copySeqToBuf(ctx.uvs.buffer, ctx.uvs.data, vertexCount * 2 * sizeof(float32))
-  copySeqToBuf(ctx.colors.buffer, ctx.colors.data, vertexCount * 4 * sizeof(uint8))
-  copySeqToBuf(
+  copyToBuf(ctx.uvs.buffer, ctx.uvs.data, vertexCount * 2 * sizeof(float32))
+  copyToBuf(ctx.colors.buffer, ctx.colors.data, vertexCount * 4 * sizeof(uint8))
+  copyToBuf(
     ctx.sdfParams.buffer, ctx.sdfParams.data, vertexCount * 4 * sizeof(float32)
   )
-  copySeqToBuf(
+  copyToBuf(
     ctx.sdfRadii.buffer, ctx.sdfRadii.data, vertexCount * 4 * sizeof(float32)
   )
-  copySeqToBuf(
+  copyToBuf(
     ctx.sdfModeAttr.buffer, ctx.sdfModeAttr.data, vertexCount * sizeof(SdfModeData)
   )
-  copySeqToBuf(
+  copyToBuf(
     ctx.sdfFactors.buffer, ctx.sdfFactors.data, vertexCount * 2 * sizeof(float32)
   )
 
