@@ -933,6 +933,8 @@ proc beginFrame*(ctx: Context, frameSize: Vec2, proj: Mat4, clearMain = false) =
   ctx.commandBuffer = commandBuffer(ctx.queue)
   if ctx.commandBuffer.isNil:
     raise newException(ValueError, "Failed to create Metal command buffer")
+  # Retain until after commit; commandBuffer is autoreleased.
+  discard retain(ctx.commandBuffer)
 
   # Always start in main pass.
   ctx.ensureMainPass(
@@ -981,6 +983,7 @@ proc endFrame*(ctx: Context) =
   if not ctx.lastCommitted.isNil:
     release(ctx.lastCommitted)
   ctx.lastCommitted = retain(ctx.commandBuffer)
+  release(ctx.commandBuffer)
 
 proc translate*(ctx: Context, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
