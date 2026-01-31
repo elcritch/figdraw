@@ -21,20 +21,11 @@ else:
 const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
 type FigRenderer* = ref object
-  when UseMetalBackend:
-    ctx*: glcontext_metal.Context
-  else:
-    ctx*: glcontext_gl.Context
-
-when UseMetalBackend:
-  type Context* = glcontext_metal.Context
-else:
-  type Context* = glcontext_gl.Context
+  ctx*: Context
 
 when UseMetalBackend:
   var lastCtx: Context
 
-when UseMetalBackend:
   proc metalDevice*(ctx: Context): MTLDevice =
     ## Convenience re-export so callers using `figdraw/figrender` don't also
     ## need to import `figdraw/metal/glcontext_metal`.
