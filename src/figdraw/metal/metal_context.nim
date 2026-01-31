@@ -1,4 +1,4 @@
-import std/[hashes, os, strformat, strutils, tables]
+import std/[hashes, strformat, tables]
 
 import darwin/objc/runtime
 import darwin/foundation/[nserror, nsstring]
@@ -8,6 +8,7 @@ import pkg/pixie/simd
 import pkg/chroma
 import pkg/chronicles
 import metalx/[cametal, metal]
+import metalx/objc_owned
 
 import ../commons
 import ./metal_sources
@@ -33,25 +34,25 @@ type PassKind = enum
 
 type SdfModeData = uint16
 
-type Context* = ref object # Metal objects
-  device: MTLDevice
-  queue: MTLCommandQueue
-  commandBuffer: MTLCommandBuffer
+type ContextObj = object # Metal objects
+  device: ObjcOwned[MTLDevice]
+  queue: ObjcOwned[MTLCommandQueue]
+  commandBuffer: ObjcOwned[MTLCommandBuffer]
   encoder: MTLRenderCommandEncoder
   passKind: PassKind
 
-  pipelineMain: MTLRenderPipelineState
-  pipelineMask: MTLRenderPipelineState
-  pipelineBlit: MTLRenderPipelineState
+  pipelineMain: ObjcOwned[MTLRenderPipelineState]
+  pipelineMask: ObjcOwned[MTLRenderPipelineState]
+  pipelineBlit: ObjcOwned[MTLRenderPipelineState]
 
   # Optional presentation target.
   # Windowing code owns attaching/sizing this layer.
   presentLayer*: CAMetalLayer
 
   # Render targets
-  offscreenTexture: MTLTexture
-  atlasTexture: MTLTexture
-  maskTextures: seq[MTLTexture]
+  offscreenTexture: ObjcOwned[MTLTexture]
+  atlasTexture: ObjcOwned[MTLTexture]
+  maskTextures: seq[ObjcOwned[MTLTexture]]
   maskTextureWrite: int ## Index of active mask stack (0 means no mask).
 
   atlasSize: int
@@ -69,20 +70,27 @@ type Context* = ref object # Metal objects
   pixelScale*: float32
 
   # Buffer data mirrored on CPU and uploaded each flush.
-  indices: tuple[buffer: MTLBuffer, data: seq[uint16]]
-  positions: tuple[buffer: MTLBuffer, data: seq[float32]]
-  colors: tuple[buffer: MTLBuffer, data: seq[uint8]]
-  uvs: tuple[buffer: MTLBuffer, data: seq[float32]]
-  sdfParams: tuple[buffer: MTLBuffer, data: seq[float32]]
-  sdfRadii: tuple[buffer: MTLBuffer, data: seq[float32]]
-  sdfModeAttr: tuple[buffer: MTLBuffer, data: seq[SdfModeData]]
-  sdfFactors: tuple[buffer: MTLBuffer, data: seq[float32]]
+  indices: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[uint16]]
+  positions: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+  colors: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[uint8]]
+  uvs: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+  sdfParams: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+  sdfRadii: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+  sdfModeAttr: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[SdfModeData]]
+  sdfFactors: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
 
   # SDF shader uniform (global)
   aaFactor: float32
 
   # For screenshot readback.
-  lastCommitted: MTLCommandBuffer
+  lastCommitted: ObjcOwned[MTLCommandBuffer]
+
+  # Drains per-frame autoreleased Metal/Foundation objects (render pass descriptors,
+  # temporary NSStrings, etc). Without an autorelease pool, these accumulate and look
+  # like a per-frame leak in long-running apps.
+  frameAutoreleasePool: AutoreleasePool
+
+type Context* = ref ContextObj
 
 proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite)
 
@@ -92,7 +100,7 @@ proc metalDevice*(ctx: Context): MTLDevice =
   ## Exposes the MTLDevice for windowing code that needs to create a CAMetalLayer.
   if ctx.device.isNil:
     ctx.ensureDeviceAndPipelines()
-  result = ctx.device
+  result = ctx.device.borrow
 
 proc toKey*(h: Hash): Hash =
   h
@@ -117,7 +125,7 @@ proc newTexture2D(
   )
   desc.setUsage(usage)
   desc.setStorageMode(storageMode)
-  result = ctx.device.newTextureWithDescriptor(desc)
+  result = ctx.device.borrow.newTextureWithDescriptor(desc)
 
 proc updateSubImage(ctx: Context, texture: MTLTexture, x, y: int, image: Image) =
   # Pixie Image is RGBA; our atlas is RGBA8.
@@ -147,9 +155,9 @@ proc createMaskTexture(ctx: Context, width, height: int): MTLTexture =
 proc ensureMask0(ctx: Context) =
   if ctx.maskTextures.len > 0:
     return
-  let tex = ctx.createMaskTexture(1, 1)
+  var tex = fromRetained(ctx.createMaskTexture(1, 1))
   var white = 255'u8
-  tex.replaceRegion(mtlRegion2D(0, 0, 1, 1), 0, addr white, 1)
+  tex.borrow.replaceRegion(mtlRegion2D(0, 0, 1, 1), 0, addr white, 1)
   ctx.maskTextures.add(tex)
 
 proc ensureOffscreen(ctx: Context, frameSize: Vec2) =
@@ -157,16 +165,19 @@ proc ensureOffscreen(ctx: Context, frameSize: Vec2) =
   let h = max(1, frameSize.y.int)
   if not ctx.offscreenTexture.isNil:
     # If size matches, keep existing.
-    if ctx.offscreenTexture.width.int == w and ctx.offscreenTexture.height.int == h:
+    if ctx.offscreenTexture.borrow.width.int == w and
+        ctx.offscreenTexture.borrow.height.int == h:
       return
-  ctx.offscreenTexture = ctx.newTexture2D(
-    pixelFormat = MTLPixelFormatBGRA8Unorm,
-    width = w,
-    height = h,
-    usage = MTLTextureUsage(
-      cast[NSUInteger](MTLTextureUsageShaderRead) or
-        cast[NSUInteger](MTLTextureUsageRenderTarget)
-    ),
+  ctx.offscreenTexture.resetRetained(
+    ctx.newTexture2D(
+      pixelFormat = MTLPixelFormatBGRA8Unorm,
+      width = w,
+      height = h,
+      usage = MTLTextureUsage(
+        cast[NSUInteger](MTLTextureUsageShaderRead) or
+          cast[NSUInteger](MTLTextureUsageRenderTarget)
+      ),
+    )
   )
 
 proc endEncoder(ctx: Context) =
@@ -192,102 +203,126 @@ proc beginPass(
     setClearColor(att0, clearColor)
   else:
     setLoadAction(att0, MTLLoadActionLoad)
-  ctx.encoder = renderCommandEncoderWithDescriptor(ctx.commandBuffer, pass)
+  ctx.encoder = renderCommandEncoderWithDescriptor(ctx.commandBuffer.borrow, pass)
   ctx.passKind = kind
 
 proc ensureMainPass(ctx: Context, clear: bool, clearColor: MTLClearColor) =
   if ctx.passKind == pkMain and not ctx.encoder.isNil:
     return
-  ctx.beginPass(pkMain, ctx.offscreenTexture, clear, clearColor)
+  ctx.beginPass(pkMain, ctx.offscreenTexture.borrow, clear, clearColor)
 
 proc ensureMaskPass(ctx: Context, clear: bool, clearColor: MTLClearColor) =
   if ctx.passKind == pkMask and not ctx.encoder.isNil:
     return
-  ctx.beginPass(pkMask, ctx.maskTextures[ctx.maskTextureWrite], clear, clearColor)
+  ctx.beginPass(
+    pkMask, ctx.maskTextures[ctx.maskTextureWrite].borrow, clear, clearColor
+  )
 
 proc ensureDeviceAndPipelines(ctx: Context) =
   if not ctx.device.isNil and not ctx.queue.isNil and not ctx.pipelineMain.isNil and
       not ctx.pipelineMask.isNil and not ctx.pipelineBlit.isNil:
     return
 
-  ctx.device = MTLCreateSystemDefaultDevice()
-  if ctx.device.isNil:
-    raise newException(ValueError, "Metal device not available")
-  ctx.queue = newCommandQueue(ctx.device)
-  if ctx.queue.isNil:
-    raise newException(ValueError, "Failed to create Metal command queue")
+  withAutoreleasePool:
+    let dev = MTLCreateSystemDefaultDevice()
+    if dev.isNil:
+      raise newException(ValueError, "Metal device not available")
+    ctx.device.resetRetained(dev)
 
-  let shaderSource = metalShaderSource
+    let q = newCommandQueue(ctx.device.borrow)
+    if q.isNil:
+      raise newException(ValueError, "Failed to create Metal command queue")
+    ctx.queue.resetRetained(q)
 
-  var err: NSError
-  let library = newLibraryWithSource(
-    ctx.device,
-    NSString.withUTF8String(cstring(shaderSource)),
-    MTLCompileOptions(nil),
-    addr err,
-  )
-  if library.isNil:
-    if not err.isNil:
-      error "Failed to compile Metal shaders", error = $err
-    raise newException(ValueError, "Failed to compile Metal shaders")
+    let shaderSource = metalShaderSource
 
-  let vsMain = newFunctionWithName(library, NSString.withUTF8String(cstring("vs_main")))
-  let fsMain = newFunctionWithName(library, NSString.withUTF8String(cstring("fs_main")))
-  let fsMask = newFunctionWithName(library, NSString.withUTF8String(cstring("fs_mask")))
-  let vsBlit = newFunctionWithName(library, NSString.withUTF8String(cstring("vs_blit")))
-  let fsBlit = newFunctionWithName(library, NSString.withUTF8String(cstring("fs_blit")))
-  if vsMain.isNil or fsMain.isNil or fsMask.isNil or vsBlit.isNil or fsBlit.isNil:
-    raise newException(ValueError, "Failed to find Metal shader functions")
-
-  proc configureBlend(att: MTLRenderPipelineColorAttachmentDescriptor) =
-    setBlendingEnabled(att, true)
-    setSourceRGBBlendFactor(att, MTLBlendFactorSourceAlpha)
-    setDestinationRGBBlendFactor(att, MTLBlendFactorOneMinusSourceAlpha)
-    setRgbBlendOperation(att, MTLBlendOperationAdd)
-    setSourceAlphaBlendFactor(att, MTLBlendFactorOne)
-    setDestinationAlphaBlendFactor(att, MTLBlendFactorOneMinusSourceAlpha)
-    setAlphaBlendOperation(att, MTLBlendOperationAdd)
-
-  # Main pipeline (offscreen BGRA8).
-  block:
-    let pd = MTLRenderPipelineDescriptor.alloc().init()
-    setVertexFunction(pd, vsMain)
-    setFragmentFunction(pd, fsMain)
-    let ca0 = objectAtIndexedSubscript(colorAttachments(pd), 0)
-    setPixelFormat(ca0, MTLPixelFormatBGRA8Unorm)
-    configureBlend(ca0)
-    ctx.pipelineMain = newRenderPipelineStateWithDescriptor(ctx.device, pd, addr err)
-    if ctx.pipelineMain.isNil:
+    var err: NSError
+    let library = fromRetained(
+      newLibraryWithSource(
+        ctx.device.borrow,
+        NSString.withUTF8String(cstring(shaderSource)),
+        MTLCompileOptions(nil),
+        addr err,
+      )
+    )
+    if library.isNil:
       if not err.isNil:
-        error "Failed to create Metal main pipeline", error = $err
-      raise newException(ValueError, "Failed to create Metal main pipeline")
+        error "Failed to compile Metal shaders", error = $err
+      raise newException(ValueError, "Failed to compile Metal shaders")
 
-  # Mask pipeline (R8).
-  block:
-    let pd = MTLRenderPipelineDescriptor.alloc().init()
-    setVertexFunction(pd, vsMain)
-    setFragmentFunction(pd, fsMask)
-    let ca0 = objectAtIndexedSubscript(colorAttachments(pd), 0)
-    setPixelFormat(ca0, MTLPixelFormatR8Unorm)
-    configureBlend(ca0)
-    ctx.pipelineMask = newRenderPipelineStateWithDescriptor(ctx.device, pd, addr err)
-    if ctx.pipelineMask.isNil:
-      if not err.isNil:
-        error "Failed to create Metal mask pipeline", error = $err
-      raise newException(ValueError, "Failed to create Metal mask pipeline")
+    let vsMain = fromRetained(
+      newFunctionWithName(library.borrow, NSString.withUTF8String(cstring("vs_main")))
+    )
+    let fsMain = fromRetained(
+      newFunctionWithName(library.borrow, NSString.withUTF8String(cstring("fs_main")))
+    )
+    let fsMask = fromRetained(
+      newFunctionWithName(library.borrow, NSString.withUTF8String(cstring("fs_mask")))
+    )
+    let vsBlit = fromRetained(
+      newFunctionWithName(library.borrow, NSString.withUTF8String(cstring("vs_blit")))
+    )
+    let fsBlit = fromRetained(
+      newFunctionWithName(library.borrow, NSString.withUTF8String(cstring("fs_blit")))
+    )
+    if vsMain.isNil or fsMain.isNil or fsMask.isNil or vsBlit.isNil or fsBlit.isNil:
+      raise newException(ValueError, "Failed to find Metal shader functions")
 
-  # Blit pipeline (drawable BGRA8, no blending).
-  block:
-    let pd = MTLRenderPipelineDescriptor.alloc().init()
-    setVertexFunction(pd, vsBlit)
-    setFragmentFunction(pd, fsBlit)
-    let ca0 = objectAtIndexedSubscript(colorAttachments(pd), 0)
-    setPixelFormat(ca0, MTLPixelFormatBGRA8Unorm)
-    ctx.pipelineBlit = newRenderPipelineStateWithDescriptor(ctx.device, pd, addr err)
-    if ctx.pipelineBlit.isNil:
-      if not err.isNil:
-        error "Failed to create Metal blit pipeline", error = $err
-      raise newException(ValueError, "Failed to create Metal blit pipeline")
+    proc configureBlend(att: MTLRenderPipelineColorAttachmentDescriptor) =
+      setBlendingEnabled(att, true)
+      setSourceRGBBlendFactor(att, MTLBlendFactorSourceAlpha)
+      setDestinationRGBBlendFactor(att, MTLBlendFactorOneMinusSourceAlpha)
+      setRgbBlendOperation(att, MTLBlendOperationAdd)
+      setSourceAlphaBlendFactor(att, MTLBlendFactorOne)
+      setDestinationAlphaBlendFactor(att, MTLBlendFactorOneMinusSourceAlpha)
+      setAlphaBlendOperation(att, MTLBlendOperationAdd)
+
+    # Main pipeline (offscreen BGRA8).
+    block:
+      let pd = fromRetained(MTLRenderPipelineDescriptor.alloc().init())
+      setVertexFunction(pd.borrow, vsMain.borrow)
+      setFragmentFunction(pd.borrow, fsMain.borrow)
+      let ca0 = objectAtIndexedSubscript(colorAttachments(pd.borrow), 0)
+      setPixelFormat(ca0, MTLPixelFormatBGRA8Unorm)
+      configureBlend(ca0)
+      ctx.pipelineMain.resetRetained(
+        newRenderPipelineStateWithDescriptor(ctx.device.borrow, pd.borrow, addr err)
+      )
+      if ctx.pipelineMain.isNil:
+        if not err.isNil:
+          error "Failed to create Metal main pipeline", error = $err
+        raise newException(ValueError, "Failed to create Metal main pipeline")
+
+    # Mask pipeline (R8).
+    block:
+      let pd = fromRetained(MTLRenderPipelineDescriptor.alloc().init())
+      setVertexFunction(pd.borrow, vsMain.borrow)
+      setFragmentFunction(pd.borrow, fsMask.borrow)
+      let ca0 = objectAtIndexedSubscript(colorAttachments(pd.borrow), 0)
+      setPixelFormat(ca0, MTLPixelFormatR8Unorm)
+      configureBlend(ca0)
+      ctx.pipelineMask.resetRetained(
+        newRenderPipelineStateWithDescriptor(ctx.device.borrow, pd.borrow, addr err)
+      )
+      if ctx.pipelineMask.isNil:
+        if not err.isNil:
+          error "Failed to create Metal mask pipeline", error = $err
+        raise newException(ValueError, "Failed to create Metal mask pipeline")
+
+    # Blit pipeline (drawable BGRA8, no blending).
+    block:
+      let pd = fromRetained(MTLRenderPipelineDescriptor.alloc().init())
+      setVertexFunction(pd.borrow, vsBlit.borrow)
+      setFragmentFunction(pd.borrow, fsBlit.borrow)
+      let ca0 = objectAtIndexedSubscript(colorAttachments(pd.borrow), 0)
+      setPixelFormat(ca0, MTLPixelFormatBGRA8Unorm)
+      ctx.pipelineBlit.resetRetained(
+        newRenderPipelineStateWithDescriptor(ctx.device.borrow, pd.borrow, addr err)
+      )
+      if ctx.pipelineBlit.isNil:
+        if not err.isNil:
+          error "Failed to create Metal blit pipeline", error = $err
+        raise newException(ValueError, "Failed to create Metal blit pipeline")
 
 proc upload(ctx: Context) =
   let vertexCount = ctx.quadCount * 4
@@ -295,21 +330,23 @@ proc upload(ctx: Context) =
     return
 
   copyToBuf(
-    ctx.positions.buffer, ctx.positions.data, vertexCount * 2 * sizeof(float32)
+    ctx.positions.buffer.borrow, ctx.positions.data, vertexCount * 2 * sizeof(float32)
   )
-  copyToBuf(ctx.uvs.buffer, ctx.uvs.data, vertexCount * 2 * sizeof(float32))
-  copyToBuf(ctx.colors.buffer, ctx.colors.data, vertexCount * 4 * sizeof(uint8))
+  copyToBuf(ctx.uvs.buffer.borrow, ctx.uvs.data, vertexCount * 2 * sizeof(float32))
+  copyToBuf(ctx.colors.buffer.borrow, ctx.colors.data, vertexCount * 4 * sizeof(uint8))
   copyToBuf(
-    ctx.sdfParams.buffer, ctx.sdfParams.data, vertexCount * 4 * sizeof(float32)
-  )
-  copyToBuf(
-    ctx.sdfRadii.buffer, ctx.sdfRadii.data, vertexCount * 4 * sizeof(float32)
+    ctx.sdfParams.buffer.borrow, ctx.sdfParams.data, vertexCount * 4 * sizeof(float32)
   )
   copyToBuf(
-    ctx.sdfModeAttr.buffer, ctx.sdfModeAttr.data, vertexCount * sizeof(SdfModeData)
+    ctx.sdfRadii.buffer.borrow, ctx.sdfRadii.data, vertexCount * 4 * sizeof(float32)
   )
   copyToBuf(
-    ctx.sdfFactors.buffer, ctx.sdfFactors.data, vertexCount * 2 * sizeof(float32)
+    ctx.sdfModeAttr.buffer.borrow,
+    ctx.sdfModeAttr.data,
+    vertexCount * sizeof(SdfModeData),
+  )
+  copyToBuf(
+    ctx.sdfFactors.buffer.borrow, ctx.sdfFactors.data, vertexCount * 2 * sizeof(float32)
   )
 
 proc grow(ctx: Context) =
@@ -317,7 +354,7 @@ proc grow(ctx: Context) =
   ctx.atlasSize = ctx.atlasSize * 2
   info "grow atlasSize ", atlasSize = ctx.atlasSize
   ctx.heights.setLen(ctx.atlasSize)
-  ctx.atlasTexture = ctx.createAtlasTexture(ctx.atlasSize)
+  ctx.atlasTexture.resetRetained(ctx.createAtlasTexture(ctx.atlasSize))
   ctx.entries.clear()
 
 proc findEmptyRect(ctx: Context, width, height: int): Rect =
@@ -358,7 +395,7 @@ proc findEmptyRect(ctx: Context, width, height: int): Rect =
 proc putImage*(ctx: Context, path: Hash, image: Image) =
   let rect = ctx.findEmptyRect(image.width, image.height)
   ctx.entries[path] = rect / float(ctx.atlasSize)
-  ctx.updateSubImage(ctx.atlasTexture, int(rect.x), int(rect.y), image)
+  ctx.updateSubImage(ctx.atlasTexture.borrow, int(rect.x), int(rect.y), image)
 
 proc addImage*(ctx: Context, key: Hash, image: Image) =
   ctx.putImage(key, image)
@@ -368,7 +405,7 @@ proc updateImage*(ctx: Context, path: Hash, image: Image) =
   assert rect.w == image.width.float / float(ctx.atlasSize)
   assert rect.h == image.height.float / float(ctx.atlasSize)
   ctx.updateSubImage(
-    ctx.atlasTexture,
+    ctx.atlasTexture.borrow,
     int(rect.x * ctx.atlasSize.float),
     int(rect.y * ctx.atlasSize.float),
     image,
@@ -880,13 +917,17 @@ proc beginMask*(ctx: Context) =
   inc ctx.maskTextureWrite
   if ctx.maskTextureWrite >= ctx.maskTextures.len:
     ctx.maskTextures.add(
-      ctx.createMaskTexture(ctx.frameSize.x.int, ctx.frameSize.y.int)
+      fromRetained(ctx.createMaskTexture(ctx.frameSize.x.int, ctx.frameSize.y.int))
     )
   else:
     # Resize existing mask textures (slot 0 is the 1x1 base).
     if ctx.maskTextureWrite > 0:
-      ctx.maskTextures[ctx.maskTextureWrite] =
-        ctx.createMaskTexture(ctx.frameSize.x.int, ctx.frameSize.y.int)
+      let cur = ctx.maskTextures[ctx.maskTextureWrite]
+      if cur.isNil or cur.borrow.width.int != ctx.frameSize.x.int or
+          cur.borrow.height.int != ctx.frameSize.y.int:
+        ctx.maskTextures[ctx.maskTextureWrite].resetRetained(
+          ctx.createMaskTexture(ctx.frameSize.x.int, ctx.frameSize.y.int)
+        )
 
   ctx.ensureMaskPass(
     clear = true,
@@ -912,12 +953,14 @@ proc beginFrame*(ctx: Context, frameSize: Vec2, proj: Mat4, clearMain = false) =
   assert ctx.frameBegun == false, "ctx.beginFrame has already been called."
   ctx.frameBegun = true
 
+  ctx.frameAutoreleasePool.start()
+
   ctx.ensureDeviceAndPipelines()
   ctx.ensureMask0()
 
   if not ctx.lastCommitted.isNil:
     # Avoid overlapping command buffers that write to the same offscreen texture.
-    waitUntilCompleted(ctx.lastCommitted)
+    waitUntilCompleted(ctx.lastCommitted.borrow)
 
   ctx.maskBegun = false
   ctx.maskTextureWrite = 0
@@ -928,13 +971,16 @@ proc beginFrame*(ctx: Context, frameSize: Vec2, proj: Mat4, clearMain = false) =
   ctx.ensureOffscreen(frameSize)
   # Resize any existing mask textures > 0.
   for i in 1 ..< ctx.maskTextures.len:
-    ctx.maskTextures[i] = ctx.createMaskTexture(frameSize.x.int, frameSize.y.int)
+    let cur = ctx.maskTextures[i]
+    if cur.isNil or cur.borrow.width.int != frameSize.x.int or
+        cur.borrow.height.int != frameSize.y.int:
+      ctx.maskTextures[i].resetRetained(
+        ctx.createMaskTexture(frameSize.x.int, frameSize.y.int)
+      )
 
-  ctx.commandBuffer = commandBuffer(ctx.queue)
+  ctx.commandBuffer.resetBorrowed(commandBuffer(ctx.queue.borrow))
   if ctx.commandBuffer.isNil:
     raise newException(ValueError, "Failed to create Metal command buffer")
-  # Retain until after commit; commandBuffer is autoreleased.
-  discard retain(ctx.commandBuffer)
 
   # Always start in main pass.
   ctx.ensureMainPass(
@@ -963,7 +1009,7 @@ proc endFrame*(ctx: Context) =
     if drawable.isNil and not ctx.lastCommitted.isNil:
       # If we missed the drawable timeout, wait for the previous frame to
       # finish and retry once to avoid presenting a cleared frame.
-      waitUntilCompleted(ctx.lastCommitted)
+      waitUntilCompleted(ctx.lastCommitted.borrow)
       drawable = ctx.presentLayer.nextDrawable()
     if not drawable.isNil:
       let pass = MTLRenderPassDescriptor.renderPassDescriptor()
@@ -971,19 +1017,18 @@ proc endFrame*(ctx: Context) =
       setTexture(att0, texture(drawable))
       setLoadAction(att0, MTLLoadActionLoad)
       setStoreAction(att0, MTLStoreActionStore)
-      let enc = renderCommandEncoderWithDescriptor(ctx.commandBuffer, pass)
+      let enc = renderCommandEncoderWithDescriptor(ctx.commandBuffer.borrow, pass)
       if not enc.isNil:
-        setRenderPipelineState(enc, ctx.pipelineBlit)
-        setFragmentTexture(enc, ctx.offscreenTexture, 0)
+        setRenderPipelineState(enc, ctx.pipelineBlit.borrow)
+        setFragmentTexture(enc, ctx.offscreenTexture.borrow, 0)
         drawPrimitives(enc, MTLPrimitiveTypeTriangle, 0, 3)
         endEncoding(enc)
-      presentDrawable(ctx.commandBuffer, cast[MTLDrawable](drawable))
+      presentDrawable(ctx.commandBuffer.borrow, cast[MTLDrawable](drawable))
 
-  commit(ctx.commandBuffer)
-  if not ctx.lastCommitted.isNil:
-    release(ctx.lastCommitted)
-  ctx.lastCommitted = retain(ctx.commandBuffer)
-  release(ctx.commandBuffer)
+  commit(ctx.commandBuffer.borrow)
+  ctx.lastCommitted = ctx.commandBuffer
+  ctx.commandBuffer.clear()
+  ctx.frameAutoreleasePool.stop()
 
 proc translate*(ctx: Context, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
@@ -1022,11 +1067,11 @@ proc setPresentLayer*(ctx: Context, layer: CAMetalLayer) =
 proc readPixels*(ctx: Context, frame: Rect = rect(0, 0, 0, 0)): Image =
   if ctx.lastCommitted.isNil:
     raise newException(ValueError, "No Metal frame has been committed yet")
-  waitUntilCompleted(ctx.lastCommitted)
+  waitUntilCompleted(ctx.lastCommitted.borrow)
 
   let
-    texW = ctx.offscreenTexture.width.int
-    texH = ctx.offscreenTexture.height.int
+    texW = ctx.offscreenTexture.borrow.width.int
+    texH = ctx.offscreenTexture.borrow.height.int
 
   var x = frame.x.int
   var y = frame.y.int
@@ -1045,7 +1090,7 @@ proc readPixels*(ctx: Context, frame: Rect = rect(0, 0, 0, 0)): Image =
 
   result = newImage(w, h)
   var tmp = newSeq[uint8](w * h * 4)
-  ctx.offscreenTexture.getBytes(
+  ctx.offscreenTexture.borrow.getBytes(
     tmp[0].addr, NSUInteger(w * 4), mtlRegion2D(x, y, w, h), 0
   )
 
@@ -1080,15 +1125,17 @@ proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
   if enc.isNil:
     raise newException(ValueError, "Metal render encoder is nil")
 
-  setRenderPipelineState(enc, if ctx.maskBegun: ctx.pipelineMask else: ctx.pipelineMain)
+  setRenderPipelineState(
+    enc, (if ctx.maskBegun: ctx.pipelineMask.borrow else: ctx.pipelineMain.borrow)
+  )
 
-  setVertexBuffer(enc, ctx.positions.buffer, 0, 0)
-  setVertexBuffer(enc, ctx.uvs.buffer, 0, 1)
-  setVertexBuffer(enc, ctx.colors.buffer, 0, 2)
-  setVertexBuffer(enc, ctx.sdfParams.buffer, 0, 3)
-  setVertexBuffer(enc, ctx.sdfRadii.buffer, 0, 4)
-  setVertexBuffer(enc, ctx.sdfModeAttr.buffer, 0, 5)
-  setVertexBuffer(enc, ctx.sdfFactors.buffer, 0, 6)
+  setVertexBuffer(enc, ctx.positions.buffer.borrow, 0, 0)
+  setVertexBuffer(enc, ctx.uvs.buffer.borrow, 0, 1)
+  setVertexBuffer(enc, ctx.colors.buffer.borrow, 0, 2)
+  setVertexBuffer(enc, ctx.sdfParams.buffer.borrow, 0, 3)
+  setVertexBuffer(enc, ctx.sdfRadii.buffer.borrow, 0, 4)
+  setVertexBuffer(enc, ctx.sdfModeAttr.buffer.borrow, 0, 5)
+  setVertexBuffer(enc, ctx.sdfFactors.buffer.borrow, 0, 6)
 
   type VSUniforms = object
     proj: Mat4
@@ -1108,16 +1155,16 @@ proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
   )
   setFragmentBytes(enc, addr fsu, NSUInteger(sizeof(FSUniforms)), 0)
 
-  setFragmentTexture(enc, ctx.atlasTexture, 0)
+  setFragmentTexture(enc, ctx.atlasTexture.borrow, 0)
   let maskIndex = clamp(maskTextureRead, 0, ctx.maskTextures.high)
-  setFragmentTexture(enc, ctx.maskTextures[maskIndex], 1)
+  setFragmentTexture(enc, ctx.maskTextures[maskIndex].borrow, 1)
 
   drawIndexedPrimitives(
     enc,
     MTLPrimitiveTypeTriangle,
     NSUInteger(indexCount),
     MTLIndexTypeUInt16,
-    ctx.indices.buffer,
+    ctx.indices.buffer.borrow,
     0,
   )
 
@@ -1133,83 +1180,100 @@ proc newContext*(
   if maxQuads > quadLimit:
     raise newException(ValueError, &"Quads cannot exceed {quadLimit}")
 
-  result = Context()
-  result.atlasSize = atlasSize
-  result.atlasMargin = atlasMargin
-  result.maxQuads = maxQuads
-  result.mat = mat4()
-  result.mats = newSeq[Mat4]()
-  result.pixelate = pixelate
-  result.pixelScale = pixelScale
-  result.aaFactor = 1.2'f32
+  withAutoreleasePool:
+    result = Context()
+    result.atlasSize = atlasSize
+    result.atlasMargin = atlasMargin
+    result.maxQuads = maxQuads
+    result.mat = mat4()
+    result.mats = newSeq[Mat4]()
+    result.pixelate = pixelate
+    result.pixelScale = pixelScale
+    result.aaFactor = 1.2'f32
 
-  result.ensureDeviceAndPipelines()
+    result.ensureDeviceAndPipelines()
 
-  result.heights = newSeq[uint16](atlasSize)
-  result.atlasTexture = result.createAtlasTexture(atlasSize)
-  result.ensureMask0()
+    result.heights = newSeq[uint16](atlasSize)
+    result.atlasTexture.resetRetained(result.createAtlasTexture(atlasSize))
+    result.ensureMask0()
 
-  # Allocate CPU-side arrays.
-  result.positions.data = newSeq[float32](2 * maxQuads * 4)
-  result.colors.data = newSeq[uint8](4 * maxQuads * 4)
-  result.uvs.data = newSeq[float32](2 * maxQuads * 4)
-  result.sdfParams.data = newSeq[float32](4 * maxQuads * 4)
-  result.sdfRadii.data = newSeq[float32](4 * maxQuads * 4)
-  result.sdfModeAttr.data = newSeq[SdfModeData](1 * maxQuads * 4)
-  result.sdfFactors.data = newSeq[float32](2 * maxQuads * 4)
+    # Allocate CPU-side arrays.
+    result.positions.data = newSeq[float32](2 * maxQuads * 4)
+    result.colors.data = newSeq[uint8](4 * maxQuads * 4)
+    result.uvs.data = newSeq[float32](2 * maxQuads * 4)
+    result.sdfParams.data = newSeq[float32](4 * maxQuads * 4)
+    result.sdfRadii.data = newSeq[float32](4 * maxQuads * 4)
+    result.sdfModeAttr.data = newSeq[SdfModeData](1 * maxQuads * 4)
+    result.sdfFactors.data = newSeq[float32](2 * maxQuads * 4)
 
-  # Allocate GPU buffers.
-  result.positions.buffer = newBufferWithLength(
-    result.device,
-    NSUInteger(result.positions.data.len * sizeof(float32)),
-    MTLResourceOptions(0),
-  )
-  result.colors.buffer = newBufferWithLength(
-    result.device,
-    NSUInteger(result.colors.data.len * sizeof(uint8)),
-    MTLResourceOptions(0),
-  )
-  result.uvs.buffer = newBufferWithLength(
-    result.device,
-    NSUInteger(result.uvs.data.len * sizeof(float32)),
-    MTLResourceOptions(0),
-  )
-  result.sdfParams.buffer = newBufferWithLength(
-    result.device,
-    NSUInteger(result.sdfParams.data.len * sizeof(float32)),
-    MTLResourceOptions(0),
-  )
-  result.sdfRadii.buffer = newBufferWithLength(
-    result.device,
-    NSUInteger(result.sdfRadii.data.len * sizeof(float32)),
-    MTLResourceOptions(0),
-  )
-  result.sdfModeAttr.buffer = newBufferWithLength(
-    result.device,
-    NSUInteger(result.sdfModeAttr.data.len * sizeof(SdfModeData)),
-    MTLResourceOptions(0),
-  )
-  result.sdfFactors.buffer = newBufferWithLength(
-    result.device,
-    NSUInteger(result.sdfFactors.data.len * sizeof(float32)),
-    MTLResourceOptions(0),
-  )
+    # Allocate GPU buffers.
+    result.positions.buffer.resetRetained(
+      newBufferWithLength(
+        result.device.borrow,
+        NSUInteger(result.positions.data.len * sizeof(float32)),
+        MTLResourceOptions(0),
+      )
+    )
+    result.colors.buffer.resetRetained(
+      newBufferWithLength(
+        result.device.borrow,
+        NSUInteger(result.colors.data.len * sizeof(uint8)),
+        MTLResourceOptions(0),
+      )
+    )
+    result.uvs.buffer.resetRetained(
+      newBufferWithLength(
+        result.device.borrow,
+        NSUInteger(result.uvs.data.len * sizeof(float32)),
+        MTLResourceOptions(0),
+      )
+    )
+    result.sdfParams.buffer.resetRetained(
+      newBufferWithLength(
+        result.device.borrow,
+        NSUInteger(result.sdfParams.data.len * sizeof(float32)),
+        MTLResourceOptions(0),
+      )
+    )
+    result.sdfRadii.buffer.resetRetained(
+      newBufferWithLength(
+        result.device.borrow,
+        NSUInteger(result.sdfRadii.data.len * sizeof(float32)),
+        MTLResourceOptions(0),
+      )
+    )
+    result.sdfModeAttr.buffer.resetRetained(
+      newBufferWithLength(
+        result.device.borrow,
+        NSUInteger(result.sdfModeAttr.data.len * sizeof(SdfModeData)),
+        MTLResourceOptions(0),
+      )
+    )
+    result.sdfFactors.buffer.resetRetained(
+      newBufferWithLength(
+        result.device.borrow,
+        NSUInteger(result.sdfFactors.data.len * sizeof(float32)),
+        MTLResourceOptions(0),
+      )
+    )
 
-  # Indices are static.
-  result.indices.data = newSeq[uint16](maxQuads * 6)
-  for i in 0 ..< maxQuads:
-    let offset = i * 4
-    let base = i * 6
-    result.indices.data[base + 0] = (offset + 3).uint16
-    result.indices.data[base + 1] = (offset + 0).uint16
-    result.indices.data[base + 2] = (offset + 1).uint16
-    result.indices.data[base + 3] = (offset + 2).uint16
-    result.indices.data[base + 4] = (offset + 3).uint16
-    result.indices.data[base + 5] = (offset + 1).uint16
+    # Indices are static.
+    result.indices.data = newSeq[uint16](maxQuads * 6)
+    for i in 0 ..< maxQuads:
+      let offset = i * 4
+      let base = i * 6
+      result.indices.data[base + 0] = (offset + 3).uint16
+      result.indices.data[base + 1] = (offset + 0).uint16
+      result.indices.data[base + 2] = (offset + 1).uint16
+      result.indices.data[base + 3] = (offset + 2).uint16
+      result.indices.data[base + 4] = (offset + 3).uint16
+      result.indices.data[base + 5] = (offset + 1).uint16
 
-  result.indices.buffer = newBufferWithBytes(
-    result.device,
-    result.indices.data[0].addr,
-    NSUInteger(result.indices.data.len * sizeof(uint16)),
-    MTLResourceOptions(0),
-  )
+    result.indices.buffer.resetRetained(
+      newBufferWithBytes(
+        result.device.borrow,
+        result.indices.data[0].addr,
+        NSUInteger(result.indices.data.len * sizeof(uint16)),
+        MTLResourceOptions(0),
+      )
+    )

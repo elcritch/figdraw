@@ -1,4 +1,4 @@
-version       = "0.12.0"
+version       = "0.12.1"
 author        = "Jaremy Creechley"
 description   = "UI Engine for Nim"
 license       = "MIT"
@@ -18,6 +18,9 @@ requires "variant"
 requires "patty"
 requires "supersnappy"
 
+feature "metal":
+  requires "https://github.com/elcritch/metalx[test] >= 0.4.2 "
+
 feature "siwin":
   requires "siwin"
 
@@ -30,8 +33,6 @@ feature "windy":
 feature "vulkan":
   requires "https://github.com/planetis-m/vulkan#head"
 
-feature "metal":
-  requires "https://github.com/elcritch/metalx >= 0.4.1"
 
 feature "windex":
   requires "https://github.com/elcritch/windex"
