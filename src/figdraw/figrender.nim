@@ -1,54 +1,83 @@
 import std/[hashes, math, tables, unicode]
 export tables
 
-from pixie import Image, newImage, flipVertical
+from pkg/pixie import Image, newImage, flipVertical
 import pkg/chroma
 import pkg/chronicles
-import pkg/opengl
 
-import ../commons
-import ../utils/glutils
-import ../utils/drawshadows
-import ../utils/drawboxes
-import glcommons, glcontext
+import ./commons
+import ./utils/drawshadows
+import ./utils/drawboxes
+import ./opengl/glcommons
+
+when UseMetalBackend:
+  import ./metal/metal_context
+  import metalx/metal
+else:
+  import pkg/opengl
+  import ./utils/glutils
+  import ./opengl/glcontext
+  export glutils
 
 const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
-type OpenGLRenderer* = ref object
+type FigRenderer* = ref object
   ctx*: Context
 
-proc takeScreenshot*(frame: Rect = rect(0, 0, 0, 0),
-    readFront: bool = true): Image =
-  var viewport: array[4, GLint]
-  glGetIntegerv(GL_VIEWPORT, viewport[0].addr)
+when UseMetalBackend:
+  proc metalDevice*(ctx: Context): MTLDevice =
+    ## Convenience re-export so callers using `figdraw/figrender` don't also
+    ## need to import `figdraw/metal/glcontext_metal`.
+    metal_context.metalDevice(ctx)
 
-  let
-    viewportWidth = viewport[2].int
-    viewportHeight = viewport[3].int
+proc takeScreenshot*(
+    renderer: FigRenderer, frame: Rect = rect(0, 0, 0, 0), readFront: bool = true
+): Image =
+  discard readFront
+  let ctx: Context = renderer.ctx
+  when UseMetalBackend:
+    result = ctx.readPixels(frame)
+  else:
+    var viewport: array[4, GLint]
+    glGetIntegerv(GL_VIEWPORT, viewport[0].addr)
 
-  var x = frame.x.int
-  var y = frame.y.int
-  var w = frame.w.int
-  var h = frame.h.int
+    let
+      viewportWidth = viewport[2].int
+      viewportHeight = viewport[3].int
 
-  if w <= 0 or h <= 0:
-    x = 0
-    y = 0
-    w = viewportWidth
-    h = viewportHeight
+    var x = frame.x.int
+    var y = frame.y.int
+    var w = frame.w.int
+    var h = frame.h.int
 
-  glReadBuffer(if readFront: GL_FRONT else: GL_BACK)
-  result = newImage(w, h)
-  glReadPixels(
-    x.GLint, y.GLint, w.GLint, h.GLint, GL_RGBA, GL_UNSIGNED_BYTE, result.data[0].addr
-  )
-  result.flipVertical()
-  glReadBuffer(GL_BACK)
+    if w <= 0 or h <= 0:
+      x = 0
+      y = 0
+      w = viewportWidth
+      h = viewportHeight
 
-proc newOpenGLRenderer*(atlasSize: int, pixelScale = app.pixelScale): OpenGLRenderer =
-  result = OpenGLRenderer()
-  result.ctx =
-    newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
+    glReadBuffer(if readFront: GL_FRONT else: GL_BACK)
+    result = newImage(w, h)
+    glReadPixels(
+      x.GLint, y.GLint, w.GLint, h.GLint, GL_RGBA, GL_UNSIGNED_BYTE, result.data[0].addr
+    )
+    result.flipVertical()
+    glReadBuffer(GL_BACK)
+
+proc newFigRenderer*(atlasSize: int, pixelScale = app.pixelScale): FigRenderer =
+  result = FigRenderer()
+  when UseMetalBackend:
+    result.ctx = newContext(
+      atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
+    )
+  else:
+    result.ctx = newContext(
+      atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
+    )
+
+proc newFigRenderer*(ctx: Context): FigRenderer =
+  ## Uses a caller-created backend context.
+  result = FigRenderer(ctx: ctx)
 
 proc renderDrawable*(ctx: Context, node: Fig) =
   ## TODO: draw non-node stuff?
@@ -59,12 +88,9 @@ proc renderDrawable*(ctx: Context, node: Fig) =
     ctx.drawRect(bx, node.fill)
 
 proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
-  ## draw characters (glyphs)
-
+  ## Draw characters (glyphs)
   for glyph in node.textLayout.glyphs():
     if unicode.isWhiteSpace(glyph.rune):
-      # Don't draw space, even if font has a char for it.
-      # FIXME: use unicode 'is whitespace' ?
       continue
 
     let
@@ -118,8 +144,7 @@ macro postRender() =
 
 proc drawMasks(ctx: Context, node: Fig) =
   ctx.drawRoundedRectSdf(
-    rect = node.screenBox, color = rgba(255, 0, 0, 255).color,
-        radii = node.corners
+    rect = node.screenBox, color = rgba(255, 0, 0, 255).color, radii = node.corners
   )
 
 proc renderDropShadows(ctx: Context, node: Fig) =
@@ -205,7 +230,6 @@ proc renderInnerShadows(ctx: Context, node: Fig) =
       for i in 0 .. n:
         let blur: float32 = i.toFloat() * blurAmt
         var box = node.screenBox
-        # var box = node.screenBox.atXY(x = shadow.x, y = shadow.y)
         if shadow.x >= 0'f32:
           box.w += shadow.x
         else:
@@ -289,10 +313,7 @@ proc renderMsdfImage(ctx: Context, node: Fig) =
     return
   let size = vec2(node.screenBox.w, node.screenBox.h)
   let pxRange =
-    if node.msdfImage.pxRange > 0.0'f32:
-      node.msdfImage.pxRange
-    else:
-      4.0'f32
+    if node.msdfImage.pxRange > 0.0'f32: node.msdfImage.pxRange else: 4.0'f32
   let sdThreshold =
     if node.msdfImage.sdThreshold > 0.0'f32 and node.msdfImage.sdThreshold < 1.0'f32:
       node.msdfImage.sdThreshold
@@ -312,10 +333,7 @@ proc renderMtsdfImage(ctx: Context, node: Fig) =
     return
   let size = vec2(node.screenBox.w, node.screenBox.h)
   let pxRange =
-    if node.mtsdfImage.pxRange > 0.0'f32:
-      node.mtsdfImage.pxRange
-    else:
-      4.0'f32
+    if node.mtsdfImage.pxRange > 0.0'f32: node.mtsdfImage.pxRange else: 4.0'f32
   let sdThreshold =
     if node.mtsdfImage.sdThreshold > 0.0'f32 and node.mtsdfImage.sdThreshold < 1.0'f32:
       node.mtsdfImage.sdThreshold
@@ -336,24 +354,13 @@ proc render(
   template node(): auto =
     nodes[nodeIdx.int]
 
-  template parent(): auto =
-    nodes[parentIdx.int]
-
   ## Draws the node.
   ##
-  ## This is the primary routine that handles setting up the OpenGL
-  ## context that will get rendered. This doesn't trigger the actual
-  ## OpenGL rendering, but configures the various shaders and elements.
-  ##
-  ## Note that visiable draw calls need to check they're on the current
-  ## active ZLevel (z-index).
+  ## This is the primary routine that handles setting up the rendering
+  ## context. This doesn't necessarily trigger the actual GPU rendering, but
+  ## configures the various shaders and elements.
   if NfDisableRender in node.flags:
     return
-
-  # setup the opengl context to match the current node size and position
-
-  # ctx.saveTransform()
-  # ctx.translate(node.screenBox.xy)
 
   # handle node rotation
   ifrender node.rotation != 0:
@@ -407,17 +414,12 @@ proc render(
       else:
         ctx.renderInnerShadows(node)
 
-  # restores the opengl context back to the parent node's (see above)
-  # ctx.restoreTransform()
-
   for childIdx in childIndex(nodes, nodeIdx):
     ctx.render(nodes, childIdx, nodeIdx)
 
-  # finally blocks will be run here, in reverse order
   postRender()
 
-proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [
-    AppMainThreadEff].} =
+proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff].} =
   ## draw roots for each level
   var img: ImgObj
   while imageChan.tryRecv(img):
@@ -428,33 +430,35 @@ proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [
     for rootIdx in list.rootIds:
       ctx.render(list.nodes, rootIdx, -1.FigIdx)
 
-proc renderFrame*(renderer: OpenGLRenderer, nodes: var Renders,
-    frameSize: Vec2) =
+proc renderFrame*(renderer: FigRenderer, nodes: var Renders, frameSize: Vec2) =
   let ctx: Context = renderer.ctx
-  clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
-  ctx.beginFrame(frameSize)
+  when UseMetalBackend:
+    ctx.beginFrame(frameSize, clearMain = true)
+  else:
+    clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
+    ctx.beginFrame(frameSize)
+
   ctx.saveTransform()
   ctx.scale(ctx.pixelScale)
-
-  # draw root
   ctx.renderRoot(nodes)
-
   ctx.restoreTransform()
   ctx.endFrame()
 
-  when defined(testOneFrame):
+  when defined(testOneFrame) and not UseMetalBackend:
     ## This is used for test only
     ## Take a screen shot of the first frame and exit.
-    var img = takeScreenshot()
+    var img = takeScreenshot(renderer)
     img.writeFile("screenshot.png")
     quit()
 
-proc renderOverlayFrame*(
-    renderer: OpenGLRenderer, nodes: var Renders, frameSize: Vec2
-) =
+proc renderOverlayFrame*(renderer: FigRenderer, nodes: var Renders, frameSize: Vec2) =
   ## Render without clearing the color buffer (useful for UI overlays).
   let ctx: Context = renderer.ctx
-  ctx.beginFrame(frameSize)
+  when UseMetalBackend:
+    ctx.beginFrame(frameSize, clearMain = false)
+  else:
+    ctx.beginFrame(frameSize)
+
   ctx.saveTransform()
   ctx.scale(ctx.pixelScale)
   ctx.renderRoot(nodes)
@@ -462,11 +466,14 @@ proc renderOverlayFrame*(
   ctx.endFrame()
 
 proc renderFrame*(
-    ctx: Context, nodes: var Renders, frameSize: Vec2,
-        pixelScale = ctx.pixelScale
+    ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
 ) =
-  clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
-  ctx.beginFrame(frameSize)
+  when UseMetalBackend:
+    ctx.beginFrame(frameSize, clearMain = true)
+  else:
+    clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
+    ctx.beginFrame(frameSize)
+
   ctx.saveTransform()
   ctx.scale(pixelScale)
   ctx.renderRoot(nodes)
@@ -474,11 +481,14 @@ proc renderFrame*(
   ctx.endFrame()
 
 proc renderOverlayFrame*(
-    ctx: Context, nodes: var Renders, frameSize: Vec2,
-        pixelScale = ctx.pixelScale
+    ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
 ) =
   ## Render without clearing the color buffer (useful for UI overlays).
-  ctx.beginFrame(frameSize)
+  when UseMetalBackend:
+    ctx.beginFrame(frameSize, clearMain = false)
+  else:
+    ctx.beginFrame(frameSize)
+
   ctx.saveTransform()
   ctx.scale(pixelScale)
   ctx.renderRoot(nodes)

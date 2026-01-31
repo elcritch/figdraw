@@ -1,4 +1,3 @@
-
 import std/unittest
 import std/strutils
 import pkg/chronicles
@@ -50,9 +49,7 @@ proc draw(fig: TestFig) =
       Rectangle.new "child21":
         this.zlevel = -10
 
-
 suite "test layers":
-
   test "basic single layer":
     var self = TestBasic()
     var frame = newAppFrame(root = self.FigTest, size = (100'f32, 100'f32))
@@ -77,7 +74,6 @@ suite "test layers":
     # check res2.repr == "@[3, 4, 5]"
 
   test "three layer out of order":
-
     var node = TestFig()
     var frame = newAppFrame(root = node.FigTest, size = (100'f32, 100'f32))
 
@@ -89,9 +85,7 @@ suite "test layers":
       echo k, v.rootIds
       for n in v.nodes:
         echo "   node: ",
-          " parent:", n.parent,
-          " chCnt:", n.childCount,
-          " zlvl:", n.zlevel
+          " parent:", n.parent, " chCnt:", n.childCount, " zlvl:", n.zlevel
 
     assert -10.ZLevel in renders
     check renders[-10.ZLevel].nodes.len() == 3
@@ -132,7 +126,6 @@ suite "test layers":
     check res30[0].name == "child1"
     check res30[0][0].name == "child11"
     check res30[0][1].name == "child12"
-
 
     # printRenders(renders[30.ZLevel], 0.NodeIdx)
     # printRenders(renders[-10.ZLevel], 0.NodeIdx)

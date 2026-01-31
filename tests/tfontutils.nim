@@ -29,8 +29,7 @@ suite "fontutils":
   test "convertFont caches pixie font":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = getTypefaceImpl("Ubuntu.ttf", fontData, TTF)
-    let uiFont = UiFont(typefaceId: typefaceId, size: 20.0'f32,
-        lineHeightScale: 0.75)
+    let uiFont = UiFont(typefaceId: typefaceId, size: 20.0'f32, lineHeightScale: 0.75)
 
     let (fontId1, pf1) = uiFont.convertFont()
     let (fontId2, pf2) = uiFont.convertFont()
@@ -42,8 +41,7 @@ suite "fontutils":
   test "lineHeightScale affects computed lineHeight":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = getTypefaceImpl("Ubuntu.ttf", fontData, TTF)
-    let uiFont = UiFont(typefaceId: typefaceId, size: 32.0'f32,
-        lineHeightScale: 0.5)
+    let uiFont = UiFont(typefaceId: typefaceId, size: 32.0'f32, lineHeightScale: 0.5)
 
     let (_, pf) = uiFont.convertFont()
     let expected = 0.5'f32 * pf.defaultLineHeight()
@@ -58,14 +56,8 @@ suite "fontutils":
     let box = rect(0, 0, 240, 60)
     let spans = [(uiFont, "Hello world")]
 
-    let arrangement = typeset(
-      box,
-      spans,
-      hAlign = Left,
-      vAlign = Top,
-      minContent = false,
-      wrap = false,
-    )
+    let arrangement =
+      typeset(box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false)
 
     check arrangement.contentHash == getContentHash(box.wh, spans, Left, Top)
     check arrangement.spans.len == spans.len
@@ -93,10 +85,7 @@ suite "fontutils":
 
     let a = "A".runeAt(0)
     let b = "B".runeAt(0)
-    let positions = [
-      (a, vec2(12, 16)),
-      (b, vec2(40, 16)),
-    ]
+    let positions = [(a, vec2(12, 16)), (b, vec2(40, 16))]
 
     let arrangement = placeGlyphs(uiFont, positions, origin = GlyphTopLeft)
 

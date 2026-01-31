@@ -16,8 +16,10 @@ jobs:
           - '2.2.6'
         os:
           - ubuntu-24.04
+          - macos-14
     steps:
     - uses: actions/checkout@v1
+
     - name: Setup software OpenGL (Mesa) + Xvfb
       if: runner.os == 'Linux'
       run: |
@@ -37,11 +39,10 @@ jobs:
         echo "$HOME/.local/share/grabnim/current/bin" >> $GITHUB_PATH
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
-    - name: Cache packages
-      uses: actions/cache@v3
-      with:
-        path: deps/
-        key: ${{ runner.os }}-${{ hashFiles('figdraw.nimble') }}
+    - name: Install Nim
+      run: |
+        grabnim ${{ matrix.nimversion }}
+        nim -v
 
     - name: Install Atlas
       run: |
@@ -51,15 +52,34 @@ jobs:
         echo "Nimble:: "
         atlas -v
 
+    - name: Cache packages
+      uses: actions/cache@v3
+      with:
+        path: deps/
+        key: ${{ runner.os }}-${{ hashFiles('figdraw.nimble') }}
+
     - name: Install Deps
+      if: runner.os == 'Linux'
       run: |
         # sync deps
         atlas install --feature:windy --feature:sdl2
 
+    - name: Install Deps
+      if: runner.os == 'macOS'
+      run: |
+        # sync deps
+        atlas install --feature:windy --feature:sdl2 --feature:metal
+
     - name: Build Tests
+      if: runner.os == 'Linux'
       env:
         LIBGL_ALWAYS_SOFTWARE: "1"
         MESA_GL_VERSION_OVERRIDE: "3.3"
         MESA_GLSL_VERSION_OVERRIDE: "330"
       run: |
         xvfb-run -a -s "-screen 0 1280x1024x24" nim test
+
+    - name: Build Tests
+      if: runner.os == 'macOS'
+      run: |
+        nim test

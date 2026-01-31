@@ -12,8 +12,7 @@ import chroma
 
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/opengl/renderer as glrenderer
-import figdraw/utils/glutils
+import figdraw/figrender
 
 import renderlist_100_common
 
@@ -29,19 +28,24 @@ proc setupWindow(frame: AppFrame, window: Window) =
       window.size = ivec2(frame.windowInfo.box.wh.scaled())
 
     window.visible = true
-  window.makeContextCurrent()
+  when not UseMetalBackend:
+    window.makeContextCurrent()
 
 proc newWindyWindow(frame: AppFrame): Window =
-  let window = when defined(emscripten):
+  let window =
+    when defined(emscripten):
       newWindow("Figuro", ivec2(0, 0), visible = false)
     else:
       newWindow("Figuro", ivec2(1280, 800), visible = false)
   when defined(emscripten):
     setupWindow(frame, window)
     startOpenGL(openglVersion)
+  elif UseMetalBackend:
+    setupWindow(frame, window)
   else:
     startOpenGL(openglVersion)
     setupWindow(frame, window)
+  
   result = window
 
 proc getWindowInfo(window: Window): WindowInfo =
@@ -64,13 +68,10 @@ when isMainModule:
   app.pixelScale = 1.0
 
   let typefaceId = getTypefaceImpl("Ubuntu.ttf")
-  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32,
-      lineHeightScale: 1.0)
+  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32, lineHeightScale: 1.0)
   var fpsText = "0.0 FPS"
 
-  var frame = AppFrame(
-    windowTitle: "figdraw: OpenGL + Windy RenderList",
-  )
+  var frame = AppFrame(windowTitle: "figdraw: OpenGL + Windy RenderList")
   frame.windowInfo = WindowInfo(
     box: rect(0, 0, 800, 600),
     running: true,
@@ -85,46 +86,54 @@ when isMainModule:
   var fpsStart = epochTime()
   let window = newWindyWindow(frame)
 
-  let renderer = glrenderer.newOpenGLRenderer(
-    atlasSize = when not defined(useFigDrawTextures): 1024 else: 2048,
+  let renderer = newFigRenderer(
+    atlasSize = when not defined(useFigDrawTextures): 128 else: 2048,
     pixelScale = app.pixelScale,
   )
+
+  when UseMetalBackend:
+    let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
+    renderer.ctx.presentLayer = metalHandle.layer
 
   var makeRenderTreeMsSum = 0.0
   var renderFrameMsSum = 0.0
   var lastElementCount = 0
+
+  when UseMetalBackend:
+    proc updateMetalLayer() =
+      metalHandle.updateMetalLayer(window)
 
   proc redraw() =
     inc frames
     inc globalFrame
     inc fpsFrames
 
+    when UseMetalBackend:
+      updateMetalLayer()
+
     let winInfo = window.getWindowInfo()
 
     let t0 = getMonoTime()
-    var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h),
-      globalFrame)
+    var renders =
+      makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h), globalFrame)
     makeRenderTreeMsSum += float((getMonoTime() - t0).inMilliseconds)
     lastElementCount = renders.layers[0.ZLevel].nodes.len
 
     let hudMargin = 12.0'f32
     let hudW = 180.0'f32
     let hudH = 34.0'f32
-    let hudRect = rect(
-      winInfo.box.w.float32 - hudW - hudMargin,
-      hudMargin,
-      hudW,
-      hudH,
-    )
+    let hudRect = rect(winInfo.box.w.float32 - hudW - hudMargin, hudMargin, hudW, hudH)
 
-    discard renders.layers[0.ZLevel].addRoot(Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      zlevel: 0.ZLevel,
-      screenBox: hudRect,
-      fill: rgba(0, 0, 0, 155).color,
-      corners: [8.0'f32, 8.0, 8.0, 8.0],
-    ))
+    discard renders.layers[0.ZLevel].addRoot(
+      Fig(
+        kind: nkRectangle,
+        childCount: 0,
+        zlevel: 0.ZLevel,
+        screenBox: hudRect,
+        fill: rgba(0, 0, 0, 155).color,
+        corners: [8.0'f32, 8.0, 8.0, 8.0],
+      )
+    )
 
     let hudTextPadX = 10.0'f32
     let hudTextPadY = 6.0'f32
@@ -144,20 +153,23 @@ when isMainModule:
       wrap = false,
     )
 
-    discard renders.layers[0.ZLevel].addRoot(Fig(
-      kind: nkText,
-      childCount: 0,
-      zlevel: 0.ZLevel,
-      screenBox: hudTextRect,
-      fill: rgba(255, 255, 255, 245).color,
-      textLayout: fpsLayout,
-    ))
+    discard renders.layers[0.ZLevel].addRoot(
+      Fig(
+        kind: nkText,
+        childCount: 0,
+        zlevel: 0.ZLevel,
+        screenBox: hudTextRect,
+        fill: rgba(255, 255, 255, 245).color,
+        textLayout: fpsLayout,
+      )
+    )
 
     let t1 = getMonoTime()
     renderer.renderFrame(renders, winInfo.box.wh.scaled())
     renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
 
-    window.swapBuffers()
+    when not UseMetalBackend:
+      window.swapBuffers()
 
   window.onCloseRequest = proc() =
     app.running = false
@@ -176,9 +188,9 @@ when isMainModule:
         fpsText = fmt"{fps:0.1f} FPS"
         let avgMake = makeRenderTreeMsSum / max(1, fpsFrames).float
         let avgRender = renderFrameMsSum / max(1, fpsFrames).float
-        echo "fps: ", fps, " | elems: ", lastElementCount,
-          " | makeRenderTree avg(ms): ", avgMake, " | renderFrame avg(ms): ",
-          avgRender
+        echo "fps: ",
+          fps, " | elems: ", lastElementCount, " | makeRenderTree avg(ms): ", avgMake,
+          " | renderFrame avg(ms): ", avgRender
         fpsFrames = 0
         fpsStart = now
         makeRenderTreeMsSum = 0.0

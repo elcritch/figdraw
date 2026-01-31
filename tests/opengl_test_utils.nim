@@ -1,39 +1,42 @@
 import std/os
 import pkg/pixie
-import pkg/opengl
 
 import figdraw/windyshim
 
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/opengl/renderer as glrenderer
-import figdraw/utils/glutils
+import figdraw/figrender as glrenderer
+
+when not UseMetalBackend:
+  import pkg/opengl
+  import figdraw/utils/glutils
 
 proc ensureTestOutputDir*(subdir = "output"): string =
   result = getCurrentDir() / "tests" / subdir
   createDir(result)
 
-proc newTestWindow(frame: AppFrame): Window =
-  let window = newWindow(
-    frame.windowTitle,
-    ivec2(frame.windowInfo.box.w.int32, frame.windowInfo.box.h.int32),
-    visible = false,
-  )
-  startOpenGL(openglVersion)
-  window.makeContextCurrent()
-  window.visible = true
-  result = window
+when not UseMetalBackend:
+  proc newTestWindow(frame: AppFrame): Window =
+    let window = newWindow(
+      frame.windowTitle,
+      ivec2(frame.windowInfo.box.w.int32, frame.windowInfo.box.h.int32),
+      visible = false,
+    )
+    startOpenGL(openglVersion)
+    window.makeContextCurrent()
+    window.visible = true
+    result = window
 
-proc getWindowInfo(window: Window): WindowInfo =
-  app.requestedFrame.inc
+  proc getWindowInfo(window: Window): WindowInfo =
+    app.requestedFrame.inc
 
-  result.minimized = window.minimized()
-  result.pixelRatio = window.contentScale()
+    result.minimized = window.minimized()
+    result.pixelRatio = window.contentScale()
 
-  let size = window.size()
+    let size = window.size()
 
-  result.box.w = size.x.float32.descaled()
-  result.box.h = size.y.float32.descaled()
+    result.box.w = size.x.float32.descaled()
+    result.box.h = size.y.float32.descaled()
 
 proc renderAndScreenshotOnce*(
     makeRenders: proc(w, h: float32): Renders {.closure.},
@@ -48,9 +51,7 @@ proc renderAndScreenshotOnce*(
   app.uiScale = 1.0
   app.pixelScale = 1.0
 
-  var frame = AppFrame(
-    windowTitle: title,
-  )
+  var frame = AppFrame(windowTitle: title)
   frame.windowInfo = WindowInfo(
     box: rect(0, 0, windowW.float32, windowH.float32),
     running: true,
@@ -60,26 +61,37 @@ proc renderAndScreenshotOnce*(
     pixelRatio: 1.0,
   )
 
-  let window = newTestWindow(frame)
-  if glGetString(GL_VERSION) == nil:
-    raise newException(WindyError, "OpenGL context unavailable")
+  when UseMetalBackend:
+    try:
+      let renderer =
+        glrenderer.newFigRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
 
-  let renderer = glrenderer.newOpenGLRenderer(
-    atlasSize = atlasSize,
-    pixelScale = app.pixelScale,
-  )
+      var renders = makeRenders(windowW.float32.scaled(), windowH.float32.scaled())
+      renderer.renderFrame(renders, vec2(windowW.float32, windowH.float32).scaled())
 
-  try:
-    pollEvents()
-    let winInfo = window.getWindowInfo()
-    var renders = makeRenders(winInfo.box.w.scaled(), winInfo.box.h.scaled())
-    renderer.renderFrame(renders, winInfo.box.wh.scaled())
-    window.swapBuffers()
+      result = glrenderer.takeScreenshot(renderer)
+      result.writeFile(outputPath)
+    except ValueError:
+      raise newException(WindyError, "Metal device not available")
+  else:
+    let window = newTestWindow(frame)
+    if glGetString(GL_VERSION) == nil:
+      raise newException(WindyError, "OpenGL context unavailable")
 
-    result = glrenderer.takeScreenshot(readFront = true)
-    result.writeFile(outputPath)
-  finally:
-    window.close()
+    let renderer =
+      glrenderer.newFigRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
+
+    try:
+      pollEvents()
+      let winInfo = window.getWindowInfo()
+      var renders = makeRenders(winInfo.box.w.scaled(), winInfo.box.h.scaled())
+      renderer.renderFrame(renders, winInfo.box.wh.scaled())
+      window.swapBuffers()
+
+      result = glrenderer.takeScreenshot(renderer, readFront = true)
+      result.writeFile(outputPath)
+    finally:
+      window.close()
 
 proc renderAndScreenshotOverlayOnce*(
     drawBackground: proc(frameSize: Vec2) {.closure.},
@@ -95,9 +107,7 @@ proc renderAndScreenshotOverlayOnce*(
   app.uiScale = 1.0
   app.pixelScale = 1.0
 
-  var frame = AppFrame(
-    windowTitle: title,
-  )
+  var frame = AppFrame(windowTitle: title)
   frame.windowInfo = WindowInfo(
     box: rect(0, 0, windowW.float32, windowH.float32),
     running: true,
@@ -107,25 +117,37 @@ proc renderAndScreenshotOverlayOnce*(
     pixelRatio: 1.0,
   )
 
-  let window = newTestWindow(frame)
-  if glGetString(GL_VERSION) == nil:
-    raise newException(WindyError, "OpenGL context unavailable")
+  when UseMetalBackend:
+    try:
+      let renderer =
+        glrenderer.newFigRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
+      let frameSize = vec2(windowW.float32, windowH.float32).scaled()
+      var renders = makeRenders(windowW.float32.scaled(), windowH.float32.scaled())
+      drawBackground(frameSize)
+      renderer.renderOverlayFrame(renders, frameSize)
 
-  let renderer = glrenderer.newOpenGLRenderer(
-    atlasSize = atlasSize,
-    pixelScale = app.pixelScale,
-  )
+      result = glrenderer.takeScreenshot(renderer)
+      result.writeFile(outputPath)
+    except ValueError:
+      raise newException(WindyError, "Metal device not available")
+  else:
+    let window = newTestWindow(frame)
+    if glGetString(GL_VERSION) == nil:
+      raise newException(WindyError, "OpenGL context unavailable")
 
-  try:
-    pollEvents()
-    let winInfo = window.getWindowInfo()
-    let frameSize = winInfo.box.wh.scaled()
-    var renders = makeRenders(winInfo.box.w.scaled(), winInfo.box.h.scaled())
-    drawBackground(frameSize)
-    renderer.renderOverlayFrame(renders, frameSize)
-    window.swapBuffers()
+    let renderer =
+      glrenderer.newFigRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
 
-    result = glrenderer.takeScreenshot(readFront = true)
-    result.writeFile(outputPath)
-  finally:
-    window.close()
+    try:
+      pollEvents()
+      let winInfo = window.getWindowInfo()
+      let frameSize = winInfo.box.wh.scaled()
+      var renders = makeRenders(winInfo.box.w.scaled(), winInfo.box.h.scaled())
+      drawBackground(frameSize)
+      renderer.renderOverlayFrame(renders, frameSize)
+      window.swapBuffers()
+
+      result = glrenderer.takeScreenshot(renderer, readFront = true)
+      result.writeFile(outputPath)
+    finally:
+      window.close()

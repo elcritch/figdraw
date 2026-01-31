@@ -5,7 +5,7 @@ import sdl2 except rect
 
 import figdraw/commons
 import figdraw/fignodes
-import figdraw/opengl/renderer as glrenderer
+import figdraw/figrender as glrenderer
 import figdraw/utils/glutils
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
@@ -19,50 +19,56 @@ type SdlWindow = ref object
 proc makeRenderTree*(w, h: float32): Renders =
   var list = RenderList()
 
-  let rootIdx = list.addRoot(Fig(
-    kind: nkRectangle,
-    childCount: 0,
-    zlevel: 0.ZLevel,
-    screenBox: rect(0, 0, w, h),
-    fill: rgba(255, 255, 255, 255).color,
-  ))
+  let rootIdx = list.addRoot(
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: rect(0, 0, w, h),
+      fill: rgba(255, 255, 255, 255).color,
+    )
+  )
 
-  list.addChild(rootIdx, Fig(
-    kind: nkRectangle,
-    childCount: 0,
-    zlevel: 0.ZLevel,
-    corners: [10.0'f32, 20.0, 30.0, 40.0],
-    screenBox: rect(60, 60, 220, 140),
-    fill: rgba(220, 40, 40, 255).color,
-    stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 255).color)
-  ))
-  list.addChild(rootIdx, Fig(
-    kind: nkRectangle,
-    childCount: 0,
-    zlevel: 0.ZLevel,
-    screenBox: rect(320, 120, 220, 140),
-    fill: rgba(40, 180, 90, 255).color,
-    shadows: [
-      RenderShadow(
-        style: DropShadow,
-        blur: 10,
-        spread: 10,
-        x: 10,
-        y: 10,
-        color: blackColor,
+  list.addChild(
+    rootIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      corners: [10.0'f32, 20.0, 30.0, 40.0],
+      screenBox: rect(60, 60, 220, 140),
+      fill: rgba(220, 40, 40, 255).color,
+      stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 255).color),
     ),
-    RenderShadow(),
-    RenderShadow(),
-    RenderShadow(),
-  ],
-  ))
-  list.addChild(rootIdx, Fig(
-    kind: nkRectangle,
-    childCount: 0,
-    zlevel: 0.ZLevel,
-    screenBox: rect(180, 300, 220, 140),
-    fill: rgba(60, 90, 220, 255).color,
-  ))
+  )
+  list.addChild(
+    rootIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: rect(320, 120, 220, 140),
+      fill: rgba(40, 180, 90, 255).color,
+      shadows: [
+        RenderShadow(
+          style: DropShadow, blur: 10, spread: 10, x: 10, y: 10, color: blackColor
+        ),
+        RenderShadow(),
+        RenderShadow(),
+        RenderShadow(),
+      ],
+    ),
+  )
+  list.addChild(
+    rootIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: rect(180, 300, 220, 140),
+      fill: rgba(60, 90, 220, 255).color,
+    ),
+  )
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
@@ -97,12 +103,8 @@ proc newSdlWindow(frame: ptr AppFrame): SdlWindow =
   discard glMakeCurrent(window, glContext)
   startOpenGL(openglVersion)
 
-  result = SdlWindow(
-    window: window,
-    glContext: glContext,
-    focused: true,
-    minimized: false,
-  )
+  result =
+    SdlWindow(window: window, glContext: glContext, focused: true, minimized: false)
   discard
 
 proc swapBuffers*(w: SdlWindow) =
@@ -180,9 +182,7 @@ when isMainModule:
   app.uiScale = 1.0
   app.pixelScale = 1.0
 
-  var frame = AppFrame(
-    windowTitle: "figdraw: SDL2 RenderList",
-  )
+  var frame = AppFrame(windowTitle: "figdraw: SDL2 RenderList")
   frame.windowInfo = WindowInfo(
     box: rect(0, 0, 800, 600),
     running: true,
@@ -193,10 +193,7 @@ when isMainModule:
   )
 
   let window = newSdlWindow(frame.addr)
-  let renderer = glrenderer.newOpenGLRenderer(
-    atlasSize = 256,
-    pixelScale = app.pixelScale,
-  )
+  let renderer = glrenderer.newFigRenderer(atlasSize = 256, pixelScale = app.pixelScale)
 
   proc redraw() =
     let winInfo = window.getWindowInfo()

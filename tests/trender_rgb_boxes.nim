@@ -13,14 +13,16 @@ import ./opengl_test_utils
 proc makeRenderTree(w, h: float32): Renders =
   var list = RenderList()
 
-  let rootIdx = list.addRoot(Fig(
-    kind: nkRectangle,
-    childCount: 0,
-    zlevel: 0.ZLevel,
-    name: "root".toFigName(),
-    screenBox: rect(0, 0, w, h),
-    fill: rgba(255, 255, 255, 255).color,
-  ))
+  let rootIdx = list.addRoot(
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      name: "root".toFigName(),
+      screenBox: rect(0, 0, w, h),
+      fill: rgba(255, 255, 255, 255).color,
+    )
+  )
 
   list.addChild(
     rootIdx,
@@ -46,13 +48,12 @@ proc makeRenderTree(w, h: float32): Renders =
       fill: rgba(40, 180, 90, 255).color,
       shadows: [
         RenderShadow(
-          style: DropShadow, blur: 10, spread: 10, x: 10, y: 10,
-          color: blackColor
-    ),
-    RenderShadow(),
-    RenderShadow(),
-    RenderShadow(),
-  ],
+          style: DropShadow, blur: 10, spread: 10, x: 10, y: 10, color: blackColor
+        ),
+        RenderShadow(),
+        RenderShadow(),
+        RenderShadow(),
+      ],
     ),
   )
   list.addChild(
