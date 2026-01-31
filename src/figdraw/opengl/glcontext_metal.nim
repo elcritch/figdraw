@@ -218,6 +218,14 @@ type Context* = ref object # Metal objects
 
 proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite)
 
+proc ensureDeviceAndPipelines(ctx: Context)
+
+proc metalDevice*(ctx: Context): MTLDevice =
+  ## Exposes the MTLDevice for windowing code that needs to create a CAMetalLayer.
+  if ctx.device.isNil:
+    ctx.ensureDeviceAndPipelines()
+  result = ctx.device
+
 proc toKey*(h: Hash): Hash =
   h
 
