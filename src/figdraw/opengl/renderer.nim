@@ -14,6 +14,7 @@ const UseMetalBackend = defined(macosx) and defined(feature.figdraw.metal)
 
 when UseMetalBackend:
   import ./glcontext_metal
+  import metalx/metal
 else:
   import pkg/opengl
   import ../utils/glutils
@@ -34,6 +35,12 @@ else:
 
 when UseMetalBackend:
   var lastCtx: Context
+
+when UseMetalBackend:
+  proc metalDevice*(ctx: Context): MTLDevice =
+    ## Convenience re-export so callers using `figdraw/opengl/renderer` don't also
+    ## need to import `figdraw/opengl/glcontext_metal`.
+    glcontext_metal.metalDevice(ctx)
 
 proc takeScreenshot*(frame: Rect = rect(0, 0, 0, 0), readFront: bool = true): Image =
   discard readFront

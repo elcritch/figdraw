@@ -5,13 +5,6 @@ import chroma
 
 const UseMetalBackend = defined(macosx) and defined(feature.figdraw.metal)
 
-when UseMetalBackend:
-  import darwin/objc/runtime
-  import darwin/foundation/nsgeometry
-  import metalx/[cametal, metal, view]
-  import metalx/windyshim
-  import figdraw/opengl/glcontext_metal
-
 when defined(useWindex):
   import windex
 else:
@@ -148,21 +141,15 @@ when isMainModule:
     glrenderer.newOpenGLRenderer(atlasSize = 192, pixelScale = app.pixelScale)
 
   when UseMetalBackend:
-    let metalHostView = attachMetalHostView(cocoaWindow(window))
-    let metalLayer = CAMetalLayer.alloc().init()
-    metalLayer.setDevice(glcontext_metal.metalDevice(renderer.ctx))
-    metalLayer.setPixelFormat(MTLPixelFormatBGRA8Unorm)
-    metalHostView.setLayer(metalLayer)
-    renderer.ctx.setPresentLayer(metalLayer)
+    let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
+    renderer.ctx.presentLayer = metalHandle.layer
 
   var renders = makeRenderTree(0.0'f32, 0.0'f32)
   var lastSize = vec2(0.0'f32, 0.0'f32)
 
   when UseMetalBackend:
     proc updateMetalLayer() =
-      metalLayer.setFrame(metalHostView.bounds())
-      let size = window.size()
-      metalLayer.setDrawableSize(NSSize(width: size.x.float, height: size.y.float))
+      metalHandle.updateMetalLayer(window)
 
   proc redraw() =
     when UseMetalBackend:
