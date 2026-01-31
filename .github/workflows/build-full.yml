@@ -39,12 +39,6 @@ jobs:
         echo "$HOME/.local/share/grabnim/current/bin" >> $GITHUB_PATH
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
-    - name: Cache packages
-      uses: actions/cache@v3
-      with:
-        path: deps/
-        key: ${{ runner.os }}-${{ hashFiles('figdraw.nimble') }}
-
     - name: Install Atlas
       run: |
         #nimble install 'https://github.com/nim-lang/atlas@#head'
@@ -52,6 +46,12 @@ jobs:
         nim -v
         echo "Nimble:: "
         atlas -v
+
+    - name: Cache packages
+      uses: actions/cache@v3
+      with:
+        path: deps/
+        key: ${{ runner.os }}-${{ hashFiles('figdraw.nimble') }}
 
     - name: Install Deps
       run: |
