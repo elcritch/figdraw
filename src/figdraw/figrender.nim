@@ -75,7 +75,7 @@ proc takeScreenshot*(frame: Rect = rect(0, 0, 0, 0), readFront: bool = true): Im
     result.flipVertical()
     glReadBuffer(GL_BACK)
 
-proc newRenderer*(atlasSize: int, pixelScale = app.pixelScale): FigRenderer =
+proc newFigRenderer*(atlasSize: int, pixelScale = app.pixelScale): FigRenderer =
   result = FigRenderer()
   when UseMetalBackend:
     result.ctx = glcontext_metal.newContext(
@@ -86,7 +86,7 @@ proc newRenderer*(atlasSize: int, pixelScale = app.pixelScale): FigRenderer =
       atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
     )
 
-proc newRenderer*(ctx: Context): FigRenderer =
+proc newFigRenderer*(ctx: Context): FigRenderer =
   ## Uses a caller-created backend context.
   result = FigRenderer(ctx: ctx)
 

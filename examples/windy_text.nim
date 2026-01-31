@@ -224,7 +224,8 @@ when isMainModule:
   var needsRedraw = true
   let window = newWindyWindow(frame)
 
-  let renderer = glrenderer.newRenderer(atlasSize = 1024, pixelScale = app.pixelScale)
+  let renderer =
+    glrenderer.newFigRenderer(atlasSize = 1024, pixelScale = app.pixelScale)
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())

@@ -87,7 +87,7 @@ when isMainModule:
   var fpsStart = epochTime()
   let window = newWindyWindow(frame)
 
-  let renderer = glrenderer.newRenderer(
+  let renderer = glrenderer.newFigRenderer(
     atlasSize = when not defined(useFigDrawTextures): 1024 else: 2048,
     pixelScale = app.pixelScale,
   )

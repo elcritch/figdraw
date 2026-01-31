@@ -118,7 +118,8 @@ when isMainModule:
   var fpsStart = epochTime()
   let window = newWindyWindow(frame)
 
-  let renderer = glrenderer.newRenderer(atlasSize = 2048, pixelScale = app.pixelScale)
+  let renderer =
+    glrenderer.newFigRenderer(atlasSize = 2048, pixelScale = app.pixelScale)
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())

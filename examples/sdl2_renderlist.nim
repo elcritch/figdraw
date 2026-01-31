@@ -193,7 +193,7 @@ when isMainModule:
   )
 
   let window = newSdlWindow(frame.addr)
-  let renderer = glrenderer.newRenderer(atlasSize = 256, pixelScale = app.pixelScale)
+  let renderer = glrenderer.newFigRenderer(atlasSize = 256, pixelScale = app.pixelScale)
 
   proc redraw() =
     let winInfo = window.getWindowInfo()
