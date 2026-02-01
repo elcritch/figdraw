@@ -22,7 +22,8 @@ type GlyphPosition* = ref object ## Represents a glyph position after typesettin
   lineHeight*: float32
 
 proc hash*(glyph: GlyphPosition): Hash {.inline.} =
-  result = hash((2344, glyph.fontId, glyph.rune, app.uiScale))
+  #result = hash((2344, glyph.fontId, glyph.rune, app.uiScale))
+  result = hash((2344, glyph.fontId, glyph.rune))
 
 proc generateGlyph*(glyph: GlyphPosition) =
   if unicode.isWhiteSpace(glyph.rune):
@@ -32,7 +33,6 @@ proc generateGlyph*(glyph: GlyphPosition) =
 
   if not hasImage(hashFill.ImageId):
     let
-      wh = glyph.rect.wh.scaled()
       fontId = glyph.fontId
       font = getPixieFont(fontId)
 
@@ -40,7 +40,7 @@ proc generateGlyph*(glyph: GlyphPosition) =
       text = $glyph.rune
       arrangement = pixie.typeset(
         @[newSpan(text, font)],
-        bounds = wh,
+        bounds = glyph.rect.wh.scaled(),
         hAlign = CenterAlign,
         vAlign = TopAlign,
         wrap = false,
@@ -53,7 +53,7 @@ proc generateGlyph*(glyph: GlyphPosition) =
       bounds = rect(0, 0, snappedBounds.w + snappedBounds.x, lh)
 
     if bounds.w == 0 or bounds.h == 0:
-      echo "GEN IMG: ", glyph.rune, " wh: ", wh, " snapped: ", snappedBounds
+      error "GEN IMG: ", rune = $glyph.rune, wh = repr wh, snapped = repr snappedBounds
       return
 
     try:
