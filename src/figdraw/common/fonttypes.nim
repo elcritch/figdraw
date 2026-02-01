@@ -39,7 +39,7 @@ type
   UiFont* = object
     typefaceId*: TypefaceId
     size*: float32 = 12.0'f32   ## Font size in pixels.
-    lineHeightScale*: float32 = 0.9
+    lineHeight*: float32 = 0.9
     lineHeightOverride*: float32 = -1.0'f32
       ## The line height in pixels or autoLineHeight for the font's default line height.
     fontCase*: FontCase

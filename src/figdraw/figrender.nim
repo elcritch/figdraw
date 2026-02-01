@@ -81,10 +81,11 @@ proc newFigRenderer*(ctx: Context): FigRenderer =
 
 proc renderDrawable*(ctx: Context, node: Fig) =
   ## TODO: draw non-node stuff?
+  let box = node.screenBox.scaled()
   for point in node.points:
     let
-      pos = point
-      bx = node.screenBox.atXY(pos.x, pos.y)
+      pos = point.scaled()
+      bx = box.atXY(pos.x, pos.y)
     ctx.drawRect(bx, node.fill)
 
 proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
@@ -142,9 +143,17 @@ macro postRender() =
   while postRenderImpl.len() > 0:
     result.add postRenderImpl.pop()
 
+proc scaledCorners(corners: array[DirectionCorners, float32]): array[
+    DirectionCorners, float32
+] =
+  for corner in DirectionCorners:
+    result[corner] = corners[corner].scaled()
+
 proc drawMasks(ctx: Context, node: Fig) =
   ctx.drawRoundedRectSdf(
-    rect = node.screenBox, color = rgba(255, 0, 0, 255).color, radii = node.corners
+    rect = node.screenBox.scaled(),
+    color = rgba(255, 0, 0, 255).color,
+    radii = node.corners.scaledCorners(),
   )
 
 proc renderDropShadows(ctx: Context, node: Fig) =
@@ -157,9 +166,14 @@ proc renderDropShadows(ctx: Context, node: Fig) =
 
     when not defined(useFigDrawTextures):
       let
-        blurPad = round(1.5'f32 * shadow.blur)
-        pad = max(shadow.spread.round() + blurPad, 0.0'f32)
-        shadowRect = node.screenBox + rect(shadow.x, shadow.y, 0, 0)
+        box = node.screenBox.scaled()
+        shadowX = shadow.x.scaled()
+        shadowY = shadow.y.scaled()
+        shadowBlur = shadow.blur.scaled()
+        shadowSpread = shadow.spread.scaled()
+        blurPad = round(1.5'f32 * shadowBlur)
+        pad = max(shadowSpread.round() + blurPad, 0.0'f32)
+        shadowRect = box + rect(shadowX, shadowY, 0, 0)
         quadRect = rect(
           shadowRect.x - pad,
           shadowRect.y - pad,
@@ -170,31 +184,37 @@ proc renderDropShadows(ctx: Context, node: Fig) =
         rect = quadRect,
         shapeSize = shadowRect.wh,
         color = shadow.color,
-        radii = node.corners,
+        radii = node.corners.scaledCorners(),
         mode = sdfModeDropShadow,
-        factor = shadow.blur,
-        spread = shadow.spread,
+        factor = shadowBlur,
+        spread = shadowSpread,
       )
     elif FastShadows:
       ## should add a primitive to opengl.context to
       var color = shadow.color
       const N = 3
       color.a = color.a * 1.0 / (N * N * N)
-      let blurAmt = shadow.blur * shadow.spread / (12 * N * N)
+      let blurAmt =
+        shadow.blur.scaled() * shadow.spread.scaled() / (12 * N * N)
       for i in -N .. N:
         for j in -N .. N:
           let xblur: float32 = i.toFloat() * blurAmt
           let yblur: float32 = j.toFloat() * blurAmt
-          let box = node.screenBox.atXY(x = shadow.x + xblur, y = shadow.y + yblur)
-          ctx.drawRoundedRect(rect = box, color = color, radius = node.corners)
+          let box = node.screenBox.scaled().atXY(
+            x = shadow.x.scaled() + xblur,
+            y = shadow.y.scaled() + yblur,
+          )
+          ctx.drawRoundedRect(
+            rect = box, color = color, radius = node.corners.scaledCorners()
+          )
     else:
       ctx.fillRoundedRectWithShadowSdf(
-        rect = node.screenBox,
-        radii = node.corners,
-        shadowX = shadow.x,
-        shadowY = shadow.y,
-        shadowBlur = shadow.blur,
-        shadowSpread = shadow.spread.float32,
+        rect = node.screenBox.scaled(),
+        radii = node.corners.scaledCorners(),
+        shadowX = shadow.x.scaled(),
+        shadowY = shadow.y.scaled(),
+        shadowBlur = shadow.blur.scaled(),
+        shadowSpread = shadow.spread.scaled(),
         shadowColor = shadow.color,
         innerShadow = false,
       )
@@ -210,45 +230,49 @@ proc renderInnerShadows(ctx: Context, node: Fig) =
       continue
 
     when not defined(useFigDrawTextures):
-      let shadowRect = node.screenBox + rect(shadow.x, shadow.y, 0, 0)
+      let shadowRect =
+        node.screenBox.scaled() + rect(shadow.x.scaled(), shadow.y.scaled(), 0, 0)
       ctx.drawRoundedRectSdf(
         rect = shadowRect,
         shapeSize = shadowRect.wh,
         color = shadow.color,
-        radii = node.corners,
+        radii = node.corners.scaledCorners(),
         mode = sdfModeInsetShadowAnnular,
-        factor = shadow.blur,
-        spread = shadow.spread,
+        factor = shadow.blur.scaled(),
+        spread = shadow.spread.scaled(),
       )
     elif FastShadows:
       ## this is even more incorrect than drop shadows, but it's something
       ## and I don't actually want to think today ;)
-      let n = shadow.blur.toInt
+      let n = shadow.blur.scaled().toInt
       var color = shadow.color
       color.a = 2 * color.a / n.toFloat
-      let blurAmt = shadow.blur / n.toFloat
+      let blurAmt = shadow.blur.scaled() / n.toFloat
       for i in 0 .. n:
         let blur: float32 = i.toFloat() * blurAmt
-        var box = node.screenBox
+        var box = node.screenBox.scaled()
         if shadow.x >= 0'f32:
-          box.w += shadow.x
+          box.w += shadow.x.scaled()
         else:
-          box.x += shadow.x + blurAmt
+          box.x += shadow.x.scaled() + blurAmt
         if shadow.y >= 0'f32:
-          box.h += shadow.y
+          box.h += shadow.y.scaled()
         else:
-          box.y += shadow.y + blurAmt
+          box.y += shadow.y.scaled() + blurAmt
         ctx.strokeRoundedRect(
-          rect = box, color = color, weight = blur, radius = node.corners - blur
+          rect = box,
+          color = color,
+          weight = blur,
+          radius = node.corners.scaledCorners() - blur,
         )
     else:
       ctx.fillRoundedRectWithShadowSdf(
-        rect = node.screenBox,
-        radii = node.corners,
-        shadowX = shadow.x,
-        shadowY = shadow.y,
-        shadowBlur = shadow.blur,
-        shadowSpread = shadow.spread.float32,
+        rect = node.screenBox.scaled(),
+        radii = node.corners.scaledCorners(),
+        shadowX = shadow.x.scaled(),
+        shadowY = shadow.y.scaled(),
+        shadowBlur = shadow.blur.scaled(),
+        shadowSpread = shadow.spread.scaled(),
         shadowColor = shadow.color,
         innerShadow = true,
       )
@@ -269,49 +293,55 @@ proc hasActiveInnerShadow(node: Fig): bool =
 proc renderBoxes(ctx: Context, node: Fig) =
   ## drawing boxes for rectangles
 
+  let
+    box = node.screenBox.scaled()
+    corners = node.corners.scaledCorners()
+
   if node.fill.a > 0'f32:
     when not defined(useFigDrawTextures):
       ctx.drawRoundedRectSdf(
-        rect = node.screenBox, color = node.fill, radii = node.corners
+        rect = box, color = node.fill, radii = corners
       )
     else:
       if node.corners != [0'f32, 0'f32, 0'f32, 0'f32]:
         ctx.drawRoundedRect(
-          rect = node.screenBox, color = node.fill, radii = node.corners
+          rect = box, color = node.fill, radii = corners
         )
       else:
-        ctx.drawRect(node.screenBox, node.fill)
+        ctx.drawRect(box, node.fill)
 
   if node.stroke.color.a > 0 and node.stroke.weight > 0:
     when not defined(useFigDrawTextures):
       ctx.drawRoundedRectSdf(
-        rect = node.screenBox,
+        rect = box,
         color = node.stroke.color,
-        radii = node.corners,
+        radii = corners,
         mode = sdfModeAnnularAA,
-        factor = node.stroke.weight,
+        factor = node.stroke.weight.scaled(),
       )
     else:
       ctx.drawRoundedRect(
-        rect = node.screenBox,
+        rect = box,
         color = node.stroke.color,
-        radii = node.corners,
-        weight = node.stroke.weight,
+        radii = corners,
+        weight = node.stroke.weight.scaled(),
         doStroke = true,
       )
 
 proc renderImage(ctx: Context, node: Fig) =
   if node.image.id.int == 0:
     return
-  let size = vec2(node.screenBox.w, node.screenBox.h)
+  let box = node.screenBox.scaled()
+  let size = vec2(box.w, box.h)
   ctx.drawImage(
-    node.image.id.Hash, pos = node.screenBox.xy, color = node.image.color, size = size
+    node.image.id.Hash, pos = box.xy, color = node.image.color, size = size
   )
 
 proc renderMsdfImage(ctx: Context, node: Fig) =
   if node.msdfImage.id.int == 0:
     return
-  let size = vec2(node.screenBox.w, node.screenBox.h)
+  let box = node.screenBox.scaled()
+  let size = vec2(box.w, box.h)
   let pxRange =
     if node.msdfImage.pxRange > 0.0'f32: node.msdfImage.pxRange else: 4.0'f32
   let sdThreshold =
@@ -321,7 +351,7 @@ proc renderMsdfImage(ctx: Context, node: Fig) =
       0.5'f32
   ctx.drawMsdfImage(
     node.msdfImage.id.Hash,
-    pos = node.screenBox.xy,
+    pos = box.xy,
     color = node.msdfImage.color,
     size = size,
     pxRange = pxRange,
@@ -331,7 +361,8 @@ proc renderMsdfImage(ctx: Context, node: Fig) =
 proc renderMtsdfImage(ctx: Context, node: Fig) =
   if node.mtsdfImage.id.int == 0:
     return
-  let size = vec2(node.screenBox.w, node.screenBox.h)
+  let box = node.screenBox.scaled()
+  let size = vec2(box.w, box.h)
   let pxRange =
     if node.mtsdfImage.pxRange > 0.0'f32: node.mtsdfImage.pxRange else: 4.0'f32
   let sdThreshold =
@@ -341,7 +372,7 @@ proc renderMtsdfImage(ctx: Context, node: Fig) =
       0.5'f32
   ctx.drawMtsdfImage(
     node.mtsdfImage.id.Hash,
-    pos = node.screenBox.xy,
+    pos = box.xy,
     color = node.mtsdfImage.color,
     size = size,
     pxRange = pxRange,
@@ -361,13 +392,14 @@ proc render(
   ## configures the various shaders and elements.
   if NfDisableRender in node.flags:
     return
+  let box = node.screenBox.scaled()
 
   # handle node rotation
   ifrender node.rotation != 0:
     ctx.saveTransform()
-    ctx.translate(node.screenBox.xy + node.screenBox.wh / 2)
+    ctx.translate(box.xy + box.wh / 2)
     ctx.rotate(node.rotation / 180 * PI)
-    ctx.translate(-(node.screenBox.xy + node.screenBox.wh / 2))
+    ctx.translate(-(box.xy + box.wh / 2))
   finally:
     ctx.restoreTransform()
 
@@ -385,7 +417,7 @@ proc render(
   ifrender true:
     if node.kind == nkText:
       ctx.saveTransform()
-      ctx.translate(node.screenBox.xy)
+      ctx.translate(box.xy)
       ctx.renderText(node)
       ctx.restoreTransform()
     elif node.kind == nkDrawable:

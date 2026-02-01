@@ -39,14 +39,14 @@ proc toRenderFig*[N](current: N): Fig =
   when FigDrawNames:
     result.name = current.name.toFigName()
 
-  result.screenBox = current.screenBox.scaled
+  result.screenBox = current.screenBox
   result.flags = current.flags
 
   result.zlevel = current.zlevel
   result.rotation = current.rotation
   result.fill = current.fill
 
-  result.stroke.weight = current.stroke.weight.scaled
+  result.stroke.weight = current.stroke.weight
   result.stroke.color = current.stroke.color
 
   case current.kind
@@ -54,15 +54,15 @@ proc toRenderFig*[N](current: N): Fig =
     for i in 0 ..< min(result.shadows.len(), current.shadows.len()):
       var shadow: RenderShadow
       let orig = current.shadows[i]
-      shadow.blur = orig.blur.scaled
-      shadow.x = orig.x.scaled
-      shadow.y = orig.y.scaled
+      shadow.blur = orig.blur
+      shadow.x = orig.x
+      shadow.y = orig.y
       shadow.color = orig.color
-      shadow.spread = orig.spread.scaled
+      shadow.spread = orig.spread
       result.shadows[i] = shadow
 
     for corner in DirectionCorners:
-      result.corners[corner] = current.corners[corner].scaled
+      result.corners[corner] = current.corners[corner]
   of nkImage:
     result.image = current.image
   of nkMsdfImage:

@@ -170,21 +170,21 @@ proc convertFont*(font: UiFont): (FontId, Font) =
   ## types
 
   let
-    id = font.getId()
+    id = FontId(hash((font.getId(), app.uiScale)))
     typeface = typefaceTable[font.typefaceId]
 
   if not fontTable.hasKey(id):
     var pxfont = newFont(typeface)
-    pxfont.size = font.size.scaled
+    pxfont.size = font.size.scaled()
     pxfont.typeface = typeface
     pxfont.textCase = parseEnum[TextCase]($font.fontCase)
-    # copy rest of the fields with matching names
-    for pn, a in fieldPairs(pxfont[]):
-      for fn, b in fieldPairs(font):
-        when pn == fn:
-          a = b
+    pxfont.lineHeight      = font.lineHeight.scaled()
+    pxfont.underline            = font.underline
+    pxfont.strikethrough        = font.strikethrough
+    pxfont.noKerningAdjustments = font.noKerningAdjustments
+
     if font.lineHeightOverride == -1.0'f32:
-      pxfont.lineHeight = font.lineHeightScale * pxfont.defaultLineHeight()
+      pxfont.lineHeight = font.lineHeight * pxfont.defaultLineHeight()
       echo "PIXIE LH: ", pxfont.lineHeight
 
     fontTable[id] = pxfont
@@ -272,7 +272,12 @@ proc convertArrangement(
     selectionRects.add rect
 
   result = GlyphArrangement(
-    contentHash: getContentHash(box.wh, uiSpans, hAlign, vAlign),
+    contentHash:
+      block:
+        var h = Hash(0)
+        h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign)
+        h = h !& hash(app.uiScale)
+        !$h,
     lines: lines, # arrangement.lines.toSlices(),
     spans: spanSlices, # arrangement.spans.toSlices(),
     fonts: gfonts,
@@ -304,7 +309,7 @@ proc typeset*(
   var pfs: seq[Font]
   var gfonts: seq[GlyphFont]
   for (uiFont, txt) in uiSpans:
-    let (_, pf) = uiFont.convertFont()
+    let (fontId, pf) = uiFont.convertFont()
     pfs.add(pf)
     spans.add(newSpan(txt, pf))
     assert not pf.typeface.isNil
@@ -313,7 +318,7 @@ proc typeset*(
     #let lhAdj = max(pf.lineHeight - pf.size, 0.0)
     let lhAdj = (pf.lineHeight - pf.size * pf.lineHeight / pf.defaultLineHeight()) / 2
     gfonts.add GlyphFont(
-      fontId: uiFont.getId(), lineHeight: pf.lineHeight, descentAdj: lhAdj
+      fontId: fontId, lineHeight: pf.lineHeight, descentAdj: lhAdj
     )
 
   var ha: HorizontalAlignment
@@ -457,7 +462,8 @@ proc placeGlyphs*(
       rect(drawPos.x, drawPos.y, advance, cachedFont.glyph.lineHeight)
     )
 
-    contentHash = contentHash !& hash((font.getId(), rune, pos.x, pos.y, origin))
+    contentHash =
+      contentHash !& hash((fontInfo.id, rune, pos.x, pos.y, origin, app.uiScale))
 
   result.lines = @[0 .. glyphs.len - 1]
   result.spans = @[0 .. glyphs.len - 1]

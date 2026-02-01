@@ -118,7 +118,7 @@ when isMainModule:
   app.pixelScale = 1.0
 
   let typefaceId = getTypefaceImpl("Ubuntu.ttf")
-  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32, lineHeightScale: 1.0)
+  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
   var fpsText = "0.0 FPS"
 
   var frame = AppFrame(windowTitle: "figdraw: SDL2 RenderList (100)")

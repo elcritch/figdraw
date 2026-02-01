@@ -199,14 +199,14 @@ when isMainModule:
 
   app.running = true
   app.autoUiScale = false
-  app.uiScale = 1.0
+  app.uiScale = 2.0
   app.pixelScale = 1.0
 
   let typefaceId = getTypefaceImpl("Ubuntu.ttf")
-  let uiFont = UiFont(typefaceId: typefaceId, size: 28.0'f32, lineHeightScale: 0.9)
+  let uiFont = UiFont(typefaceId: typefaceId, size: 28.0'f32)
   let monoTypefaceId = getTypefaceImpl("HackNerdFont-Regular.ttf")
   let monoFont =
-    UiFont(typefaceId: monoTypefaceId, size: 20.0'f32, lineHeightScale: 1.0)
+    UiFont(typefaceId: monoTypefaceId, size: 20.0'f32)
 
   var frame = AppFrame(windowTitle: "figdraw: OpenGL + Windy Text")
   frame.windowInfo = WindowInfo(
