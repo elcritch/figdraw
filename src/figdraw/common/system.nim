@@ -20,10 +20,10 @@ when not defined(nimscript):
 
   proc getTypeface*(name: string): TypefaceId =
     ## loads typeface from pixie
-    getTypefaceImpl(name)
+    loadTypeface(name)
 
   proc getTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId =
-    getTypefaceImpl(name, data, kind)
+    loadTypeface(name, data, kind)
 
   proc getLineHeight*(font: UiFont): UiScalar =
     getLineHeightImpl(font)

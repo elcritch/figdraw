@@ -117,7 +117,7 @@ when isMainModule:
   app.uiScale = 1.0
   app.pixelScale = 1.0
 
-  let typefaceId = getTypefaceImpl("Ubuntu.ttf")
+  let typefaceId = loadTypeface("Ubuntu.ttf")
   let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
   var fpsText = "0.0 FPS"
 

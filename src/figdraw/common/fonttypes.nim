@@ -73,6 +73,9 @@ proc hash*(fnt: UiFont): Hash =
 proc getId*(font: UiFont): FontId =
   FontId font.hash()
 
+proc fontWithSize*(fontId: TypeFaceId, size: float32): UiFont =
+  let monoFont = UiFont(typefaceId: fontId, size: size)
+
 proc getContentHash*(
     size: Vec2,
     uiSpans: openArray[(UiFont, string)],

@@ -141,7 +141,7 @@ proc readTypefaceImpl(
 
   result.filePath = name
 
-proc getTypefaceImpl*(name: string): FontId =
+proc loadTypeface*(name: string): FontId =
   ## loads a font from a file and adds it to the font index
 
   let
@@ -155,7 +155,7 @@ proc getTypefaceImpl*(name: string): FontId =
   typefaceTable[id] = typeface
   result = id
 
-proc getTypefaceImpl*(name, data: string, kind: TypeFaceKinds): FontId =
+proc loadTypeface*(name, data: string, kind: TypeFaceKinds): FontId =
   ## loads a font from buffer and adds it to the font index
 
   let

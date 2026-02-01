@@ -509,9 +509,8 @@ when isMainModule:
   app.uiScale = 1.0
   app.pixelScale = 1.0
 
-  let monoTypefaceId = getTypefaceImpl("HackNerdFont-Regular.ttf")
-  let monoFont =
-    UiFont(typefaceId: monoTypefaceId, size: 24.0'f32, lineHeightScale: 1.0)
+  let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
+  let monoFont = monoTypeface.fontWithSize(24.0'f32)
 
   var frame = AppFrame(windowTitle: "figdraw: OpenGL 3D + overlay")
   frame.windowInfo = WindowInfo(
