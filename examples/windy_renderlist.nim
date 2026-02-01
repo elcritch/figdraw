@@ -84,14 +84,12 @@ when isMainModule:
   else:
     app.uiScale = 1.0
 
+  let title = "figdraw: OpenGL + Windy RenderList"
   let size = ivec2(800, 600)
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
-  let window = newWindyWindow(size = size,
-                              fullscreen = false,
-                              title = "figdraw: OpenGL + Windy RenderList")
-
+  let window = newWindyWindow(size = size, fullscreen = false, title = title)
   let renderer = glrenderer.newFigRenderer(atlasSize = 192, pixelScale = app.pixelScale)
 
   when UseMetalBackend:

@@ -244,38 +244,6 @@ proc buildProgram(vertexSrc, fragmentSrc: string): GLuint =
   glDeleteShader(vertexShader)
   glDeleteShader(fragmentShader)
 
-proc setupWindow(frame: AppFrame, window: Window) =
-  when not defined(emscripten):
-    if frame.windowInfo.fullscreen:
-      window.fullscreen = frame.windowInfo.fullscreen
-    else:
-      window.size = ivec2(frame.windowInfo.box.wh.scaled())
-
-    window.visible = true
-  window.makeContextCurrent()
-
-proc newWindyWindow(frame: AppFrame): Window =
-  let window =
-    when defined(emscripten):
-      newWindow("FigDraw", ivec2(0, 0), visible = false)
-    else:
-      newWindow("FigDraw", ivec2(1280, 800), visible = false)
-  when defined(emscripten):
-    setupWindow(frame, window)
-    startOpenGL(openglVersion)
-  else:
-    setupWindow(frame, window)
-    startOpenGL(openglVersion)
-  result = window
-
-proc getWindowInfo(window: Window): WindowInfo =
-  app.requestedFrame.inc
-  result.minimized = window.minimized()
-  result.pixelRatio = window.contentScale()
-  let size = window.size()
-  result.box.w = size.x.float32.descaled()
-  result.box.h = size.y.float32.descaled()
-
 proc initPyramid(): PyramidGl =
   let vertexSrc =
     when defined(emscripten):
@@ -501,24 +469,17 @@ when isMainModule:
     setFigDataDir(getCurrentDir() / "data")
 
   app.running = true
-  app.uiScale = 1.0
+  app.uiScale = 2.0
   app.pixelScale = 1.0
 
   let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
   let monoFont = monoTypeface.fontWithSize(24.0'f32)
 
-  var frame = AppFrame(windowTitle: "figdraw: OpenGL 3D + overlay")
-  frame.windowInfo = WindowInfo(
-    box: rect(0, 0, 1920, 1280),
-    running: true,
-    focused: true,
-    minimized: false,
-    fullscreen: false,
-    pixelRatio: 1.0,
-  )
+  let title = "figdraw: 3D + overlay"
+  let size = ivec2(1920, 1280)
 
-  let window = newWindyWindow(frame)
-  let renderer = glrenderer.newFigRenderer(atlasSize = 192, pixelScale = app.pixelScale)
+  let window = newWindyWindow(size = size, fullscreen = false, title = title)
+  let renderer = glrenderer.newFigRenderer(atlasSize = 512, pixelScale = app.pixelScale)
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
     renderer.ctx.presentLayer = metalHandle.layer
@@ -528,6 +489,9 @@ when isMainModule:
   when UseMetalBackend:
     proc updateMetalLayer() =
       metalHandle.updateMetalLayer(window)
+
+  startOpenGL(openglVersion)
+  window.makeContextCurrent()
 
   let pyramid = initPyramid()
 
@@ -550,32 +514,29 @@ when isMainModule:
         fpsValue = fpsValue + (instFps - fpsValue) * fpsAlpha
     lastFrameTime = now
 
-    let winInfo = window.getWindowInfo()
-    let frameSize = winInfo.box.wh.scaled()
+    let sz = window.logicalSize()
     var rows = newSeq[string](0)
-    rows.add(fmt"fps {fpsValue:>7.2f}")
-    rows.add(fmt"size {winInfo.box.w.int}x{winInfo.box.h.int}")
 
-    let proj = projectionMatrix(frameSize)
+    let proj = projectionMatrix(sz)
     let view = viewMatrix()
     let model = pyramidModelMatrix((now - startTime).float32)
     let mvp = mat4Mul(proj, mat4Mul(view, model))
+
     let triRows = triangleInfoRows(mvp, 0)
     for row in triRows:
       rows.add(row)
-
-    var renders = makeOverlay(winInfo.box.w, winInfo.box.h, rows, monoFont)
+    var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
 
     useDepthBuffer(true)
     glClearColor(0.08, 0.1, 0.14, 1.0)
     glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
-    drawPyramid(pyramid, frameSize, mvp)
+    drawPyramid(pyramid, sz.scaled(), mvp)
     useDepthBuffer(false)
 
     when UseMetalBackend:
       window.swapBuffers()
       renderer.renderFrame(
-        renders, frameSize, clearMain = true, clearColor = rgba(0, 0, 0, 0).color
+        renders, sz, clearMain = true, clearColor = rgba(0, 0, 0, 0).color
       )
     else:
       renderer.renderFrame(renders, frameSize, clearMain = false)
