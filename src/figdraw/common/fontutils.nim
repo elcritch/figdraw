@@ -8,189 +8,13 @@ import pkg/chronicles
 
 import ./rchannels
 import ./imgutils
-import ./fonttypes
 import ./shared
 
-type GlyphPosition* = ref object ## Represents a glyph position after typesetting.
-  fontId*: FontId
-  rune*: Rune
-  pos*: Vec2 # Where to draw the image character.
-  rect*: Rect
-  descent*: float32
-  lineHeight*: float32
+import ./fonttypes
+import ./typefaces
+import ./fontglyphs
 
-proc hash*(tp: Typeface): Hash =
-  var h = Hash(0)
-  h = h !& hash tp.filePath
-  result = !$h
-
-proc hash*(glyph: GlyphPosition): Hash {.inline.} =
-  result = hash((2344, glyph.fontId, glyph.rune))
-
-proc getId*(typeface: Typeface): TypefaceId =
-  result = TypefaceId typeface.hash()
-  for i in 1 .. 100:
-    if result.int == 0:
-      result = TypefaceId(typeface.hash() !& hash(i))
-    else:
-      break
-  doAssert result.int != 0, "Typeface hash results in invalid id"
-
-iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
-  var idx = 0
-
-  block:
-    for i, (span, gfont) in zip(arrangement.spans, arrangement.fonts):
-      while idx < arrangement.runes.len():
-        let
-          pos = arrangement.positions[idx]
-          rune = arrangement.runes[idx]
-          selection = arrangement.selectionRects[idx]
-
-        let descent = gfont.lineHeight - gfont.descentAdj
-
-        yield GlyphPosition(
-          fontId: gfont.fontId,
-          # fontSize: gfont.size,
-          rune: rune,
-          pos: pos,
-          rect: selection,
-          descent: descent,
-          lineHeight: gfont.lineHeight,
-        )
-
-        idx.inc()
-        if idx notin span:
-          break
-
-var
-  typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
-  fontTable* {.threadvar.}: Table[FontId, pixie.Font]
-
-proc generateGlyphImages(arrangement: GlyphArrangement) =
-  ## returns Glyph's hash, will generate glyph if needed
-  ##
-  ## Font Glyphs are generated with Bottom vAlign and Center hAlign
-  ## this puts the glyphs in the right position
-  ## so that the renderer doesn't need to figure out adjustments
-
-  for glyph in arrangement.glyphs():
-    if unicode.isWhiteSpace(glyph.rune):
-      # echo "skipped:rune: ", glyph.rune, " ", glyph.rune.int
-      continue
-
-    let hashFill = glyph.hash()
-
-    if not hasImage(hashFill.ImageId):
-      let
-        wh = glyph.rect.wh
-        fontId = glyph.fontId
-        font = fontTable[fontId]
-        text = $glyph.rune
-        arrangement = pixie.typeset(
-          @[newSpan(text, font)],
-          bounds = wh,
-          hAlign = CenterAlign,
-          vAlign = TopAlign,
-          wrap = false,
-        )
-      let
-        snappedBounds = arrangement.computeBounds().snapToPixels()
-
-      let
-        lh = font.defaultLineHeight()
-        bounds = rect(0, 0, snappedBounds.w + snappedBounds.x, lh)
-
-      if bounds.w == 0 or bounds.h == 0:
-        echo "GEN IMG: ", glyph.rune, " wh: ", wh, " snapped: ", snappedBounds
-        continue
-
-      try:
-        font.paint = parseHex"FFFFFF"
-        var image = newImage(bounds.w.int, bounds.h.int)
-        image.fillText(arrangement)
-
-        # put into cache
-        loadImage(hashFill.ImageId, image)
-      except PixieError:
-        discard
-
-type TypeFaceKinds* = enum
-  TTF
-  OTF
-  SVG
-
-proc readTypefaceImpl(
-    name, data: string, kind: TypeFaceKinds
-): Typeface {.raises: [PixieError].} =
-  ## Loads a typeface from a buffer
-  try:
-    result =
-      case kind
-      of TTF:
-        parseTtf(data)
-      of OTF:
-        parseOtf(data)
-      of SVG:
-        parseSvgFont(data)
-  except IOError as e:
-    raise newException(PixieError, e.msg, e)
-
-  result.filePath = name
-
-proc loadTypeface*(name: string): FontId =
-  ## loads a font from a file and adds it to the font index
-
-  let
-    typefacePath = figDataDir() / name
-    typeface = readTypeface(typefacePath)
-    id = typeface.getId()
-
-  doAssert id != 0
-  if id in typefaceTable:
-    doAssert typefaceTable[id] == typeface
-  typefaceTable[id] = typeface
-  result = id
-
-proc loadTypeface*(name, data: string, kind: TypeFaceKinds): FontId =
-  ## loads a font from buffer and adds it to the font index
-
-  let
-    typeface = readTypefaceImpl(name, data, kind)
-    id = typeface.getId()
-
-  typefaceTable[id] = typeface
-  result = id
-
-proc convertFont*(font: UiFont): (FontId, Font) =
-  ## does the typesetting using pixie, then converts to Figuro's internal
-  ## types
-
-  let
-    id = FontId(hash((font.getId(), app.uiScale)))
-    typeface = typefaceTable[font.typefaceId]
-
-  if not fontTable.hasKey(id):
-    var pxfont = newFont(typeface)
-    pxfont.size = font.size
-    pxfont.typeface = typeface
-    pxfont.textCase = parseEnum[TextCase]($font.fontCase)
-    pxfont.lineHeight      = font.lineHeight
-    pxfont.underline            = font.underline
-    pxfont.strikethrough        = font.strikethrough
-    pxfont.noKerningAdjustments = font.noKerningAdjustments
-
-    if font.lineHeight == 0.0'f32:
-      pxfont.lineHeight = pxfont.defaultLineHeight()
-
-    fontTable[id] = pxfont
-    result = (id, pxfont)
-  else:
-    result = (id, fontTable[id])
-
-proc getLineHeightImpl*(font: UiFont): float32 =
-  let (_, pf) = font.convertFont()
-  result = pf.lineHeight
+export loadTypeface, convertFont
 
 proc calcMinMaxContent(
     textLayout: GlyphArrangement
@@ -247,40 +71,6 @@ proc calcMinMaxContent(
   result.maxSize.y = wordsHeight
 
   result.bounding = rect
-
-proc convertArrangement(
-    arrangement: Arrangement,
-    box: Rect,
-    uiSpans: openArray[(UiFont, string)],
-    hAlign: FontHorizontal,
-    vAlign: FontVertical,
-    gfonts: seq[GlyphFont],
-): GlyphArrangement =
-  var
-    lines = newSeqOfCap[Slice[int]](arrangement.lines.len())
-    spanSlices = newSeqOfCap[Slice[int]](arrangement.spans.len())
-    selectionRects = newSeqOfCap[Rect](arrangement.selectionRects.len())
-  for line in arrangement.lines:
-    lines.add line[0] .. line[1]
-  for span in arrangement.spans:
-    spanSlices.add span[0] .. span[1]
-  for rect in arrangement.selectionRects:
-    selectionRects.add rect
-
-  result = GlyphArrangement(
-    contentHash:
-      block:
-        var h = Hash(0)
-        h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign)
-        h = h !& hash(app.uiScale)
-        !$h,
-    lines: lines,
-    spans: spanSlices,
-    fonts: gfonts,
-    runes: arrangement.runes,
-    positions: arrangement.positions,
-    selectionRects: selectionRects,
-  )
 
 proc typeset*(
     box: Rect,
@@ -386,22 +176,6 @@ proc typeset*(
   result.maxSize += vec2(maxLineHeight / 2, 0)
   result.bounding = result.bounding + rect(0, 0, 0, maxLineHeight / 2)
   result.generateGlyphImages()
-
-proc glyphFontFor(uiFont: UiFont): tuple[id: FontId, font: Font,
-    glyph: GlyphFont] =
-  let (fontId, pf) = uiFont.convertFont()
-  let defaultLineHeight = pf.defaultLineHeight()
-  let lineHeight =
-    if pf.lineHeight >= 0:
-      pf.lineHeight
-    else:
-      defaultLineHeight
-  let lhAdj = 0.0'f32
-  result = (
-    id: fontId,
-    font: pf,
-    glyph: GlyphFont(fontId: fontId, lineHeight: lineHeight, descentAdj: lhAdj),
-  )
 
 proc placeGlyphs*(
     font: UiFont,

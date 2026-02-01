@@ -8,6 +8,8 @@ import pkg/chronicles
 import ./commons
 import ./utils/drawshadows
 import ./utils/drawboxes
+import ./common/fontglyphs
+
 import ./opengl/glcommons
 
 when UseMetalBackend:
