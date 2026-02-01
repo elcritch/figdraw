@@ -50,7 +50,7 @@ proc generateGlyph*(glyph: GlyphPosition) =
 
     let
       lh = font.defaultLineHeight()
-      bounds = rect(0, 0, snappedBounds.w + snappedBounds.x, lh)
+      bounds = rect(0, 0, scaled(snappedBounds.w + snappedBounds.x), scaled(lh))
 
     if bounds.w == 0 or bounds.h == 0:
       error "GEN IMG: ", rune = $glyph.rune, wh = repr wh, snapped = repr snappedBounds

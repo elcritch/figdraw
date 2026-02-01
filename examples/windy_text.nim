@@ -201,7 +201,6 @@ when isMainModule:
     let szOrig = window.size()
     let factor = round(szOrig.x.float32 / size.x.float32, 1)
     app.uiScale = factor
-    echo "FACTOR: ", factor
 
     var renders =
       makeRenderTree(sz.x, sz.y, uiFont, monoFont)
