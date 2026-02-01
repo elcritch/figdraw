@@ -36,7 +36,7 @@ proc newWindyWindow(size: IVec2, fullscreen = false, title = "FigDraw"): Window 
 
   return window
 
-proc getWindowInfo(window: Window): vec2 =
+proc getWindowInfo(window: Window): Vec2 =
   let size = window.size()
   result = vec2(window.size()).descaled()
   #result.box.w = size.x.float32.descaled()
@@ -137,7 +137,6 @@ when isMainModule:
     when UseMetalBackend:
       updateMetalLayer()
     let boxSize = window.getWindowInfo()
-    #let boxSize = vec2(winInfo.box.w.float32, winInfo.box.h.float32)
     if boxSize != lastSize:
       lastSize = boxSize
       renders = makeRenderTree(boxSize.x, boxSize.y)
