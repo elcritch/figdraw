@@ -19,9 +19,6 @@ type GlyphPosition* = ref object ## Represents a glyph position after typesettin
   descent*: float32
   lineHeight*: float32
 
-proc toSlices*[T: SomeInteger](a: openArray[(T, T)]): seq[Slice[T]] =
-  a.mapIt(it[0] .. it[1])
-
 proc hash*(tp: Typeface): Hash =
   var h = Hash(0)
   h = h !& hash tp.filePath
@@ -277,8 +274,8 @@ proc convertArrangement(
         h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign)
         h = h !& hash(app.uiScale)
         !$h,
-    lines: lines, # arrangement.lines.toSlices(),
-    spans: spanSlices, # arrangement.spans.toSlices(),
+    lines: lines,
+    spans: spanSlices,
     fonts: gfonts,
     runes: arrangement.runes,
     positions: arrangement.positions,
