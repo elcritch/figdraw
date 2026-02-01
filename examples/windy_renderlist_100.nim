@@ -164,7 +164,7 @@ when isMainModule:
     )
 
     let t1 = getMonoTime()
-    renderer.renderFrame(renders, winInfo.box.wh.scaled())
+    renderer.renderFrame(renders, winInfo.box.wh)
     renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
 
     when not UseMetalBackend:

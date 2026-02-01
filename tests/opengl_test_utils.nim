@@ -83,8 +83,8 @@ proc renderAndScreenshotOnce*(
     try:
       pollEvents()
       let winInfo = window.getWindowInfo()
-      var renders = makeRenders(winInfo.box.w.scaled(), winInfo.box.h.scaled())
-      renderer.renderFrame(renders, winInfo.box.wh.scaled())
+      var renders = makeRenders(winInfo.box.w, winInfo.box.h)
+      renderer.renderFrame(renders, winInfo.box.wh)
       window.swapBuffers()
 
       result = glrenderer.takeScreenshot(renderer, readFront = true)

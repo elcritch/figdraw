@@ -155,7 +155,7 @@ when isMainModule:
     if boxSize != lastSize:
       lastSize = boxSize
       renders = makeRenderTree(boxSize.x, boxSize.y)
-    renderer.renderFrame(renders, winInfo.box.wh.scaled())
+    renderer.renderFrame(renders, winInfo.box.wh)
     when not UseMetalBackend:
       window.swapBuffers()
 
