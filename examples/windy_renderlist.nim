@@ -37,8 +37,6 @@ proc newWindyWindow(size: IVec2, fullscreen = false, title = "FigDraw"): Window 
   return window
 
 proc getWindowInfo(window: Window): WindowInfo =
-  result.minimized = window.minimized()
-  result.pixelRatio = window.contentScale()
   let size = window.size()
   result.box.w = size.x.float32.descaled()
   result.box.h = size.y.float32.descaled()
