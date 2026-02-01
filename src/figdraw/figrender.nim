@@ -462,12 +462,14 @@ proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff]
     for rootIdx in list.rootIds:
       ctx.render(list.nodes, rootIdx, -1.FigIdx)
 
-proc renderFrame*(renderer: FigRenderer, nodes: var Renders, frameSize: Vec2) =
+proc renderFrame*(renderer: FigRenderer, nodes: var Renders, frameSize: Vec2, clearMain: bool = true) =
   let ctx: Context = renderer.ctx
+  let frameSize = frameSize.scaled()
   when UseMetalBackend:
-    ctx.beginFrame(frameSize, clearMain = true)
+    ctx.beginFrame(frameSize, clearMain = clearMain)
   else:
-    clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
+    if clearMain:
+      clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
     ctx.beginFrame(frameSize)
 
   ctx.saveTransform()
@@ -483,46 +485,34 @@ proc renderFrame*(renderer: FigRenderer, nodes: var Renders, frameSize: Vec2) =
     img.writeFile("screenshot.png")
     quit()
 
-proc renderOverlayFrame*(renderer: FigRenderer, nodes: var Renders, frameSize: Vec2) =
-  ## Render without clearing the color buffer (useful for UI overlays).
-  let ctx: Context = renderer.ctx
-  when UseMetalBackend:
-    ctx.beginFrame(frameSize, clearMain = false)
-  else:
-    ctx.beginFrame(frameSize)
+#proc renderFrame*(
+#    ctx: Context, nodes: var Renders, frameSize: Vec2,
+#    clearMain = true,
+#) =
+#  when UseMetalBackend:
+#    ctx.beginFrame(frameSize, clearMain = clearMain)
+#  else:
+#    if clearMain:
+#      clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
+#    ctx.beginFrame(frameSize)
+#
+#  ctx.saveTransform()
+#  ctx.scale(ctx.pixelScale)
+#  ctx.renderRoot(nodes)
+#  ctx.restoreTransform()
+#  ctx.endFrame()
 
-  ctx.saveTransform()
-  ctx.scale(ctx.pixelScale)
-  ctx.renderRoot(nodes)
-  ctx.restoreTransform()
-  ctx.endFrame()
-
-proc renderFrame*(
-    ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
-) =
-  when UseMetalBackend:
-    ctx.beginFrame(frameSize, clearMain = true)
-  else:
-    clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
-    ctx.beginFrame(frameSize)
-
-  ctx.saveTransform()
-  ctx.scale(pixelScale)
-  ctx.renderRoot(nodes)
-  ctx.restoreTransform()
-  ctx.endFrame()
-
-proc renderOverlayFrame*(
-    ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
-) =
-  ## Render without clearing the color buffer (useful for UI overlays).
-  when UseMetalBackend:
-    ctx.beginFrame(frameSize, clearMain = false)
-  else:
-    ctx.beginFrame(frameSize)
-
-  ctx.saveTransform()
-  ctx.scale(pixelScale)
-  ctx.renderRoot(nodes)
-  ctx.restoreTransform()
-  ctx.endFrame()
+#proc renderOverlayFrame*(
+#    ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
+#) =
+#  ## Render without clearing the color buffer (useful for UI overlays).
+#  when UseMetalBackend:
+#    ctx.beginFrame(frameSize, clearMain = false)
+#  else:
+#    ctx.beginFrame(frameSize)
+#
+#  ctx.saveTransform()
+#  ctx.scale(pixelScale)
+#  ctx.renderRoot(nodes)
+#  ctx.restoreTransform()
+#  ctx.endFrame()

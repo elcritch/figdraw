@@ -4,19 +4,18 @@ else:
   import std/[os, times, math, strformat]
 import chroma
 
-when not UseMetalBackend:
-  import pkg/opengl
-
 when defined(useWindex):
   import windex
 else:
   import figdraw/windyshim
+
 
 import figdraw/commons
 import figdraw/fignodes
 import figdraw/figrender as glrenderer
 when not UseMetalBackend:
   import figdraw/utils/glutils
+  import pkg/opengl
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
@@ -576,13 +575,13 @@ when isMainModule:
       drawPyramid(pyramid, frameSize, mvp)
 
       useDepthBuffer(false)
-      renderer.renderOverlayFrame(renders, frameSize)
+      renderer.renderFrame(renders, frameSize, clearMain = true)
       window.swapBuffers()
     else:
       var renders = makeOverlay(
         winInfo.box.w, winInfo.box.h, rows, monoFont, bg = rgba(20, 25, 36, 255).color
       )
-      renderer.renderFrame(renders, frameSize)
+      renderer.renderFrame(renders, frameSize, clearMain = true)
 
   window.onCloseRequest = proc() =
     app.running = false

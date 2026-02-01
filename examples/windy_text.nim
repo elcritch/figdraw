@@ -198,7 +198,7 @@ when isMainModule:
     setFigDataDir(getCurrentDir() / "data")
 
   app.running = true
-  app.uiScale = 2.0
+  app.uiScale = 1.4
   app.pixelScale = 1.0
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
@@ -239,7 +239,7 @@ when isMainModule:
     let winInfo = window.getWindowInfo()
     var renders =
       makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h), uiFont, monoFont)
-    renderer.renderFrame(renders, winInfo.box.wh.scaled())
+    renderer.renderFrame(renders, winInfo.box.wh)
     when not UseMetalBackend:
       window.swapBuffers()
 
