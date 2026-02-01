@@ -37,10 +37,7 @@ proc newWindyWindow(size: IVec2, fullscreen = false, title = "FigDraw"): Window 
   return window
 
 proc getWindowInfo(window: Window): Vec2 =
-  let size = window.size()
   result = vec2(window.size()).descaled()
-  #result.box.w = size.x.float32.descaled()
-  #result.box.h = size.y.float32.descaled()
 
 proc makeRenderTree*(w, h: float32): Renders =
   var list = RenderList()
