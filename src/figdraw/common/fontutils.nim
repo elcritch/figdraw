@@ -183,9 +183,9 @@ proc convertFont*(font: UiFont): (FontId, Font) =
     pxfont.strikethrough        = font.strikethrough
     pxfont.noKerningAdjustments = font.noKerningAdjustments
 
-    if font.lineHeightOverride == -1.0'f32:
-      pxfont.lineHeight = font.lineHeight * pxfont.defaultLineHeight()
-      echo "PIXIE LH: ", pxfont.lineHeight
+    #if font.lineHeightOverride == 0.0'f32:
+    #  pxfont.lineHeight = pxfont.defaultLineHeight()
+    #  echo "PIXIE LH: ", pxfont.lineHeight
 
     fontTable[id] = pxfont
     result = (id, pxfont)
@@ -410,11 +410,11 @@ proc glyphFontFor(uiFont: UiFont): tuple[id: FontId, font: Font,
       pf.lineHeight
     else:
       defaultLineHeight
-  let lhAdj =
-    if defaultLineHeight > 0:
-      (lineHeight - pf.size * lineHeight / defaultLineHeight) / 2
-    else:
-      0.0'f32
+  let lhAdj = 0.0'f32
+  #if defaultLineHeight > 0:
+  #  (lineHeight - pf.size * lineHeight / defaultLineHeight) / 2
+  #else:
+  #  0.0'f32
   result = (
     id: fontId,
     font: pf,
