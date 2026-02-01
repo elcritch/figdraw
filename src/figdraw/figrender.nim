@@ -485,34 +485,3 @@ proc renderFrame*(renderer: FigRenderer, nodes: var Renders, frameSize: Vec2, cl
     img.writeFile("screenshot.png")
     quit()
 
-#proc renderFrame*(
-#    ctx: Context, nodes: var Renders, frameSize: Vec2,
-#    clearMain = true,
-#) =
-#  when UseMetalBackend:
-#    ctx.beginFrame(frameSize, clearMain = clearMain)
-#  else:
-#    if clearMain:
-#      clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
-#    ctx.beginFrame(frameSize)
-#
-#  ctx.saveTransform()
-#  ctx.scale(ctx.pixelScale)
-#  ctx.renderRoot(nodes)
-#  ctx.restoreTransform()
-#  ctx.endFrame()
-
-#proc renderOverlayFrame*(
-#    ctx: Context, nodes: var Renders, frameSize: Vec2, pixelScale = ctx.pixelScale
-#) =
-#  ## Render without clearing the color buffer (useful for UI overlays).
-#  when UseMetalBackend:
-#    ctx.beginFrame(frameSize, clearMain = false)
-#  else:
-#    ctx.beginFrame(frameSize)
-#
-#  ctx.saveTransform()
-#  ctx.scale(pixelScale)
-#  ctx.renderRoot(nodes)
-#  ctx.restoreTransform()
-#  ctx.endFrame()
