@@ -70,7 +70,7 @@ var
   typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
   fontTable* {.threadvar.}: Table[FontId, pixie.Font]
 
-proc generateGlyphImage(arrangement: GlyphArrangement) =
+proc generateGlyphImages(arrangement: GlyphArrangement) =
   ## returns Glyph's hash, will generate glyph if needed
   ##
   ## Font Glyphs are generated with Bottom vAlign and Center hAlign
@@ -390,15 +390,7 @@ proc typeset*(
   result.minSize += vec2(maxLineHeight / 2, 0)
   result.maxSize += vec2(maxLineHeight / 2, 0)
   result.bounding = result.bounding + rect(0, 0, 0, maxLineHeight / 2)
-  # debug "getTypesetImpl:post:", boxWh= box.wh, wh= wh, contentHash = getContentHash(box.wh, uiSpans, hAlign, vAlign),
-  #           minSize = result.minSize, maxSize = result.maxSize, bounding = result.bounding
-
-  result.generateGlyphImage()
-  # echo "font: "
-  # print arrangement.fonts[0].size
-  # print arrangement.fonts[0].lineHeight
-  # echo "arrangement: "
-  # print result
+  result.generateGlyphImages()
 
 proc glyphFontFor(uiFont: UiFont): tuple[id: FontId, font: Font,
     glyph: GlyphFont] =
@@ -410,10 +402,6 @@ proc glyphFontFor(uiFont: UiFont): tuple[id: FontId, font: Font,
     else:
       defaultLineHeight
   let lhAdj = 0.0'f32
-  #if defaultLineHeight > 0:
-  #  (lineHeight - pf.size * lineHeight / defaultLineHeight) / 2
-  #else:
-  #  0.0'f32
   result = (
     id: fontId,
     font: pf,
@@ -488,4 +476,5 @@ proc placeGlyphs*(
     result.minSize = result.bounding.wh
     result.maxSize = result.bounding.wh
 
-  result.generateGlyphImage()
+  result.generateGlyphImages()
+
