@@ -44,7 +44,7 @@ suite "fontutils":
     let uiFont = UiFont(typefaceId: typefaceId, size: 32.0'f32)
 
     let (_, pf) = uiFont.convertFont()
-    let expected = 0.5'f32 * pf.defaultLineHeight()
+    let expected = uiFont.lineHeight * pf.defaultLineHeight()
 
     check abs(pf.lineHeight - expected) < 0.01'f32
     check abs(getLineHeightImpl(uiFont).scaled() - expected) < 0.01'f32

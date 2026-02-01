@@ -52,13 +52,12 @@ type
     lastTick*: int
 
     uiScale*: float32
-    autoUiScale*: bool
     pixelScale*: float32
 
 var
   dataDirStr* {.runtimeVar.}: string = os.getCurrentDir() / "data"
   app* {.runtimeVar.} =
-    AppState(running: true, uiScale: 1.0, autoUiScale: true, pixelScale: 1.0)
+    AppState(running: true, uiScale: 1.0, pixelScale: 1.0)
 
 proc figDataDir*(): string =
   dataDirStr

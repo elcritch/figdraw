@@ -45,7 +45,7 @@ proc newWindyWindow(frame: AppFrame): Window =
   else:
     startOpenGL(openglVersion)
     setupWindow(frame, window)
-  
+
   result = window
 
 proc getWindowInfo(window: Window): WindowInfo =
@@ -63,7 +63,6 @@ when isMainModule:
     setFigDataDir(getCurrentDir() / "data")
 
   app.running = true
-  app.autoUiScale = false
   app.uiScale = 1.0
   app.pixelScale = 1.0
 

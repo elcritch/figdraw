@@ -301,7 +301,6 @@ when isMainModule:
   loadImage(imgId("star-bitmap"), bitmap)
 
   app.running = true
-  app.autoUiScale = false
   app.uiScale = 1.0
   app.pixelScale = 1.0
 

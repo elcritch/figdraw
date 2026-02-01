@@ -47,7 +47,6 @@ proc renderAndScreenshotOnce*(
     title = "figdraw test: opengl screenshot",
 ): Image =
   app.running = true
-  app.autoUiScale = false
   app.uiScale = 1.0
   app.pixelScale = 1.0
 
@@ -103,7 +102,6 @@ proc renderAndScreenshotOverlayOnce*(
     title = "figdraw test: opengl overlay screenshot",
 ): Image =
   app.running = true
-  app.autoUiScale = false
   app.uiScale = 1.0
   app.pixelScale = 1.0
 

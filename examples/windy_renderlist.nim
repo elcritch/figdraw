@@ -116,7 +116,6 @@ proc makeRenderTree*(w, h: float32): Renders =
 
 when isMainModule:
   app.running = true
-  app.autoUiScale = false
   app.uiScale = 1.0
   app.pixelScale = 1.0
 

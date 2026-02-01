@@ -198,15 +198,13 @@ when isMainModule:
     setFigDataDir(getCurrentDir() / "data")
 
   app.running = true
-  app.autoUiScale = false
   app.uiScale = 2.0
   app.pixelScale = 1.0
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
   let uiFont = UiFont(typefaceId: typefaceId, size: 28.0'f32)
   let monoTypefaceId = loadTypeface("HackNerdFont-Regular.ttf")
-  let monoFont =
-    UiFont(typefaceId: monoTypefaceId, size: 20.0'f32)
+  let monoFont = UiFont(typefaceId: monoTypefaceId, size: 20.0'f32)
 
   var frame = AppFrame(windowTitle: "figdraw: OpenGL + Windy Text")
   frame.windowInfo = WindowInfo(
