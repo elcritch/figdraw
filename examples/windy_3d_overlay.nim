@@ -469,7 +469,7 @@ when isMainModule:
     setFigDataDir(getCurrentDir() / "data")
 
   app.running = true
-  app.uiScale = 2.0
+  app.uiScale = 1.0
   app.pixelScale = 1.0
 
   let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
