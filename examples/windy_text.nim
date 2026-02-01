@@ -43,8 +43,8 @@ proc buildMonoGlyphLayout*(
   let monoLineHeight = (
     if monoPx.lineHeight >= 0: monoPx.lineHeight
     else: monoPx.defaultLineHeight()
-  ).descaled()
-  let monoAdvance = (monoPx.typeface.getAdvance(Rune('M')) * monoPx.scale).descaled()
+  )
+  let monoAdvance = (monoPx.typeface.getAdvance(Rune('M')) * monoPx.scale)
 
   var glyphs: seq[(Rune, Vec2)]
   var x = pad
@@ -113,7 +113,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
   let monoLineHeight = (
     if monoPx.lineHeight >= 0: monoPx.lineHeight
     else: monoPx.defaultLineHeight()
-  ).descaled()
+  )
   let monoPad = 8'f32
   var monoLines = 1
   for rune in monoText.runes:
