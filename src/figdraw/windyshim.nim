@@ -1,5 +1,7 @@
 import unicode, vmath, windy/common
 
+import ./common/shared
+
 when defined(emscripten):
   import windy/platforms/emscripten/platform
 elif defined(windows):
@@ -18,6 +20,9 @@ else:
   {.error: "windyshim: unsupported OS".}
 
 export common, platform, unicode, vmath
+
+proc logicalSize*(window: Window): Vec2 =
+  result = vec2(window.size()).descaled()
 
 when defined(macosx) and not compiles(cocoaWindow(Window())):
   privateAccess(Window)

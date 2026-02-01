@@ -36,9 +36,6 @@ proc newWindyWindow(size: IVec2, fullscreen = false, title = "FigDraw"): Window 
 
   return window
 
-proc logicalSize*(window: Window): Vec2 =
-  result = vec2(window.size()).descaled()
-
 proc makeRenderTree*(w, h: float32): Renders =
   var list = RenderList()
 
