@@ -78,6 +78,9 @@ proc descaled*(a: Rect): Rect =
 proc scaled*(a: Vec2): Vec2 =
   a * app.uiScale
 
+proc scaled*(a: IVec2): IVec2 =
+  ivec2(vec2(a) * app.uiScale)
+
 proc descaled*(a: Vec2): Vec2 =
   let a = a / app.uiScale
   result.x = a.x

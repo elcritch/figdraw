@@ -27,12 +27,12 @@ proc setupWindow(window: Window, size: IVec2, fullscreen: bool) =
   when not UseMetalBackend:
     window.makeContextCurrent()
 
-proc newWindyWindow(size: IVec2, fullscreen = false): Window =
-  let window =
-    when defined(emscripten):
-      newWindow("Figuro", ivec2(0, 0), visible = false)
-    else:
-      newWindow("Figuro", size, visible = false)
+proc newWindyWindow(size: IVec2, fullscreen = false, title = "FigDraw"): Window =
+  let size =
+    scaled(when defined(emscripten): ivec2(0, 0)
+           else: size)
+
+  let window = newWindow(title, size, visible = false)
   when defined(emscripten):
     setupWindow(window, size, fullscreen)
     startOpenGL(openglVersion)
@@ -115,7 +115,7 @@ proc makeRenderTree*(w, h: float32): Renders =
 
 when isMainModule:
   app.running = true
-  app.uiScale = 1.0
+  app.uiScale = 2.0
   app.pixelScale = 1.0
 
   var frame = AppFrame(windowTitle: "figdraw: OpenGL + Windy RenderList")
