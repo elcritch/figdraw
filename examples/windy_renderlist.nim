@@ -13,28 +13,7 @@ import figdraw/commons
 import figdraw/fignodes
 import figdraw/figrender as glrenderer
 
-when not UseMetalBackend:
-  import figdraw/utils/glutils
-
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
-
-proc newWindyWindow(size: IVec2, fullscreen = false, title = "FigDraw"): Window =
-  let size = scaled(when defined(emscripten): ivec2(0, 0) else: size)
-  let window = newWindow(title, size, visible = false)
-
-  when not UseMetalBackend:
-    startOpenGL(openglVersion)
-
-  when not defined(emscripten):
-    if fullscreen:
-      window.fullscreen = true
-    else:
-      window.size = size
-    window.visible = true
-  when not UseMetalBackend:
-    window.makeContextCurrent()
-
-  return window
 
 proc makeRenderTree*(w, h: float32): Renders =
   var list = RenderList()
