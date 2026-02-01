@@ -36,7 +36,7 @@ proc newWindyWindow(size: IVec2, fullscreen = false, title = "FigDraw"): Window 
 
   return window
 
-proc getWindowInfo(window: Window): Vec2 =
+proc logicalSize*(window: Window): Vec2 =
   result = vec2(window.size()).descaled()
 
 proc makeRenderTree*(w, h: float32): Renders =
@@ -133,11 +133,11 @@ when isMainModule:
   proc redraw() =
     when UseMetalBackend:
       updateMetalLayer()
-    let boxSize = window.getWindowInfo()
-    if boxSize != lastSize:
-      lastSize = boxSize
-      renders = makeRenderTree(boxSize.x, boxSize.y)
-    renderer.renderFrame(renders, boxSize)
+    let sz = window.logicalSize()
+    if sz != lastSize:
+      lastSize = sz
+      renders = makeRenderTree(sz.x, sz.y)
+    renderer.renderFrame(renders, sz)
     when not UseMetalBackend:
       window.swapBuffers()
 
