@@ -29,9 +29,7 @@ proc setupWindow(window: Window, size: IVec2, fullscreen: bool) =
     window.makeContextCurrent()
 
 proc newWindyWindow(size: IVec2, fullscreen = false, title = "FigDraw"): Window =
-  let size =
-    scaled(when defined(emscripten): ivec2(0, 0)
-           else: size)
+  let size = scaled(when defined(emscripten): ivec2(0, 0) else: size)
 
   let window = newWindow(title, size, visible = false)
   when UseMetalBackend:
