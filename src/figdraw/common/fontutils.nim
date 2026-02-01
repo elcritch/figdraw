@@ -175,10 +175,10 @@ proc convertFont*(font: UiFont): (FontId, Font) =
 
   if not fontTable.hasKey(id):
     var pxfont = newFont(typeface)
-    pxfont.size = font.size.scaled()
+    pxfont.size = font.size
     pxfont.typeface = typeface
     pxfont.textCase = parseEnum[TextCase]($font.fontCase)
-    pxfont.lineHeight      = font.lineHeight.scaled()
+    pxfont.lineHeight      = font.lineHeight
     pxfont.underline            = font.underline
     pxfont.strikethrough        = font.strikethrough
     pxfont.noKerningAdjustments = font.noKerningAdjustments
@@ -193,7 +193,7 @@ proc convertFont*(font: UiFont): (FontId, Font) =
 
 proc getLineHeightImpl*(font: UiFont): float32 =
   let (_, pf) = font.convertFont()
-  result = pf.lineHeight.descaled()
+  result = pf.lineHeight
 
 proc calcMinMaxContent(
     textLayout: GlyphArrangement
@@ -243,13 +243,13 @@ proc calcMinMaxContent(
     maxLine = max(maxLine, font.lineHeight)
 
   # set results
-  result.minSize.x = longestWordLen.descaled()
-  result.minSize.y = maxLine.descaled()
+  result.minSize.x = longestWordLen
+  result.minSize.y = maxLine
 
-  result.maxSize.x = maxWidth.descaled()
-  result.maxSize.y = wordsHeight.descaled()
+  result.maxSize.x = maxWidth
+  result.maxSize.y = wordsHeight
 
-  result.bounding = rect.descaled()
+  result.bounding = rect
 
 proc convertArrangement(
     arrangement: Arrangement,
@@ -300,7 +300,7 @@ proc typeset*(
     AppMainThread
 
   var
-    wh = box.scaled().wh
+    wh = box.wh
     sz = uiSpans.mapIt(it[0].size.float)
     minSz = sz.foldl(max(a, b), 0.0)
 
@@ -350,7 +350,7 @@ proc typeset*(
   if minContent:
     ## calcaulate min width of content
     var wh = wh
-    wh.y = result.maxSize.y.scaled()
+    wh.y = result.maxSize.y
     let arr = pixie.typeset(
       spans, bounds = wh, hAlign = LeftAlign, vAlign = TopAlign, wrap = wrap
     )
@@ -366,7 +366,7 @@ proc typeset*(
       boundH = result.bounding.h
 
     if minContent.bounding.h > result.bounding.h:
-      let wh = vec2(wh.x, minContent.bounding.h.scaled())
+      let wh = vec2(wh.x, minContent.bounding.h)
       let minAdjusted =
         pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
       result = convertArrangement(minAdjusted, box, uiSpans, hAlign, vAlign, gfonts)
@@ -445,11 +445,11 @@ proc placeGlyphs*(
 
   for (rune, pos) in glyphs:
 
-    let scaledPos = pos.scaled()
+    let scaledPos = pos
     let descent = cachedFont.glyph.lineHeight - cachedFont.glyph.descentAdj
-    var baselinePos = scaledPos
+    var baselinePos = pos
     if origin == GlyphTopLeft:
-      baselinePos.y = scaledPos.y + descent
+      baselinePos.y = pos.y + descent
 
     runes.add(rune)
     positions.add(baselinePos)
@@ -484,7 +484,7 @@ proc placeGlyphs*(
     maxY = max(maxY, rect.y + rect.h)
   if selectionRects.len > 0:
     let boundingScaled = rect(minX, minY, maxX - minX, maxY - minY)
-    result.bounding = boundingScaled.descaled()
+    result.bounding = boundingScaled
     result.minSize = result.bounding.wh
     result.maxSize = result.bounding.wh
 
