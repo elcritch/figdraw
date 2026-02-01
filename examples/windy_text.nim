@@ -184,7 +184,7 @@ when isMainModule:
                               title = "figdraw: Windy + Text")
 
   let renderer =
-    glrenderer.newFigRenderer(atlasSize = 512, pixelScale = app.pixelScale)
+    glrenderer.newFigRenderer(atlasSize = 1024, pixelScale = app.pixelScale)
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
@@ -198,6 +198,11 @@ when isMainModule:
     when UseMetalBackend:
       updateMetalLayer()
     let sz = window.logicalSize()
+    let szOrig = window.size()
+    let factor = round(szOrig.x.float32 / size.x.float32, 1)
+    app.uiScale = factor
+    echo "FACTOR: ", factor
+
     var renders =
       makeRenderTree(sz.x, sz.y, uiFont, monoFont)
     renderer.renderFrame(renders, sz)

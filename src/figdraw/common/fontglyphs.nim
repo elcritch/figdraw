@@ -24,6 +24,48 @@ type GlyphPosition* = ref object ## Represents a glyph position after typesettin
 proc hash*(glyph: GlyphPosition): Hash {.inline.} =
   result = hash((2344, glyph.fontId, glyph.rune, app.uiScale))
 
+proc generateGlyph*(glyph: GlyphPosition) =
+  if unicode.isWhiteSpace(glyph.rune):
+    return
+
+  let hashFill = glyph.hash()
+
+  if not hasImage(hashFill.ImageId):
+    let
+      wh = glyph.rect.wh.scaled()
+      fontId = glyph.fontId
+      font = getPixieFont(fontId)
+
+    let
+      text = $glyph.rune
+      arrangement = pixie.typeset(
+        @[newSpan(text, font)],
+        bounds = wh,
+        hAlign = CenterAlign,
+        vAlign = TopAlign,
+        wrap = false,
+      )
+    let
+      snappedBounds = arrangement.computeBounds().snapToPixels()
+
+    let
+      lh = font.defaultLineHeight()
+      bounds = rect(0, 0, snappedBounds.w + snappedBounds.x, lh)
+
+    if bounds.w == 0 or bounds.h == 0:
+      echo "GEN IMG: ", glyph.rune, " wh: ", wh, " snapped: ", snappedBounds
+      return
+
+    try:
+      font.paint = parseHex"FFFFFF"
+      var image = newImage(bounds.w.int, bounds.h.int)
+      image.fillText(arrangement)
+
+      # put into cache
+      loadImage(hashFill.ImageId, image)
+    except PixieError:
+      discard
+
 iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
   var idx = 0
 
@@ -58,47 +100,7 @@ proc generateGlyphImages*(arrangement: GlyphArrangement) =
   ## so that the renderer doesn't need to figure out adjustments
 
   for glyph in arrangement.glyphs():
-    if unicode.isWhiteSpace(glyph.rune):
-      # echo "skipped:rune: ", glyph.rune, " ", glyph.rune.int
-      continue
-
-    let hashFill = glyph.hash()
-
-    if not hasImage(hashFill.ImageId):
-      let
-        wh = glyph.rect.wh.scaled()
-        fontId = glyph.fontId
-        font = getPixieFont(fontId)
-
-      let
-        text = $glyph.rune
-        arrangement = pixie.typeset(
-          @[newSpan(text, font)],
-          bounds = wh,
-          hAlign = CenterAlign,
-          vAlign = TopAlign,
-          wrap = false,
-        )
-      let
-        snappedBounds = arrangement.computeBounds().snapToPixels()
-
-      let
-        lh = font.defaultLineHeight()
-        bounds = rect(0, 0, snappedBounds.w + snappedBounds.x, lh)
-
-      if bounds.w == 0 or bounds.h == 0:
-        echo "GEN IMG: ", glyph.rune, " wh: ", wh, " snapped: ", snappedBounds
-        continue
-
-      try:
-        font.paint = parseHex"FFFFFF"
-        var image = newImage(bounds.w.int, bounds.h.int)
-        image.fillText(arrangement)
-
-        # put into cache
-        loadImage(hashFill.ImageId, image)
-      except PixieError:
-        discard
+    glyph.generateGlyph()
 
 proc convertArrangement*(
     arrangement: Arrangement,
