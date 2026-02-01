@@ -312,10 +312,8 @@ proc typeset*(
     pfs.add(pf)
     spans.add(newSpan(txt, pf))
     assert not pf.typeface.isNil
-    # There's gotta be a better way. Need to lookup the font formulas or equations or something
-    #let lhAdj = pf.lineHeight
-    #let lhAdj = max(pf.lineHeight - pf.size, 0.0)
-    let lhAdj = (pf.lineHeight - pf.size * pf.lineHeight / pf.defaultLineHeight()) / 2
+    let lhAdj = pf.lineHeight
+    #let lhAdj = (pf.lineHeight - pf.size * pf.lineHeight / pf.defaultLineHeight()) / 2
     gfonts.add GlyphFont(
       fontId: fontId, lineHeight: pf.lineHeight, descentAdj: lhAdj
     )
