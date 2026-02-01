@@ -102,7 +102,7 @@ proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
       notice "no glyph in context: ",
         glyphId = glyphId, glyph = glyph.rune, glyphRepr = repr(glyph.rune)
       #continue
-    ctx.drawImage(glyphId, charPos, node.fill)
+    ctx.drawImage(glyphId, charPos, node.fill, scale = app.uiScale)
 
 import macros except `$`
 

@@ -129,14 +129,22 @@ proc getLineHeightImpl*(font: UiFont): float32 =
   let (_, pf) = font.convertFont()
   result = pf.lineHeight
 
+proc snapFontSizeDown(size: float): float32 =
+  let sizes = [8'f32, 12, 16, 24, 32, 48, 64, 96, 128]
+  for i in countdown(sizes.len - 1, 0):
+    if size >= float(sizes[i]):
+      return sizes[i]
+  return sizes[0]
+
 proc getScaledFont*(size: float32): float32 =
-  result = size.scaled().round()
+  result = size.scaled().snapFontSizeDown()
 
 proc getPixieFont*(fontId: FontId): Font =
   var uifont: UiFont
   withLock(fontLock):
     uifont = fontTable[fontId]
   result = uifont.pixieFont()[1]
-  result.size = result.size.getScaledFont()
+  #result.size = result.size.getScaledFont()
+  result.size = result.size
   result.lineHeight = result.lineHeight.scaled()
 

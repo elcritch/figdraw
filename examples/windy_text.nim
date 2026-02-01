@@ -184,7 +184,7 @@ when isMainModule:
                               title = "figdraw: Windy + Text")
 
   let renderer =
-    glrenderer.newFigRenderer(atlasSize = 1024, pixelScale = app.pixelScale)
+    glrenderer.newFigRenderer(atlasSize = 2048, pixelScale = app.pixelScale)
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
