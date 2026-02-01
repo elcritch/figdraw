@@ -30,14 +30,14 @@ proc setupWindow(window: Window, size: IVec2, fullscreen: bool) =
 
 proc newWindyWindow(size: IVec2, fullscreen = false, title = "FigDraw"): Window =
   let size = scaled(when defined(emscripten): ivec2(0, 0) else: size)
-
   let window = newWindow(title, size, visible = false)
+
   when UseMetalBackend:
     setupWindow(window, size, fullscreen)
   else:
     startOpenGL(openglVersion)
     setupWindow(window, size, fullscreen)
-  result = window
+  return window
 
 proc getWindowInfo(window: Window): WindowInfo =
   app.requestedFrame.inc
