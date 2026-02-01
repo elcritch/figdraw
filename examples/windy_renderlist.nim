@@ -115,23 +115,19 @@ proc makeRenderTree*(w, h: float32): Renders =
 
 when isMainModule:
   app.running = true
-  app.uiScale = 2.0
+  when defined(hdi):
+    app.uiScale = 2.0
+  else:
+    app.uiScale = 1.0
   app.pixelScale = 1.0
 
-  var frame = AppFrame(windowTitle: "figdraw: OpenGL + Windy RenderList")
-  frame.windowInfo = WindowInfo(
-    box: rect(0, 0, 800, 600),
-    running: true,
-    focused: true,
-    minimized: false,
-    fullscreen: false,
-    pixelRatio: 1.0,
-  )
-
+  let size = ivec2(800, 600)
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
-  let window = newWindyWindow(ivec2(frame.windowInfo.box.wh), frame.windowInfo.fullscreen)
+  let window = newWindyWindow(size = size,
+                              fullscreen = false,
+                              title = "figdraw: OpenGL + Windy RenderList")
 
   let renderer = glrenderer.newFigRenderer(atlasSize = 192, pixelScale = app.pixelScale)
 
