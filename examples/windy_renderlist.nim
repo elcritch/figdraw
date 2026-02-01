@@ -34,10 +34,7 @@ proc newWindyWindow(size: IVec2, fullscreen = false, title = "FigDraw"): Window 
            else: size)
 
   let window = newWindow(title, size, visible = false)
-  when defined(emscripten):
-    setupWindow(window, size, fullscreen)
-    startOpenGL(openglVersion)
-  elif UseMetalBackend:
+  when UseMetalBackend:
     setupWindow(window, size, fullscreen)
   else:
     startOpenGL(openglVersion)
