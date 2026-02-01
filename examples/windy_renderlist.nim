@@ -1,4 +1,5 @@
 import std/times
+import std/strutils
 when not defined(emscripten):
   import std/os
 import chroma
@@ -115,8 +116,8 @@ proc makeRenderTree*(w, h: float32): Renders =
 
 when isMainModule:
   app.running = true
-  when defined(hdi):
-    app.uiScale = 2.0
+  if getEnv("HDI") != "":
+    app.uiScale = getEnv("HDI").parseFloat()
   else:
     app.uiScale = 1.0
   app.pixelScale = 1.0
@@ -170,7 +171,6 @@ when isMainModule:
       let elapsed = now - fpsStart
       if elapsed >= 1.0:
         let fps = fpsFrames.float / elapsed
-        echo "fps: ", fps
         fpsFrames = 0
         fpsStart = now
       if RunOnce and frames >= 1:
