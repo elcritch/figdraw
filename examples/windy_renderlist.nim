@@ -83,7 +83,6 @@ when isMainModule:
     app.uiScale = getEnv("HDI").parseFloat()
   else:
     app.uiScale = 1.0
-  app.pixelScale = 1.0
 
   let size = ivec2(800, 600)
   var frames = 0

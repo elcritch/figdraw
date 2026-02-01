@@ -1,7 +1,7 @@
 when defined(emscripten):
-  import std/[times, unicode]
+  import std/[times, unicode, strutils]
 else:
-  import std/[os, times, unicode]
+  import std/[os, times, unicode, strutils]
 import chroma
 import pkg/pixie/fonts
 
@@ -163,8 +163,10 @@ when isMainModule:
     setFigDataDir(getCurrentDir() / "data")
 
   app.running = true
-  app.uiScale = 1.4
-  app.pixelScale = 1.0
+  if getEnv("HDI") != "":
+    app.uiScale = getEnv("HDI").parseFloat()
+  else:
+    app.uiScale = 1.0
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
   let uiFont = UiFont(typefaceId: typefaceId, size: 28.0'f32)
