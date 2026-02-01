@@ -137,14 +137,14 @@ proc snapFontSizeDown(size: float): float32 =
   return sizes[0]
 
 proc getScaledFont*(size: float32): float32 =
-  result = size.scaled().snapFontSizeDown()
+  result = size.scaled()
 
 proc getPixieFont*(fontId: FontId): Font =
   var uifont: UiFont
   withLock(fontLock):
     uifont = fontTable[fontId]
   result = uifont.pixieFont()[1]
-  #result.size = result.size.getScaledFont()
-  result.size = result.size
+  result.size = result.size.getScaledFont()
+  #result.size = result.size
   result.lineHeight = result.lineHeight.scaled()
 
