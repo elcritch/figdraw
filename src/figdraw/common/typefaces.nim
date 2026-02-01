@@ -35,7 +35,7 @@ proc getId*(typeface: Typeface): TypefaceId =
       break
   doAssert result.int != 0, "Typeface hash results in invalid id"
 
-proc getFont*(fontId: FontId): Font =
+proc getPixieFont*(fontId: FontId): Font =
   fontTable[fontId]
 
 proc readTypefaceImpl(

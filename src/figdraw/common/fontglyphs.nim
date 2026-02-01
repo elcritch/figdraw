@@ -69,7 +69,7 @@ proc generateGlyphImages*(arrangement: GlyphArrangement) =
       let
         wh = glyph.rect.wh
         fontId = glyph.fontId
-        font = getFont(fontId)
+        font = getPixieFont(fontId)
         text = $glyph.rune
         arrangement = pixie.typeset(
           @[newSpan(text, font)],
