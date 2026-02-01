@@ -575,7 +575,7 @@ when isMainModule:
       drawPyramid(pyramid, frameSize, mvp)
 
       useDepthBuffer(false)
-      renderer.renderFrame(renders, frameSize, clearMain = true)
+      renderer.renderFrame(renders, frameSize, clearMain = false)
       window.swapBuffers()
     else:
       var renders = makeOverlay(
