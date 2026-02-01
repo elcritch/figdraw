@@ -36,10 +36,11 @@ proc newWindyWindow(size: IVec2, fullscreen = false, title = "FigDraw"): Window 
 
   return window
 
-proc getWindowInfo(window: Window): WindowInfo =
+proc getWindowInfo(window: Window): vec2 =
   let size = window.size()
-  result.box.w = size.x.float32.descaled()
-  result.box.h = size.y.float32.descaled()
+  result = vec2(window.size()).descaled()
+  #result.box.w = size.x.float32.descaled()
+  #result.box.h = size.y.float32.descaled()
 
 proc makeRenderTree*(w, h: float32): Renders =
   var list = RenderList()
@@ -135,12 +136,12 @@ when isMainModule:
   proc redraw() =
     when UseMetalBackend:
       updateMetalLayer()
-    let winInfo = window.getWindowInfo()
-    let boxSize = vec2(winInfo.box.w.float32, winInfo.box.h.float32)
+    let boxSize = window.getWindowInfo()
+    #let boxSize = vec2(winInfo.box.w.float32, winInfo.box.h.float32)
     if boxSize != lastSize:
       lastSize = boxSize
       renders = makeRenderTree(boxSize.x, boxSize.y)
-    renderer.renderFrame(renders, winInfo.box.wh)
+    renderer.renderFrame(renders, boxSize)
     when not UseMetalBackend:
       window.swapBuffers()
 
