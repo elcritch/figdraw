@@ -17,31 +17,30 @@ when not UseMetalBackend:
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
-proc setupWindow(frame: AppFrame, window: Window) =
+proc setupWindow(window: Window, size: IVec2, fullscreen: bool) =
   when not defined(emscripten):
-    if frame.windowInfo.fullscreen:
-      window.fullscreen = frame.windowInfo.fullscreen
+    if fullscreen:
+      window.fullscreen = true
     else:
-      window.size = ivec2(frame.windowInfo.box.wh.scaled())
-
+      window.size = size
     window.visible = true
   when not UseMetalBackend:
     window.makeContextCurrent()
 
-proc newWindyWindow(frame: AppFrame): Window =
+proc newWindyWindow(size: IVec2, fullscreen = false): Window =
   let window =
     when defined(emscripten):
       newWindow("Figuro", ivec2(0, 0), visible = false)
     else:
-      newWindow("Figuro", ivec2(1280, 800), visible = false)
+      newWindow("Figuro", size, visible = false)
   when defined(emscripten):
-    setupWindow(frame, window)
+    setupWindow(window, size, fullscreen)
     startOpenGL(openglVersion)
   elif UseMetalBackend:
-    setupWindow(frame, window)
+    setupWindow(window, size, fullscreen)
   else:
     startOpenGL(openglVersion)
-    setupWindow(frame, window)
+    setupWindow(window, size, fullscreen)
   result = window
 
 proc getWindowInfo(window: Window): WindowInfo =
@@ -132,7 +131,7 @@ when isMainModule:
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
-  let window = newWindyWindow(frame)
+  let window = newWindyWindow(ivec2(frame.windowInfo.box.wh), frame.windowInfo.fullscreen)
 
   let renderer = glrenderer.newFigRenderer(atlasSize = 192, pixelScale = app.pixelScale)
 
