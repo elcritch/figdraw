@@ -67,13 +67,11 @@ proc takeScreenshot*(
 proc newFigRenderer*(atlasSize: int, pixelScale = app.pixelScale): FigRenderer =
   result = FigRenderer()
   when UseMetalBackend:
-    result.ctx = newContext(
-      atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
-    )
+    result.ctx =
+      newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
   else:
-    result.ctx = newContext(
-      atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
-    )
+    result.ctx =
+      newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
 
 proc newFigRenderer*(ctx: Context): FigRenderer =
   ## Uses a caller-created backend context.
@@ -143,9 +141,9 @@ macro postRender() =
   while postRenderImpl.len() > 0:
     result.add postRenderImpl.pop()
 
-proc scaledCorners(corners: array[DirectionCorners, float32]): array[
-    DirectionCorners, float32
-] =
+proc scaledCorners(
+    corners: array[DirectionCorners, float32]
+): array[DirectionCorners, float32] =
   for corner in DirectionCorners:
     result[corner] = corners[corner].scaled()
 
@@ -194,16 +192,14 @@ proc renderDropShadows(ctx: Context, node: Fig) =
       var color = shadow.color
       const N = 3
       color.a = color.a * 1.0 / (N * N * N)
-      let blurAmt =
-        shadow.blur.scaled() * shadow.spread.scaled() / (12 * N * N)
+      let blurAmt = shadow.blur.scaled() * shadow.spread.scaled() / (12 * N * N)
       for i in -N .. N:
         for j in -N .. N:
           let xblur: float32 = i.toFloat() * blurAmt
           let yblur: float32 = j.toFloat() * blurAmt
           let box = node.screenBox.scaled().atXY(
-            x = shadow.x.scaled() + xblur,
-            y = shadow.y.scaled() + yblur,
-          )
+              x = shadow.x.scaled() + xblur, y = shadow.y.scaled() + yblur
+            )
           ctx.drawRoundedRect(
             rect = box, color = color, radius = node.corners.scaledCorners()
           )
@@ -299,14 +295,10 @@ proc renderBoxes(ctx: Context, node: Fig) =
 
   if node.fill.a > 0'f32:
     when not defined(useFigDrawTextures):
-      ctx.drawRoundedRectSdf(
-        rect = box, color = node.fill, radii = corners
-      )
+      ctx.drawRoundedRectSdf(rect = box, color = node.fill, radii = corners)
     else:
       if node.corners != [0'f32, 0'f32, 0'f32, 0'f32]:
-        ctx.drawRoundedRect(
-          rect = box, color = node.fill, radii = corners
-        )
+        ctx.drawRoundedRect(rect = box, color = node.fill, radii = corners)
       else:
         ctx.drawRect(box, node.fill)
 
@@ -333,9 +325,7 @@ proc renderImage(ctx: Context, node: Fig) =
     return
   let box = node.screenBox.scaled()
   let size = vec2(box.w, box.h)
-  ctx.drawImage(
-    node.image.id.Hash, pos = box.xy, color = node.image.color, size = size
-  )
+  ctx.drawImage(node.image.id.Hash, pos = box.xy, color = node.image.color, size = size)
 
 proc renderMsdfImage(ctx: Context, node: Fig) =
   if node.msdfImage.id.int == 0:
@@ -462,14 +452,20 @@ proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff]
     for rootIdx in list.rootIds:
       ctx.render(list.nodes, rootIdx, -1.FigIdx)
 
-proc renderFrame*(renderer: FigRenderer, nodes: var Renders, frameSize: Vec2, clearMain: bool = true) =
+proc renderFrame*(
+    renderer: FigRenderer,
+    nodes: var Renders,
+    frameSize: Vec2,
+    clearMain: bool = true,
+    clearColor: Color = color(1.0, 1.0, 1.0, 1.0),
+) =
   let ctx: Context = renderer.ctx
   let frameSize = frameSize.scaled()
   when UseMetalBackend:
-    ctx.beginFrame(frameSize, clearMain = clearMain)
+    ctx.beginFrame(frameSize, clearMain = clearMain, clearMainColor = clearColor)
   else:
     if clearMain:
-      clearColorBuffer(color(1.0, 1.0, 1.0, 1.0))
+      clearColorBuffer(clearColor)
     ctx.beginFrame(frameSize)
 
   ctx.saveTransform()
@@ -484,4 +480,3 @@ proc renderFrame*(renderer: FigRenderer, nodes: var Renders, frameSize: Vec2, cl
     var img = takeScreenshot(renderer)
     img.writeFile("screenshot.png")
     quit()
-
