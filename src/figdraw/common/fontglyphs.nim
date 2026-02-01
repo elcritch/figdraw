@@ -22,7 +22,7 @@ type GlyphPosition* = ref object ## Represents a glyph position after typesettin
   lineHeight*: float32
 
 proc hash*(glyph: GlyphPosition): Hash {.inline.} =
-  result = hash((2344, glyph.fontId, glyph.rune))
+  result = hash((2344, glyph.fontId, glyph.rune, app.uiScale))
 
 iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
   var idx = 0
@@ -39,7 +39,6 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
 
         yield GlyphPosition(
           fontId: gfont.fontId,
-          # fontSize: gfont.size,
           rune: rune,
           pos: pos,
           rect: selection,
@@ -67,9 +66,11 @@ proc generateGlyphImages*(arrangement: GlyphArrangement) =
 
     if not hasImage(hashFill.ImageId):
       let
-        wh = glyph.rect.wh
+        wh = glyph.rect.wh.scaled()
         fontId = glyph.fontId
         font = getPixieFont(fontId)
+
+      let
         text = $glyph.rune
         arrangement = pixie.typeset(
           @[newSpan(text, font)],

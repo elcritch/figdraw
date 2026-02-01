@@ -96,7 +96,7 @@ proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
 
     let
       glyphId = glyph.hash()
-      charPos = vec2(glyph.pos.x, glyph.pos.y - glyph.descent * 1.0)
+      charPos = vec2(glyph.pos.x.scaled, scaled(glyph.pos.y - glyph.descent * 1.0))
     if glyphId notin ctx.entries:
       trace "no glyph in context: ",
         glyphId = glyphId, glyph = glyph.rune, glyphRepr = repr(glyph.rune)

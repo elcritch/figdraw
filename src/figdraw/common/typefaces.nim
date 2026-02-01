@@ -1,6 +1,7 @@
 import std/isolation
 import std/os
 import std/strutils
+import std/locks
 
 import pkg/vmath
 import pkg/pixie
@@ -14,7 +15,10 @@ import ./shared
 
 var
   typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
-  fontTable* {.threadvar.}: Table[FontId, pixie.Font]
+  fontTable*: Table[FontId, UiFont]
+  fontLock*: Lock
+
+fontLock.initLock()
 
 type TypeFaceKinds* = enum
   TTF
@@ -34,9 +38,6 @@ proc getId*(typeface: Typeface): TypefaceId =
     else:
       break
   doAssert result.int != 0, "Typeface hash results in invalid id"
-
-proc getPixieFont*(fontId: FontId): Font =
-  fontTable[fontId]
 
 proc readTypefaceImpl(
     name, data: string, kind: TypeFaceKinds
@@ -80,31 +81,31 @@ proc loadTypeface*(name, data: string, kind: TypeFaceKinds): FontId =
   typefaceTable[id] = typeface
   result = id
 
-proc convertFont*(font: UiFont): (FontId, Font) =
-  ## does the typesetting using pixie, then converts to Figuro's internal
-  ## types
-
+proc pixieFont(font: UiFont): (FontId, Font) =
   let
     id = FontId(hash((font.getId(), app.uiScale)))
     typeface = typefaceTable[font.typefaceId]
 
-  if not fontTable.hasKey(id):
-    var pxfont = newFont(typeface)
-    pxfont.size = font.size
-    pxfont.typeface = typeface
-    pxfont.textCase = parseEnum[TextCase]($font.fontCase)
-    pxfont.lineHeight      = font.lineHeight
-    pxfont.underline            = font.underline
-    pxfont.strikethrough        = font.strikethrough
-    pxfont.noKerningAdjustments = font.noKerningAdjustments
+  var pxfont = newFont(typeface)
+  pxfont.size = font.size
+  pxfont.typeface = typeface
+  pxfont.textCase = parseEnum[TextCase]($font.fontCase)
+  pxfont.lineHeight      = font.lineHeight
+  pxfont.underline            = font.underline
+  pxfont.strikethrough        = font.strikethrough
+  pxfont.noKerningAdjustments = font.noKerningAdjustments
 
-    if font.lineHeight == 0.0'f32:
-      pxfont.lineHeight = pxfont.defaultLineHeight()
+  if font.lineHeight == 0.0'f32:
+    pxfont.lineHeight = pxfont.defaultLineHeight()
+  result = (id, pxfont)
 
-    fontTable[id] = pxfont
-    result = (id, pxfont)
-  else:
-    result = (id, fontTable[id])
+proc convertFont*(font: UiFont): (FontId, Font) =
+  ## does the typesetting using pixie, then converts to Figuro's internal
+  ## types
+
+  result = font.pixieFont()
+  if not fontTable.hasKey(result[0]):
+    fontTable[result[0]] = font
 
 proc glyphFontFor*(
     uiFont: UiFont
@@ -127,4 +128,15 @@ proc glyphFontFor*(
 proc getLineHeightImpl*(font: UiFont): float32 =
   let (_, pf) = font.convertFont()
   result = pf.lineHeight
+
+proc getScaledFont*(size: float32): float32 =
+  result = size.scaled().round()
+
+proc getPixieFont*(fontId: FontId): Font =
+  var uifont: UiFont
+  withLock(fontLock):
+    uifont = fontTable[fontId]
+  result = uifont.pixieFont()[1]
+  result.size = result.size.getScaledFont()
+  result.lineHeight = result.lineHeight.scaled()
 
