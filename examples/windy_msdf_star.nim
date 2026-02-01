@@ -301,7 +301,7 @@ when isMainModule:
   loadImage(imgId("star-bitmap"), bitmap)
 
   app.running = true
-  app.uiScale = 1.0
+  app.uiScale = 2.0
   app.pixelScale = 1.0
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
@@ -403,7 +403,7 @@ when isMainModule:
     )
 
     let t1 = getMonoTime()
-    renderer.renderFrame(renders, winInfo.box.wh.scaled())
+    renderer.renderFrame(renders, winInfo.box.wh)
     renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
 
     when not UseMetalBackend:

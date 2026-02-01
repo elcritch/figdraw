@@ -133,7 +133,7 @@ when isMainModule:
       updateMetalLayer()
     let winInfo = window.getWindowInfo()
     var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
-    renderer.renderFrame(renders, winInfo.box.wh.scaled())
+    renderer.renderFrame(renders, winInfo.box.wh)
     when not UseMetalBackend:
       window.swapBuffers()
 
