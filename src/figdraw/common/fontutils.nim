@@ -183,9 +183,9 @@ proc convertFont*(font: UiFont): (FontId, Font) =
     pxfont.strikethrough        = font.strikethrough
     pxfont.noKerningAdjustments = font.noKerningAdjustments
 
-    #if font.lineHeightOverride == 0.0'f32:
-    #  pxfont.lineHeight = pxfont.defaultLineHeight()
-    #  echo "PIXIE LH: ", pxfont.lineHeight
+    if font.lineHeightOverride == 0.0'f32:
+      pxfont.lineHeight = pxfont.defaultLineHeight()
+      echo "PIXIE LH: ", pxfont.lineHeight
 
     fontTable[id] = pxfont
     result = (id, pxfont)
