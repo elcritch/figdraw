@@ -500,7 +500,7 @@ when isMainModule:
   let startTime = epochTime()
   var lastFrameTime = startTime
   var fpsValue = 0.0
-  let fpsAlpha = 0.15
+  let fpsAlpha = 0.005
 
   proc redraw() =
     when UseMetalBackend:
@@ -523,6 +523,9 @@ when isMainModule:
     let view = viewMatrix()
     let model = pyramidModelMatrix((now - startTime).float32)
     let mvp = mat4Mul(proj, mat4Mul(view, model))
+
+    rows.add(fmt"fps {fpsValue:>7.2f}")
+    rows.add(fmt"size {sz.x.int}x{sz.y.int}")
 
     let triRows = triangleInfoRows(mvp, 0)
     for row in triRows:
