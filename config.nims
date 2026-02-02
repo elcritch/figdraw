@@ -15,8 +15,8 @@ task test, "run unit test":
   exec("nim c examples/windy_renderlist_100.nim")
   exec("nim c examples/windy_image_renderlist.nim")
   exec("nim c examples/windy_text.nim")
-  exec("nim c examples/sdl2_renderlist.nim")
-  exec("nim c examples/sdl2_renderlist_100.nim")
+  exec("nim c -d:figdraw.metal=off examples/sdl2_renderlist.nim")
+  exec("nim c -d:figdraw.metal=off examples/sdl2_renderlist_100.nim")
 
 task emscripten, "build emscripten examples":
   exec("nim c -d:emscripten examples/windy_renderlist.nim")
