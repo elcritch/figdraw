@@ -16,6 +16,8 @@ type SdlWindow = ref object
   focused: bool
   minimized: bool
 
+var app_running = true
+
 proc makeRenderTree*(w, h: float32): Renders =
   var list = RenderList()
 
@@ -73,7 +75,7 @@ proc makeRenderTree*(w, h: float32): Renders =
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
 
-proc newSdlWindow(size: ivec2, title: string): SdlWindow =
+proc newSdlWindow(size: IVec2, title: string): SdlWindow =
   if sdl2.init(INIT_VIDEO) != SdlSuccess:
     quit "SDL2 init failed: " & $sdl2.getError()
 
@@ -135,34 +137,14 @@ proc pollEvents*(w: SdlWindow, onResize: proc() {.closure.} = nil) =
     else:
       discard
 
-proc getScaleInfo*(w: SdlWindow): ScaleInfo =
-  var winW, winH: cint
-  var drawW, drawH: cint
-  w.window.getSize(winW, winH)
-  w.window.glGetDrawableSize(drawW, drawH)
-  if winW > 0 and winH > 0:
-    result.x = drawW.float32 / winW.float32
-    result.y = drawH.float32 / winH.float32
-  else:
-    result.x = 1.0
-    result.y = 1.0
-
-proc getWindowInfo*(w: SdlWindow): WindowInfo =
-  app.requestedFrame.inc
+proc logicalSize*(w: SdlWindow): Vec2 =
   var winW, winH: cint
   var drawW, drawH: cint
   w.window.getSize(winW, winH)
   w.window.glGetDrawableSize(drawW, drawH)
 
-  result.box.w = winW.float32.descaled()
-  result.box.h = winH.float32.descaled()
-  result.minimized = w.minimized
-  result.focused = w.focused
-  result.fullscreen = false
-  if winW > 0:
-    result.pixelRatio = drawW.float32 / winW.float32
-  else:
-    result.pixelRatio = 1.0
+  result.x = winW.float32.descaled()
+  result.y = winH.float32.descaled()
 
 proc setTitle*(w: SdlWindow, name: string) =
   w.window.setTitle(name.cstring)
@@ -175,27 +157,18 @@ proc closeWindow*(w: SdlWindow) =
   sdl2.quit()
 
 when isMainModule:
-  var app_running = true
   setFigUiScale 1.0
-  app.pixelScale = 1.0
 
-  var frame = AppFrame(windowTitle: "figdraw: SDL2 RenderList")
-  frame.windowInfo = WindowInfo(
-    box: rect(0, 0, 800, 600),
-    running: true,
-    focused: true,
-    minimized: false,
-    fullscreen: false,
-    pixelRatio: 1.0,
-  )
+  let title = "figdraw: SDL2 RenderList"
+  let size = ivec2(800, 600)
 
-  let window = newSdlWindow(frame.addr)
+  let window = newSdlWindow(size, title)
   let renderer = glrenderer.newFigRenderer(atlasSize = 256, )
 
   proc redraw() =
-    let winInfo = window.getWindowInfo()
-    var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
-    renderer.renderFrame(renders, winInfo.box.wh)
+    let sz = window.logicalSize()
+    var renders = makeRenderTree(sz.x, sz.y)
+    renderer.renderFrame(renders, sz)
     window.swapBuffers()
 
   try:

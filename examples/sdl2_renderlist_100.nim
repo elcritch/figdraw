@@ -14,6 +14,7 @@ import renderlist_100_common
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const NoSleep {.booldefine: "figdraw.noSleep".}: bool = true
 var globalFrame = 0
+var app_running = true
 
 type SdlWindow = ref object
   window: WindowPtr
@@ -21,8 +22,7 @@ type SdlWindow = ref object
   focused: bool
   minimized: bool
 
-proc newSdlWindow(frame: ptr AppFrame): SdlWindow =
-  doAssert not frame.isNil
+proc newSdlWindow(size: IVec2, title: string): SdlWindow =
   if sdl2.init(INIT_VIDEO) != SdlSuccess:
     quit "SDL2 init failed: " & $sdl2.getError()
 
@@ -31,14 +31,13 @@ proc newSdlWindow(frame: ptr AppFrame): SdlWindow =
   discard glSetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE)
   discard glSetAttribute(SDL_GL_DOUBLEBUFFER, 1)
 
-  let winBox = frame[].windowInfo.box
   let flags = SDL_WINDOW_OPENGL or SDL_WINDOW_RESIZABLE or SDL_WINDOW_ALLOW_HIGHDPI
   let window = createWindow(
-    frame[].windowTitle.cstring,
+    title.cstring,
     SDL_WINDOWPOS_CENTERED,
     SDL_WINDOWPOS_CENTERED,
-    winBox.w.cint,
-    winBox.h.cint,
+    size.x.cint,
+    size.y.cint,
     flags,
   )
   if window.isNil:
@@ -85,22 +84,14 @@ proc pollEvents*(w: SdlWindow, onResize: proc() {.closure.} = nil) =
     else:
       discard
 
-proc getWindowInfo*(w: SdlWindow): WindowInfo =
-  app.requestedFrame.inc
+proc logicalSize*(w: SdlWindow): Vec2 =
   var winW, winH: cint
   var drawW, drawH: cint
   w.window.getSize(winW, winH)
   w.window.glGetDrawableSize(drawW, drawH)
 
-  result.box.w = winW.float32.descaled()
-  result.box.h = winH.float32.descaled()
-  result.minimized = w.minimized
-  result.focused = w.focused
-  result.fullscreen = false
-  if winW > 0:
-    result.pixelRatio = drawW.float32 / winW.float32
-  else:
-    result.pixelRatio = 1.0
+  result.x = winW.float32.descaled()
+  result.y = winH.float32.descaled()
 
 proc closeWindow*(w: SdlWindow) =
   if not w.glContext.isNil:
@@ -112,25 +103,15 @@ proc closeWindow*(w: SdlWindow) =
 when isMainModule:
   setFigDataDir(getCurrentDir() / "data")
 
-  var app_running = true
   setFigUiScale 1.0
-  app.pixelScale = 1.0
+  let title = "figdraw: SDL2 RenderList"
+  let size = ivec2(800, 600)
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
   let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
   var fpsText = "0.0 FPS"
 
-  var frame = AppFrame(windowTitle: "figdraw: SDL2 RenderList (100)")
-  frame.windowInfo = WindowInfo(
-    box: rect(0, 0, 800, 600),
-    running: true,
-    focused: true,
-    minimized: false,
-    fullscreen: false,
-    pixelRatio: 1.0,
-  )
-
-  let window = newSdlWindow(frame.addr)
+  let window = newSdlWindow(size, title)
 
   let renderer = glrenderer.newFigRenderer(
     atlasSize = (when not defined(useFigDrawTextures): 192 else: 2048),
@@ -142,18 +123,18 @@ when isMainModule:
   var lastElementCount = 0
 
   proc redraw() =
-    let winInfo = window.getWindowInfo()
+    let sz = window.logicalSize()
 
     let t0 = getMonoTime()
     var renders =
-      makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h), globalFrame)
+      makeRenderTree(sz.x, sz.y, globalFrame)
     makeRenderTreeMsSum += float((getMonoTime() - t0).inMilliseconds)
     lastElementCount = renders.layers[0.ZLevel].nodes.len
 
     let hudMargin = 12.0'f32
     let hudW = 180.0'f32
     let hudH = 34.0'f32
-    let hudRect = rect(winInfo.box.w.float32 - hudW - hudMargin, hudMargin, hudW, hudH)
+    let hudRect = rect(sz.x.float32 - hudW - hudMargin, hudMargin, hudW, hudH)
 
     discard renders.layers[0.ZLevel].addRoot(
       Fig(
@@ -196,7 +177,7 @@ when isMainModule:
     )
 
     let t1 = getMonoTime()
-    renderer.renderFrame(renders, winInfo.box.wh)
+    renderer.renderFrame(renders, sz)
     renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
 
     window.swapBuffers()
