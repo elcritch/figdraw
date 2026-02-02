@@ -94,7 +94,7 @@ when isMainModule:
   if size != size.scaled():
     window.size = size.scaled()
 
-  let renderer = glrenderer.newFigRenderer(atlasSize = 192, pixelScale = app.pixelScale)
+  let renderer = glrenderer.newFigRenderer(atlasSize = 192, )
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())

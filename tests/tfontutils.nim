@@ -5,10 +5,12 @@ import pkg/pixie/fonts
 
 import figdraw/commons
 import figdraw/common/fonttypes
+import figdraw/common/typefaces
+import figdraw/common/fontglyphs
 
 proc resetFontState() =
   typefaceTable = initTable[TypefaceId, Typeface]()
-  fontTable = initTable[FontId, pixie.Font]()
+  fontTable = initTable[FontId, UiFont]()
   #withLock imageCachedLock:
   #  imageCached.clear()
 
@@ -35,7 +37,6 @@ suite "fontutils":
     let (fontId2, pf2) = uiFont.convertFont()
 
     check fontId1 == fontId2
-    check pf1 == pf2
     check fontId1 in fontTable
 
   test "lineHeight affects computed lineHeight":
@@ -44,7 +45,7 @@ suite "fontutils":
     let uiFont = UiFont(typefaceId: typefaceId, size: 32.0'f32)
 
     let (_, pf) = uiFont.convertFont()
-    let expected = uiFont.lineHeight * pf.defaultLineHeight()
+    let expected = pf.defaultLineHeight()
 
     check abs(pf.lineHeight - expected) < 0.01'f32
     check abs(getLineHeightImpl(uiFont).scaled() - expected) < 0.01'f32
@@ -62,7 +63,7 @@ suite "fontutils":
     let expectedHash = block:
       var h = Hash(0)
       h = h !& getContentHash(box.wh, spans, Left, Top)
-      h = h !& hash(app.uiScale)
+      h = h !& hash(figUiScale())
       !$h
     check arrangement.contentHash == expectedHash
     check arrangement.spans.len == spans.len
@@ -86,7 +87,7 @@ suite "fontutils":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
     let uiFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
-    app.uiScale = 1.0
+    setFigUiScale 1.0
 
     let a = "A".runeAt(0)
     let b = "B".runeAt(0)

@@ -113,7 +113,7 @@ when isMainModule:
   setFigDataDir(getCurrentDir() / "data")
 
   var app_running = true
-  app.uiScale = 1.0
+  setFigUiScale 1.0
   app.pixelScale = 1.0
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
@@ -134,7 +134,7 @@ when isMainModule:
 
   let renderer = glrenderer.newFigRenderer(
     atlasSize = (when not defined(useFigDrawTextures): 192 else: 2048),
-    pixelScale = app.pixelScale,
+    
   )
 
   var makeRenderTreeMsSum = 0.0

@@ -478,13 +478,13 @@ when isMainModule:
   let window = newWindyWindow(size = size, fullscreen = false, title = title)
 
   if getEnv("HDI") != "":
-    app.uiScale = getEnv("HDI").parseFloat()
+    setFigUiScale getEnv("HDI").parseFloat()
   else:
-    app.uiScale = window.contentScale()
+    setFigUiScale window.contentScale()
   if size != size.scaled():
     window.size = size.scaled()
 
-  let renderer = glrenderer.newFigRenderer(atlasSize = 512, pixelScale = app.pixelScale)
+  let renderer = glrenderer.newFigRenderer(atlasSize = 512, )
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
     renderer.ctx.presentLayer = metalHandle.layer

@@ -178,7 +178,7 @@ proc closeWindow*(w: SdlWindow) =
 
 when isMainModule:
   var app_running = true
-  app.uiScale = 1.0
+  setFigUiScale 1.0
   app.pixelScale = 1.0
 
   var frame = AppFrame(windowTitle: "figdraw: SDL2 RenderList")
@@ -192,7 +192,7 @@ when isMainModule:
   )
 
   let window = newSdlWindow(frame.addr)
-  let renderer = glrenderer.newFigRenderer(atlasSize = 256, pixelScale = app.pixelScale)
+  let renderer = glrenderer.newFigRenderer(atlasSize = 256, )
 
   proc redraw() =
     let winInfo = window.getWindowInfo()
