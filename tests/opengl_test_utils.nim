@@ -16,9 +16,9 @@ proc ensureTestOutputDir*(subdir = "output"): string =
   createDir(result)
 
 when not UseMetalBackend:
-  proc newTestWindow(windowW, windowH: float32): Window =
+  proc newTestWindow(windowW, windowH: float32, title: string): Window =
     let window = newWindow(
-      frame.windowTitle,
+      title,
       ivec2(windowW.int32, windowH.int32),
       visible = false,
     )

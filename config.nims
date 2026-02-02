@@ -18,6 +18,14 @@ task test, "run unit test":
   exec("nim c -d:figdraw.metal=off examples/sdl2_renderlist.nim")
   exec("nim c -d:figdraw.metal=off examples/sdl2_renderlist_100.nim")
 
+  when defined(macosx):
+    exec("nim r -d:figdraw.metal=off tests/timage_loading.nim")
+    exec("nim r -d:figdraw.metal=off tests/tfontutils.nim")
+    exec("nim r -d:figdraw.metal=off tests/ttransfer.nim")
+    exec("nim r -d:figdraw.metal=off tests/trender_image.nim")
+    exec("nim r -d:figdraw.metal=off tests/trender_rgb_boxes.nim")
+    exec("nim r -d:figdraw.metal=off tests/trender_rgb_boxes_sdf.nim")
+
 task emscripten, "build emscripten examples":
   exec("nim c -d:emscripten examples/windy_renderlist.nim")
   exec("nim c -d:emscripten examples/windy_renderlist_100.nim")
