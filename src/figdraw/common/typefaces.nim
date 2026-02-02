@@ -83,7 +83,7 @@ proc loadTypeface*(name, data: string, kind: TypeFaceKinds): FontId =
 
 proc pixieFont(font: UiFont): (FontId, Font) =
   let
-    id = FontId(hash((font.getId(), app.uiScale)))
+    id = FontId(hash((font.getId(), figUiScale())))
     typeface = typefaceTable[font.typefaceId]
 
   var pxfont = newFont(typeface)

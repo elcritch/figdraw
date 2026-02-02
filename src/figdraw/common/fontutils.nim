@@ -219,7 +219,7 @@ proc placeGlyphs*(
     )
 
     contentHash =
-      contentHash !& hash((fontInfo.id, rune, pos.x, pos.y, origin, app.uiScale))
+      contentHash !& hash((fontInfo.id, rune, pos.x, pos.y, origin, figUiScale()))
 
   result.lines = @[0 .. glyphs.len - 1]
   result.spans = @[0 .. glyphs.len - 1]

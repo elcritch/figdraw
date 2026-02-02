@@ -164,9 +164,9 @@ when isMainModule:
 
   var app_running = true
   if getEnv("HDI") != "":
-    app.uiScale = getEnv("HDI").parseFloat()
+    setFigUiScale getEnv("HDI").parseFloat()
   else:
-    app.uiScale = 1.0
+    setFigUiScale 1.0
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
   let uiFont = UiFont(typefaceId: typefaceId, size: 28.0'f32)
@@ -184,7 +184,7 @@ when isMainModule:
                               title = "figdraw: Windy + Text")
 
   let renderer =
-    glrenderer.newFigRenderer(atlasSize = 2048, pixelScale = app.pixelScale)
+    glrenderer.newFigRenderer(atlasSize = 2048)
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
@@ -200,7 +200,7 @@ when isMainModule:
     let sz = window.logicalSize()
     let szOrig = window.size()
     let factor = round(szOrig.x.float32 / size.x.float32, 1)
-    app.uiScale = factor
+    setFigUiScale factor
 
     var renders =
       makeRenderTree(sz.x, sz.y, uiFont, monoFont)

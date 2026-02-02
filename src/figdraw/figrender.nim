@@ -66,7 +66,7 @@ proc takeScreenshot*(
     result.flipVertical()
     glReadBuffer(GL_BACK)
 
-proc newFigRenderer*(atlasSize: int, pixelScale = app.pixelScale): FigRenderer =
+proc newFigRenderer*(atlasSize: int, pixelScale = 1.0'f32): FigRenderer =
   result = FigRenderer()
   when UseMetalBackend:
     result.ctx =
@@ -96,7 +96,7 @@ proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
 
     let
       glyphId = glyph.hash()
-      lhDelta = (app.uiScale) * glyph.lineHeight
+      lhDelta = figUiScale() * glyph.lineHeight
       charPos = vec2(glyph.pos.x.scaled(), scaled(glyph.pos.y - glyph.descent))
     if glyphId notin ctx.entries:
       glyph.generateGlyph()

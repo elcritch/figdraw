@@ -127,7 +127,7 @@ proc convertArrangement*(
       block:
         var h = Hash(0)
         h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign)
-        h = h !& hash(app.uiScale)
+        h = h !& hash(figUiScale())
         !$h,
     lines: lines,
     spans: spanSlices,
