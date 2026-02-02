@@ -27,17 +27,6 @@ when not UseMetalBackend:
     window.visible = true
     result = window
 
-  proc getWindowInfo(window: Window): WindowInfo =
-    app.requestedFrame.inc
-
-    result.minimized = window.minimized()
-    result.pixelRatio = window.contentScale()
-
-    let size = window.size()
-
-    result.box.w = size.x.float32.descaled()
-    result.box.h = size.y.float32.descaled()
-
 proc renderAndScreenshotOnce*(
     makeRenders: proc(w, h: float32): Renders {.closure.},
     outputPath: string,
