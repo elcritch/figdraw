@@ -36,28 +36,44 @@ then renders glyph atlas sprites via the OpenGL renderer.
     wrap = true,
   )
 
-proc buildMonoGlyphLayout*(
+proc buildMonoWordLayouts*(
     monoFont: UiFont, monoText: string, pad: float32
-): GlyphArrangement =
+): seq[GlyphArrangement] =
   let (_, monoPx) = monoFont.convertFont()
-  let monoLineHeight = (
-    if monoPx.lineHeight >= 0: monoPx.lineHeight
-    else: monoPx.defaultLineHeight()
-  )
+  let monoLineHeight =
+    (if monoPx.lineHeight >= 0: monoPx.lineHeight
+    else: monoPx.defaultLineHeight())
   let monoAdvance = (monoPx.typeface.getAdvance(Rune('M')) * monoPx.scale)
 
-  var glyphs: seq[(Rune, Vec2)]
   var x = pad
   var y = pad
+  var glyphs: seq[(Rune, Vec2)]
+  var layouts: seq[GlyphArrangement]
+  proc flushWord(
+      glyphs: var seq[(Rune, Vec2)],
+      layouts: var seq[GlyphArrangement],
+      monoFont: UiFont,
+  ) =
+    if glyphs.len == 0:
+      return
+    layouts.add(placeGlyphs(monoFont, glyphs, origin = GlyphTopLeft))
+    glyphs.setLen(0)
+
   for rune in monoText.runes:
     if rune == Rune(10):
+      flushWord(glyphs, layouts, monoFont)
       x = pad
       y += monoLineHeight
+      continue
+    if rune == Rune(32):
+      flushWord(glyphs, layouts, monoFont)
+      x += monoAdvance
       continue
     glyphs.add((rune, vec2(x, y)))
     x += monoAdvance
 
-  result = placeGlyphs(monoFont, glyphs, origin = GlyphTopLeft)
+  flushWord(glyphs, layouts, monoFont)
+  result = layouts
 
 proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
   var list = RenderList()
@@ -110,11 +126,10 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
 
   let monoText = "Manual glyphs: Hack Nerd Font\n$ printf(\"hello\")"
   let (_, monoPx) = monoFont.convertFont()
-  let monoLineHeight = (
-    if monoPx.lineHeight >= 0: monoPx.lineHeight
-    else: monoPx.defaultLineHeight()
-  )
-  let monoPad = 8'f32
+  let monoLineHeight =
+    (if monoPx.lineHeight >= 0: monoPx.lineHeight
+    else: monoPx.defaultLineHeight())
+  let monoPad = 12'f32
   var monoLines = 1
   for rune in monoText.runes:
     if rune == Rune(10):
@@ -140,18 +155,38 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
     ),
   )
 
-  let monoLayout = buildMonoGlyphLayout(monoFont, monoText, monoPad)
+  let monoLayouts = buildMonoWordLayouts(monoFont, monoText, monoPad)
   discard list.addChild(
     cardIdx,
     Fig(
-      kind: nkText,
+      kind: nkRectangle,
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: monoRect,
-      fill: rgba(32, 32, 32, 255).color,
-      textLayout: monoLayout,
+      fill: rgba(27, 29, 36, 255).color,
+      stroke: RenderStroke(weight: 1.5, color: rgba(0, 0, 0, 50).color),
+      corners: [10.0'f32, 10.0, 10.0, 10.0],
     ),
   )
+  let monoColors = [
+    rgba(236, 238, 245, 255).color,
+    rgba(255, 210, 160, 255).color,
+    rgba(166, 223, 255, 255).color,
+    rgba(196, 255, 198, 255).color,
+    rgba(255, 187, 229, 255).color,
+  ]
+  for idx, monoLayout in monoLayouts:
+    discard list.addChild(
+      cardIdx,
+      Fig(
+        kind: nkText,
+        childCount: 0,
+        zlevel: 0.ZLevel,
+        screenBox: monoRect,
+        fill: monoColors[idx mod monoColors.len],
+        textLayout: monoLayout,
+      ),
+    )
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
@@ -179,12 +214,10 @@ when isMainModule:
   var fpsFrames = 0
   var fpsStart = epochTime()
   var needsRedraw = true
-  let window = newWindyWindow(size = size,
-                              fullscreen = false,
-                              title = "figdraw: Windy + Text")
+  let window =
+    newWindyWindow(size = size, fullscreen = false, title = "figdraw: Windy + Text")
 
-  let renderer =
-    glrenderer.newFigRenderer(atlasSize = 2048)
+  let renderer = glrenderer.newFigRenderer(atlasSize = 2048)
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
@@ -202,8 +235,7 @@ when isMainModule:
     let factor = round(szOrig.x.float32 / size.x.float32, 1)
     setFigUiScale factor
 
-    var renders =
-      makeRenderTree(sz.x, sz.y, uiFont, monoFont)
+    var renders = makeRenderTree(sz.x, sz.y, uiFont, monoFont)
     renderer.renderFrame(renders, sz)
     when not UseMetalBackend:
       window.swapBuffers()
