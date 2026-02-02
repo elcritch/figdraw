@@ -469,8 +469,10 @@ when isMainModule:
     setFigDataDir(getCurrentDir() / "data")
 
   app.running = true
-  app.uiScale = 1.0
-  app.pixelScale = 1.0
+  if getEnv("HDI") != "":
+    app.uiScale = getEnv("HDI").parseFloat()
+  else:
+    app.uiScale = 1.0
 
   let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
   let monoFont = monoTypeface.fontWithSize(24.0'f32)
