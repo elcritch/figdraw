@@ -10,11 +10,16 @@ import figdraw/utils/glutils
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
+when UseMetalBackend:
+  {.error: "sdl2 examples haven't been ported to metal, try windy examples".}
+
 type SdlWindow = ref object
   window: WindowPtr
   glContext: GlContextPtr
   focused: bool
   minimized: bool
+
+var app_running = true
 
 proc makeRenderTree*(w, h: float32): Renders =
   var list = RenderList()
@@ -73,8 +78,7 @@ proc makeRenderTree*(w, h: float32): Renders =
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
 
-proc newSdlWindow(frame: ptr AppFrame): SdlWindow =
-  doAssert not frame.isNil
+proc newSdlWindow(size: IVec2, title: string): SdlWindow =
   if sdl2.init(INIT_VIDEO) != SdlSuccess:
     quit "SDL2 init failed: " & $sdl2.getError()
 
@@ -83,14 +87,13 @@ proc newSdlWindow(frame: ptr AppFrame): SdlWindow =
   discard glSetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE)
   discard glSetAttribute(SDL_GL_DOUBLEBUFFER, 1)
 
-  let winBox = frame[].windowInfo.box
   let flags = SDL_WINDOW_OPENGL or SDL_WINDOW_RESIZABLE or SDL_WINDOW_ALLOW_HIGHDPI
   let window = createWindow(
-    frame[].windowTitle.cstring,
+    title.cstring,
     SDL_WINDOWPOS_CENTERED,
     SDL_WINDOWPOS_CENTERED,
-    winBox.w.cint,
-    winBox.h.cint,
+    size.x.cint,
+    size.y.cint,
     flags,
   )
   if window.isNil:
@@ -115,12 +118,12 @@ proc pollEvents*(w: SdlWindow, onResize: proc() {.closure.} = nil) =
   while pollEvent(evt):
     case evt.kind
     of QuitEvent:
-      app.running = false
+      app_running = false
     of WindowEvent:
       let winEvent = evt.window()
       case winEvent.event
       of WindowEvent_Close:
-        app.running = false
+        app_running = false
       of WindowEvent_Minimized:
         w.minimized = true
       of WindowEvent_Restored, WindowEvent_Shown, WindowEvent_Exposed,
@@ -137,34 +140,14 @@ proc pollEvents*(w: SdlWindow, onResize: proc() {.closure.} = nil) =
     else:
       discard
 
-proc getScaleInfo*(w: SdlWindow): ScaleInfo =
-  var winW, winH: cint
-  var drawW, drawH: cint
-  w.window.getSize(winW, winH)
-  w.window.glGetDrawableSize(drawW, drawH)
-  if winW > 0 and winH > 0:
-    result.x = drawW.float32 / winW.float32
-    result.y = drawH.float32 / winH.float32
-  else:
-    result.x = 1.0
-    result.y = 1.0
-
-proc getWindowInfo*(w: SdlWindow): WindowInfo =
-  app.requestedFrame.inc
+proc logicalSize*(w: SdlWindow): Vec2 =
   var winW, winH: cint
   var drawW, drawH: cint
   w.window.getSize(winW, winH)
   w.window.glGetDrawableSize(drawW, drawH)
 
-  result.box.w = winW.float32.descaled()
-  result.box.h = winH.float32.descaled()
-  result.minimized = w.minimized
-  result.focused = w.focused
-  result.fullscreen = false
-  if winW > 0:
-    result.pixelRatio = drawW.float32 / winW.float32
-  else:
-    result.pixelRatio = 1.0
+  result.x = winW.float32.descaled()
+  result.y = winH.float32.descaled()
 
 proc setTitle*(w: SdlWindow, name: string) =
   w.window.setTitle(name.cstring)
@@ -177,35 +160,25 @@ proc closeWindow*(w: SdlWindow) =
   sdl2.quit()
 
 when isMainModule:
-  app.running = true
-  app.autoUiScale = false
-  app.uiScale = 1.0
-  app.pixelScale = 1.0
+  setFigUiScale 1.0
 
-  var frame = AppFrame(windowTitle: "figdraw: SDL2 RenderList")
-  frame.windowInfo = WindowInfo(
-    box: rect(0, 0, 800, 600),
-    running: true,
-    focused: true,
-    minimized: false,
-    fullscreen: false,
-    pixelRatio: 1.0,
-  )
+  let title = "figdraw: SDL2 RenderList"
+  let size = ivec2(800, 600)
 
-  let window = newSdlWindow(frame.addr)
-  let renderer = glrenderer.newFigRenderer(atlasSize = 256, pixelScale = app.pixelScale)
+  let window = newSdlWindow(size, title)
+  let renderer = glrenderer.newFigRenderer(atlasSize = 256, )
 
   proc redraw() =
-    let winInfo = window.getWindowInfo()
-    var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
-    renderer.renderFrame(renders, winInfo.box.wh.scaled())
+    let sz = window.logicalSize()
+    var renders = makeRenderTree(sz.x, sz.y)
+    renderer.renderFrame(renders, sz)
     window.swapBuffers()
 
   try:
     var frames = 0
     var fpsFrames = 0
     var fpsStart = epochTime()
-    while app.running:
+    while app_running:
       window.pollEvents(onResize = redraw)
       redraw()
 
@@ -219,7 +192,7 @@ when isMainModule:
         fpsFrames = 0
         fpsStart = now
       if RunOnce and frames >= 1:
-        app.running = false
+        app_running = false
       else:
         sleep(16)
   finally:

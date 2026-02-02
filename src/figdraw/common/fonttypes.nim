@@ -32,16 +32,15 @@ type
   GlyphFont* = object
     fontId*: FontId
     size*: float32 ## Font size in pixels.
-    lineHeight*: float32 = -1.0
-    descentAdj*: float32 = 0.0
+    lineHeight*: float32
+    descentAdj*: float32
       ## The line height in pixels or autoLineHeight for the font's default line height.
 
   UiFont* = object
     typefaceId*: TypefaceId
     size*: float32 = 12.0'f32   ## Font size in pixels.
-    lineHeightScale*: float32 = 0.9
-    lineHeightOverride*: float32 = -1.0'f32
-      ## The line height in pixels or autoLineHeight for the font's default line height.
+    lineHeight*: float32 ## The line height in pixels
+    lineHeightDefault*: float32
     fontCase*: FontCase
     underline*: bool            ## Apply an underline.
     strikethrough*: bool        ## Apply a strikethrough.
@@ -72,6 +71,9 @@ proc hash*(fnt: UiFont): Hash =
 
 proc getId*(font: UiFont): FontId =
   FontId font.hash()
+
+proc fontWithSize*(fontId: TypeFaceId, size: float32): UiFont =
+  UiFont(typefaceId: fontId, size: size)
 
 proc getContentHash*(
     size: Vec2,

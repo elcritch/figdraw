@@ -949,7 +949,13 @@ proc popMask*(ctx: Context) =
   ctx.flush()
   dec ctx.maskTextureWrite
 
-proc beginFrame*(ctx: Context, frameSize: Vec2, proj: Mat4, clearMain = false) =
+proc beginFrame*(
+    ctx: Context,
+    frameSize: Vec2,
+    proj: Mat4,
+    clearMain = false,
+    clearMainColor: Color = whiteColor,
+) =
   assert ctx.frameBegun == false, "ctx.beginFrame has already been called."
   ctx.frameBegun = true
 
@@ -982,18 +988,25 @@ proc beginFrame*(ctx: Context, frameSize: Vec2, proj: Mat4, clearMain = false) =
   if ctx.commandBuffer.isNil:
     raise newException(ValueError, "Failed to create Metal command buffer")
 
-  # Always start in main pass.
-  ctx.ensureMainPass(
-    clear = clearMain,
-    clearColor = MTLClearColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0),
+  let clearMtl = MTLClearColor(
+    red: clearMainColor.r.float64,
+    green: clearMainColor.g.float64,
+    blue: clearMainColor.b.float64,
+    alpha: clearMainColor.a.float64,
   )
 
-proc beginFrame*(ctx: Context, frameSize: Vec2, clearMain = false) =
+  # Always start in main pass.
+  ctx.ensureMainPass(clear = clearMain, clearColor = clearMtl)
+
+proc beginFrame*(
+    ctx: Context, frameSize: Vec2, clearMain = false, clearMainColor: Color = whiteColor
+) =
   beginFrame(
     ctx,
     frameSize,
     ortho[float32](0.0, frameSize.x, frameSize.y, 0, -1000.0, 1000.0),
     clearMain = clearMain,
+    clearMainColor = clearMainColor,
   )
 
 proc endFrame*(ctx: Context) =

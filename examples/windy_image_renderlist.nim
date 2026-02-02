@@ -1,7 +1,7 @@
 when defined(emscripten):
-  import std/times
+  import std/[times, strutils]
 else:
-  import std/[os, times]
+  import std/[os, times, strutils]
 import chroma
 
 when defined(useWindex):
@@ -14,41 +14,6 @@ import figdraw/fignodes
 import figdraw/figrender as glrenderer
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
-
-proc setupWindow(frame: AppFrame, window: Window) =
-  when not defined(emscripten):
-    if frame.windowInfo.fullscreen:
-      window.fullscreen = frame.windowInfo.fullscreen
-    else:
-      window.size = ivec2(frame.windowInfo.box.wh.scaled())
-
-    window.visible = true
-  when not UseMetalBackend:
-    window.makeContextCurrent()
-
-proc newWindyWindow(frame: AppFrame): Window =
-  let window =
-    when defined(emscripten):
-      newWindow("FigDraw", ivec2(0, 0), visible = false)
-    else:
-      newWindow("FigDraw", ivec2(1280, 800), visible = false)
-  when defined(emscripten):
-    setupWindow(frame, window)
-    startOpenGL(openglVersion)
-  elif UseMetalBackend:
-    setupWindow(frame, window)
-  else:
-    startOpenGL(openglVersion)
-    setupWindow(frame, window)
-  result = window
-
-proc getWindowInfo(window: Window): WindowInfo =
-  app.requestedFrame.inc
-  result.minimized = window.minimized()
-  result.pixelRatio = window.contentScale()
-  let size = window.size()
-  result.box.w = size.x.float32.descaled()
-  result.box.h = size.y.float32.descaled()
 
 proc makeRenderTree*(w, h: float32): Renders =
   var list = RenderList()
@@ -98,28 +63,24 @@ when isMainModule:
   #name: "img1.png".toFigName(),
   discard loadImage("img1.png")
 
-  app.running = true
-  app.autoUiScale = false
-  app.uiScale = 1.0
-  app.pixelScale = 1.0
+  var app_running = true
 
-  var frame = AppFrame(windowTitle: "figdraw: OpenGL + Windy image")
-  frame.windowInfo = WindowInfo(
-    box: rect(0, 0, 800, 600),
-    running: true,
-    focused: true,
-    minimized: false,
-    fullscreen: false,
-    pixelRatio: 1.0,
-  )
-
+  let title = "figdraw: OpenGL + Windy RenderList"
+  let size = ivec2(800, 600)
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
-  let window = newWindyWindow(frame)
+  let window = newWindyWindow(size = size, fullscreen = false, title = title)
+
+  if getEnv("HDI") != "":
+    setFigUiScale getEnv("HDI").parseFloat()
+  else:
+    setFigUiScale window.contentScale()
+  if size != size.scaled():
+    window.size = size.scaled()
 
   let renderer =
-    glrenderer.newFigRenderer(atlasSize = 2048, pixelScale = app.pixelScale)
+    glrenderer.newFigRenderer(atlasSize = 2048, )
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
@@ -132,19 +93,19 @@ when isMainModule:
   proc redraw() =
     when UseMetalBackend:
       updateMetalLayer()
-    let winInfo = window.getWindowInfo()
-    var renders = makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h))
-    renderer.renderFrame(renders, winInfo.box.wh.scaled())
+    let sz = window.logicalSize()
+    var renders = makeRenderTree(sz.x, sz.y)
+    renderer.renderFrame(renders, sz)
     when not UseMetalBackend:
       window.swapBuffers()
 
   window.onCloseRequest = proc() =
-    app.running = false
+    app_running = false
   window.onResize = proc() =
     redraw()
 
   try:
-    while app.running:
+    while app_running:
       pollEvents()
       redraw()
 
@@ -158,7 +119,7 @@ when isMainModule:
         fpsFrames = 0
         fpsStart = now
       if RunOnce and frames >= 1:
-        app.running = false
+        app_running = false
       else:
         when not defined(emscripten):
           sleep(16)

@@ -1,7 +1,7 @@
 when defined(emscripten):
-  import std/[times, unicode]
+  import std/[times, unicode, strutils]
 else:
-  import std/[os, times, unicode]
+  import std/[os, times, unicode, strutils]
 import chroma
 import pkg/pixie/fonts
 
@@ -17,41 +17,6 @@ when not UseMetalBackend:
   import figdraw/utils/glutils
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
-
-proc setupWindow(frame: AppFrame, window: Window) =
-  when not defined(emscripten):
-    if frame.windowInfo.fullscreen:
-      window.fullscreen = frame.windowInfo.fullscreen
-    else:
-      window.size = ivec2(frame.windowInfo.box.wh.scaled())
-
-    window.visible = true
-  when not UseMetalBackend:
-    window.makeContextCurrent()
-
-proc newWindyWindow(frame: AppFrame): Window =
-  let window =
-    when defined(emscripten):
-      newWindow("FigDraw", ivec2(0, 0), visible = false)
-    else:
-      newWindow("FigDraw", ivec2(1280, 800), visible = false)
-  when defined(emscripten):
-    setupWindow(frame, window)
-    startOpenGL(openglVersion)
-  elif UseMetalBackend:
-    setupWindow(frame, window)
-  else:
-    startOpenGL(openglVersion)
-    setupWindow(frame, window)
-  result = window
-
-proc getWindowInfo(window: Window): WindowInfo =
-  app.requestedFrame.inc
-  result.minimized = window.minimized()
-  result.pixelRatio = window.contentScale()
-  let size = window.size()
-  result.box.w = size.x.float32.descaled()
-  result.box.h = size.y.float32.descaled()
 
 proc buildBodyTextLayout*(uiFont: UiFont, textRect: Rect): GlyphArrangement =
   let text =
@@ -78,8 +43,8 @@ proc buildMonoGlyphLayout*(
   let monoLineHeight = (
     if monoPx.lineHeight >= 0: monoPx.lineHeight
     else: monoPx.defaultLineHeight()
-  ).descaled()
-  let monoAdvance = (monoPx.typeface.getAdvance(Rune('M')) * monoPx.scale).descaled()
+  )
+  let monoAdvance = (monoPx.typeface.getAdvance(Rune('M')) * monoPx.scale)
 
   var glyphs: seq[(Rune, Vec2)]
   var x = pad
@@ -148,7 +113,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
   let monoLineHeight = (
     if monoPx.lineHeight >= 0: monoPx.lineHeight
     else: monoPx.defaultLineHeight()
-  ).descaled()
+  )
   let monoPad = 8'f32
   var monoLines = 1
   for rune in monoText.runes:
@@ -197,35 +162,29 @@ when isMainModule:
   else:
     setFigDataDir(getCurrentDir() / "data")
 
-  app.running = true
-  app.autoUiScale = false
-  app.uiScale = 1.0
-  app.pixelScale = 1.0
+  var app_running = true
+  if getEnv("HDI") != "":
+    setFigUiScale getEnv("HDI").parseFloat()
+  else:
+    setFigUiScale 1.0
 
-  let typefaceId = getTypefaceImpl("Ubuntu.ttf")
-  let uiFont = UiFont(typefaceId: typefaceId, size: 28.0'f32, lineHeightScale: 0.9)
-  let monoTypefaceId = getTypefaceImpl("HackNerdFont-Regular.ttf")
-  let monoFont =
-    UiFont(typefaceId: monoTypefaceId, size: 20.0'f32, lineHeightScale: 1.0)
+  let typefaceId = loadTypeface("Ubuntu.ttf")
+  let uiFont = UiFont(typefaceId: typefaceId, size: 28.0'f32)
+  let monoTypefaceId = loadTypeface("HackNerdFont-Regular.ttf")
+  let monoFont = UiFont(typefaceId: monoTypefaceId, size: 20.0'f32)
 
-  var frame = AppFrame(windowTitle: "figdraw: OpenGL + Windy Text")
-  frame.windowInfo = WindowInfo(
-    box: rect(0, 0, 900, 600),
-    running: true,
-    focused: true,
-    minimized: false,
-    fullscreen: false,
-    pixelRatio: 1.0,
-  )
+  let size = ivec2(900, 600)
 
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
   var needsRedraw = true
-  let window = newWindyWindow(frame)
+  let window = newWindyWindow(size = size,
+                              fullscreen = false,
+                              title = "figdraw: Windy + Text")
 
   let renderer =
-    glrenderer.newFigRenderer(atlasSize = 1024, pixelScale = app.pixelScale)
+    glrenderer.newFigRenderer(atlasSize = 2048)
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
@@ -238,20 +197,24 @@ when isMainModule:
   proc redraw() =
     when UseMetalBackend:
       updateMetalLayer()
-    let winInfo = window.getWindowInfo()
+    let sz = window.logicalSize()
+    let szOrig = window.size()
+    let factor = round(szOrig.x.float32 / size.x.float32, 1)
+    setFigUiScale factor
+
     var renders =
-      makeRenderTree(float32(winInfo.box.w), float32(winInfo.box.h), uiFont, monoFont)
-    renderer.renderFrame(renders, winInfo.box.wh.scaled())
+      makeRenderTree(sz.x, sz.y, uiFont, monoFont)
+    renderer.renderFrame(renders, sz)
     when not UseMetalBackend:
       window.swapBuffers()
 
   window.onCloseRequest = proc() =
-    app.running = false
+    app_running = false
   window.onResize = proc() =
     redraw()
 
   try:
-    while app.running:
+    while app_running:
       pollEvents()
       if needsRedraw:
         redraw()
@@ -267,7 +230,7 @@ when isMainModule:
           fpsFrames = 0
           fpsStart = now
         if RunOnce and frames >= 1:
-          app.running = false
+          app_running = false
       when not defined(emscripten):
         sleep(16)
   finally:

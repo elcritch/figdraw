@@ -41,10 +41,6 @@ const
   blueColor* = color(0, 0, 1, 1)
 
 type
-  ScaleInfo* = object
-    x*: float32
-    y*: float32
-
   AppState* = object
     running*: bool
     requestedFrame*: int = 2
@@ -52,13 +48,11 @@ type
     lastTick*: int
 
     uiScale*: float32
-    autoUiScale*: bool
     pixelScale*: float32
 
 var
-  dataDirStr* {.runtimeVar.}: string = os.getCurrentDir() / "data"
-  app* {.runtimeVar.} =
-    AppState(running: true, uiScale: 1.0, autoUiScale: true, pixelScale: 1.0)
+  dataDirStr {.runtimeVar.}: string = os.getCurrentDir() / "data"
+  appUiScale {.runtimeVar.}: float32 = 1.0'f32
 
 proc figDataDir*(): string =
   dataDirStr
@@ -66,26 +60,35 @@ proc figDataDir*(): string =
 proc setFigDataDir*(dir: string) =
   dataDirStr = dir
 
+proc figUiScale*(): float32 =
+  appUiScale
+
+proc setFigUiScale*(scale: float32) =
+  appUiScale = scale
+
 proc scaled*(a: Rect): Rect =
-  a * app.uiScale
+  a * appUiScale
 
 proc descaled*(a: Rect): Rect =
-  let a = a / app.uiScale
+  let a = a / appUiScale
   result.x = a.x
   result.y = a.y
   result.w = a.w
   result.h = a.h
 
 proc scaled*(a: Vec2): Vec2 =
-  a * app.uiScale
+  a * appUiScale
+
+proc scaled*(a: IVec2): IVec2 =
+  ivec2(vec2(a) * appUiScale)
 
 proc descaled*(a: Vec2): Vec2 =
-  let a = a / app.uiScale
+  let a = a / appUiScale
   result.x = a.x
   result.y = a.y
 
 proc scaled*(a: float32): float32 =
-  a.float32 * app.uiScale
+  a.float32 * appUiScale
 
 proc descaled*(a: float32): float32 =
-  a / app.uiScale
+  a / appUiScale
