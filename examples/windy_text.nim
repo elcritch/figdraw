@@ -175,7 +175,6 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
       zlevel: 0.ZLevel,
       screenBox: textRect,
       fill: rgba(20, 20, 20, 255).color,
-      stroke: RenderStroke(color: rgba(20, 20, 20, 255).color),
       selectionRange: highlightRange,
       selectionColor: rgba(255, 232, 140, 255).color,
       flags: if highlightRange.a <= highlightRange.b: {NfSelectText} else: {},

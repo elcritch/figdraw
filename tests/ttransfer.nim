@@ -5,7 +5,7 @@ import pkg/chronicles
 import figdraw/fignodes
 import figdraw/common/transfer
 
-import ./uinodes
+import ./ui_test_nodes
 
 type
   TestBasic = ref object of FigTest

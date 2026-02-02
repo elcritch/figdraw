@@ -46,11 +46,11 @@ proc toRenderFig*[N](current: N): Fig =
   result.rotation = current.rotation
   result.fill = current.fill
 
-  result.stroke.weight = current.stroke.weight
-  result.stroke.color = current.stroke.color
-
   case current.kind
   of nkRectangle:
+    result.stroke.weight = current.stroke.weight
+    result.stroke.color = current.stroke.color
+
     for i in 0 ..< min(result.shadows.len(), current.shadows.len()):
       var shadow: RenderShadow
       let orig = current.shadows[i]
