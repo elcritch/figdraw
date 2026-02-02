@@ -468,7 +468,7 @@ when isMainModule:
   else:
     setFigDataDir(getCurrentDir() / "data")
 
-  app.running = true
+  var app_running = true
   let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
   let monoFont = monoTypeface.fontWithSize(14.0'f32)
 
@@ -551,16 +551,16 @@ when isMainModule:
       window.swapBuffers()
 
   window.onCloseRequest = proc() =
-    app.running = false
+    app_running = false
   window.onResize = proc() =
     redraw()
 
   try:
-    while app.running:
+    while app_running:
       pollEvents()
       redraw()
       if RunOnce:
-        app.running = false
+        app_running = false
   finally:
     destroyPyramid(pyramid)
     when not defined(emscripten):

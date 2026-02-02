@@ -266,7 +266,7 @@ when isMainModule:
     bitmap.data[i] = pix.rgba(255'u8, 255'u8, 255'u8, v).rgbx()
   loadImage(imgId("star-bitmap"), bitmap)
 
-  app.running = true
+  var app_running = true
 
   let title = "figdraw: OpenGL + Windy MSDF/MTSDF"
   let size = ivec2(1024, 640)
@@ -373,12 +373,12 @@ when isMainModule:
       window.swapBuffers()
 
   window.onCloseRequest = proc() =
-    app.running = false
+    app_running = false
   window.onResize = proc() =
     redraw()
 
   try:
-    while app.running:
+    while app_running:
       pollEvents()
       redraw()
 
@@ -394,7 +394,7 @@ when isMainModule:
         makeRenderTreeMsSum = 0.0
         renderFrameMsSum = 0.0
       if RunOnce and frames >= 1:
-        app.running = false
+        app_running = false
   finally:
     when not defined(emscripten):
       window.close()

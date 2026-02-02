@@ -78,7 +78,7 @@ proc makeRenderTree*(w, h: float32): Renders =
   result.layers[0.ZLevel] = list
 
 when isMainModule:
-  app.running = true
+  var app_running = true
 
   let title = "figdraw: OpenGL + Windy RenderList"
   let size = ivec2(800, 600)
@@ -119,12 +119,12 @@ when isMainModule:
       window.swapBuffers()
 
   window.onCloseRequest = proc() =
-    app.running = false
+    app_running = false
   window.onResize = proc() =
     redraw()
 
   try:
-    while app.running:
+    while app_running:
       pollEvents()
       redraw()
 
@@ -137,7 +137,7 @@ when isMainModule:
         fpsFrames = 0
         fpsStart = now
       if RunOnce and frames >= 1:
-        app.running = false
+        app_running = false
       else:
         when not defined(emscripten):
           sleep(16)

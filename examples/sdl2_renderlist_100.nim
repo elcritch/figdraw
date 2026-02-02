@@ -63,12 +63,12 @@ proc pollEvents*(w: SdlWindow, onResize: proc() {.closure.} = nil) =
   while pollEvent(evt):
     case evt.kind
     of QuitEvent:
-      app.running = false
+      app_running = false
     of WindowEvent:
       let winEvent = evt.window()
       case winEvent.event
       of WindowEvent_Close:
-        app.running = false
+        app_running = false
       of WindowEvent_Minimized:
         w.minimized = true
       of WindowEvent_Restored, WindowEvent_Shown, WindowEvent_Exposed,
@@ -112,7 +112,7 @@ proc closeWindow*(w: SdlWindow) =
 when isMainModule:
   setFigDataDir(getCurrentDir() / "data")
 
-  app.running = true
+  var app_running = true
   app.uiScale = 1.0
   app.pixelScale = 1.0
 
@@ -205,7 +205,7 @@ when isMainModule:
     var frames = 0
     var fpsFrames = 0
     var fpsStart = epochTime()
-    while app.running:
+    while app_running:
       window.pollEvents(onResize = redraw)
       redraw()
 
@@ -229,10 +229,10 @@ when isMainModule:
 
       when RunOnce:
         if frames >= 1:
-          app.running = false
+          app_running = false
 
       when not NoSleep:
-        if app.running:
+        if app_running:
           sleep(16)
   finally:
     window.closeWindow()

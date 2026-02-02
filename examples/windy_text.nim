@@ -162,7 +162,7 @@ when isMainModule:
   else:
     setFigDataDir(getCurrentDir() / "data")
 
-  app.running = true
+  var app_running = true
   if getEnv("HDI") != "":
     app.uiScale = getEnv("HDI").parseFloat()
   else:
@@ -209,12 +209,12 @@ when isMainModule:
       window.swapBuffers()
 
   window.onCloseRequest = proc() =
-    app.running = false
+    app_running = false
   window.onResize = proc() =
     redraw()
 
   try:
-    while app.running:
+    while app_running:
       pollEvents()
       if needsRedraw:
         redraw()
@@ -230,7 +230,7 @@ when isMainModule:
           fpsFrames = 0
           fpsStart = now
         if RunOnce and frames >= 1:
-          app.running = false
+          app_running = false
       when not defined(emscripten):
         sleep(16)
   finally:

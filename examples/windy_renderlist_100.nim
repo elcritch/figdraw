@@ -26,7 +26,7 @@ when isMainModule:
   else:
     setFigDataDir(getCurrentDir() / "data")
 
-  app.running = true
+  var app_running = true
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
   let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
@@ -133,12 +133,12 @@ when isMainModule:
       window.swapBuffers()
 
   window.onCloseRequest = proc() =
-    app.running = false
+    app_running = false
   window.onResize = proc() =
     redraw()
 
   try:
-    while app.running:
+    while app_running:
       pollEvents()
       redraw()
 
@@ -159,10 +159,10 @@ when isMainModule:
 
       when RunOnce:
         if frames >= 1:
-          app.running = false
+          app_running = false
 
       when not NoSleep and not defined(emscripten):
-        if app.running:
+        if app_running:
           sleep(16)
   finally:
     when not defined(emscripten):

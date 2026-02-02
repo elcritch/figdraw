@@ -63,7 +63,7 @@ when isMainModule:
   #name: "img1.png".toFigName(),
   discard loadImage("img1.png")
 
-  app.running = true
+  var app_running = true
 
   let title = "figdraw: OpenGL + Windy RenderList"
   let size = ivec2(800, 600)
@@ -100,12 +100,12 @@ when isMainModule:
       window.swapBuffers()
 
   window.onCloseRequest = proc() =
-    app.running = false
+    app_running = false
   window.onResize = proc() =
     redraw()
 
   try:
-    while app.running:
+    while app_running:
       pollEvents()
       redraw()
 
@@ -119,7 +119,7 @@ when isMainModule:
         fpsFrames = 0
         fpsStart = now
       if RunOnce and frames >= 1:
-        app.running = false
+        app_running = false
       else:
         when not defined(emscripten):
           sleep(16)
