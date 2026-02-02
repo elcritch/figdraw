@@ -16,10 +16,10 @@ proc ensureTestOutputDir*(subdir = "output"): string =
   createDir(result)
 
 when not UseMetalBackend:
-  proc newTestWindow(frame: AppFrame): Window =
+  proc newTestWindow(windowW, windowH: float32): Window =
     let window = newWindow(
       frame.windowTitle,
-      ivec2(frame.windowInfo.box.w.int32, frame.windowInfo.box.h.int32),
+      ivec2(windowW.int32, windowH.int32),
       visible = false,
     )
     startOpenGL(openglVersion)
@@ -46,19 +46,6 @@ proc renderAndScreenshotOnce*(
     atlasSize = 2048,
     title = "figdraw test: opengl screenshot",
 ): Image =
-  app.running = true
-  app.uiScale = 1.0
-  app.pixelScale = 1.0
-
-  var frame = AppFrame(windowTitle: title)
-  frame.windowInfo = WindowInfo(
-    box: rect(0, 0, windowW.float32, windowH.float32),
-    running: true,
-    focused: true,
-    minimized: false,
-    fullscreen: false,
-    pixelRatio: 1.0,
-  )
 
   when UseMetalBackend:
     try:
@@ -73,7 +60,7 @@ proc renderAndScreenshotOnce*(
     except ValueError:
       raise newException(WindyError, "Metal device not available")
   else:
-    let window = newTestWindow(frame)
+    let window = newTestWindow(windowW, windoH)
     if glGetString(GL_VERSION) == nil:
       raise newException(WindyError, "OpenGL context unavailable")
 
