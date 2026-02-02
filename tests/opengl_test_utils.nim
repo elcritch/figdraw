@@ -49,18 +49,18 @@ proc renderAndScreenshotOnce*(
     except ValueError:
       raise newException(WindyError, "Metal device not available")
   else:
-    let window = newTestWindow(windowW, windoH)
+    let window = newTestWindow(windowW.float32, windowH.float32, title)
     if glGetString(GL_VERSION) == nil:
       raise newException(WindyError, "OpenGL context unavailable")
 
     let renderer =
-      glrenderer.newFigRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
+      glrenderer.newFigRenderer(atlasSize = atlasSize)
 
     try:
       pollEvents()
-      let winInfo = window.getWindowInfo()
-      var renders = makeRenders(winInfo.box.w, winInfo.box.h)
-      renderer.renderFrame(renders, winInfo.box.wh)
+      let sz = window.logicalSize()
+      var renders = makeRenders(sz.x, sz.y)
+      renderer.renderFrame(renders, sz)
       window.swapBuffers()
 
       result = glrenderer.takeScreenshot(renderer, readFront = true)
@@ -92,19 +92,18 @@ proc renderAndScreenshotOverlayOnce*(
     except ValueError:
       raise newException(WindyError, "Metal device not available")
   else:
-    let window = newTestWindow(windowW, windowH)
+    let window = newTestWindow(windowW.float32, windowH.float32, title)
     if glGetString(GL_VERSION) == nil:
       raise newException(WindyError, "OpenGL context unavailable")
 
     let renderer =
-      glrenderer.newFigRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
+      glrenderer.newFigRenderer(atlasSize = atlasSize)
 
     try:
       pollEvents()
-      let winInfo = window.getWindowInfo()
-      let frameSize = winInfo.box.wh.scaled()
-      var renders = makeRenders(winInfo.box.w.scaled(), winInfo.box.h.scaled())
-      drawBackground(frameSize)
+      let sz = window.logicalSize()
+      var renders = makeRenders(sz.x.scaled(), sz.y.scaled())
+      drawBackground(sz)
       renderer.renderFrame(renders, vec2(windowW.float32, windowH.float32), clearMain = true)
       window.swapBuffers()
 
