@@ -323,7 +323,7 @@ when isMainModule:
     let hudMargin = 12.0'f32
     let hudW = 180.0'f32
     let hudH = 34.0'f32
-    let hudRect = rect(sz.w.float32 - hudW - hudMargin, hudMargin, hudW, hudH)
+    let hudRect = rect(sz.x.float32 - hudW - hudMargin, hudMargin, hudW, hudH)
 
     discard renders.layers[0.ZLevel].addRoot(
       Fig(
