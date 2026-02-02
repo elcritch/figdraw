@@ -75,7 +75,6 @@ proc toRenderFig*[N](current: N): Fig =
     result.textLayout = current.textLayout
     result.selectionRange = current.selectionRange
     result.selectionColor = current.selectionColor
-    result.selectionEnabled = current.selectionEnabled
   of nkDrawable:
     result.points = current.points.mapIt(it)
   else:

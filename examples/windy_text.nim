@@ -18,10 +18,10 @@ when not UseMetalBackend:
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
-proc findPhraseRange(text, phrase: string): Slice[int] =
+proc findPhraseRange(text, phrase: string): Slice[int16] =
   let startByte = text.find(phrase)
   if startByte < 0:
-    return 0 .. -1
+    return 0'i16 .. -1'i16
   let endByte = startByte + phrase.len
   var startRune = 0
   var endRune = -1
@@ -36,11 +36,11 @@ proc findPhraseRange(text, phrase: string): Slice[int] =
       break
     byteIdx += runeLenAt(text, byteIdx)
     runeIdx.inc
-  result = startRune .. endRune
+  result = startRune.int16 .. endRune.int16
 
 proc buildBodyTextLayout*(
     uiFont: UiFont, textRect: Rect
-): tuple[layout: GlyphArrangement, highlightRange: Slice[int]] =
+): tuple[layout: GlyphArrangement, highlightRange: Slice[int16]] =
   let text =
     """
 FigDraw text demo
@@ -175,9 +175,10 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
       zlevel: 0.ZLevel,
       screenBox: textRect,
       fill: rgba(20, 20, 20, 255).color,
+      stroke: RenderStroke(color: rgba(20, 20, 20, 255).color),
       selectionRange: highlightRange,
       selectionColor: rgba(255, 232, 140, 255).color,
-      selectionEnabled: highlightRange.a <= highlightRange.b,
+      flags: if highlightRange.a <= highlightRange.b: {NfSelectText} else: {},
       textLayout: layout,
     ),
   )

@@ -32,9 +32,8 @@ type
       corners*: array[DirectionCorners, float32]
     of nkText:
       textLayout*: GlyphArrangement
-      selectionRange*: Slice[int]
+      selectionRange*: Slice[int16]
       selectionColor*: Color
-      selectionEnabled*: bool
     of nkDrawable:
       points*: seq[Vec2]
     of nkImage:
@@ -48,6 +47,9 @@ type
 
     when FigDrawNames:
       name*: FigName
+
+static:
+  echo "FigNode SIZE: ", sizeof(Fig)
 
 proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"

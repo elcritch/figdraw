@@ -90,7 +90,7 @@ proc renderDrawable*(ctx: Context, node: Fig) =
 
 proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
-  if node.selectionEnabled and node.selectionColor.a > 0:
+  if NfSelectText in node.flags and node.selectionColor.a > 0:
     let rects = node.textLayout.selectionRects
     if rects.len > 0 and node.selectionRange.a <= node.selectionRange.b:
       let startIdx = max(node.selectionRange.a, 0)
