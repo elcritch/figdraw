@@ -1,7 +1,7 @@
 when defined(emscripten):
-  import std/[times, math, strformat]
+  import std/[times, math, strformat, strutils]
 else:
-  import std/[os, times, math, strformat]
+  import std/[os, times, math, strformat, strutils]
 import chroma
 
 when defined(useWindex):
