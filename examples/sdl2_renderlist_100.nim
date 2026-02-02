@@ -11,6 +11,9 @@ import figdraw/utils/glutils
 
 import renderlist_100_common
 
+when UseMetalBackend:
+  {.error: "sdl2 examples haven't been ported to metal, try windy examples".}
+
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const NoSleep {.booldefine: "figdraw.noSleep".}: bool = true
 var globalFrame = 0
