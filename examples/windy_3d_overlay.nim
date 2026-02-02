@@ -380,8 +380,8 @@ proc makeOverlay*(
     )
   )
 
-  let pad = 24'f32
-  let panelWBase = min(320'f32, w * 0.4'f32) * 1.2'f32
+  let pad = 16'f32
+  let panelWBase = min(320'f32, w * 0.4'f32) * 1.0'f32
   let panelW = max(panelWBase, monoFont.size * 16.0'f32) * 1.15'f32
   let panelRect = rect(w - panelW - pad, pad, panelW, h - pad * 2)
   let panelShadow = RenderShadow(
@@ -434,9 +434,9 @@ proc makeOverlay*(
     )
     let textRect = rect(
       btnRect.x + textPadX,
-      btnRect.y + textPadY,
-      btnRect.w - textPadX * 2,
-      btnRect.h - textPadY * 2,
+      btnRect.y,
+      btnRect.w,
+      btnRect.h,
     )
     let rowLayout = typeset(
       rect(0, 0, textRect.w, textRect.h),
@@ -469,18 +469,19 @@ when isMainModule:
     setFigDataDir(getCurrentDir() / "data")
 
   app.running = true
-  if getEnv("HDI") != "":
-    app.uiScale = getEnv("HDI").parseFloat()
-  else:
-    app.uiScale = 1.0
-
   let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
-  let monoFont = monoTypeface.fontWithSize(24.0'f32)
+  let monoFont = monoTypeface.fontWithSize(16.0'f32)
 
   let title = "figdraw: 3D + overlay"
   let size = ivec2(1920, 1280)
 
   let window = newWindyWindow(size = size, fullscreen = false, title = title)
+
+  if getEnv("HDI") != "":
+    app.uiScale = getEnv("HDI").parseFloat()
+  else:
+    app.uiScale = window.contentScale()
+
   let renderer = glrenderer.newFigRenderer(atlasSize = 512, pixelScale = app.pixelScale)
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())

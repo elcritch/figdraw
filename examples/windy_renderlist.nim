@@ -79,10 +79,6 @@ proc makeRenderTree*(w, h: float32): Renders =
 
 when isMainModule:
   app.running = true
-  if getEnv("HDI") != "":
-    app.uiScale = getEnv("HDI").parseFloat()
-  else:
-    app.uiScale = 1.0
 
   let title = "figdraw: OpenGL + Windy RenderList"
   let size = ivec2(800, 600)
@@ -90,6 +86,12 @@ when isMainModule:
   var fpsFrames = 0
   var fpsStart = epochTime()
   let window = newWindyWindow(size = size, fullscreen = false, title = title)
+
+  if getEnv("HDI") != "":
+    app.uiScale = getEnv("HDI").parseFloat()
+  else:
+    app.uiScale = window.contentScale()
+
   let renderer = glrenderer.newFigRenderer(atlasSize = 192, pixelScale = app.pixelScale)
 
   when UseMetalBackend:
