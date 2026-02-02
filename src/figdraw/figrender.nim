@@ -90,6 +90,16 @@ proc renderDrawable*(ctx: Context, node: Fig) =
 
 proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
+  if node.selectionEnabled and node.selectionColor.a > 0:
+    let rects = node.textLayout.selectionRects
+    if rects.len > 0 and node.selectionRange.a <= node.selectionRange.b:
+      let startIdx = max(node.selectionRange.a, 0)
+      let endIdx = min(node.selectionRange.b, rects.len - 1)
+      for idx in startIdx .. endIdx:
+        let rect = rects[idx].scaled()
+        if rect.w > 0 and rect.h > 0:
+          ctx.drawRect(rect, node.selectionColor)
+
   for glyph in node.textLayout.glyphs():
     if unicode.isWhiteSpace(glyph.rune):
       continue

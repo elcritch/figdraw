@@ -18,7 +18,29 @@ when not UseMetalBackend:
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
-proc buildBodyTextLayout*(uiFont: UiFont, textRect: Rect): GlyphArrangement =
+proc findPhraseRange(text, phrase: string): Slice[int] =
+  let startByte = text.find(phrase)
+  if startByte < 0:
+    return 0 .. -1
+  let endByte = startByte + phrase.len
+  var startRune = 0
+  var endRune = -1
+  var runeIdx = 0
+  var byteIdx = 0
+  while byteIdx < text.len:
+    if byteIdx == startByte:
+      startRune = runeIdx
+    if byteIdx < endByte:
+      endRune = runeIdx
+    else:
+      break
+    byteIdx += runeLenAt(text, byteIdx)
+    runeIdx.inc
+  result = startRune .. endRune
+
+proc buildBodyTextLayout*(
+    uiFont: UiFont, textRect: Rect
+): tuple[layout: GlyphArrangement, highlightRange: Slice[int]] =
   let text =
     """
 FigDraw text demo
@@ -26,8 +48,9 @@ FigDraw text demo
 This example uses `src/figdraw/common/fontutils.nim` typesetting + glyph caching,
 then renders glyph atlas sprites via the OpenGL renderer.
 """
+  let highlightRange = findPhraseRange(text, "renders glyph atlas sprites")
 
-  result = typeset(
+  result.layout = typeset(
     rect(0, 0, textRect.w, textRect.h),
     [(uiFont, text)],
     hAlign = Left,
@@ -35,6 +58,7 @@ then renders glyph atlas sprites via the OpenGL renderer.
     minContent = false,
     wrap = true,
   )
+  result.highlightRange = highlightRange
 
 proc buildMonoWordLayouts*(
     monoFont: UiFont, monoText: string, pad: float32
@@ -141,7 +165,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
   let monoRect =
     rect(innerRect.x, textRect.y + textRect.h + 12'f32, innerRect.w, monoHeight)
 
-  let layout = buildBodyTextLayout(uiFont, textRect)
+  let (layout, highlightRange) = buildBodyTextLayout(uiFont, textRect)
 
   discard list.addChild(
     cardIdx,
@@ -151,6 +175,9 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
       zlevel: 0.ZLevel,
       screenBox: textRect,
       fill: rgba(20, 20, 20, 255).color,
+      selectionRange: highlightRange,
+      selectionColor: rgba(255, 232, 140, 255).color,
+      selectionEnabled: highlightRange.a <= highlightRange.b,
       textLayout: layout,
     ),
   )

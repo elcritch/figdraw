@@ -73,6 +73,9 @@ proc toRenderFig*[N](current: N): Fig =
       result.mtsdfImage = current.mtsdfImage
   of nkText:
     result.textLayout = current.textLayout
+    result.selectionRange = current.selectionRange
+    result.selectionColor = current.selectionColor
+    result.selectionEnabled = current.selectionEnabled
   of nkDrawable:
     result.points = current.points.mapIt(it)
   else:
@@ -111,7 +114,7 @@ proc copyInto*[N](uis: N): Renders =
 
   result.layers.sort(
     proc(x, y: auto): int =
-    cmp(x[0], y[0])
+      cmp(x[0], y[0])
   )
   # echo "nodes:len: ", result.len()
   # printRenders(result)

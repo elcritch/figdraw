@@ -32,6 +32,9 @@ type
       corners*: array[DirectionCorners, float32]
     of nkText:
       textLayout*: GlyphArrangement
+      selectionRange*: Slice[int]
+      selectionColor*: Color
+      selectionEnabled*: bool
     of nkDrawable:
       points*: seq[Vec2]
     of nkImage:
