@@ -1,7 +1,7 @@
 when defined(emscripten):
-  import std/[times, monotimes, strformat]
+  import std/[times, monotimes, strformat, strutils]
 else:
-  import std/[os, times, monotimes, strformat]
+  import std/[os, times, monotimes, strformat, strutils]
 
 import std/math
 import chroma
@@ -85,40 +85,6 @@ proc addLabel(
     ),
   )
 
-proc setupWindow(frame: AppFrame, window: Window) =
-  when not defined(emscripten):
-    if frame.windowInfo.fullscreen:
-      window.fullscreen = frame.windowInfo.fullscreen
-    else:
-      window.size = ivec2(frame.windowInfo.box.wh.scaled())
-
-    window.visible = true
-  when not UseMetalBackend:
-    window.makeContextCurrent()
-
-proc newWindyWindow(frame: AppFrame): Window =
-  let window =
-    when defined(emscripten):
-      newWindow("FigDraw", ivec2(0, 0), visible = false)
-    else:
-      newWindow("FigDraw", ivec2(1280, 800), visible = false)
-  when defined(emscripten):
-    setupWindow(frame, window)
-    startOpenGL(openglVersion)
-  elif UseMetalBackend:
-    setupWindow(frame, window)
-  else:
-    startOpenGL(openglVersion)
-    setupWindow(frame, window)
-  result = window
-
-proc getWindowInfo(window: Window): WindowInfo =
-  app.requestedFrame.inc
-  result.minimized = window.minimized()
-  result.pixelRatio = window.contentScale()
-  let size = window.size()
-  result.box.w = size.x.float32.descaled()
-  result.box.h = size.y.float32.descaled()
 
 proc makeRenderTree*(
     w, h: float32, pxRange: float32, t: float32, labelFont: UiFont
@@ -301,28 +267,27 @@ when isMainModule:
   loadImage(imgId("star-bitmap"), bitmap)
 
   app.running = true
-  app.uiScale = 2.0
-  app.pixelScale = 1.0
+
+  let title = "figdraw: OpenGL + Windy MSDF/MTSDF"
+  let size = ivec2(1024, 640)
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
   let labelFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
   let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
   var fpsText = "0.0 FPS"
 
-  var frame = AppFrame(windowTitle: "figdraw: OpenGL + Windy MSDF/MTSDF")
-  frame.windowInfo = WindowInfo(
-    box: rect(0, 0, 1024, 640),
-    running: true,
-    focused: true,
-    minimized: false,
-    fullscreen: false,
-    pixelRatio: 1.0,
-  )
-
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
-  let window = newWindyWindow(frame)
+  let window = newWindyWindow(size = size, fullscreen = false, title = title)
+
+  if getEnv("HDI") != "":
+    app.uiScale = getEnv("HDI").parseFloat()
+  else:
+    app.uiScale = window.contentScale()
+  if size != size.scaled():
+    window.size = size.scaled()
+
   let animStart = epochTime()
 
   let renderer =
@@ -347,20 +312,18 @@ when isMainModule:
     when UseMetalBackend:
       updateMetalLayer()
 
-    let winInfo = window.getWindowInfo()
+    let sz = window.logicalSize()
     let t = (epochTime() - animStart).float32
 
     let t0 = getMonoTime()
-    var renders = makeRenderTree(
-      float32(winInfo.box.w), float32(winInfo.box.h), renderPxRange, t, labelFont
-    )
+    var renders = makeRenderTree(sz.x, sz.y, renderPxRange, t, labelFont)
     makeRenderTreeMsSum += float((getMonoTime() - t0).inMilliseconds)
     lastElementCount = renders.layers[0.ZLevel].nodes.len
 
     let hudMargin = 12.0'f32
     let hudW = 180.0'f32
     let hudH = 34.0'f32
-    let hudRect = rect(winInfo.box.w.float32 - hudW - hudMargin, hudMargin, hudW, hudH)
+    let hudRect = rect(sz.w.float32 - hudW - hudMargin, hudMargin, hudW, hudH)
 
     discard renders.layers[0.ZLevel].addRoot(
       Fig(
@@ -403,7 +366,7 @@ when isMainModule:
     )
 
     let t1 = getMonoTime()
-    renderer.renderFrame(renders, winInfo.box.wh)
+    renderer.renderFrame(renders, sz)
     renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
 
     when not UseMetalBackend:
