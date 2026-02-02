@@ -50,7 +50,7 @@ proc renderAndScreenshotOnce*(
   when UseMetalBackend:
     try:
       let renderer =
-        glrenderer.newFigRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
+        glrenderer.newFigRenderer(atlasSize = atlasSize)
 
       var renders = makeRenders(windowW.float32.scaled(), windowH.float32.scaled())
       renderer.renderFrame(renders, vec2(windowW.float32, windowH.float32).scaled())
@@ -88,35 +88,22 @@ proc renderAndScreenshotOverlayOnce*(
     atlasSize = 2048,
     title = "figdraw test: opengl overlay screenshot",
 ): Image =
-  app.running = true
-  app.uiScale = 1.0
-  app.pixelScale = 1.0
-
-  var frame = AppFrame(windowTitle: title)
-  frame.windowInfo = WindowInfo(
-    box: rect(0, 0, windowW.float32, windowH.float32),
-    running: true,
-    focused: true,
-    minimized: false,
-    fullscreen: false,
-    pixelRatio: 1.0,
-  )
 
   when UseMetalBackend:
     try:
       let renderer =
-        glrenderer.newFigRenderer(atlasSize = atlasSize, pixelScale = app.pixelScale)
+        glrenderer.newFigRenderer(atlasSize = atlasSize)
       let frameSize = vec2(windowW.float32, windowH.float32).scaled()
       var renders = makeRenders(windowW.float32.scaled(), windowH.float32.scaled())
       drawBackground(frameSize)
-      renderer.renderOverlayFrame(renders, frameSize)
+      renderer.renderFrame(renders, vec2(windowW.float32, windowH.float32), clearMain = true)
 
       result = glrenderer.takeScreenshot(renderer)
       result.writeFile(outputPath)
     except ValueError:
       raise newException(WindyError, "Metal device not available")
   else:
-    let window = newTestWindow(frame)
+    let window = newTestWindow(windowW, windowH)
     if glGetString(GL_VERSION) == nil:
       raise newException(WindyError, "OpenGL context unavailable")
 
@@ -129,7 +116,7 @@ proc renderAndScreenshotOverlayOnce*(
       let frameSize = winInfo.box.wh.scaled()
       var renders = makeRenders(winInfo.box.w.scaled(), winInfo.box.h.scaled())
       drawBackground(frameSize)
-      renderer.renderOverlayFrame(renders, frameSize)
+      renderer.renderFrame(renders, vec2(windowW.float32, windowH.float32), clearMain = true)
       window.swapBuffers()
 
       result = glrenderer.takeScreenshot(renderer, readFront = true)
