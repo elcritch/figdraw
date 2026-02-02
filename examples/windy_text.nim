@@ -244,7 +244,7 @@ when isMainModule:
   let window =
     newWindyWindow(size = size, fullscreen = false, title = "figdraw: Windy + Text")
 
-  let renderer = glrenderer.newFigRenderer(atlasSize = 2048)
+  let renderer = glrenderer.newFigRenderer(atlasSize = 4096)
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
