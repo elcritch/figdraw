@@ -73,8 +73,7 @@ proc makeRenderTree*(w, h: float32): Renders =
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
 
-proc newSdlWindow(frame: ptr AppFrame): SdlWindow =
-  doAssert not frame.isNil
+proc newSdlWindow(size: ivec2, title: string): SdlWindow =
   if sdl2.init(INIT_VIDEO) != SdlSuccess:
     quit "SDL2 init failed: " & $sdl2.getError()
 
@@ -83,14 +82,13 @@ proc newSdlWindow(frame: ptr AppFrame): SdlWindow =
   discard glSetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE)
   discard glSetAttribute(SDL_GL_DOUBLEBUFFER, 1)
 
-  let winBox = frame[].windowInfo.box
   let flags = SDL_WINDOW_OPENGL or SDL_WINDOW_RESIZABLE or SDL_WINDOW_ALLOW_HIGHDPI
   let window = createWindow(
-    frame[].windowTitle.cstring,
+    title.cstring,
     SDL_WINDOWPOS_CENTERED,
     SDL_WINDOWPOS_CENTERED,
-    winBox.w.cint,
-    winBox.h.cint,
+    size.x.cint,
+    size.y.cint,
     flags,
   )
   if window.isNil:
