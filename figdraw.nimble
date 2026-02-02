@@ -18,8 +18,8 @@ requires "variant"
 requires "patty"
 requires "supersnappy"
 
-feature "metal":
-  requires "https://github.com/elcritch/metalx[test] >= 0.4.2 "
+when defined(macosx):
+  requires "https://github.com/elcritch/metalx >= 0.4.2 "
 
 feature "siwin":
   requires "siwin"
