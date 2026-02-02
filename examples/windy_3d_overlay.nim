@@ -381,8 +381,8 @@ proc makeOverlay*(
   )
 
   let pad = 16'f32
-  let panelWBase = min(320'f32, w * 0.4'f32) * 1.0'f32
-  let panelW = max(panelWBase, monoFont.size * 16.0'f32) * 1.15'f32
+  let panelWBase = min(340'f32, w * 0.3'f32)
+  let panelW = max(panelWBase, monoFont.size * 18.0'f32) * 1.2'f32
   let panelRect = rect(w - panelW - pad, pad, panelW, h - pad * 2)
   let panelShadow = RenderShadow(
     style: DropShadow, blur: 18, spread: 0, x: 0, y: 10, color: rgba(0, 0, 0, 60).color
@@ -470,10 +470,10 @@ when isMainModule:
 
   app.running = true
   let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
-  let monoFont = monoTypeface.fontWithSize(16.0'f32)
+  let monoFont = monoTypeface.fontWithSize(14.0'f32)
 
   let title = "figdraw: 3D + overlay"
-  let size = ivec2(1920, 1280)
+  let size = ivec2(900, 640)
 
   let window = newWindyWindow(size = size, fullscreen = false, title = title)
 
@@ -481,6 +481,8 @@ when isMainModule:
     app.uiScale = getEnv("HDI").parseFloat()
   else:
     app.uiScale = window.contentScale()
+  if size != size.scaled():
+    window.size = size.scaled()
 
   let renderer = glrenderer.newFigRenderer(atlasSize = 512, pixelScale = app.pixelScale)
   when UseMetalBackend:
