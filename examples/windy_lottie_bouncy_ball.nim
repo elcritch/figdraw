@@ -143,9 +143,6 @@ when isMainModule:
         fpsStart = now
       if RunOnce and frames >= 1:
         app_running = false
-      else:
-        when not defined(emscripten):
-          sleep(16)
   finally:
     when not defined(emscripten):
       window.close()
