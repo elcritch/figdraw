@@ -24,6 +24,9 @@ when defined(macosx):
 feature "siwin":
   requires "siwin"
 
+feature "lottie":
+  requires "jsony"
+
 feature "sdl2":
   requires "sdl2"
 
