@@ -46,6 +46,9 @@ type
     textLayout*: GlyphArrangement
     points*: seq[Vec2]
 
+    selectionRange*: Slice[int16]
+    selectionColor*: Color
+
   Rectangle* = ref object of FigTest
   TestBasic* = ref object of FigTest
 

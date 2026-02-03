@@ -1,4 +1,4 @@
-version       = "0.14.1"
+version       = "0.14.2"
 author        = "Jaremy Creechley"
 description   = "UI Engine for Nim"
 license       = "MIT"
@@ -23,6 +23,9 @@ when defined(macosx):
 
 feature "siwin":
   requires "siwin"
+
+feature "lottie":
+  requires "jsony"
 
 feature "sdl2":
   requires "sdl2"

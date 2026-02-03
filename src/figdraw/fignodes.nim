@@ -24,14 +24,16 @@ type
 
     rotation*: float32
     fill*: Color
-    stroke*: RenderStroke
+    corners*: array[DirectionCorners, float32]
 
     case kind*: FigKind
     of nkRectangle:
       shadows*: array[ShadowCount, RenderShadow]
-      corners*: array[DirectionCorners, float32]
+      stroke*: RenderStroke
     of nkText:
       textLayout*: GlyphArrangement
+      selectionRange*: Slice[int16]
+      selectionColor*: Color
     of nkDrawable:
       points*: seq[Vec2]
     of nkImage:
@@ -45,6 +47,9 @@ type
 
     when FigDrawNames:
       name*: FigName
+
+static:
+  echo "FigNode SIZE: ", sizeof(Fig)
 
 proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"
