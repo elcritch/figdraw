@@ -33,105 +33,125 @@ proc makeRenderTree*(w, h: float32): Renders =
   let buttonY2 = containerH * 0.45'f32
   let buttonY3 = containerH * 0.75'f32
 
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  proc addRect(
+      list: var RenderList,
+      parentIdx: FigIdx,
+      rectBox: Rect,
+      color: Color,
+      z: ZLevel,
+      clip: bool = false,
+  ) =
+    discard list.addChild(
+      parentIdx,
+      Fig(
+        kind: nkRectangle,
+        childCount: 0,
+        zlevel: z,
+        screenBox: rectBox,
+        fill: color,
+        corners: [10.0'f32, 10.0, 10.0, 10.0],
+        flags:
+          if clip:
+            {NfClipContent}
+          else:
+            {},
+      ),
+    )
 
-  discard result.addRoot(
-    (-20).ZLevel,
+  proc addRootRect(
+      list: var RenderList, rectBox: Rect, color: Color, z: ZLevel, clip: bool = false
+  ): FigIdx =
+    list.addRoot(
+      Fig(
+        kind: nkRectangle,
+        childCount: 0,
+        zlevel: z,
+        screenBox: rectBox,
+        fill: color,
+        corners: [10.0'f32, 10.0, 10.0, 10.0],
+        flags:
+          if clip:
+            {NfClipContent}
+          else:
+            {},
+      )
+    )
+
+  var bgList = RenderList()
+  discard bgList.addRoot(
     Fig(
       kind: nkRectangle,
       childCount: 0,
+      zlevel: (-20).ZLevel,
       screenBox: rect(0, 0, w, h),
       fill: bgColor,
-    ),
+    )
   )
 
-  let leftContainer = result.addRoot(
+  var layer0List = RenderList()
+  let leftContainer = addRootRect(
+    layer0List,
+    rect(containerLeftX, containerY, containerW, containerH),
+    containerColor,
     0.ZLevel,
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      screenBox: rect(containerLeftX, containerY, containerW, containerH),
-      fill: containerColor,
-      corners: [10.0'f32, 10.0, 10.0, 10.0],
-    ),
   )
-  let rightContainer = result.addRoot(
+  let rightContainer = addRootRect(
+    layer0List,
+    rect(containerRightX, containerY, containerW, containerH),
+    containerColor,
     0.ZLevel,
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      screenBox: rect(containerRightX, containerY, containerW, containerH),
-      fill: containerColor,
-      corners: [10.0'f32, 10.0, 10.0, 10.0],
-      flags: {NfClipContent},
-    ),
+    clip = true,
   )
 
-  discard result.addChild(
-    0.ZLevel,
+  addRect(
+    layer0List,
     leftContainer,
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      screenBox: rect(containerLeftX + buttonX, containerY + buttonY2, buttonW, buttonH),
-      fill: buttonColor,
-      corners: [10.0'f32, 10.0, 10.0, 10.0],
-    ),
-  )
-  discard result.addChild(
+    rect(containerLeftX + buttonX, containerY + buttonY2, buttonW, buttonH),
+    buttonColor,
     0.ZLevel,
+  )
+  addRect(
+    layer0List,
     rightContainer,
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      screenBox: rect(containerRightX + buttonX, containerY + buttonY2, buttonW, buttonH),
-      fill: buttonColor,
-      corners: [10.0'f32, 10.0, 10.0, 10.0],
-    ),
+    rect(containerRightX + buttonX, containerY + buttonY2, buttonW, buttonH),
+    buttonColor,
+    0.ZLevel,
   )
 
-  discard result.addRoot(
+  var lowList = RenderList()
+  var topList = RenderList()
+
+  discard addRootRect(
+    lowList,
+    rect(containerLeftX + buttonX, containerY + buttonY3, buttonW, buttonH),
+    buttonColor,
     (-5).ZLevel,
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      screenBox: rect(containerLeftX + buttonX, containerY + buttonY3, buttonW, buttonH),
-      fill: buttonColor,
-      corners: [10.0'f32, 10.0, 10.0, 10.0],
-    ),
   )
-  discard result.addRoot(
+  discard addRootRect(
+    topList,
+    rect(containerLeftX + buttonX, containerY + buttonY1, buttonW, buttonH),
+    buttonColor,
     20.ZLevel,
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      screenBox: rect(containerLeftX + buttonX, containerY + buttonY1, buttonW, buttonH),
-      fill: buttonColor,
-      corners: [10.0'f32, 10.0, 10.0, 10.0],
-    ),
   )
 
-  discard result.addRoot(
+  discard addRootRect(
+    lowList,
+    rect(containerRightX + buttonX, containerY + buttonY3, buttonW, buttonH),
+    buttonColor,
     (-5).ZLevel,
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      screenBox: rect(containerRightX + buttonX, containerY + buttonY3, buttonW, buttonH),
-      fill: buttonColor,
-      corners: [10.0'f32, 10.0, 10.0, 10.0],
-    ),
   )
-  discard result.addRoot(
+  discard addRootRect(
+    topList,
+    rect(containerRightX + buttonX, containerY + buttonY1, buttonW, buttonH),
+    buttonColor,
     20.ZLevel,
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      screenBox: rect(containerRightX + buttonX, containerY + buttonY1, buttonW, buttonH),
-      fill: buttonColor,
-      corners: [10.0'f32, 10.0, 10.0, 10.0],
-    ),
   )
 
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  result.layers[(-20).ZLevel] = bgList
+  result.layers[0.ZLevel] = layer0List
+  result.layers[(-5).ZLevel] = lowList
+  result.layers[20.ZLevel] = topList
   result.layers.sort(
     proc(x, y: auto): int =
       cmp(x[0], y[0])

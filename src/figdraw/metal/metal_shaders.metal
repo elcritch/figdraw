@@ -190,7 +190,7 @@ fragment float4 fs_main(
   }
 
   float2 normalizedPos =
-    float2(in.pos.x / u.windowFrame.x, 1.0 - in.pos.y / u.windowFrame.y);
+    float2(in.pos.x / u.windowFrame.x, in.pos.y / u.windowFrame.y);
   if (u.maskTexEnabled != 0) {
     fragColor.w *= maskTex.sample(s, normalizedPos).x;
   }
@@ -221,7 +221,7 @@ fragment float4 fs_mask(
   }
 
   float2 normalizedPos =
-    float2(in.pos.x / u.windowFrame.x, 1.0 - in.pos.y / u.windowFrame.y);
+    float2(in.pos.x / u.windowFrame.x, in.pos.y / u.windowFrame.y);
   if (u.maskTexEnabled != 0) {
     alpha *= maskTex.sample(s, normalizedPos).r;
   }

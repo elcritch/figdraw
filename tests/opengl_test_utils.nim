@@ -17,11 +17,7 @@ proc ensureTestOutputDir*(subdir = "output"): string =
 
 when not UseMetalBackend:
   proc newTestWindow(windowW, windowH: float32, title: string): Window =
-    let window = newWindow(
-      title,
-      ivec2(windowW.int32, windowH.int32),
-      visible = false,
-    )
+    let window = newWindow(title, ivec2(windowW.int32, windowH.int32), visible = false)
     startOpenGL(openglVersion)
     window.makeContextCurrent()
     window.visible = true
@@ -35,14 +31,12 @@ proc renderAndScreenshotOnce*(
     atlasSize = 2048,
     title = "figdraw test: opengl screenshot",
 ): Image =
-
   when UseMetalBackend:
     try:
-      let renderer =
-        glrenderer.newFigRenderer(atlasSize = atlasSize)
+      let renderer = glrenderer.newFigRenderer(atlasSize = atlasSize)
 
-      var renders = makeRenders(windowW.float32.scaled(), windowH.float32.scaled())
-      renderer.renderFrame(renders, vec2(windowW.float32, windowH.float32).scaled())
+      var renders = makeRenders(windowW.float32, windowH.float32)
+      renderer.renderFrame(renders, vec2(windowW.float32, windowH.float32))
 
       result = glrenderer.takeScreenshot(renderer)
       result.writeFile(outputPath)
@@ -53,8 +47,7 @@ proc renderAndScreenshotOnce*(
     if glGetString(GL_VERSION) == nil:
       raise newException(WindyError, "OpenGL context unavailable")
 
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = atlasSize)
+    let renderer = glrenderer.newFigRenderer(atlasSize = atlasSize)
 
     try:
       pollEvents()
@@ -77,15 +70,15 @@ proc renderAndScreenshotOverlayOnce*(
     atlasSize = 2048,
     title = "figdraw test: opengl overlay screenshot",
 ): Image =
-
   when UseMetalBackend:
     try:
-      let renderer =
-        glrenderer.newFigRenderer(atlasSize = atlasSize)
-      let frameSize = vec2(windowW.float32, windowH.float32).scaled()
-      var renders = makeRenders(windowW.float32.scaled(), windowH.float32.scaled())
+      let renderer = glrenderer.newFigRenderer(atlasSize = atlasSize)
+      let frameSize = vec2(windowW.float32, windowH.float32)
+      var renders = makeRenders(windowW.float32, windowH.float32)
       drawBackground(frameSize)
-      renderer.renderFrame(renders, vec2(windowW.float32, windowH.float32), clearMain = true)
+      renderer.renderFrame(
+        renders, vec2(windowW.float32, windowH.float32), clearMain = true
+      )
 
       result = glrenderer.takeScreenshot(renderer)
       result.writeFile(outputPath)
@@ -96,15 +89,16 @@ proc renderAndScreenshotOverlayOnce*(
     if glGetString(GL_VERSION) == nil:
       raise newException(WindyError, "OpenGL context unavailable")
 
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = atlasSize)
+    let renderer = glrenderer.newFigRenderer(atlasSize = atlasSize)
 
     try:
       pollEvents()
       let sz = window.logicalSize()
       var renders = makeRenders(sz.x.scaled(), sz.y.scaled())
       drawBackground(sz)
-      renderer.renderFrame(renders, vec2(windowW.float32, windowH.float32), clearMain = true)
+      renderer.renderFrame(
+        renders, vec2(windowW.float32, windowH.float32), clearMain = true
+      )
       window.swapBuffers()
 
       result = glrenderer.takeScreenshot(renderer, readFront = true)

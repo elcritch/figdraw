@@ -321,6 +321,10 @@ suite "opengl 3d overlay render":
     if fileExists(outPath):
       removeFile(outPath)
     block renderOnce:
+      when UseMetalBackend:
+        # The overlay test relies on an OpenGL context to draw the background.
+        skip()
+        break renderOnce
       var img: Image
       var pyramid: PyramidGl
       var pyramidReady = false
