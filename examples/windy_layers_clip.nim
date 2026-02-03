@@ -15,104 +15,125 @@ import figdraw/figrender as glrenderer
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
+proc addButton(
+    list: var RenderList,
+    parentIdx: FigIdx,
+    rectBox: Rect,
+    color: Color,
+    z: ZLevel,
+) =
+  discard list.addChild(
+    parentIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: z,
+      screenBox: rectBox,
+      fill: color,
+    ),
+  )
+
 proc makeRenderTree*(w, h: float32): Renders =
-  var baseList = RenderList()
-  discard baseList.addRoot(
+  var list = RenderList()
+
+  let rootIdx = list.addRoot(
     Fig(
       kind: nkRectangle,
       childCount: 0,
-      zlevel: (-5).ZLevel,
+      zlevel: 0.ZLevel,
       screenBox: rect(0, 0, w, h),
-      fill: rgba(230, 230, 230, 255).color,
-    )
-  )
-  discard baseList.addRoot(
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      zlevel: (-5).ZLevel,
-      screenBox: rect(0, 0, 360, h),
-      fill: rgba(220, 40, 40, 255).color,
+      fill: rgba(245, 245, 245, 255).color,
     )
   )
 
-  var midList = RenderList()
-  discard midList.addRoot(
+  let containerW = w * 0.30'f32
+  let containerH = h * 0.80'f32
+  let containerY = h * 0.10'f32
+  let containerLeftX = w * 0.03'f32
+  let containerRightX = w * 0.50'f32
+
+  let buttonX = containerW * 0.10'f32
+  let buttonW = containerW * 1.30'f32
+  let buttonH = containerH * 0.20'f32
+  let buttonY1 = containerH * 0.15'f32
+  let buttonY2 = containerH * 0.45'f32
+  let buttonY3 = containerH * 0.75'f32
+
+  let leftIdx = list.addChild(
+    rootIdx,
     Fig(
       kind: nkRectangle,
       childCount: 0,
       zlevel: 0.ZLevel,
-      screenBox: rect(80, 40, 240, 160),
-      fill: rgba(40, 180, 90, 255).color,
-    )
+      screenBox: rect(containerLeftX, containerY, containerW, containerH),
+      fill: rgba(208, 208, 208, 255).color,
+    ),
   )
 
-  let leftIdx = midList.addRoot(
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      zlevel: 0.ZLevel,
-      screenBox: rect(380, 40, 140, 200),
-      fill: rgba(200, 200, 200, 255).color,
-    )
-  )
-  discard midList.addChild(
+  addButton(
+    list,
     leftIdx,
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      zlevel: 0.ZLevel,
-      screenBox: rect(360, 110, 200, 60),
-      fill: rgba(220, 60, 60, 255).color,
-    ),
+    rect(containerLeftX + buttonX, containerY + buttonY1, buttonW, buttonH),
+    rgba(60, 120, 220, 255).color,
+    20.ZLevel,
+  )
+  addButton(
+    list,
+    leftIdx,
+    rect(containerLeftX + buttonX, containerY + buttonY2, buttonW, buttonH),
+    rgba(40, 180, 90, 255).color,
+    0.ZLevel,
+  )
+  addButton(
+    list,
+    leftIdx,
+    rect(containerLeftX + buttonX, containerY + buttonY3, buttonW, buttonH),
+    rgba(220, 60, 60, 255).color,
+    (-5).ZLevel,
   )
 
-  let rightIdx = midList.addRoot(
+  let rightIdx = list.addChild(
+    rootIdx,
     Fig(
       kind: nkRectangle,
       childCount: 0,
       zlevel: 0.ZLevel,
-      screenBox: rect(540, 40, 140, 200),
-      fill: rgba(200, 200, 200, 255).color,
+      screenBox: rect(containerRightX, containerY, containerW, containerH),
+      fill: rgba(208, 208, 208, 255).color,
       flags: {NfClipContent},
-    )
-  )
-  discard midList.addChild(
-    rightIdx,
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      zlevel: 0.ZLevel,
-      screenBox: rect(520, 110, 200, 60),
-      fill: rgba(60, 120, 220, 255).color,
     ),
   )
 
-  var topList = RenderList()
-  discard topList.addRoot(
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      zlevel: 10.ZLevel,
-      screenBox: rect(160, 80, 120, 80),
-      fill: rgba(60, 90, 220, 255).color,
-    )
+  addButton(
+    list,
+    rightIdx,
+    rect(containerRightX + buttonX, containerY + buttonY1, buttonW, buttonH),
+    rgba(60, 120, 220, 255).color,
+    20.ZLevel,
+  )
+  addButton(
+    list,
+    rightIdx,
+    rect(containerRightX + buttonX, containerY + buttonY2, buttonW, buttonH),
+    rgba(40, 180, 90, 255).color,
+    0.ZLevel,
+  )
+  addButton(
+    list,
+    rightIdx,
+    rect(containerRightX + buttonX, containerY + buttonY3, buttonW, buttonH),
+    rgba(220, 60, 60, 255).color,
+    (-5).ZLevel,
   )
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
-  result.layers[(-5).ZLevel] = baseList
-  result.layers[0.ZLevel] = midList
-  result.layers[10.ZLevel] = topList
-  result.layers.sort(
-    proc(x, y: auto): int =
-      cmp(x[0], y[0])
-  )
+  result.layers[0.ZLevel] = list
 
 when isMainModule:
   var appRunning = true
 
   let title = "figdraw: Windy Layers + Clip"
-  let size = ivec2(720, 320)
+  let size = ivec2(800, 400)
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
