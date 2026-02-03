@@ -12,7 +12,7 @@ elif defined(macosx):
   import darwin/objc/runtime
   import darwin/foundation/nsgeometry
   import windy/platforms/macos/platform
-  when defined(feature.figdraw.metal):
+  when UseMetalBackend:
     import metalx/[cametal, metal, view]
 elif defined(linux) or defined(bsd):
   import windy/platforms/linux/platform
@@ -53,7 +53,7 @@ when defined(macosx) and not compiles(cocoaWindow(Window())):
   proc cocoaContentView*(window: Window): NSView =
     cocoaWindow(window).contentView()
 
-when defined(macosx) and defined(feature.figdraw.metal):
+when UseMetalBackend:
   type MetalLayerHandle* = object
     ## Small helper container so callers don't need to depend on metalx/view.
     hostView*: NSView
