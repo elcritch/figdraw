@@ -1,8 +1,6 @@
-import std/[options]
+import std/[options, json]
 
-import std/jsonutils
-
-const LottieJsonOptions* = Joptions(allowExtraKeys: true, allowMissingKeys: true)
+import pkg/jsony
 
 type
   LottieBezier* = object
@@ -18,13 +16,9 @@ type
     h*: Option[int]
 
   LottieProperty*[T] = object
-    case a*: range[0..1]
-    of 0:
-      k*: T
-    of 1:
-      k*: seq[LottieKeyframe[T]]
-    else:
-      k*: T
+    a*: int
+    kValue*: T
+    kFrames*: seq[LottieKeyframe[T]]
 
   LottieTransform* = object
     a*: Option[LottieProperty[seq[float32]]]
@@ -38,27 +32,17 @@ type
   LottieShape* = object
     ty*: string
     nm*: string
-    case ty*: string
-    of "el":
-      p*: LottieProperty[seq[float32]]
-      s*: LottieProperty[seq[float32]]
-    of "fl":
-      c*: LottieProperty[seq[float32]]
-      o*: LottieProperty[float32]
-      r*: int
-    of "gr":
-      np*: float32
-      it*: seq[LottieShape]
-    of "tr":
-      a*: Option[LottieProperty[seq[float32]]]
-      p*: Option[LottieProperty[seq[float32]]]
-      s*: Option[LottieProperty[seq[float32]]]
-      r*: Option[LottieProperty[float32]]
-      o*: Option[LottieProperty[float32]]
-      sk*: Option[LottieProperty[float32]]
-      sa*: Option[LottieProperty[float32]]
-    else:
-      discard
+    p*: Option[LottieProperty[seq[float32]]]
+    s*: Option[LottieProperty[seq[float32]]]
+    c*: Option[LottieProperty[seq[float32]]]
+    o*: Option[LottieProperty[float32]]
+    fillRule*: Option[int]
+    np*: Option[float32]
+    it*: seq[LottieShape]
+    a*: Option[LottieProperty[seq[float32]]]
+    r*: Option[LottieProperty[float32]]
+    sk*: Option[LottieProperty[float32]]
+    sa*: Option[LottieProperty[float32]]
 
   LottieLayer* = object
     ty*: int
@@ -80,3 +64,53 @@ type
     w*: int
     h*: int
     layers*: seq[LottieLayer]
+
+proc parseHook*[T](s: string, i: var int, v: var LottieProperty[T]) =
+  var node: JsonNode
+  parseHook(s, i, node)
+  v = default(LottieProperty[T])
+  if node.kind != JObject:
+    return
+  if node.hasKey("a"):
+    v.a = node["a"].getInt.int
+  if node.hasKey("k"):
+    let kNode = node["k"]
+    if v.a == 1:
+      v.kFrames = jsony.fromJson($kNode, seq[LottieKeyframe[T]])
+    else:
+      v.kValue = jsony.fromJson($kNode, T)
+
+proc parseHook*(s: string, i: var int, v: var LottieShape) =
+  var node: JsonNode
+  parseHook(s, i, node)
+  v = default(LottieShape)
+  if node.kind != JObject:
+    return
+  if node.hasKey("ty"):
+    v.ty = node["ty"].getStr()
+  if node.hasKey("nm"):
+    v.nm = node["nm"].getStr()
+
+  template parseProp(key: string, field: untyped, T: typedesc) =
+    if node.hasKey(key):
+      let value = jsony.fromJson($node[key], LottieProperty[T])
+      field = some(value)
+
+  parseProp("p", v.p, seq[float32])
+  parseProp("s", v.s, seq[float32])
+  parseProp("c", v.c, seq[float32])
+  parseProp("o", v.o, float32)
+  parseProp("a", v.a, seq[float32])
+  parseProp("sk", v.sk, float32)
+  parseProp("sa", v.sa, float32)
+
+  if node.hasKey("np"):
+    v.np = some(node["np"].getFloat.float32)
+  if node.hasKey("it"):
+    v.it = jsony.fromJson($node["it"], seq[LottieShape])
+  if node.hasKey("r"):
+    if v.ty == "fl":
+      v.fillRule = some(node["r"].getInt.int)
+    else:
+      let rot = jsony.fromJson($node["r"], LottieProperty[float32])
+      v.r = some(rot)

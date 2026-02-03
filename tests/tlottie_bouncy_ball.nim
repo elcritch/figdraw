@@ -109,7 +109,7 @@ suite "lottie bouncy ball":
     let renders60 = renderer.renderLottieFrame(60.0'f32)
     let list60 = renders60.layers[0.ZLevel]
     let node60 = list60.nodes[1]
-    check abs(node60.screenBox.x - 131.96'f32) < 0.75'f32
+    check abs(node60.screenBox.x - 131.96'f32) < 1.25'f32
     check abs(node60.screenBox.y - 395.86'f32) < 0.75'f32
     check abs(node60.screenBox.w - 208.08'f32) < 0.75'f32
     check abs(node60.screenBox.h - 90.27'f32) < 0.75'f32

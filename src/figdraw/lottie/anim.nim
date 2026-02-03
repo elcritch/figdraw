@@ -78,17 +78,17 @@ proc valueAt*[T](prop: LottieProperty[T], frame: float32, fallback: T): T =
   case prop.a
   of 0:
     when T is seq[float32]:
-      if prop.k.len == 0:
+      if prop.kValue.len == 0:
         fallback
       else:
-        prop.k
+        prop.kValue
     else:
-      prop.k
+      prop.kValue
   of 1:
-    if prop.k.len == 0:
+    if prop.kFrames.len == 0:
       fallback
     else:
-      keyframeValue(prop.k, frame)
+      keyframeValue(prop.kFrames, frame)
   else:
     fallback
 

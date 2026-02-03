@@ -1,12 +1,10 @@
-import std/[json, os]
-
-import std/jsonutils
+import std/os
 
 import ./types
+import pkg/jsony
 
 proc parseLottie*(data: string): LottieAnimation =
-  let node = parseJson(data)
-  result = node.jsonTo(LottieAnimation, LottieJsonOptions)
+  jsony.fromJson(data, LottieAnimation)
 
 proc loadLottieFile*(path: string): LottieAnimation =
   parseLottie(readFile(path))

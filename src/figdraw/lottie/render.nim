@@ -119,8 +119,8 @@ proc renderEllipseGroup(
     return
 
   let fill = fillOpt.get
-  let fillOpacity = valueAt(fill.o, frame, 100.0'f32) / 100.0'f32
-  let fillColor = colorFromSeq(valueAt(fill.c, frame, @[]), fillOpacity)
+  let fillOpacity = valueAtOr(fill.o, frame, 100.0'f32) / 100.0'f32
+  let fillColor = colorFromSeq(valueAtOr(fill.c, frame, @[]), fillOpacity)
 
   var groupTransform = LottieResolvedTransform(
     anchor: vec2(0.0, 0.0),
@@ -133,8 +133,10 @@ proc renderEllipseGroup(
     groupTransform = resolvedTransformFromShape(transformOpt.get, frame)
 
   for ellipse in ellipses:
-    let baseCenter = vec2FromSeq(valueAt(ellipse.p, frame, @[0.0'f32, 0.0'f32]), vec2(0.0, 0.0))
-    let baseSize = vec2FromSeq(valueAt(ellipse.s, frame, @[0.0'f32, 0.0'f32]), vec2(0.0, 0.0))
+    let baseCenter =
+      vec2FromSeq(valueAtOr(ellipse.p, frame, @[0.0'f32, 0.0'f32]), vec2(0.0, 0.0))
+    let baseSize =
+      vec2FromSeq(valueAtOr(ellipse.s, frame, @[0.0'f32, 0.0'f32]), vec2(0.0, 0.0))
     if baseSize.x <= 0.0'f32 or baseSize.y <= 0.0'f32:
       continue
 
