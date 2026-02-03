@@ -67,7 +67,7 @@ proc makeRenderTree(w, h: float32): Renders =
   let buttonColor = rgba(43, 159, 234, 255).color
 
   let containerW = w * 0.30'f32
-  let containerH = h * 0.80'f32
+  let containerH = w * 0.40'f32
   let containerY = h * 0.10'f32
   let containerLeftX = w * 0.03'f32
   let containerRightX = w * 0.50'f32

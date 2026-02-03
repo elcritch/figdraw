@@ -21,3 +21,4 @@ nimbledeps
 /examples/emscripten/*.data
 /examples/emscripten/*.html
 !/examples/emscripten/emscripten.html
+.DS_Store
