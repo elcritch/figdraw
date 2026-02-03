@@ -56,10 +56,9 @@ proc addRootRect(
   )
 
 proc makeRenderTree*(w, h: float32): Renders =
-  let bgColor = rgba(245, 245, 245, 255).color
+  let bgColor = rgba(255, 255, 255, 255).color
   let containerColor = rgba(208, 208, 208, 255).color
-  let buttonColor = rgba(0, 160, 255, 255).color
-  let transparent = rgba(0, 0, 0, 0).color
+  let buttonColor = rgba(43, 159, 234, 255).color
 
   let containerW = w * 0.30'f32
   let containerH = h * 0.80'f32
@@ -131,31 +130,14 @@ proc makeRenderTree*(w, h: float32): Renders =
     20.ZLevel,
   )
 
-  let rightLowClip = addRootRect(
+  discard addRootRect(
     lowList,
-    rect(containerRightX, containerY, containerW, containerH),
-    transparent,
-    (-5).ZLevel,
-    clip = true,
-  )
-  let rightTopClip = addRootRect(
-    topList,
-    rect(containerRightX, containerY, containerW, containerH),
-    transparent,
-    20.ZLevel,
-    clip = true,
-  )
-
-  addRect(
-    lowList,
-    rightLowClip,
     rect(containerRightX + buttonX, containerY + buttonY3, buttonW, buttonH),
     buttonColor,
     (-5).ZLevel,
   )
-  addRect(
+  discard addRootRect(
     topList,
-    rightTopClip,
     rect(containerRightX + buttonX, containerY + buttonY1, buttonW, buttonH),
     buttonColor,
     20.ZLevel,
@@ -175,7 +157,7 @@ when isMainModule:
   var appRunning = true
 
   let title = "figdraw: Windy Layers + Clip"
-  let size = ivec2(800, 400)
+  let size = ivec2(800, 375)
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()

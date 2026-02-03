@@ -2,6 +2,7 @@ import std/os
 import std/unittest
 
 import pkg/chroma
+import pkg/pixie
 import figdraw/windyshim
 
 import figdraw/commons
@@ -61,10 +62,9 @@ proc addRootRect(
   )
 
 proc makeRenderTree(w, h: float32): Renders =
-  let bgColor = rgba(245, 245, 245, 255).color
+  let bgColor = rgba(255, 255, 255, 255).color
   let containerColor = rgba(208, 208, 208, 255).color
-  let buttonColor = rgba(0, 160, 255, 255).color
-  let transparent = rgba(0, 0, 0, 0).color
+  let buttonColor = rgba(43, 159, 234, 255).color
 
   let containerW = w * 0.30'f32
   let containerH = h * 0.80'f32
@@ -136,31 +136,14 @@ proc makeRenderTree(w, h: float32): Renders =
     20.ZLevel,
   )
 
-  let rightLowClip = addRootRect(
+  discard addRootRect(
     lowList,
-    rect(containerRightX, containerY, containerW, containerH),
-    transparent,
-    (-5).ZLevel,
-    clip = true,
-  )
-  let rightTopClip = addRootRect(
-    topList,
-    rect(containerRightX, containerY, containerW, containerH),
-    transparent,
-    20.ZLevel,
-    clip = true,
-  )
-
-  addRect(
-    lowList,
-    rightLowClip,
     rect(containerRightX + buttonX, containerY + buttonY3, buttonW, buttonH),
     buttonColor,
     (-5).ZLevel,
   )
-  addRect(
+  discard addRootRect(
     topList,
-    rightTopClip,
     rect(containerRightX + buttonX, containerY + buttonY1, buttonW, buttonH),
     buttonColor,
     20.ZLevel,
@@ -189,7 +172,7 @@ suite "opengl layer + clip render":
           makeRenders = makeRenderTree,
           outputPath = outPath,
           windowW = 800,
-          windowH = 400,
+          windowH = 375,
           title = "figdraw test: layers + clip",
         )
       except WindyError:
@@ -199,10 +182,20 @@ suite "opengl layer + clip render":
       check fileExists(outPath)
       check getFileSize(outPath) > 0
 
+      let expectedPath = "tests" / "expected" / "render_layers_clip.png"
+      check fileExists(expectedPath)
+      let expected = pixie.readImage(expectedPath)
+      let (diffScore, diffImg) = expected.diff(img)
+      echo "Got image difference of: ", diffScore
+      let diffThreshold = 1.0'f32
+      if diffScore > diffThreshold:
+        diffImg.writeFile(joinPath(outDir, "render_layers_clip.diff.png"))
+      check diffScore <= diffThreshold
+
       let midY = 216
       let lowY = 312
-      assertColor(img, 300, midY, 0, 160, 255)
-      assertColor(img, 700, midY, 245, 245, 245)
-      assertColor(img, 450, midY, 0, 160, 255)
+      assertColor(img, 300, midY, 43, 159, 234)
+      assertColor(img, 700, midY, 255, 255, 255)
+      assertColor(img, 450, midY, 43, 159, 234)
       assertColor(img, 200, lowY, 208, 208, 208)
       assertColor(img, 560, lowY, 208, 208, 208)
