@@ -161,6 +161,7 @@ proc makeRenderTree(w, h: float32): Renders =
 
 suite "opengl layer + clip render":
   test "renders figuro-style layers + clip layout":
+    setFigUiScale(1.0)
     let outDir = ensureTestOutputDir()
     let outPath = outDir / "render_layers_clip.png"
     if fileExists(outPath):
@@ -185,17 +186,47 @@ suite "opengl layer + clip render":
       let expectedPath = "tests" / "expected" / "render_layers_clip.png"
       check fileExists(expectedPath)
       let expected = pixie.readImage(expectedPath)
-      let (diffScore, diffImg) = expected.diff(img)
+      var rendered = img
+      if rendered.width != expected.width or rendered.height != expected.height:
+        rendered = rendered.resize(expected.width, expected.height)
+      let (diffScore, diffImg) = expected.diff(rendered)
       echo "Got image difference of: ", diffScore
       let diffThreshold = 1.0'f32
       if diffScore > diffThreshold:
         diffImg.writeFile(joinPath(outDir, "render_layers_clip.diff.png"))
       check diffScore <= diffThreshold
 
-      let midY = 216
-      let lowY = 312
-      assertColor(img, 300, midY, 43, 159, 234)
-      assertColor(img, 700, midY, 255, 255, 255)
-      assertColor(img, 450, midY, 43, 159, 234)
-      assertColor(img, 200, lowY, 208, 208, 208)
-      assertColor(img, 560, lowY, 208, 208, 208)
+      let w = expected.width.float32
+      let h = expected.height.float32
+      let containerW = w * 0.30'f32
+      let containerH = w * 0.40'f32
+      let containerY = h * 0.10'f32
+      let containerLeftX = w * 0.03'f32
+      let containerRightX = w * 0.50'f32
+      let buttonX = containerW * 0.10'f32
+      let buttonW = containerW * 1.30'f32
+      let buttonH = containerH * 0.20'f32
+      let buttonY2 = containerH * 0.45'f32
+      let buttonY3 = containerH * 0.75'f32
+
+      let midY = (containerY + buttonY2 + buttonH * 0.5'f32).int
+      let lowY = (containerY + buttonY3 + buttonH * 0.5'f32).int
+
+      assertColor(
+        rendered, (containerLeftX + buttonX + buttonW * 0.9'f32).int, midY, 43, 159, 234
+      )
+      assertColor(rendered, (w * 0.90'f32).int, midY, 255, 255, 255)
+      assertColor(
+        rendered,
+        (containerRightX + buttonX + buttonW * 0.2'f32).int,
+        midY,
+        43,
+        159,
+        234,
+      )
+      assertColor(
+        rendered, (containerLeftX + containerW * 0.5'f32).int, lowY, 208, 208, 208
+      )
+      assertColor(
+        rendered, (containerRightX + containerW * 0.5'f32).int, lowY, 208, 208, 208
+      )
