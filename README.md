@@ -70,6 +70,10 @@ Alternatively Nimble should work as well:
 nimble install https://github.com/elcritch/figdraw
 ```
 
+**NOTE**: If you get errors you may need to install a newer version of Nimble or Atlas that support "features".
+
+### Install / Usage Notes
+
 Note that to use features like windy, you'll want to add it to requires:
 
 ```nim
