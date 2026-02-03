@@ -120,6 +120,41 @@ For a complete working example (window + GL context + render loop), see:
 - `examples/windy_renderlist.nim`
 - `examples/sdl2_renderlist.nim`
 
+## Layers and ZLevel
+
+`Renders` is an ordered table of `ZLevel -> RenderList`. Lower zlevels are drawn first, so higher
+zlevels appear on top. Each layer can contain multiple roots (useful for overlays, HUDs, menus, etc).
+
+Short example:
+
+```nim
+import figdraw/commons
+import figdraw/fignodes
+import chroma
+
+proc makeRenders(w, h: float32): Renders =
+  var bg = RenderList()
+  discard bg.addRoot(Fig(
+    kind: nkRectangle,
+    screenBox: rect(0, 0, w, h),
+    fill: rgba(245, 245, 245, 255).color,
+  ))
+
+  var overlay = RenderList()
+  discard overlay.addRoot(Fig(
+    kind: nkRectangle,
+    zlevel: 10.ZLevel,
+    screenBox: rect(40, 40, 220, 120),
+    fill: rgba(43, 159, 234, 255).color,
+    corners: [10.0'f32, 10.0, 10.0, 10.0],
+  ))
+
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  result.layers[0.ZLevel] = bg
+  result.layers[10.ZLevel] = overlay
+  result.layers.sort(proc(x, y: auto): int = cmp(x[0], y[0]))
+```
+
 ## MSDF Bitmap based SDF Rendering
 
 <img width="842" height="582" alt="starstruck32" src="https://github.com/user-attachments/assets/f70437ad-c22e-4160-8c48-c480156d709d" />
