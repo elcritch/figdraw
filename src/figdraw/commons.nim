@@ -4,8 +4,7 @@ import common/rchannels
 import common/fontutils
 import common/imgutils
 
-const UseMetalBackend* {.booldefine: "figdraw.metal".} =
-  defined(macosx) or defined(feature.figdraw.metal)
+const UseMetalBackend* {.booldefine: "figdraw.metal".} = defined(macosx)
 
 export shared, uimaths, rchannels
 export fontutils
