@@ -22,36 +22,36 @@ type SdlWindow = ref object
 var app_running = true
 
 proc makeRenderTree*(w, h: float32): Renders =
-  var list = RenderList()
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
 
-  let rootIdx = list.addRoot(
+  let rootIdx = result.addRoot(
+    0.ZLevel,
     Fig(
       kind: nkRectangle,
       childCount: 0,
-      zlevel: 0.ZLevel,
       screenBox: rect(0, 0, w, h),
       fill: rgba(255, 255, 255, 255).color,
-    )
+    ),
   )
 
-  list.addChild(
+  discard result.addChild(
+    0.ZLevel,
     rootIdx,
     Fig(
       kind: nkRectangle,
       childCount: 0,
-      zlevel: 0.ZLevel,
       corners: [10.0'f32, 20.0, 30.0, 40.0],
       screenBox: rect(60, 60, 220, 140),
       fill: rgba(220, 40, 40, 255).color,
       stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 255).color),
     ),
   )
-  list.addChild(
+  discard result.addChild(
+    0.ZLevel,
     rootIdx,
     Fig(
       kind: nkRectangle,
       childCount: 0,
-      zlevel: 0.ZLevel,
       screenBox: rect(320, 120, 220, 140),
       fill: rgba(40, 180, 90, 255).color,
       shadows: [
@@ -64,19 +64,16 @@ proc makeRenderTree*(w, h: float32): Renders =
       ],
     ),
   )
-  list.addChild(
+  discard result.addChild(
+    0.ZLevel,
     rootIdx,
     Fig(
       kind: nkRectangle,
       childCount: 0,
-      zlevel: 0.ZLevel,
       screenBox: rect(180, 300, 220, 140),
       fill: rgba(60, 90, 220, 255).color,
     ),
   )
-
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
-  result.layers[0.ZLevel] = list
 
 proc newSdlWindow(size: IVec2, title: string): SdlWindow =
   if sdl2.init(INIT_VIDEO) != SdlSuccess:

@@ -42,6 +42,5 @@ feature "windex":
 
 feature "reference":
   requires "https://github.com/elcritch/figuro"
-  requires "fidget"
 
 

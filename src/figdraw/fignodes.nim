@@ -103,6 +103,30 @@ proc addChild*(
   list.nodes.add childNode
   result = newIdx.FigIdx
 
+proc ensureLayer*(renders: var Renders, lvl: ZLevel): var RenderList =
+  if lvl notin renders.layers:
+    renders.layers[lvl] = RenderList()
+  renders.layers[lvl]
+
+proc addRoot*(renders: var Renders, lvl: ZLevel, root: Fig): FigIdx {.discardable.} =
+  ## Adds a root to the layer for `lvl`, creating the layer if needed.
+  var node = root
+  node.zlevel = lvl
+  result = renders.ensureLayer(lvl).addRoot(node)
+
+proc addRoot*(renders: var Renders, root: Fig): FigIdx {.discardable.} =
+  ## Adds a root to the layer for `root.zlevel`.
+  result = renders.addRoot(root.zlevel, root)
+
+proc addChild*(
+    renders: var Renders, lvl: ZLevel, parentIdx: FigIdx, child: Fig
+): FigIdx {.discardable.} =
+  ## Adds a child to the layer for `lvl`, creating the layer if needed.
+  ## The child is forced to the same zlevel as its parent layer.
+  var node = child
+  node.zlevel = lvl
+  result = renders.ensureLayer(lvl).addChild(parentIdx, node)
+
 template pairs*(r: Renders): auto =
   r.layers.pairs()
 

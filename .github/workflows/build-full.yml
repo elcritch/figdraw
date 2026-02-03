@@ -73,6 +73,8 @@ jobs:
     - name: Build Tests
       if: runner.os == 'Linux'
       env:
+        SDL_VIDEODRIVER: "x11"
+        GALLIUM_DRIVER: "llvmpipe"
         LIBGL_ALWAYS_SOFTWARE: "1"
         MESA_GL_VERSION_OVERRIDE: "3.3"
         MESA_GLSL_VERSION_OVERRIDE: "330"
@@ -83,3 +85,11 @@ jobs:
       if: runner.os == 'macOS'
       run: |
         nim test
+
+    - name: Upload Test Output (on failure)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: tests-output-${{ runner.os }}-nim${{ matrix.nimversion }}
+        path: tests/output/
+        if-no-files-found: ignore

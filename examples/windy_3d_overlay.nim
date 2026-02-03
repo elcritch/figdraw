@@ -547,7 +547,7 @@ when isMainModule:
         renders, sz, clearMain = true, clearColor = rgba(0, 0, 0, 0).color
       )
     else:
-      renderer.renderFrame(renders, frameSize, clearMain = false)
+      renderer.renderFrame(renders, sz, clearMain = false)
       window.swapBuffers()
 
   window.onCloseRequest = proc() =

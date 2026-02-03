@@ -84,6 +84,8 @@ type ContextObj = object # Metal objects
 
   # For screenshot readback.
   lastCommitted: ObjcOwned[MTLCommandBuffer]
+  # Per-flush vertex buffers that must live until the command buffer completes.
+  frameBuffers: seq[ObjcOwned[MTLBuffer]]
 
   # Drains per-frame autoreleased Metal/Foundation objects (render pass descriptors,
   # temporary NSStrings, etc). Without an autorelease pool, these accumulate and look
@@ -967,6 +969,8 @@ proc beginFrame*(
   if not ctx.lastCommitted.isNil:
     # Avoid overlapping command buffers that write to the same offscreen texture.
     waitUntilCompleted(ctx.lastCommitted.borrow)
+  # Safe to release per-flush buffers from the previous frame.
+  ctx.frameBuffers.setLen(0)
 
   ctx.maskBegun = false
   ctx.maskTextureWrite = 0
@@ -1116,8 +1120,6 @@ proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
   if ctx.quadCount == 0:
     return
 
-  ctx.upload()
-
   let vertexCount = ctx.quadCount * 4
   let indexCount = ctx.quadCount * 6
 
@@ -1142,13 +1144,88 @@ proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
     enc, (if ctx.maskBegun: ctx.pipelineMask.borrow else: ctx.pipelineMain.borrow)
   )
 
-  setVertexBuffer(enc, ctx.positions.buffer.borrow, 0, 0)
-  setVertexBuffer(enc, ctx.uvs.buffer.borrow, 0, 1)
-  setVertexBuffer(enc, ctx.colors.buffer.borrow, 0, 2)
-  setVertexBuffer(enc, ctx.sdfParams.buffer.borrow, 0, 3)
-  setVertexBuffer(enc, ctx.sdfRadii.buffer.borrow, 0, 4)
-  setVertexBuffer(enc, ctx.sdfModeAttr.buffer.borrow, 0, 5)
-  setVertexBuffer(enc, ctx.sdfFactors.buffer.borrow, 0, 6)
+  # Create per-flush buffers to avoid overwriting shared buffers before the GPU
+  # consumes them (mask passes and multiple flushes can overlap).
+  let positionsBytes = vertexCount * 2 * sizeof(float32)
+  let uvsBytes = vertexCount * 2 * sizeof(float32)
+  let colorsBytes = vertexCount * 4 * sizeof(uint8)
+  let sdfParamsBytes = vertexCount * 4 * sizeof(float32)
+  let sdfRadiiBytes = vertexCount * 4 * sizeof(float32)
+  let sdfModeBytes = vertexCount * sizeof(SdfModeData)
+  let sdfFactorsBytes = vertexCount * 2 * sizeof(float32)
+
+  let positionsBuf = fromRetained(
+    newBufferWithBytes(
+      ctx.device.borrow,
+      ctx.positions.data[0].addr,
+      NSUInteger(positionsBytes),
+      MTLResourceOptions(0),
+    )
+  )
+  let uvsBuf = fromRetained(
+    newBufferWithBytes(
+      ctx.device.borrow,
+      ctx.uvs.data[0].addr,
+      NSUInteger(uvsBytes),
+      MTLResourceOptions(0),
+    )
+  )
+  let colorsBuf = fromRetained(
+    newBufferWithBytes(
+      ctx.device.borrow,
+      ctx.colors.data[0].addr,
+      NSUInteger(colorsBytes),
+      MTLResourceOptions(0),
+    )
+  )
+  let sdfParamsBuf = fromRetained(
+    newBufferWithBytes(
+      ctx.device.borrow,
+      ctx.sdfParams.data[0].addr,
+      NSUInteger(sdfParamsBytes),
+      MTLResourceOptions(0),
+    )
+  )
+  let sdfRadiiBuf = fromRetained(
+    newBufferWithBytes(
+      ctx.device.borrow,
+      ctx.sdfRadii.data[0].addr,
+      NSUInteger(sdfRadiiBytes),
+      MTLResourceOptions(0),
+    )
+  )
+  let sdfModeBuf = fromRetained(
+    newBufferWithBytes(
+      ctx.device.borrow,
+      ctx.sdfModeAttr.data[0].addr,
+      NSUInteger(sdfModeBytes),
+      MTLResourceOptions(0),
+    )
+  )
+  let sdfFactorsBuf = fromRetained(
+    newBufferWithBytes(
+      ctx.device.borrow,
+      ctx.sdfFactors.data[0].addr,
+      NSUInteger(sdfFactorsBytes),
+      MTLResourceOptions(0),
+    )
+  )
+
+  ctx.frameBuffers.add(positionsBuf)
+  ctx.frameBuffers.add(uvsBuf)
+  ctx.frameBuffers.add(colorsBuf)
+  ctx.frameBuffers.add(sdfParamsBuf)
+  ctx.frameBuffers.add(sdfRadiiBuf)
+  ctx.frameBuffers.add(sdfModeBuf)
+  ctx.frameBuffers.add(sdfFactorsBuf)
+
+  setVertexBuffer(enc, positionsBuf.borrow, 0, 0)
+  setVertexBuffer(enc, uvsBuf.borrow, 0, 1)
+  setVertexBuffer(enc, colorsBuf.borrow, 0, 2)
+  setVertexBuffer(enc, sdfParamsBuf.borrow, 0, 3)
+  setVertexBuffer(enc, sdfRadiiBuf.borrow, 0, 4)
+  setVertexBuffer(enc, sdfModeBuf.borrow, 0, 5)
+  setVertexBuffer(enc, sdfFactorsBuf.borrow, 0, 6)
 
   type VSUniforms = object
     proj: Mat4
@@ -1203,6 +1280,7 @@ proc newContext*(
     result.pixelate = pixelate
     result.pixelScale = pixelScale
     result.aaFactor = 1.2'f32
+    result.frameBuffers = @[]
 
     result.ensureDeviceAndPipelines()
 
