@@ -1,5 +1,3 @@
-import std/os
-
 import ./types
 import pkg/jsony
 
