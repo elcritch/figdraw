@@ -90,30 +90,37 @@ proc makeRenderTree(w, h: float32): Renders =
     )
   )
 
-  var containerList = RenderList()
-  discard containerList.addRoot(
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      zlevel: (-10).ZLevel,
-      screenBox: rect(containerLeftX, containerY, containerW, containerH),
-      fill: containerColor,
-      corners: [10.0'f32, 10.0, 10.0, 10.0],
-    )
+  var layer0List = RenderList()
+  let leftContainer = addRootRect(
+    layer0List,
+    rect(containerLeftX, containerY, containerW, containerH),
+    containerColor,
+    0.ZLevel,
   )
-  discard containerList.addRoot(
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      zlevel: (-10).ZLevel,
-      screenBox: rect(containerRightX, containerY, containerW, containerH),
-      fill: containerColor,
-      corners: [10.0'f32, 10.0, 10.0, 10.0],
-    )
+  let rightContainer = addRootRect(
+    layer0List,
+    rect(containerRightX, containerY, containerW, containerH),
+    containerColor,
+    0.ZLevel,
+    clip = true,
+  )
+
+  addRect(
+    layer0List,
+    leftContainer,
+    rect(containerLeftX + buttonX, containerY + buttonY2, buttonW, buttonH),
+    buttonColor,
+    0.ZLevel,
+  )
+  addRect(
+    layer0List,
+    rightContainer,
+    rect(containerRightX + buttonX, containerY + buttonY2, buttonW, buttonH),
+    buttonColor,
+    0.ZLevel,
   )
 
   var lowList = RenderList()
-  var midList = RenderList()
   var topList = RenderList()
 
   discard addRootRect(
@@ -121,12 +128,6 @@ proc makeRenderTree(w, h: float32): Renders =
     rect(containerLeftX + buttonX, containerY + buttonY3, buttonW, buttonH),
     buttonColor,
     (-5).ZLevel,
-  )
-  discard addRootRect(
-    midList,
-    rect(containerLeftX + buttonX, containerY + buttonY2, buttonW, buttonH),
-    buttonColor,
-    0.ZLevel,
   )
   discard addRootRect(
     topList,
@@ -140,13 +141,6 @@ proc makeRenderTree(w, h: float32): Renders =
     rect(containerRightX, containerY, containerW, containerH),
     transparent,
     (-5).ZLevel,
-    clip = true,
-  )
-  let rightMidClip = addRootRect(
-    midList,
-    rect(containerRightX, containerY, containerW, containerH),
-    transparent,
-    0.ZLevel,
     clip = true,
   )
   let rightTopClip = addRootRect(
@@ -165,13 +159,6 @@ proc makeRenderTree(w, h: float32): Renders =
     (-5).ZLevel,
   )
   addRect(
-    midList,
-    rightMidClip,
-    rect(containerRightX + buttonX, containerY + buttonY2, buttonW, buttonH),
-    buttonColor,
-    0.ZLevel,
-  )
-  addRect(
     topList,
     rightTopClip,
     rect(containerRightX + buttonX, containerY + buttonY1, buttonW, buttonH),
@@ -181,9 +168,8 @@ proc makeRenderTree(w, h: float32): Renders =
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[(-20).ZLevel] = bgList
-  result.layers[(-10).ZLevel] = containerList
+  result.layers[0.ZLevel] = layer0List
   result.layers[(-5).ZLevel] = lowList
-  result.layers[0.ZLevel] = midList
   result.layers[20.ZLevel] = topList
   result.layers.sort(
     proc(x, y: auto): int =
@@ -213,7 +199,10 @@ suite "opengl layer + clip render":
       check fileExists(outPath)
       check getFileSize(outPath) > 0
 
-      let sampleY = 216
-      assertColor(img, 300, sampleY, 0, 160, 255)
-      assertColor(img, 700, sampleY, 245, 245, 245)
-      assertColor(img, 450, sampleY, 0, 160, 255)
+      let midY = 216
+      let lowY = 312
+      assertColor(img, 300, midY, 0, 160, 255)
+      assertColor(img, 700, midY, 245, 245, 245)
+      assertColor(img, 450, midY, 0, 160, 255)
+      assertColor(img, 200, lowY, 208, 208, 208)
+      assertColor(img, 560, lowY, 208, 208, 208)
