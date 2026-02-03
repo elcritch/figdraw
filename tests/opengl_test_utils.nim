@@ -54,9 +54,9 @@ proc renderAndScreenshotOnce*(
       let sz = window.logicalSize()
       var renders = makeRenders(sz.x, sz.y)
       renderer.renderFrame(renders, sz)
+      glFinish()
+      result = glrenderer.takeScreenshot(renderer, readFront = false)
       window.swapBuffers()
-
-      result = glrenderer.takeScreenshot(renderer, readFront = true)
       result.writeFile(outputPath)
     finally:
       window.close()
@@ -99,9 +99,9 @@ proc renderAndScreenshotOverlayOnce*(
       renderer.renderFrame(
         renders, vec2(windowW.float32, windowH.float32), clearMain = true
       )
+      glFinish()
+      result = glrenderer.takeScreenshot(renderer, readFront = false)
       window.swapBuffers()
-
-      result = glrenderer.takeScreenshot(renderer, readFront = true)
       result.writeFile(outputPath)
     finally:
       window.close()

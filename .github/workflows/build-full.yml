@@ -73,6 +73,8 @@ jobs:
     - name: Build Tests
       if: runner.os == 'Linux'
       env:
+        SDL_VIDEODRIVER: "x11"
+        GALLIUM_DRIVER: "llvmpipe"
         LIBGL_ALWAYS_SOFTWARE: "1"
         MESA_GL_VERSION_OVERRIDE: "3.3"
         MESA_GLSL_VERSION_OVERRIDE: "330"
