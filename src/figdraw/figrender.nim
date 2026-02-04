@@ -353,6 +353,7 @@ proc renderMsdfImage(ctx: Context, node: Fig) =
       node.msdfImage.sdThreshold
     else:
       0.5'f32
+  let strokeWeight = max(0.0'f32, node.msdfImage.strokeWeight).scaled()
   ctx.drawMsdfImage(
     node.msdfImage.id.Hash,
     pos = box.xy,
@@ -360,6 +361,7 @@ proc renderMsdfImage(ctx: Context, node: Fig) =
     size = size,
     pxRange = pxRange,
     sdThreshold = sdThreshold,
+    strokeWeight = strokeWeight,
   )
 
 proc renderMtsdfImage(ctx: Context, node: Fig) =
@@ -374,6 +376,7 @@ proc renderMtsdfImage(ctx: Context, node: Fig) =
       node.mtsdfImage.sdThreshold
     else:
       0.5'f32
+  let strokeWeight = max(0.0'f32, node.mtsdfImage.strokeWeight).scaled()
   ctx.drawMtsdfImage(
     node.mtsdfImage.id.Hash,
     pos = box.xy,
@@ -381,6 +384,7 @@ proc renderMtsdfImage(ctx: Context, node: Fig) =
     size = size,
     pxRange = pxRange,
     sdThreshold = sdThreshold,
+    strokeWeight = strokeWeight,
   )
 
 proc render(

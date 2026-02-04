@@ -28,7 +28,12 @@ proc logicalSize*(window: Window): Vec2 =
   result = vec2(window.size()).descaled()
 
 proc newWindyWindow*(size: IVec2, fullscreen = false, title = "FigDraw"): Window =
-  let size = scaled(when defined(emscripten): ivec2(0, 0) else: size)
+  let size = scaled(
+    when defined(emscripten):
+      ivec2(0, 0)
+    else:
+      size
+  )
   let window = newWindow(title, size, visible = false)
 
   when not UseMetalBackend:

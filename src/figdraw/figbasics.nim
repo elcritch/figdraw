@@ -84,3 +84,6 @@ type
     id*: ImageId
     pxRange*: float32
     sdThreshold*: float32
+    ## If > 0, render as an outline (annular band) with this stroke width.
+    ## Units are the same as other FigDraw weights and get UI-scaled at render time.
+    strokeWeight*: float32

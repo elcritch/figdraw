@@ -85,7 +85,6 @@ proc addLabel(
     ),
   )
 
-
 proc makeRenderTree*(
     w, h: float32, pxRange: float32, t: float32, labelFont: UiFont
 ): Renders =
@@ -220,6 +219,32 @@ proc makeRenderTree*(
   )
   list.addLabel(rootIdx, labelFont, w, mtsdfRect, "MTSDF (alpha)")
 
+  ## Annular MSDF/MTSDF: outline-only stroke from the distance field.
+  let strokeCenter =
+    vec2(rightRect.x + rightRect.w / 2.0'f32, rightRect.y + rightRect.h * 0.46'f32)
+  let strokeScale =
+    0.86'f32 + 0.18'f32 * (0.5'f32 + 0.5'f32 * sin(t * 2.0'f32 + PI.float32 * 0.25'f32))
+  let strokeRect = centeredRect(strokeCenter, smallBaseSize * strokeScale)
+  let strokeRotation = t * 110.0'f32
+  list.addChild(
+    rootIdx,
+    Fig(
+      kind: nkMtsdfImage,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: strokeRect,
+      rotation: strokeRotation,
+      mtsdfImage: MsdfImageStyle(
+        color: rgba(90, 220, 255, 255).color,
+        id: imgId("star-mtsdf"),
+        pxRange: pxRange,
+        sdThreshold: 0.5'f32,
+        strokeWeight: 6.0'f32,
+      ),
+    ),
+  )
+  list.addLabel(rootIdx, labelFont, w, strokeRect, "MTSDF Stroke (annular)")
+
   ## Bitmap comparison: a normal 32x32 RGBA image rendered from the MSDF field.
   let bitmapCenter =
     vec2(rightRect.x + rightRect.w / 2.0'f32, rightRect.y + rightRect.h * 0.78'f32)
@@ -290,8 +315,7 @@ when isMainModule:
 
   let animStart = epochTime()
 
-  let renderer =
-    glrenderer.newFigRenderer(atlasSize = 2048, )
+  let renderer = glrenderer.newFigRenderer(atlasSize = 2048)
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())

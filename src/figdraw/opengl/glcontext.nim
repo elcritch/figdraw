@@ -527,6 +527,8 @@ type SdfMode* {.pure.} = enum
   sdfModeAnnularAA = 12
   sdfModeMsdf = 13
   sdfModeMtsdf = 14
+  sdfModeMsdfAnnular = 15
+  sdfModeMtsdfAnnular = 16
 
 proc drawUvRectAtlasSdf(
     ctx: Context,
@@ -535,6 +537,7 @@ proc drawUvRectAtlasSdf(
     color: Color,
     mode: SdfMode,
     factors: Vec2,
+    params: Vec4 = vec4(0.0'f32),
 ) =
   ctx.checkBatch()
 
@@ -571,16 +574,12 @@ proc drawUvRectAtlasSdf(
   ctx.colors.data.setVertColor(offset + 2, rgba)
   ctx.colors.data.setVertColor(offset + 3, rgba)
 
-  let zero4 =
-    if mode == sdfModeMsdf or mode == sdfModeMtsdf:
-      vec4(ctx.atlasSize.float32, 0.0'f32, 0.0'f32, 0.0'f32)
-    else:
-      vec4(0.0'f32)
-  ctx.sdfParams.data.setVert4(offset + 0, zero4)
-  ctx.sdfParams.data.setVert4(offset + 1, zero4)
-  ctx.sdfParams.data.setVert4(offset + 2, zero4)
-  ctx.sdfParams.data.setVert4(offset + 3, zero4)
+  ctx.sdfParams.data.setVert4(offset + 0, params)
+  ctx.sdfParams.data.setVert4(offset + 1, params)
+  ctx.sdfParams.data.setVert4(offset + 2, params)
+  ctx.sdfParams.data.setVert4(offset + 3, params)
 
+  let zero4 = vec4(0.0'f32)
   ctx.sdfRadii.data.setVert4(offset + 0, zero4)
   ctx.sdfRadii.data.setVert4(offset + 1, zero4)
   ctx.sdfRadii.data.setVert4(offset + 2, zero4)
@@ -610,16 +609,20 @@ proc drawMsdfImage*(
     size: Vec2,
     pxRange: float32,
     sdThreshold: float32 = 0.5,
+    strokeWeight: float32 = 0.0'f32,
 ) =
   let rect = ctx.entries[imageId]
+  let strokeW = max(0.0'f32, strokeWeight)
+  let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
   ctx.drawUvRectAtlasSdf(
     at = pos,
     to = pos + size,
     uvAt = rect.xy,
     uvTo = rect.xy + rect.wh,
     color = color,
-    mode = sdfModeMsdf,
+    mode = if strokeW > 0.0'f32: sdfModeMsdfAnnular else: sdfModeMsdf,
     factors = vec2(pxRange, sdThreshold),
+    params = params,
   )
 
 proc drawMtsdfImage*(
@@ -630,16 +633,20 @@ proc drawMtsdfImage*(
     size: Vec2,
     pxRange: float32,
     sdThreshold: float32 = 0.5,
+    strokeWeight: float32 = 0.0'f32,
 ) =
   let rect = ctx.entries[imageId]
+  let strokeW = max(0.0'f32, strokeWeight)
+  let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
   ctx.drawUvRectAtlasSdf(
     at = pos,
     to = pos + size,
     uvAt = rect.xy,
     uvTo = rect.xy + rect.wh,
     color = color,
-    mode = sdfModeMtsdf,
+    mode = if strokeW > 0.0'f32: sdfModeMtsdfAnnular else: sdfModeMtsdf,
     factors = vec2(pxRange, sdThreshold),
+    params = params,
   )
 
 proc setSdfGlobals*(ctx: Context, aaFactor: float32) =

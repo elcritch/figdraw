@@ -26,6 +26,8 @@ const int sdfModeAnnular = 11;
 const int sdfModeAnnularAA = 12;
 const int sdfModeMsdf = 13;
 const int sdfModeMtsdf = 14;
+const int sdfModeMsdfAnnular = 15;
+const int sdfModeMtsdfAnnular = 16;
 
 float median(float a, float b, float c) {
   return max(min(a, b), min(max(a, b), c));
@@ -86,14 +88,28 @@ void main() {
       tex.z * color.z,
       tex.w * color.w
     );
-  } else if (sdfModeInt == sdfModeMsdf || sdfModeInt == sdfModeMtsdf) {
+  } else if (
+    sdfModeInt == sdfModeMsdf ||
+    sdfModeInt == sdfModeMtsdf ||
+    sdfModeInt == sdfModeMsdfAnnular ||
+    sdfModeInt == sdfModeMtsdfAnnular
+  ) {
     float pxRange = sdfFactors.x;
     float sdThreshold = sdfFactors.y;
 
     vec4 tex = textureLod(atlasTex, uv, 0.0);
-    float sd = (sdfModeInt == sdfModeMtsdf) ? tex.w : median(tex.x, tex.y, tex.z);
+    bool isMtsdf = (sdfModeInt == sdfModeMtsdf || sdfModeInt == sdfModeMtsdfAnnular);
+    bool isStroke = (sdfModeInt == sdfModeMsdfAnnular || sdfModeInt == sdfModeMtsdfAnnular);
+    float sd = isMtsdf ? tex.w : median(tex.x, tex.y, tex.z);
     float screenPxDistance = msdfScreenPxRange(pxRange) * (sd - sdThreshold);
-    alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+
+    if (isStroke) {
+      float strokeW = max(sdfParams.y, 0.0);
+      float halfW = strokeW * 0.5;
+      alpha = clamp(halfW - abs(screenPxDistance) + 0.5, 0.0, 1.0);
+    } else {
+      alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+    }
     fragColor = vec4(color.xyz, color.w * alpha);
   } else {
     float stdDevFactor = 1.0 / 2.2;
