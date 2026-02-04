@@ -53,7 +53,7 @@ then renders glyph atlas sprites via the OpenGL renderer.
   let bodyColor = rgba(20, 20, 20, 255).color
   result.layout = typeset(
     rect(0, 0, textRect.w, textRect.h),
-    [fsp(uiFont, bodyColor, text)],
+    [span(uiFont, bodyColor, text)],
     hAlign = Left,
     vAlign = Top,
     minContent = false,

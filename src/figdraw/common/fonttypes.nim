@@ -87,6 +87,10 @@ proc fsp*(font: FigFont, color: Color, text: string): (FontStyle, string) =
   ## helper for making font span objects
   (FontStyle(font: font, color: color), text)
 
+proc span*(font: FigFont, color: Color, text: string): (FontStyle, string) =
+  ## helper for making font span objects
+  (FontStyle(font: font, color: color), text)
+
 proc getId*(font: FigFont): FontId =
   FontId font.hash()
 
