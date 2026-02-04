@@ -25,12 +25,12 @@ when not defined(nimscript):
   proc getTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId =
     loadTypeface(name, data, kind)
 
-  proc getLineHeight*(font: UiFont): UiScalar =
+  proc getLineHeight*(font: FigFont): UiScalar =
     getLineHeightImpl(font)
 
   proc getTypeset*(
       box: Box,
-      spans: openArray[(UiFont, string)],
+      spans: openArray[(FigFont, string)],
       hAlign = Left,
       vAlign = Top,
       minContent = false,

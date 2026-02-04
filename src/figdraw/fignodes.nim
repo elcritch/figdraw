@@ -33,7 +33,6 @@ type
     of nkText:
       textLayout*: GlyphArrangement
       selectionRange*: Slice[int16]
-      selectionColor*: Color
     of nkDrawable:
       points*: seq[Vec2]
     of nkImage:

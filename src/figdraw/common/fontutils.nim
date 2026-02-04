@@ -74,7 +74,7 @@ proc calcMinMaxContent(
 
 proc typeset*(
     box: Rect,
-    uiSpans: openArray[(UiFont, string)],
+    uiSpans: openArray[(FontStyle, string)],
     hAlign = FontHorizontal.Left,
     vAlign = FontVertical.Top,
     minContent: bool,
@@ -88,22 +88,20 @@ proc typeset*(
 
   var
     wh = box.wh
-    sz = uiSpans.mapIt(it[0].size.float)
+    sz = uiSpans.mapIt(it[0].font.size.float)
     minSz = sz.foldl(max(a, b), 0.0)
 
   var spans: seq[Span]
   var pfs: seq[Font]
   var gfonts: seq[GlyphFont]
-  for (uiFont, txt) in uiSpans:
-    let (fontId, pf) = uiFont.convertFont()
+  for (style, txt) in uiSpans:
+    let (fontId, pf) = style.convertFont()
     pfs.add(pf)
     spans.add(newSpan(txt, pf))
     assert not pf.typeface.isNil
     let lhAdj = pf.lineHeight
     #let lhAdj = (pf.lineHeight - pf.size * pf.lineHeight / pf.defaultLineHeight()) / 2
-    gfonts.add GlyphFont(
-      fontId: fontId, lineHeight: pf.lineHeight, descentAdj: lhAdj
-    )
+    gfonts.add GlyphFont(fontId: fontId, lineHeight: pf.lineHeight, descentAdj: lhAdj)
 
   var ha: HorizontalAlignment
   case hAlign
@@ -177,8 +175,21 @@ proc typeset*(
   result.bounding = result.bounding + rect(0, 0, 0, maxLineHeight / 2)
   result.generateGlyphImages()
 
+proc typeset*(
+    box: Rect,
+    uiSpans: openArray[(FigFont, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+): GlyphArrangement =
+  var styled = newSeqOfCap[(FontStyle, string)](uiSpans.len)
+  for (font, text) in uiSpans:
+    styled.add((fs(font), text))
+  result = typeset(box, styled, hAlign, vAlign, minContent, wrap)
+
 proc placeGlyphs*(
-    font: UiFont,
+    style: FontStyle,
     glyphs: openArray[(Rune, Vec2)],
     origin: GlyphOrigin = GlyphTopLeft,
 ): GlyphArrangement =
@@ -191,7 +202,7 @@ proc placeGlyphs*(
   if glyphs.len == 0:
     return
 
-  let fontInfo = glyphFontFor(font)
+  let fontInfo = glyphFontFor(style.font)
   let cachedFont = (font: fontInfo.font, glyph: fontInfo.glyph)
 
   var
@@ -201,7 +212,6 @@ proc placeGlyphs*(
     contentHash = Hash(0)
 
   for (rune, pos) in glyphs:
-
     let scaledPos = pos
     let descent = cachedFont.glyph.lineHeight - cachedFont.glyph.descentAdj
     var baselinePos = pos
@@ -212,18 +222,17 @@ proc placeGlyphs*(
     positions.add(baselinePos)
 
     let drawPos = vec2(baselinePos.x, baselinePos.y - descent)
-    let advance = cachedFont.font.typeface.getAdvance(rune) *
-        cachedFont.font.scale
-    selectionRects.add(
-      rect(drawPos.x, drawPos.y, advance, cachedFont.glyph.lineHeight)
-    )
+    let advance = cachedFont.font.typeface.getAdvance(rune) * cachedFont.font.scale
+    selectionRects.add(rect(drawPos.x, drawPos.y, advance, cachedFont.glyph.lineHeight))
 
     contentHash =
-      contentHash !& hash((fontInfo.id, rune, pos.x, pos.y, origin, figUiScale()))
+      contentHash !&
+      hash((fontInfo.id, rune, pos.x, pos.y, origin, style.color, figUiScale()))
 
   result.lines = @[0 .. glyphs.len - 1]
   result.spans = @[0 .. glyphs.len - 1]
   result.fonts = @[cachedFont.glyph]
+  result.spanColors = @[style.color]
   result.runes = runes
   result.positions = positions
   result.selectionRects = selectionRects
@@ -247,3 +256,7 @@ proc placeGlyphs*(
 
   result.generateGlyphImages()
 
+proc placeGlyphs*(
+    font: FigFont, glyphs: openArray[(Rune, Vec2)], origin: GlyphOrigin = GlyphTopLeft
+): GlyphArrangement =
+  result = placeGlyphs(fs(font), glyphs, origin)

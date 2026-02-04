@@ -15,7 +15,7 @@ import ./shared
 
 var
   typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
-  fontTable*: Table[FontId, UiFont]
+  fontTable*: Table[FontId, FigFont]
   fontLock*: Lock
 
 fontLock.initLock()
@@ -81,7 +81,7 @@ proc loadTypeface*(name, data: string, kind: TypeFaceKinds): FontId =
   typefaceTable[id] = typeface
   result = id
 
-proc pixieFont(font: UiFont): (FontId, Font) =
+proc pixieFont(font: FigFont): (FontId, Font) =
   let
     id = FontId(hash((font.getId(), figUiScale())))
     typeface = typefaceTable[font.typefaceId]
@@ -90,16 +90,16 @@ proc pixieFont(font: UiFont): (FontId, Font) =
   pxfont.size = font.size
   pxfont.typeface = typeface
   pxfont.textCase = parseEnum[TextCase]($font.fontCase)
-  pxfont.lineHeight      = font.lineHeight
-  pxfont.underline            = font.underline
-  pxfont.strikethrough        = font.strikethrough
+  pxfont.lineHeight = font.lineHeight
+  pxfont.underline = font.underline
+  pxfont.strikethrough = font.strikethrough
   pxfont.noKerningAdjustments = font.noKerningAdjustments
 
   if font.lineHeight == 0.0'f32:
     pxfont.lineHeight = pxfont.defaultLineHeight()
   result = (id, pxfont)
 
-proc convertFont*(font: UiFont): (FontId, Font) =
+proc convertFont*(font: FigFont): (FontId, Font) =
   ## does the typesetting using pixie, then converts to Figuro's internal
   ## types
 
@@ -107,17 +107,14 @@ proc convertFont*(font: UiFont): (FontId, Font) =
   if not fontTable.hasKey(result[0]):
     fontTable[result[0]] = font
 
-proc glyphFontFor*(
-    uiFont: UiFont
-): tuple[id: FontId, font: Font, glyph: GlyphFont] =
+proc convertFont*(style: FontStyle): (FontId, Font) =
+  style.font.convertFont()
+
+proc glyphFontFor*(uiFont: FigFont): tuple[id: FontId, font: Font, glyph: GlyphFont] =
   ## Get the GlyphFont
   let (fontId, pf) = uiFont.convertFont()
   let defaultLineHeight = pf.defaultLineHeight()
-  let lineHeight =
-    if pf.lineHeight >= 0:
-      pf.lineHeight
-    else:
-      defaultLineHeight
+  let lineHeight = if pf.lineHeight >= 0: pf.lineHeight else: defaultLineHeight
   let lhAdj = 0.0'f32
   result = (
     id: fontId,
@@ -125,7 +122,7 @@ proc glyphFontFor*(
     glyph: GlyphFont(fontId: fontId, lineHeight: lineHeight, descentAdj: lhAdj),
   )
 
-proc getLineHeightImpl*(font: UiFont): float32 =
+proc getLineHeightImpl*(font: FigFont): float32 =
   let (_, pf) = font.convertFont()
   result = pf.lineHeight
 
@@ -140,11 +137,10 @@ proc getScaledFont*(size: float32): float32 =
   result = size.scaled()
 
 proc getPixieFont*(fontId: FontId): Font =
-  var uifont: UiFont
+  var uifont: FigFont
   withLock(fontLock):
     uifont = fontTable[fontId]
   result = uifont.pixieFont()[1]
   result.size = result.size.getScaledFont()
   #result.size = result.size
   result.lineHeight = result.lineHeight.scaled()
-

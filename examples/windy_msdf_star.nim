@@ -28,16 +28,17 @@ proc centeredRect(center, size: Vec2): Rect =
 proc addLabel(
     list: var RenderList,
     parentIdx: FigIdx,
-    font: UiFont,
+    font: FigFont,
     windowW: float32,
     r: Rect,
     text: string,
 ) =
+  let labelColor = rgba(255, 255, 255, 245).color
   let labelH = 28.0'f32
   let labelMargin = 8.0'f32
   let layout = typeset(
     rect(0, 0, max(1.0'f32, windowW), labelH),
-    [(font, text)],
+    [(fs(font, labelColor), text)],
     hAlign = Left,
     vAlign = Middle,
     minContent = true,
@@ -73,10 +74,10 @@ proc addLabel(
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: labelRect,
-      fill: rgba(255, 255, 255, 245).color,
+      fill: clearColor,
       textLayout: typeset(
         rect(0, 0, labelRect.w, labelRect.h),
-        [(font, text)],
+        [(fs(font, labelColor), text)],
         hAlign = Center,
         vAlign = Middle,
         minContent = false,
@@ -86,7 +87,7 @@ proc addLabel(
   )
 
 proc makeRenderTree*(
-    w, h: float32, pxRange: float32, t: float32, labelFont: UiFont
+    w, h: float32, pxRange: float32, t: float32, labelFont: FigFont
 ): Renders =
   var list = RenderList()
 
@@ -297,8 +298,8 @@ when isMainModule:
   let size = ivec2(1024, 640)
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
-  let labelFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
-  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
+  let labelFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+  let fpsFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
   var fpsText = "0.0 FPS"
 
   var frames = 0
@@ -371,7 +372,7 @@ when isMainModule:
 
     let fpsLayout = typeset(
       rect(0, 0, hudTextRect.w, hudTextRect.h),
-      [(fpsFont, fpsText)],
+      [(fs(fpsFont, rgba(255, 255, 255, 245).color), fpsText)],
       hAlign = Right,
       vAlign = Middle,
       minContent = false,
@@ -384,7 +385,7 @@ when isMainModule:
         childCount: 0,
         zlevel: 0.ZLevel,
         screenBox: hudTextRect,
-        fill: rgba(255, 255, 255, 245).color,
+        fill: clearColor,
         textLayout: fpsLayout,
       )
     )

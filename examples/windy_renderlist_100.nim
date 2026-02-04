@@ -29,7 +29,7 @@ when isMainModule:
   var app_running = true
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
-  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
+  let fpsFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
   var fpsText = "0.0 FPS"
 
   let title = "figdraw: OpenGL + Windy RenderList"
@@ -47,10 +47,8 @@ when isMainModule:
   if size != size.scaled():
     window.size = size.scaled()
 
-  let renderer = newFigRenderer(
-    atlasSize = when not defined(useFigDrawTextures): 512 else: 2048,
-    
-  )
+  let renderer =
+    newFigRenderer(atlasSize = when not defined(useFigDrawTextures): 512 else: 2048)
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
@@ -75,8 +73,7 @@ when isMainModule:
     let sz = window.logicalSize()
 
     let t0 = getMonoTime()
-    var renders =
-      makeRenderTree(float32(sz.x), float32(sz.y), globalFrame)
+    var renders = makeRenderTree(float32(sz.x), float32(sz.y), globalFrame)
     makeRenderTreeMsSum += float((getMonoTime() - t0).inMilliseconds)
     lastElementCount = renders.layers[0.ZLevel].nodes.len
 
@@ -107,7 +104,7 @@ when isMainModule:
 
     let fpsLayout = typeset(
       rect(0, 0, hudTextRect.w, hudTextRect.h),
-      [(fpsFont, fpsText)],
+      [(fs(fpsFont, rgba(255, 255, 255, 245).color), fpsText)],
       hAlign = Right,
       vAlign = Middle,
       minContent = false,
@@ -120,7 +117,7 @@ when isMainModule:
         childCount: 0,
         zlevel: 0.ZLevel,
         screenBox: hudTextRect,
-        fill: rgba(255, 255, 255, 245).color,
+        fill: clearColor,
         textLayout: fpsLayout,
       )
     )
