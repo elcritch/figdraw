@@ -33,11 +33,12 @@ proc addLabel(
     r: Rect,
     text: string,
 ) =
+  let labelColor = rgba(255, 255, 255, 245).color
   let labelH = 28.0'f32
   let labelMargin = 8.0'f32
   let layout = typeset(
     rect(0, 0, max(1.0'f32, windowW), labelH),
-    [(font, text)],
+    [(fs(font, labelColor), text)],
     hAlign = Left,
     vAlign = Middle,
     minContent = true,
@@ -73,10 +74,10 @@ proc addLabel(
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: labelRect,
-      fill: rgba(255, 255, 255, 245).color,
+      fill: clearColor,
       textLayout: typeset(
         rect(0, 0, labelRect.w, labelRect.h),
-        [(font, text)],
+        [(fs(font, labelColor), text)],
         hAlign = Center,
         vAlign = Middle,
         minContent = false,
@@ -371,7 +372,7 @@ when isMainModule:
 
     let fpsLayout = typeset(
       rect(0, 0, hudTextRect.w, hudTextRect.h),
-      [(fpsFont, fpsText)],
+      [(fs(fpsFont, rgba(255, 255, 255, 245).color), fpsText)],
       hAlign = Right,
       vAlign = Middle,
       minContent = false,
@@ -384,7 +385,7 @@ when isMainModule:
         childCount: 0,
         zlevel: 0.ZLevel,
         screenBox: hudTextRect,
-        fill: rgba(255, 255, 255, 245).color,
+        fill: clearColor,
         textLayout: fpsLayout,
       )
     )

@@ -55,7 +55,7 @@ suite "fontutils":
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
     let uiFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
     let box = rect(0, 0, 240, 60)
-    let spans = [(uiFont, "Hello world")]
+    let spans = [(fs(uiFont), "Hello world")]
 
     let arrangement =
       typeset(box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false)
@@ -68,6 +68,7 @@ suite "fontutils":
     check arrangement.contentHash == expectedHash
     check arrangement.spans.len == spans.len
     check arrangement.fonts.len == spans.len
+    check arrangement.spanColors.len == spans.len
     check arrangement.runes.len == arrangement.positions.len
     check arrangement.runes.len == arrangement.selectionRects.len
     check arrangement.maxSize.x >= arrangement.minSize.x

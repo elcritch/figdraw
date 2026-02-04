@@ -90,7 +90,7 @@ proc renderDrawable*(ctx: Context, node: Fig) =
 
 proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
-  if NfSelectText in node.flags and node.selectionColor.a > 0:
+  if NfSelectText in node.flags and node.fill.a > 0:
     let rects = node.textLayout.selectionRects
     if rects.len > 0 and node.selectionRange.a <= node.selectionRange.b:
       let startIdx = max(node.selectionRange.a, 0)
@@ -98,7 +98,7 @@ proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
       for idx in startIdx .. endIdx:
         let rect = rects[idx].scaled()
         if rect.w > 0 and rect.h > 0:
-          ctx.drawRect(rect, node.selectionColor)
+          ctx.drawRect(rect, node.fill)
 
   for glyph in node.textLayout.glyphs():
     if unicode.isWhiteSpace(glyph.rune):
@@ -113,7 +113,7 @@ proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
       notice "no glyph in context: ",
         glyphId = glyphId, glyph = glyph.rune, glyphRepr = repr(glyph.rune)
       #continue
-    ctx.drawImage(glyphId, charPos, node.fill)
+    ctx.drawImage(glyphId, charPos, glyph.color)
 
 import macros except `$`
 

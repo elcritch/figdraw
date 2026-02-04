@@ -20,6 +20,7 @@ type GlyphPosition* = ref object ## Represents a glyph position after typesettin
   rect*: Rect
   descent*: float32
   lineHeight*: float32
+  color*: Color
 
 proc hash*(glyph: GlyphPosition): Hash {.inline.} =
   #result = hash((2344, glyph.fontId, glyph.rune, app.uiScale))
@@ -45,8 +46,7 @@ proc generateGlyph*(glyph: GlyphPosition) =
         vAlign = TopAlign,
         wrap = false,
       )
-    let
-      snappedBounds = arrangement.computeBounds().snapToPixels()
+    let snappedBounds = arrangement.computeBounds().snapToPixels()
 
     let
       lh = font.defaultLineHeight()
@@ -70,7 +70,13 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
   var idx = 0
 
   block:
-    for i, (span, gfont) in zip(arrangement.spans, arrangement.fonts):
+    for i, span in arrangement.spans:
+      let gfont = arrangement.fonts[i]
+      let spanColor =
+        if i < arrangement.spanColors.len:
+          arrangement.spanColors[i]
+        else:
+          blackColor
       while idx < arrangement.runes.len():
         let
           pos = arrangement.positions[idx]
@@ -87,6 +93,7 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
           rect: selection,
           descent: descent,
           lineHeight: gfont.lineHeight,
+          color: spanColor,
         )
 
         idx.inc()
@@ -106,7 +113,7 @@ proc generateGlyphImages*(arrangement: GlyphArrangement) =
 proc convertArrangement*(
     arrangement: Arrangement,
     box: Rect,
-    uiSpans: openArray[(UiFont, string)],
+    uiSpans: openArray[(FontStyle, string)],
     hAlign: FontHorizontal,
     vAlign: FontVertical,
     gfonts: seq[GlyphFont],
@@ -123,17 +130,16 @@ proc convertArrangement*(
     selectionRects.add rect
 
   result = GlyphArrangement(
-    contentHash:
-      block:
-        var h = Hash(0)
-        h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign)
-        h = h !& hash(figUiScale())
-        !$h,
+    contentHash: block:
+      var h = Hash(0)
+      h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign)
+      h = h !& hash(figUiScale())
+      !$h,
     lines: lines,
     spans: spanSlices,
     fonts: gfonts,
+    spanColors: uiSpans.mapIt(it[0].color),
     runes: arrangement.runes,
     positions: arrangement.positions,
     selectionRects: selectionRects,
   )
-

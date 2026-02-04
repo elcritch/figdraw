@@ -50,9 +50,10 @@ then renders glyph atlas sprites via the OpenGL renderer.
 """
   let highlightRange = findPhraseRange(text, "renders glyph atlas sprites")
 
+  let bodyColor = rgba(20, 20, 20, 255).color
   result.layout = typeset(
     rect(0, 0, textRect.w, textRect.h),
-    [(uiFont, text)],
+    [(fs(uiFont, bodyColor), text)],
     hAlign = Left,
     vAlign = Top,
     minContent = false,
@@ -61,42 +62,52 @@ then renders glyph atlas sprites via the OpenGL renderer.
   result.highlightRange = highlightRange
 
 proc buildMonoWordLayouts*(
-    monoFont: UiFont, monoText: string, pad: float32
+    monoFont: UiFont, monoText: string, pad: float32, colors: openArray[Color]
 ): seq[GlyphArrangement] =
   let (_, monoPx) = monoFont.convertFont()
   let monoLineHeight =
     (if monoPx.lineHeight >= 0: monoPx.lineHeight
     else: monoPx.defaultLineHeight())
   let monoAdvance = (monoPx.typeface.getAdvance(Rune('M')) * monoPx.scale)
+  let colorsSeq = @colors
 
   var x = pad
   var y = pad
+  var wordIdx = 0
   var glyphs: seq[(Rune, Vec2)]
   var layouts: seq[GlyphArrangement]
   proc flushWord(
       glyphs: var seq[(Rune, Vec2)],
       layouts: var seq[GlyphArrangement],
       monoFont: UiFont,
+      colors: seq[Color],
+      wordIdx: var int,
   ) =
     if glyphs.len == 0:
       return
-    layouts.add(placeGlyphs(monoFont, glyphs, origin = GlyphTopLeft))
+    let wordColor =
+      if colors.len > 0:
+        colors[wordIdx mod colors.len]
+      else:
+        blackColor
+    layouts.add(placeGlyphs(fs(monoFont, wordColor), glyphs, origin = GlyphTopLeft))
+    wordIdx.inc
     glyphs.setLen(0)
 
   for rune in monoText.runes:
     if rune == Rune(10):
-      flushWord(glyphs, layouts, monoFont)
+      flushWord(glyphs, layouts, monoFont, colorsSeq, wordIdx)
       x = pad
       y += monoLineHeight
       continue
     if rune == Rune(32):
-      flushWord(glyphs, layouts, monoFont)
+      flushWord(glyphs, layouts, monoFont, colorsSeq, wordIdx)
       x += monoAdvance
       continue
     glyphs.add((rune, vec2(x, y)))
     x += monoAdvance
 
-  flushWord(glyphs, layouts, monoFont)
+  flushWord(glyphs, layouts, monoFont, colorsSeq, wordIdx)
   result = layouts
 
 proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
@@ -174,15 +185,17 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: textRect,
-      fill: rgba(20, 20, 20, 255).color,
       selectionRange: highlightRange,
-      selectionColor: rgba(255, 232, 140, 255).color,
-      flags: if highlightRange.a <= highlightRange.b: {NfSelectText} else: {},
+      fill: rgba(255, 232, 140, 255).color,
+      flags:
+        if highlightRange.a <= highlightRange.b:
+          {NfSelectText}
+        else:
+          {},
       textLayout: layout,
     ),
   )
 
-  let monoLayouts = buildMonoWordLayouts(monoFont, monoText, monoPad)
   discard list.addChild(
     cardIdx,
     Fig(
@@ -202,7 +215,8 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
     rgba(196, 255, 198, 255).color,
     rgba(255, 187, 229, 255).color,
   ]
-  for idx, monoLayout in monoLayouts:
+  let monoLayouts = buildMonoWordLayouts(monoFont, monoText, monoPad, monoColors)
+  for monoLayout in monoLayouts:
     discard list.addChild(
       cardIdx,
       Fig(
@@ -210,7 +224,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
         childCount: 0,
         zlevel: 0.ZLevel,
         screenBox: monoRect,
-        fill: monoColors[idx mod monoColors.len],
+        fill: clearColor,
         textLayout: monoLayout,
       ),
     )

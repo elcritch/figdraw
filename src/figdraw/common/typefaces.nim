@@ -90,9 +90,9 @@ proc pixieFont(font: UiFont): (FontId, Font) =
   pxfont.size = font.size
   pxfont.typeface = typeface
   pxfont.textCase = parseEnum[TextCase]($font.fontCase)
-  pxfont.lineHeight      = font.lineHeight
-  pxfont.underline            = font.underline
-  pxfont.strikethrough        = font.strikethrough
+  pxfont.lineHeight = font.lineHeight
+  pxfont.underline = font.underline
+  pxfont.strikethrough = font.strikethrough
   pxfont.noKerningAdjustments = font.noKerningAdjustments
 
   if font.lineHeight == 0.0'f32:
@@ -107,17 +107,14 @@ proc convertFont*(font: UiFont): (FontId, Font) =
   if not fontTable.hasKey(result[0]):
     fontTable[result[0]] = font
 
-proc glyphFontFor*(
-    uiFont: UiFont
-): tuple[id: FontId, font: Font, glyph: GlyphFont] =
+proc convertFont*(style: FontStyle): (FontId, Font) =
+  style.font.convertFont()
+
+proc glyphFontFor*(uiFont: UiFont): tuple[id: FontId, font: Font, glyph: GlyphFont] =
   ## Get the GlyphFont
   let (fontId, pf) = uiFont.convertFont()
   let defaultLineHeight = pf.defaultLineHeight()
-  let lineHeight =
-    if pf.lineHeight >= 0:
-      pf.lineHeight
-    else:
-      defaultLineHeight
+  let lineHeight = if pf.lineHeight >= 0: pf.lineHeight else: defaultLineHeight
   let lhAdj = 0.0'f32
   result = (
     id: fontId,
@@ -147,4 +144,3 @@ proc getPixieFont*(fontId: FontId): Font =
   result.size = result.size.getScaledFont()
   #result.size = result.size
   result.lineHeight = result.lineHeight.scaled()
-

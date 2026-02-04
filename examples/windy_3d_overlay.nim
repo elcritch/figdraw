@@ -432,15 +432,10 @@ proc makeOverlay*(
         shadows: [rowShadow, RenderShadow(), RenderShadow(), RenderShadow()],
       ),
     )
-    let textRect = rect(
-      btnRect.x + textPadX,
-      btnRect.y,
-      btnRect.w,
-      btnRect.h,
-    )
+    let textRect = rect(btnRect.x + textPadX, btnRect.y, btnRect.w, btnRect.h)
     let rowLayout = typeset(
       rect(0, 0, textRect.w, textRect.h),
-      [(monoFont, row)],
+      [(fs(monoFont, rgba(240, 242, 248, 240).color), row)],
       hAlign = Left,
       vAlign = Middle,
       minContent = false,
@@ -453,7 +448,7 @@ proc makeOverlay*(
         childCount: 0,
         zlevel: 0.ZLevel,
         screenBox: textRect,
-        fill: rgba(240, 242, 248, 240).color,
+        fill: clearColor,
         textLayout: rowLayout,
       ),
     )
@@ -484,7 +479,7 @@ when isMainModule:
   if size != size.scaled():
     window.size = size.scaled()
 
-  let renderer = glrenderer.newFigRenderer(atlasSize = 512, )
+  let renderer = glrenderer.newFigRenderer(atlasSize = 512)
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
     renderer.ctx.presentLayer = metalHandle.layer

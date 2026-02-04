@@ -36,12 +36,8 @@ proc newSdlWindow(size: IVec2, title: string): SdlWindow =
 
   let flags = SDL_WINDOW_OPENGL or SDL_WINDOW_RESIZABLE or SDL_WINDOW_ALLOW_HIGHDPI
   let window = createWindow(
-    title.cstring,
-    SDL_WINDOWPOS_CENTERED,
-    SDL_WINDOWPOS_CENTERED,
-    size.x.cint,
-    size.y.cint,
-    flags,
+    title.cstring, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, size.x.cint,
+    size.y.cint, flags,
   )
   if window.isNil:
     quit "SDL2 window creation failed: " & $sdl2.getError()
@@ -117,8 +113,7 @@ when isMainModule:
   let window = newSdlWindow(size, title)
 
   let renderer = glrenderer.newFigRenderer(
-    atlasSize = (when not defined(useFigDrawTextures): 192 else: 2048),
-    
+    atlasSize = (when not defined(useFigDrawTextures): 192 else: 2048)
   )
 
   var makeRenderTreeMsSum = 0.0
@@ -129,8 +124,7 @@ when isMainModule:
     let sz = window.logicalSize()
 
     let t0 = getMonoTime()
-    var renders =
-      makeRenderTree(sz.x, sz.y, globalFrame)
+    var renders = makeRenderTree(sz.x, sz.y, globalFrame)
     makeRenderTreeMsSum += float((getMonoTime() - t0).inMilliseconds)
     lastElementCount = renders.layers[0.ZLevel].nodes.len
 
@@ -161,7 +155,7 @@ when isMainModule:
 
     let fpsLayout = typeset(
       rect(0, 0, hudTextRect.w, hudTextRect.h),
-      [(fpsFont, fpsText)],
+      [(fs(fpsFont, rgba(255, 255, 255, 245).color), fpsText)],
       hAlign = Right,
       vAlign = Middle,
       minContent = false,
@@ -174,7 +168,7 @@ when isMainModule:
         childCount: 0,
         zlevel: 0.ZLevel,
         screenBox: hudTextRect,
-        fill: rgba(255, 255, 255, 245).color,
+        fill: clearColor,
         textLayout: fpsLayout,
       )
     )
