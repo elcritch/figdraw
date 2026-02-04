@@ -80,7 +80,12 @@ proc hash*(style: FontStyle): Hash =
   result = !$h
 
 proc fs*(font: UiFont, color: Color = color(0, 0, 0, 1)): FontStyle =
+  ## helper for making font style objects
   FontStyle(font: font, color: color)
+
+proc fsp*(font: UiFont, color: Color, text: string): (FontStyle, string) =
+  ## helper for making font span objects
+  (FontStyle(font: font, color: color), text)
 
 proc getId*(font: UiFont): FontId =
   FontId font.hash()
