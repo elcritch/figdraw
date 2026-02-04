@@ -162,7 +162,12 @@ proc makeRenders(w, h: float32): Renders =
 
 ## MSDF Bitmap based SDF Rendering
 
-<img width="842" height="582" alt="starstruck32" src="https://github.com/user-attachments/assets/f70437ad-c22e-4160-8c48-c480156d709d" />
+This has many benefits over regular textures for rendering vector shapes. It acts as a sort of "compression" technique allow us to scale the size of the shape while maintaining sharp edges with small texture sizes. Generally 64x64 can scale up to a fullscreen object with reasonable quality.
+
+The other benefit is being able to draw shadows / strokes / etc similar to regular SDFs! See the blue stroked start below using the same SDF glyph as the others:
+
+<img width="1136" height="780" alt="Screenshot 2026-02-03 at 5 56 30 PM" src="https://github.com/user-attachments/assets/728e7b59-d8db-4408-bc50-637742237022" />
+
 
 See [examples/windy_msdf_star.nim](examples/windy_msdf_star.nim) for more info.
 
