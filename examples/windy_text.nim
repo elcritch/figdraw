@@ -39,7 +39,7 @@ proc findPhraseRange(text, phrase: string): Slice[int16] =
   result = startRune.int16 .. endRune.int16
 
 proc buildBodyTextLayout*(
-    uiFont: UiFont, textRect: Rect
+    uiFont: FigFont, textRect: Rect
 ): tuple[layout: GlyphArrangement, highlightRange: Slice[int16]] =
   let text =
     """
@@ -62,7 +62,7 @@ then renders glyph atlas sprites via the OpenGL renderer.
   result.highlightRange = highlightRange
 
 proc buildMonoWordLayouts*(
-    monoFont: UiFont, monoText: string, pad: float32, colors: openArray[Color]
+    monoFont: FigFont, monoText: string, pad: float32, colors: openArray[Color]
 ): seq[GlyphArrangement] =
   let (_, monoPx) = monoFont.convertFont()
   let monoLineHeight =
@@ -79,7 +79,7 @@ proc buildMonoWordLayouts*(
   proc flushWord(
       glyphs: var seq[(Rune, Vec2)],
       layouts: var seq[GlyphArrangement],
-      monoFont: UiFont,
+      monoFont: FigFont,
       colors: seq[Color],
       wordIdx: var int,
   ) =
@@ -110,7 +110,7 @@ proc buildMonoWordLayouts*(
   flushWord(glyphs, layouts, monoFont, colorsSeq, wordIdx)
   result = layouts
 
-proc makeRenderTree*(w, h: float32, uiFont, monoFont: UiFont): Renders =
+proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
   var list = RenderList()
 
   let rootIdx = list.addRoot(
@@ -245,9 +245,9 @@ when isMainModule:
     setFigUiScale 1.0
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
-  let uiFont = UiFont(typefaceId: typefaceId, size: 28.0'f32)
+  let uiFont = FigFont(typefaceId: typefaceId, size: 28.0'f32)
   let monoTypefaceId = loadTypeface("HackNerdFont-Regular.ttf")
-  let monoFont = UiFont(typefaceId: monoTypefaceId, size: 20.0'f32)
+  let monoFont = FigFont(typefaceId: monoTypefaceId, size: 20.0'f32)
 
   let size = ivec2(900, 600)
 

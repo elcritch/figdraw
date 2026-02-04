@@ -10,7 +10,7 @@ import figdraw/common/fontglyphs
 
 proc resetFontState() =
   typefaceTable = initTable[TypefaceId, Typeface]()
-  fontTable = initTable[FontId, UiFont]()
+  fontTable = initTable[FontId, FigFont]()
   #withLock imageCachedLock:
   #  imageCached.clear()
 
@@ -31,7 +31,7 @@ suite "fontutils":
   test "convertFont caches pixie font":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
-    let uiFont = UiFont(typefaceId: typefaceId, size: 20.0'f32)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 20.0'f32)
 
     let (fontId1, pf1) = uiFont.convertFont()
     let (fontId2, pf2) = uiFont.convertFont()
@@ -42,7 +42,7 @@ suite "fontutils":
   test "lineHeight affects computed lineHeight":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
-    let uiFont = UiFont(typefaceId: typefaceId, size: 32.0'f32)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
 
     let (_, pf) = uiFont.convertFont()
     let expected = pf.defaultLineHeight()
@@ -53,7 +53,7 @@ suite "fontutils":
   test "getTypesetImpl returns consistent hashes and generated glyph images":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
-    let uiFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
     let box = rect(0, 0, 240, 60)
     let spans = [(fs(uiFont), "Hello world")]
 
@@ -87,7 +87,7 @@ suite "fontutils":
   test "placeGlyphs respects positions and caches glyphs":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
-    let uiFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
     setFigUiScale 1.0
 
     let a = "A".runeAt(0)

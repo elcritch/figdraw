@@ -28,7 +28,7 @@ proc centeredRect(center, size: Vec2): Rect =
 proc addLabel(
     list: var RenderList,
     parentIdx: FigIdx,
-    font: UiFont,
+    font: FigFont,
     windowW: float32,
     r: Rect,
     text: string,
@@ -87,7 +87,7 @@ proc addLabel(
   )
 
 proc makeRenderTree*(
-    w, h: float32, pxRange: float32, t: float32, labelFont: UiFont
+    w, h: float32, pxRange: float32, t: float32, labelFont: FigFont
 ): Renders =
   var list = RenderList()
 
@@ -298,8 +298,8 @@ when isMainModule:
   let size = ivec2(1024, 640)
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
-  let labelFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
-  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
+  let labelFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+  let fpsFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
   var fpsText = "0.0 FPS"
 
   var frames = 0

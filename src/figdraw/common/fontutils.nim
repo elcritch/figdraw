@@ -177,7 +177,7 @@ proc typeset*(
 
 proc typeset*(
     box: Rect,
-    uiSpans: openArray[(UiFont, string)],
+    uiSpans: openArray[(FigFont, string)],
     hAlign = FontHorizontal.Left,
     vAlign = FontVertical.Top,
     minContent: bool,
@@ -257,6 +257,6 @@ proc placeGlyphs*(
   result.generateGlyphImages()
 
 proc placeGlyphs*(
-    font: UiFont, glyphs: openArray[(Rune, Vec2)], origin: GlyphOrigin = GlyphTopLeft
+    font: FigFont, glyphs: openArray[(Rune, Vec2)], origin: GlyphOrigin = GlyphTopLeft
 ): GlyphArrangement =
   result = placeGlyphs(fs(font), glyphs, origin)

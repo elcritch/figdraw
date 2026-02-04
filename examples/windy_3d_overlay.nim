@@ -365,7 +365,7 @@ proc drawPyramid(pyramid: PyramidGl, frameSize: Vec2, mvp: Mat4) =
 proc makeOverlay*(
     w, h: float32,
     rows: openArray[string],
-    monoFont: UiFont,
+    monoFont: FigFont,
     bg: Color = rgba(0, 0, 0, 0).color,
 ): Renders =
   var list = RenderList()

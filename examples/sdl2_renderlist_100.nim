@@ -107,7 +107,7 @@ when isMainModule:
   let size = ivec2(800, 600)
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
-  let fpsFont = UiFont(typefaceId: typefaceId, size: 18.0'f32)
+  let fpsFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
   var fpsText = "0.0 FPS"
 
   let window = newSdlWindow(size, title)

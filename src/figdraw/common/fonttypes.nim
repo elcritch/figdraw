@@ -39,7 +39,7 @@ type
     descentAdj*: float32
       ## The line height in pixels or autoLineHeight for the font's default line height.
 
-  UiFont* = object
+  FigFont* = object
     typefaceId*: TypefaceId
     size*: float32 = 12.0'f32 ## Font size in pixels.
     lineHeight*: float32 ## The line height in pixels
@@ -50,7 +50,7 @@ type
     noKerningAdjustments*: bool ## Optionally disable kerning pair adjustments
 
   FontStyle* = object
-    font*: UiFont
+    font*: FigFont
     color*: Color
 
   GlyphArrangement* = object
@@ -66,7 +66,7 @@ type
     minSize*: Vec2
     bounding*: Rect
 
-proc hash*(fnt: UiFont): Hash =
+proc hash*(fnt: FigFont): Hash =
   var h = Hash(0)
   for n, f in fnt.fieldPairs():
     when n != "paints":
@@ -79,19 +79,19 @@ proc hash*(style: FontStyle): Hash =
   h = h !& hash(style.color)
   result = !$h
 
-proc fs*(font: UiFont, color: Color = color(0, 0, 0, 1)): FontStyle =
+proc fs*(font: FigFont, color: Color = color(0, 0, 0, 1)): FontStyle =
   ## helper for making font style objects
   FontStyle(font: font, color: color)
 
-proc fsp*(font: UiFont, color: Color, text: string): (FontStyle, string) =
+proc fsp*(font: FigFont, color: Color, text: string): (FontStyle, string) =
   ## helper for making font span objects
   (FontStyle(font: font, color: color), text)
 
-proc getId*(font: UiFont): FontId =
+proc getId*(font: FigFont): FontId =
   FontId font.hash()
 
-proc fontWithSize*(fontId: TypeFaceId, size: float32): UiFont =
-  UiFont(typefaceId: fontId, size: size)
+proc fontWithSize*(fontId: TypeFaceId, size: float32): FigFont =
+  FigFont(typefaceId: fontId, size: size)
 
 proc getContentHash*(
     size: Vec2,
@@ -108,7 +108,7 @@ proc getContentHash*(
 
 proc getContentHash*(
     size: Vec2,
-    uiSpans: openArray[(UiFont, string)],
+    uiSpans: openArray[(FigFont, string)],
     hAlign = FontHorizontal.Left,
     vAlign = FontVertical.Top,
 ): Hash =
