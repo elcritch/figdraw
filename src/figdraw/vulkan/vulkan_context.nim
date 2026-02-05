@@ -38,6 +38,23 @@ type SdfMode* {.pure.} = enum
   sdfModeMsdfAnnular = 15
   sdfModeMtsdfAnnular = 16
 
+type PresentTargetKind = enum
+  presentTargetNone
+  presentTargetXlib
+  presentTargetWin32
+  presentTargetMetal
+
+type QueueFamilyIndices = object
+  graphicsFamily: uint32
+  graphicsFound: bool
+  presentFamily: uint32
+  presentFound: bool
+
+type SwapChainSupportDetails = object
+  capabilities: VkSurfaceCapabilitiesKHR
+  formats: seq[VkSurfaceFormatKHR]
+  presentModes: seq[VkPresentModeKHR]
+
 type Context* = ref object
   atlasSize: int
   atlasMargin: int
@@ -63,6 +80,8 @@ type Context* = ref object
   device: VkDevice
   queue: VkQueue
   queueFamily: uint32
+  presentQueue: VkQueue
+  presentQueueFamily: uint32
   commandPool: VkCommandPool
 
   descriptorSetLayout: VkDescriptorSetLayout
@@ -78,6 +97,29 @@ type Context* = ref object
   outMemory: VkDeviceMemory
   bufferBytes: VkDeviceSize
 
+  presentTargetKind: PresentTargetKind
+  presentXlibDisplay: pointer
+  presentXlibWindow: uint64
+  presentWin32Hinstance: pointer
+  presentWin32Hwnd: pointer
+  presentMetalLayer: pointer
+
+  surface: VkSurfaceKHR
+  swapchain: VkSwapchainKHR
+  swapchainImages: seq[VkImage]
+  swapchainFormat: VkFormat
+  swapchainExtent: VkExtent2D
+  swapchainOutOfDate: bool
+  presentReady: bool
+
+  imageAvailableSemaphore: VkSemaphore
+  renderFinishedSemaphore: VkSemaphore
+  inFlightFence: VkFence
+
+  uploadBuffer: VkBuffer
+  uploadMemory: VkDeviceMemory
+  uploadBytes: VkDeviceSize
+
   gpuReady: bool
 
 const
@@ -86,6 +128,10 @@ const
   vkNullDevice = VkDevice(0)
   vkNullQueue = VkQueue(0)
   vkNullCommandPool = VkCommandPool(0)
+  vkNullSurface = VkSurfaceKHR(0)
+  vkNullSwapchain = VkSwapchainKHR(0)
+  vkNullSemaphore = VkSemaphore(0)
+  vkNullFence = VkFence(0)
   vkNullBuffer = VkBuffer(0)
   vkNullMemory = VkDeviceMemory(0)
   vkNullDescriptorSetLayout = VkDescriptorSetLayout(0)
@@ -102,6 +148,225 @@ proc hasImage*(ctx: Context, key: Hash): bool =
   key in ctx.entries
 
 proc destroyGpu(ctx: Context)
+proc createSwapchain(ctx: Context, width, height: int32)
+proc ensureSwapchain(ctx: Context, width, height: int32)
+proc presentFrame(ctx: Context)
+
+proc hasPresentTarget(ctx: Context): bool =
+  ctx.presentTargetKind != presentTargetNone
+
+proc instanceExtensions(ctx: Context): seq[cstring] =
+  if not ctx.hasPresentTarget():
+    return @[]
+
+  result = @[VkKhrSurfaceExtensionName.cstring]
+  case ctx.presentTargetKind
+  of presentTargetXlib:
+    result.add(VkKhrXlibSurfaceExtensionName.cstring)
+  of presentTargetWin32:
+    result.add(VkKhrWin32SurfaceExtensionName.cstring)
+  of presentTargetMetal:
+    result.add(VkExtMetalSurfaceExtensionName.cstring)
+  of presentTargetNone:
+    discard
+
+proc findGraphicsQueueFamily(device: VkPhysicalDevice): int =
+  let families = getQueueFamilyProperties(device)
+
+  for i, family in families:
+    if family.queueCount > 0 and VkQueueFlagBits.GraphicsBit in family.queueFlags and
+        VkQueueFlagBits.ComputeBit in family.queueFlags:
+      return i
+
+  for i, family in families:
+    if family.queueCount > 0 and VkQueueFlagBits.GraphicsBit in family.queueFlags:
+      return i
+
+  for i, family in families:
+    if family.queueCount > 0 and VkQueueFlagBits.ComputeBit in family.queueFlags:
+      return i
+
+  result = -1
+
+proc findPresentQueueFamily(device: VkPhysicalDevice, surface: VkSurfaceKHR): int =
+  let families = getQueueFamilyProperties(device)
+  for i, family in families:
+    if family.queueCount == 0:
+      continue
+    var supported: VkBool32
+    discard
+      vkGetPhysicalDeviceSurfaceSupportKHR(device, i.uint32, surface, supported.addr)
+    if supported.ord == VkTrue:
+      return i
+  result = -1
+
+proc checkDeviceExtensionSupport(
+    physicalDevice: VkPhysicalDevice, requiredExtensions: seq[string]
+): bool =
+  if requiredExtensions.len == 0:
+    return true
+
+  var extCount: uint32
+  discard vkEnumerateDeviceExtensionProperties(physicalDevice, nil, extCount.addr, nil)
+  if extCount == 0:
+    return false
+
+  var availableExts = newSeq[VkExtensionProperties](extCount)
+  discard vkEnumerateDeviceExtensionProperties(
+    physicalDevice, nil, extCount.addr, availableExts[0].addr
+  )
+
+  for required in requiredExtensions:
+    var found = false
+    for ext in availableExts:
+      if $cast[cstring](ext.extensionName.addr) == required:
+        found = true
+        break
+    if not found:
+      return false
+
+  result = true
+
+proc querySwapChainSupport(
+    physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR
+): SwapChainSupportDetails =
+  discard vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+    physicalDevice, surface, result.capabilities.addr
+  )
+
+  var formatCount: uint32
+  discard
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, formatCount.addr, nil)
+  if formatCount != 0:
+    result.formats.setLen(formatCount)
+    discard vkGetPhysicalDeviceSurfaceFormatsKHR(
+      physicalDevice, surface, formatCount.addr, result.formats[0].addr
+    )
+
+  var presentModeCount: uint32
+  discard vkGetPhysicalDeviceSurfacePresentModesKHR(
+    physicalDevice, surface, presentModeCount.addr, nil
+  )
+  if presentModeCount != 0:
+    result.presentModes.setLen(presentModeCount)
+    discard vkGetPhysicalDeviceSurfacePresentModesKHR(
+      physicalDevice, surface, presentModeCount.addr, result.presentModes[0].addr
+    )
+
+proc chooseSwapSurfaceFormat(
+    availableFormats: seq[VkSurfaceFormatKHR]
+): VkSurfaceFormatKHR =
+  for format in availableFormats:
+    if format.format == VK_FORMAT_R8G8B8A8_UNORM and
+        format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR:
+      return format
+
+  for format in availableFormats:
+    if format.format == VK_FORMAT_B8G8R8A8_UNORM and
+        format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR:
+      return format
+
+  result = availableFormats[0]
+
+proc chooseSwapPresentMode(
+    availablePresentModes: seq[VkPresentModeKHR]
+): VkPresentModeKHR =
+  for mode in availablePresentModes:
+    if mode == VK_PRESENT_MODE_MAILBOX_KHR:
+      return mode
+  VK_PRESENT_MODE_FIFO_KHR
+
+proc chooseSwapExtent(
+    capabilities: VkSurfaceCapabilitiesKHR, width, height: int32
+): VkExtent2D =
+  if capabilities.currentExtent.width != 0xFFFFFFFF'u32:
+    return capabilities.currentExtent
+
+  result.width = width.uint32
+  result.height = height.uint32
+  result.width = max(
+    capabilities.minImageExtent.width,
+    min(capabilities.maxImageExtent.width, result.width),
+  )
+  result.height = max(
+    capabilities.minImageExtent.height,
+    min(capabilities.maxImageExtent.height, result.height),
+  )
+
+proc findQueueFamilies(
+    physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR, requirePresent: bool
+): QueueFamilyIndices =
+  let graphics = findGraphicsQueueFamily(physicalDevice)
+  if graphics < 0:
+    return
+  result.graphicsFamily = graphics.uint32
+  result.graphicsFound = true
+
+  if requirePresent:
+    let present = findPresentQueueFamily(physicalDevice, surface)
+    if present < 0:
+      return
+    result.presentFamily = present.uint32
+    result.presentFound = true
+  else:
+    result.presentFamily = result.graphicsFamily
+    result.presentFound = true
+
+proc swizzleRgbaToBgra(dst, src: ptr uint8, byteCount: int) =
+  let srcArr = cast[ptr UncheckedArray[uint8]](src)
+  let dstArr = cast[ptr UncheckedArray[uint8]](dst)
+  var i = 0
+  while i + 3 < byteCount:
+    dstArr[i + 0] = srcArr[i + 2]
+    dstArr[i + 1] = srcArr[i + 1]
+    dstArr[i + 2] = srcArr[i + 0]
+    dstArr[i + 3] = srcArr[i + 3]
+    i += 4
+
+proc createPresentSurface(ctx: Context) =
+  if not ctx.hasPresentTarget() or ctx.instance == vkNullInstance:
+    return
+  if ctx.surface != vkNullSurface:
+    return
+
+  case ctx.presentTargetKind
+  of presentTargetXlib:
+    when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+      loadVK_KHR_xlib_surface()
+      let createInfo = newVkXlibSurfaceCreateInfoKHR(
+        dpy = cast[ptr Display](ctx.presentXlibDisplay),
+        window = cast[vulkan.Window](ctx.presentXlibWindow),
+      )
+      checkVkResult vkCreateXlibSurfaceKHR(
+        ctx.instance, createInfo.addr, nil, ctx.surface.addr
+      )
+    else:
+      raise newException(ValueError, "Xlib Vulkan surface is unsupported on this OS")
+  of presentTargetWin32:
+    when defined(windows):
+      loadVK_KHR_win32_surface()
+      let createInfo = newVkWin32SurfaceCreateInfoKHR(
+        hinstance = cast[HINSTANCE](ctx.presentWin32Hinstance),
+        hwnd = cast[HWND](ctx.presentWin32Hwnd),
+      )
+      checkVkResult vkCreateWin32SurfaceKHR(
+        ctx.instance, createInfo.addr, nil, ctx.surface.addr
+      )
+    else:
+      raise newException(ValueError, "Win32 Vulkan surface is unsupported on this OS")
+  of presentTargetMetal:
+    when defined(macosx):
+      loadVK_EXT_metal_surface()
+      let createInfo = newVkMetalSurfaceCreateInfoEXT(
+        pLayer = cast[ptr CAMetalLayer](ctx.presentMetalLayer)
+      )
+      checkVkResult vkCreateMetalSurfaceEXT(
+        ctx.instance, createInfo.addr, nil, ctx.surface.addr
+      )
+    else:
+      raise newException(ValueError, "Metal Vulkan surface is unsupported on this OS")
+  of presentTargetNone:
+    discard
 
 proc colorRgba8(color: Color): px.ColorRGBA =
   color.rgba()
@@ -118,19 +383,6 @@ proc resetDrawCtx(ctx: Context, clearMain: bool, clearColor: Color) =
     ctx.canvas.fill(px.rgba(0, 0, 0, 0))
 
   ctx.drawCtx = px.newContext(ctx.canvas)
-
-proc findQueueFamily(device: VkPhysicalDevice): int =
-  let families = getQueueFamilyProperties(device)
-
-  for i, family in families:
-    if family.queueCount > 0 and VkQueueFlagBits.ComputeBit in family.queueFlags:
-      return i
-
-  for i, family in families:
-    if family.queueCount > 0 and VkQueueFlagBits.GraphicsBit in family.queueFlags:
-      return i
-
-  result = -1
 
 proc findMemoryType(
     physicalDevice: VkPhysicalDevice,
@@ -150,7 +402,7 @@ proc createStorageBuffer(
 ): tuple[buffer: VkBuffer, memory: VkDeviceMemory] =
   let bufferInfo = newVkBufferCreateInfo(
     size = bytes,
-    usage = VkBufferUsageFlags{StorageBufferBit},
+    usage = VkBufferUsageFlags{StorageBufferBit, TransferSrcBit, TransferDstBit},
     sharingMode = VkSharingMode.Exclusive,
     queueFamilyIndices = [],
   )
@@ -230,6 +482,129 @@ proc ensureGpuBuffers(ctx: Context, bytes: VkDeviceSize) =
   ctx.outMemory = outputAlloc.memory
   ctx.updateBufferDescriptors()
 
+proc ensureUploadBuffer(ctx: Context, bytes: VkDeviceSize) =
+  if ctx.uploadBytes == bytes and ctx.uploadBuffer != vkNullBuffer:
+    return
+
+  if ctx.uploadBuffer != vkNullBuffer:
+    destroyBuffer(ctx.device, ctx.uploadBuffer)
+    ctx.uploadBuffer = vkNullBuffer
+  if ctx.uploadMemory != vkNullMemory:
+    freeMemory(ctx.device, ctx.uploadMemory)
+    ctx.uploadMemory = vkNullMemory
+
+  ctx.uploadBytes = bytes
+  if bytes == 0.VkDeviceSize:
+    return
+
+  let bufferInfo = newVkBufferCreateInfo(
+    size = bytes,
+    usage = VkBufferUsageFlags{TransferSrcBit},
+    sharingMode = VkSharingMode.Exclusive,
+    queueFamilyIndices = [],
+  )
+  ctx.uploadBuffer = createBuffer(ctx.device, bufferInfo)
+  let req = getBufferMemoryRequirements(ctx.device, ctx.uploadBuffer)
+  let alloc = newVkMemoryAllocateInfo(
+    allocationSize = req.size,
+    memoryTypeIndex = findMemoryType(
+      ctx.physicalDevice,
+      req.memoryTypeBits,
+      VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
+    ),
+  )
+  ctx.uploadMemory = allocateMemory(ctx.device, alloc)
+  bindBufferMemory(ctx.device, ctx.uploadBuffer, ctx.uploadMemory, 0.VkDeviceSize)
+
+proc destroySwapchain(ctx: Context) =
+  if ctx.swapchain != vkNullSwapchain:
+    vkDestroySwapchainKHR(ctx.device, ctx.swapchain, nil)
+    ctx.swapchain = vkNullSwapchain
+  ctx.swapchainImages.setLen(0)
+  ctx.swapchainFormat = VK_FORMAT_UNDEFINED
+  ctx.swapchainExtent = VkExtent2D(width: 0'u32, height: 0'u32)
+
+proc createSwapchain(ctx: Context, width, height: int32) =
+  if ctx.surface == vkNullSurface:
+    return
+
+  let support = querySwapChainSupport(ctx.physicalDevice, ctx.surface)
+  if support.formats.len == 0 or support.presentModes.len == 0:
+    raise newException(
+      ValueError, "Vulkan surface has no swapchain formats or present modes"
+    )
+
+  let
+    surfaceFormat = chooseSwapSurfaceFormat(support.formats)
+    presentMode = chooseSwapPresentMode(support.presentModes)
+    extent = chooseSwapExtent(support.capabilities, width, height)
+
+  var imageCount = support.capabilities.minImageCount + 1
+  if support.capabilities.maxImageCount > 0 and
+      imageCount > support.capabilities.maxImageCount:
+    imageCount = support.capabilities.maxImageCount
+
+  let queueFamilyIndices =
+    if ctx.queueFamily != ctx.presentQueueFamily:
+      @[ctx.queueFamily, ctx.presentQueueFamily]
+    else:
+      @[]
+
+  var createInfo = newVkSwapchainCreateInfoKHR(
+    surface = ctx.surface,
+    minImageCount = imageCount,
+    imageFormat = surfaceFormat.format,
+    imageColorSpace = surfaceFormat.colorSpace,
+    imageExtent = extent,
+    imageArrayLayers = 1,
+    imageUsage = VkImageUsageFlags{TransferDstBit},
+    imageSharingMode =
+      if queueFamilyIndices.len > 0:
+        VK_SHARING_MODE_CONCURRENT
+      else:
+        VK_SHARING_MODE_EXCLUSIVE,
+    queueFamilyIndices = queueFamilyIndices,
+    preTransform = support.capabilities.currentTransform,
+    compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+    presentMode = presentMode,
+    clipped = VkBool32(VkTrue),
+    oldSwapchain = ctx.swapchain,
+  )
+
+  var swapchain: VkSwapchainKHR
+  checkVkResult vkCreateSwapchainKHR(ctx.device, createInfo.addr, nil, swapchain.addr)
+
+  if ctx.swapchain != vkNullSwapchain:
+    vkDestroySwapchainKHR(ctx.device, ctx.swapchain, nil)
+  ctx.swapchain = swapchain
+
+  var actualCount = imageCount
+  discard vkGetSwapchainImagesKHR(ctx.device, ctx.swapchain, actualCount.addr, nil)
+  ctx.swapchainImages.setLen(actualCount)
+  if actualCount > 0:
+    discard vkGetSwapchainImagesKHR(
+      ctx.device, ctx.swapchain, actualCount.addr, ctx.swapchainImages[0].addr
+    )
+
+  ctx.swapchainFormat = surfaceFormat.format
+  ctx.swapchainExtent = extent
+  ctx.swapchainOutOfDate = false
+
+proc ensureSwapchain(ctx: Context, width, height: int32) =
+  if not ctx.presentReady or width <= 0 or height <= 0:
+    return
+
+  let needsRecreate =
+    ctx.swapchain == vkNullSwapchain or ctx.swapchainOutOfDate or
+    ctx.swapchainExtent.width != width.uint32 or
+    ctx.swapchainExtent.height != height.uint32
+  if not needsRecreate:
+    return
+
+  if ctx.device != vkNullDevice:
+    discard vkDeviceWaitIdle(ctx.device)
+  ctx.createSwapchain(width, height)
+
 proc ensureGpuRuntime(ctx: Context) =
   if ctx.gpuReady:
     return
@@ -246,37 +621,90 @@ proc ensureGpuRuntime(ctx: Context) =
   let instanceInfo = newVkInstanceCreateInfo(
     pApplicationInfo = appInfo.addr,
     pEnabledLayerNames = [],
-    pEnabledExtensionNames = [],
+    pEnabledExtensionNames = ctx.instanceExtensions(),
   )
   ctx.instance = createInstance(instanceInfo)
 
   vkInit(ctx.instance, load1_2 = false, load1_3 = false)
 
+  if ctx.hasPresentTarget():
+    loadVK_KHR_surface()
+    ctx.createPresentSurface()
+
   let devices = enumeratePhysicalDevices(ctx.instance)
   if devices.len == 0:
     raise newException(ValueError, "No Vulkan physical devices found")
 
+  var wantPresent = ctx.hasPresentTarget()
+  var selectedQueues: QueueFamilyIndices
   for device in devices:
-    let idx = findQueueFamily(device)
-    if idx >= 0:
+    let queues = findQueueFamilies(device, ctx.surface, requirePresent = wantPresent)
+    if not queues.graphicsFound or not queues.presentFound:
+      continue
+
+    if wantPresent:
+      if not checkDeviceExtensionSupport(device, @[VkKhrSwapchainExtensionName]):
+        continue
+      let support = querySwapChainSupport(device, ctx.surface)
+      if support.formats.len == 0 or support.presentModes.len == 0:
+        continue
+
+    ctx.physicalDevice = device
+    selectedQueues = queues
+    break
+
+  if ctx.physicalDevice == vkNullPhysicalDevice and wantPresent:
+    warn "No Vulkan present-capable physical device found; falling back to offscreen mode"
+    wantPresent = false
+    for device in devices:
+      let queues = findQueueFamilies(device, ctx.surface, requirePresent = false)
+      if not queues.graphicsFound:
+        continue
       ctx.physicalDevice = device
-      ctx.queueFamily = idx.uint32
+      selectedQueues = queues
       break
 
   if ctx.physicalDevice == vkNullPhysicalDevice:
-    raise newException(ValueError, "No Vulkan queue family for compute/graphics")
+    raise newException(ValueError, "No suitable Vulkan physical device found")
 
-  let queueInfo = newVkDeviceQueueCreateInfo(
-    queueFamilyIndex = ctx.queueFamily, queuePriorities = [1.0'f32]
-  )
+  ctx.queueFamily = selectedQueues.graphicsFamily
+  ctx.presentQueueFamily =
+    if wantPresent: selectedQueues.presentFamily else: selectedQueues.graphicsFamily
+
+  var queueCreateInfos =
+    @[
+      newVkDeviceQueueCreateInfo(
+        queueFamilyIndex = ctx.queueFamily, queuePriorities = [1.0'f32]
+      )
+    ]
+  if ctx.presentQueueFamily != ctx.queueFamily:
+    queueCreateInfos.add(
+      newVkDeviceQueueCreateInfo(
+        queueFamilyIndex = ctx.presentQueueFamily, queuePriorities = [1.0'f32]
+      )
+    )
+
+  let deviceExtensions =
+    if wantPresent:
+      @[VkKhrSwapchainExtensionName.cstring]
+    else:
+      @[]
   let deviceInfo = newVkDeviceCreateInfo(
-    queueCreateInfos = [queueInfo],
+    queueCreateInfos = queueCreateInfos,
     pEnabledLayerNames = [],
-    pEnabledExtensionNames = [],
+    pEnabledExtensionNames = deviceExtensions,
     enabledFeatures = [],
   )
   ctx.device = createDevice(ctx.physicalDevice, deviceInfo)
   ctx.queue = getDeviceQueue(ctx.device, ctx.queueFamily, 0)
+  ctx.presentQueue =
+    if wantPresent:
+      getDeviceQueue(ctx.device, ctx.presentQueueFamily, 0)
+    else:
+      ctx.queue
+
+  if wantPresent:
+    loadVK_KHR_swapchain()
 
   let poolInfo = newVkCommandPoolCreateInfo(
     queueFamilyIndex = ctx.queueFamily,
@@ -345,8 +773,201 @@ proc ensureGpuRuntime(ctx: Context) =
   )
   ctx.pipeline = createComputePipelines(ctx.device, 0.VkPipelineCache, [computeInfo])
 
+  if wantPresent:
+    let semaphoreInfo = newVkSemaphoreCreateInfo()
+    checkVkResult vkCreateSemaphore(
+      ctx.device, semaphoreInfo.addr, nil, ctx.imageAvailableSemaphore.addr
+    )
+    checkVkResult vkCreateSemaphore(
+      ctx.device, semaphoreInfo.addr, nil, ctx.renderFinishedSemaphore.addr
+    )
+    let fenceInfo = newVkFenceCreateInfo(flags = VkFenceCreateFlags{SignaledBit})
+    checkVkResult vkCreateFence(ctx.device, fenceInfo.addr, nil, ctx.inFlightFence.addr)
+
+    let initialW = max(1, ctx.frameSize.x.int32)
+    let initialH = max(1, ctx.frameSize.y.int32)
+    ctx.createSwapchain(initialW, initialH)
+    ctx.presentReady = true
+  else:
+    if ctx.surface != vkNullSurface:
+      vkDestroySurfaceKHR(ctx.instance, ctx.surface, nil)
+      ctx.surface = vkNullSurface
+
   ctx.gpuReady = true
-  info "Initialized Vulkan compute pipeline", queueFamily = ctx.queueFamily
+  info "Initialized Vulkan compute pipeline",
+    queueFamily = ctx.queueFamily, present = ctx.presentReady
+
+proc recordPresentCopy(
+    commandBuffer: VkCommandBuffer,
+    image: VkImage,
+    extent: VkExtent2D,
+    srcBuffer: VkBuffer,
+) =
+  let beginInfo = newVkCommandBufferBeginInfo(pInheritanceInfo = nil)
+  checkVkResult vkBeginCommandBuffer(commandBuffer, beginInfo.addr)
+
+  var barrierToTransfer = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    srcAccessMask: 0.VkAccessFlags,
+    dstAccessMask: VkAccessFlags{TransferWriteBit},
+    oldLayout: VK_IMAGE_LAYOUT_UNDEFINED,
+    newLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: image,
+    subresourceRange: VkImageSubresourceRange(
+      aspectMask: VkImageAspectFlags{ColorBit},
+      baseMipLevel: 0,
+      levelCount: 1,
+      baseArrayLayer: 0,
+      layerCount: 1,
+    ),
+  )
+
+  vkCmdPipelineBarrier(
+    commandBuffer,
+    VkPipelineStageFlags{TopOfPipeBit},
+    VkPipelineStageFlags{TransferBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    barrierToTransfer.addr,
+  )
+
+  var region = VkBufferImageCopy(
+    bufferOffset: 0.VkDeviceSize,
+    bufferRowLength: 0,
+    bufferImageHeight: 0,
+    imageSubresource: VkImageSubresourceLayers(
+      aspectMask: VkImageAspectFlags{ColorBit},
+      mipLevel: 0,
+      baseArrayLayer: 0,
+      layerCount: 1,
+    ),
+    imageOffset: VkOffset3D(x: 0, y: 0, z: 0),
+    imageExtent: VkExtent3D(width: extent.width, height: extent.height, depth: 1),
+  )
+
+  vkCmdCopyBufferToImage(
+    commandBuffer, srcBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+    region.addr,
+  )
+
+  var barrierToPresent = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    srcAccessMask: VkAccessFlags{TransferWriteBit},
+    dstAccessMask: VkAccessFlags{MemoryReadBit},
+    oldLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    newLayout: VkImageLayout.PresentSrcKhr,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: image,
+    subresourceRange: VkImageSubresourceRange(
+      aspectMask: VkImageAspectFlags{ColorBit},
+      baseMipLevel: 0,
+      levelCount: 1,
+      baseArrayLayer: 0,
+      layerCount: 1,
+    ),
+  )
+
+  vkCmdPipelineBarrier(
+    commandBuffer,
+    VkPipelineStageFlags{TransferBit},
+    VkPipelineStageFlags{BottomOfPipeBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    barrierToPresent.addr,
+  )
+
+  checkVkResult vkEndCommandBuffer(commandBuffer)
+
+proc presentFrame(ctx: Context) =
+  if not ctx.presentReady or ctx.canvas.isNil:
+    return
+
+  let width = ctx.canvas.width.int32
+  let height = ctx.canvas.height.int32
+  if width <= 0 or height <= 0:
+    return
+
+  ctx.ensureSwapchain(width, height)
+  if ctx.swapchain == vkNullSwapchain:
+    return
+
+  let bytes = VkDeviceSize(width * height * 4)
+  var srcBuffer = ctx.outBuffer
+  if ctx.swapchainFormat == VK_FORMAT_B8G8R8A8_UNORM:
+    ctx.ensureUploadBuffer(bytes)
+    let src = cast[ptr uint8](mapMemory(
+      ctx.device, ctx.outMemory, 0.VkDeviceSize, bytes, 0.VkMemoryMapFlags
+    ))
+    let dst = cast[ptr uint8](mapMemory(
+      ctx.device, ctx.uploadMemory, 0.VkDeviceSize, bytes, 0.VkMemoryMapFlags
+    ))
+    swizzleRgbaToBgra(dst, src, int(bytes))
+    unmapMemory(ctx.device, ctx.uploadMemory)
+    unmapMemory(ctx.device, ctx.outMemory)
+    srcBuffer = ctx.uploadBuffer
+
+  checkVkResult vkWaitForFences(
+    ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
+  )
+  checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
+
+  var imageIndex: uint32 = 0
+  let acquireResult = vkAcquireNextImageKHR(
+    ctx.device,
+    ctx.swapchain,
+    high(uint64),
+    ctx.imageAvailableSemaphore,
+    VkFence(0),
+    imageIndex.addr,
+  )
+  if acquireResult == VkErrorOutOfDateKhr:
+    ctx.swapchainOutOfDate = true
+    return
+  checkVkResult acquireResult
+
+  let cmdAlloc = newVkCommandBufferAllocateInfo(
+    commandPool = ctx.commandPool,
+    level = VkCommandBufferLevel.Primary,
+    commandBufferCount = 1,
+  )
+  var commandBuffer = allocateCommandBuffers(ctx.device, cmdAlloc)
+  checkVkResult vkResetCommandBuffer(commandBuffer, 0.VkCommandBufferResetFlags)
+  recordPresentCopy(
+    commandBuffer, ctx.swapchainImages[imageIndex.int], ctx.swapchainExtent, srcBuffer
+  )
+
+  let submitInfo = newVkSubmitInfo(
+    waitSemaphores = [ctx.imageAvailableSemaphore],
+    waitDstStageMask = [VkPipelineStageFlags{TransferBit}],
+    commandBuffers = [commandBuffer],
+    signalSemaphores = [ctx.renderFinishedSemaphore],
+  )
+  checkVkResult vkQueueSubmit(ctx.queue, 1, submitInfo.addr, ctx.inFlightFence)
+
+  let presentInfo = newVkPresentInfoKHR(
+    waitSemaphores = [ctx.renderFinishedSemaphore],
+    swapchains = [ctx.swapchain],
+    imageIndices = [imageIndex],
+    results = @[],
+  )
+  let presentResult = vkQueuePresentKHR(ctx.presentQueue, presentInfo.addr)
+  if presentResult in [VkErrorOutOfDateKhr, VkSuboptimalKhr]:
+    ctx.swapchainOutOfDate = true
+  elif presentResult != VkSuccess:
+    checkVkResult presentResult
+
+  vkFreeCommandBuffers(ctx.device, ctx.commandPool, 1, commandBuffer.addr)
 
 proc runGpuCopy(ctx: Context) =
   if not ctx.gpuReady or ctx.canvas.isNil:
@@ -437,6 +1058,25 @@ proc destroyGpu(ctx: Context) =
     freeMemory(ctx.device, ctx.outMemory)
     ctx.outMemory = vkNullMemory
 
+  if ctx.uploadBuffer != vkNullBuffer:
+    destroyBuffer(ctx.device, ctx.uploadBuffer)
+    ctx.uploadBuffer = vkNullBuffer
+  if ctx.uploadMemory != vkNullMemory:
+    freeMemory(ctx.device, ctx.uploadMemory)
+    ctx.uploadMemory = vkNullMemory
+
+  if ctx.imageAvailableSemaphore != vkNullSemaphore:
+    vkDestroySemaphore(ctx.device, ctx.imageAvailableSemaphore, nil)
+    ctx.imageAvailableSemaphore = vkNullSemaphore
+  if ctx.renderFinishedSemaphore != vkNullSemaphore:
+    vkDestroySemaphore(ctx.device, ctx.renderFinishedSemaphore, nil)
+    ctx.renderFinishedSemaphore = vkNullSemaphore
+  if ctx.inFlightFence != vkNullFence:
+    vkDestroyFence(ctx.device, ctx.inFlightFence, nil)
+    ctx.inFlightFence = vkNullFence
+
+  ctx.destroySwapchain()
+
   if ctx.pipeline != vkNullPipeline:
     destroyPipeline(ctx.device, ctx.pipeline)
     ctx.pipeline = vkNullPipeline
@@ -461,10 +1101,20 @@ proc destroyGpu(ctx: Context) =
   if ctx.device != vkNullDevice:
     destroyDevice(ctx.device)
     ctx.device = vkNullDevice
+  if ctx.surface != vkNullSurface:
+    vkDestroySurfaceKHR(ctx.instance, ctx.surface, nil)
+    ctx.surface = vkNullSurface
   if ctx.instance != vkNullInstance:
     destroyInstance(ctx.instance)
     ctx.instance = vkNullInstance
 
+  ctx.physicalDevice = vkNullPhysicalDevice
+  ctx.queue = vkNullQueue
+  ctx.presentQueue = vkNullQueue
+  ctx.bufferBytes = 0.VkDeviceSize
+  ctx.uploadBytes = 0.VkDeviceSize
+  ctx.presentReady = false
+  ctx.swapchainOutOfDate = false
   ctx.gpuReady = false
 
 proc setFillColor(ctx: Context, color: Color) =
@@ -571,6 +1221,9 @@ proc newContext*(
   result.physicalDevice = vkNullPhysicalDevice
   result.device = vkNullDevice
   result.queue = vkNullQueue
+  result.presentQueue = vkNullQueue
+  result.queueFamily = 0'u32
+  result.presentQueueFamily = 0'u32
   result.commandPool = vkNullCommandPool
   result.descriptorSetLayout = vkNullDescriptorSetLayout
   result.descriptorPool = vkNullDescriptorPool
@@ -583,8 +1236,25 @@ proc newContext*(
   result.inMemory = vkNullMemory
   result.outMemory = vkNullMemory
   result.bufferBytes = 0.VkDeviceSize
-
-  result.ensureGpuRuntime()
+  result.presentTargetKind = presentTargetNone
+  result.presentXlibDisplay = nil
+  result.presentXlibWindow = 0'u64
+  result.presentWin32Hinstance = nil
+  result.presentWin32Hwnd = nil
+  result.presentMetalLayer = nil
+  result.surface = vkNullSurface
+  result.swapchain = vkNullSwapchain
+  result.swapchainImages = @[]
+  result.swapchainFormat = VK_FORMAT_UNDEFINED
+  result.swapchainExtent = VkExtent2D(width: 0'u32, height: 0'u32)
+  result.swapchainOutOfDate = false
+  result.presentReady = false
+  result.imageAvailableSemaphore = vkNullSemaphore
+  result.renderFinishedSemaphore = vkNullSemaphore
+  result.inFlightFence = vkNullFence
+  result.uploadBuffer = vkNullBuffer
+  result.uploadMemory = vkNullMemory
+  result.uploadBytes = 0.VkDeviceSize
 
 proc putImage*(ctx: Context, path: Hash, image: px.Image)
 
@@ -859,6 +1529,12 @@ proc endFrame*(ctx: Context) =
     # Keep rendering robust if Vulkan copy fails in constrained environments.
     ctx.lastFrame = ctx.canvas.copy()
 
+  try:
+    ctx.presentFrame()
+  except CatchableError:
+    # Keep rendering robust if present fails (headless systems, minimized windows, etc).
+    discard
+
 proc translate*(ctx: Context, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
   if not ctx.drawCtx.isNil:
@@ -902,6 +1578,33 @@ proc fromScreen*(ctx: Context, windowFrame: Vec2, v: Vec2): Vec2 =
 proc toScreen*(ctx: Context, windowFrame: Vec2, v: Vec2): Vec2 =
   result = (ctx.mat * vec3(v.x, v.y, 1)).xy
   result.y = -result.y + windowFrame.y
+
+proc clearPresentTarget*(ctx: Context) =
+  if ctx.gpuReady:
+    ctx.destroyGpu()
+  ctx.presentTargetKind = presentTargetNone
+  ctx.presentXlibDisplay = nil
+  ctx.presentXlibWindow = 0'u64
+  ctx.presentWin32Hinstance = nil
+  ctx.presentWin32Hwnd = nil
+  ctx.presentMetalLayer = nil
+
+proc setPresentXlibTarget*(ctx: Context, display: pointer, window: uint64) =
+  ctx.clearPresentTarget()
+  ctx.presentTargetKind = presentTargetXlib
+  ctx.presentXlibDisplay = display
+  ctx.presentXlibWindow = window
+
+proc setPresentWin32Target*(ctx: Context, hinstance: pointer, hwnd: pointer) =
+  ctx.clearPresentTarget()
+  ctx.presentTargetKind = presentTargetWin32
+  ctx.presentWin32Hinstance = hinstance
+  ctx.presentWin32Hwnd = hwnd
+
+proc setPresentMetalLayer*(ctx: Context, layer: pointer) =
+  ctx.clearPresentTarget()
+  ctx.presentTargetKind = presentTargetMetal
+  ctx.presentMetalLayer = layer
 
 proc readPixels*(
     ctx: Context, frame: Rect = rect(0, 0, 0, 0), readFront = true

@@ -4,6 +4,9 @@ import ./commons
 
 const UseWindyOpenGL = not (UseMetalBackend or UseVulkanBackend)
 
+when UseVulkanBackend:
+  import ./vulkan/vulkan_context
+
 when defined(emscripten):
   import windy/platforms/emscripten/platform
 elif defined(windows):
@@ -89,3 +92,33 @@ when UseMetalBackend:
     handle.layer.setFrame(handle.hostView.bounds())
     let sz = window.size()
     handle.layer.setDrawableSize(NSSize(width: sz.x.float, height: sz.y.float))
+
+when UseVulkanBackend and (defined(linux) or defined(bsd)):
+  import std/importutils
+  import x11/xlib
+
+  privateAccess(Window)
+
+  var vulkanDisplay: PDisplay
+
+  proc sharedVulkanDisplay(): PDisplay =
+    if vulkanDisplay.isNil:
+      vulkanDisplay = XOpenDisplay(nil)
+    result = vulkanDisplay
+
+  proc attachVulkanSurface*(window: Window, ctx: vulkan_context.Context) =
+    let display = sharedVulkanDisplay()
+    if display.isNil:
+      raise newException(ValueError, "Failed to open X11 display for Vulkan surface")
+    ctx.setPresentXlibTarget(cast[pointer](display), cast[uint64](window.handle))
+
+when UseVulkanBackend and defined(windows):
+  import std/importutils
+  import windy/platforms/win32/windefs
+
+  privateAccess(Window)
+
+  proc attachVulkanSurface*(window: Window, ctx: vulkan_context.Context) =
+    let hinstance = cast[pointer](GetModuleHandleW(nil))
+    let hwnd = cast[pointer](window.hWnd)
+    ctx.setPresentWin32Target(hinstance, hwnd)

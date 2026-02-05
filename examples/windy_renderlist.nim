@@ -77,7 +77,13 @@ proc makeRenderTree*(w, h: float32): Renders =
 when isMainModule:
   var app_running = true
 
-  let title = "figdraw: OpenGL + Windy RenderList"
+  let title =
+    when UseMetalBackend:
+      "figdraw: Metal + Windy RenderList"
+    elif UseVulkanBackend:
+      "figdraw: Vulkan + Windy RenderList"
+    else:
+      "figdraw: OpenGL + Windy RenderList"
   let size = ivec2(800, 600)
   var frames = 0
   var fpsFrames = 0
@@ -91,11 +97,13 @@ when isMainModule:
   if size != size.scaled():
     window.size = size.scaled()
 
-  let renderer = glrenderer.newFigRenderer(atlasSize = 192, )
+  let renderer = glrenderer.newFigRenderer(atlasSize = 192)
 
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
     renderer.ctx.presentLayer = metalHandle.layer
+  when UseVulkanBackend:
+    attachVulkanSurface(window, renderer.ctx)
 
   var renders = makeRenderTree(0.0'f32, 0.0'f32)
   var lastSize = vec2(0.0'f32, 0.0'f32)
@@ -112,7 +120,7 @@ when isMainModule:
       lastSize = sz
       renders = makeRenderTree(sz.x, sz.y)
     renderer.renderFrame(renders, sz)
-    when not UseMetalBackend:
+    when not UseMetalBackend and not UseVulkanBackend:
       window.swapBuffers()
 
   window.onCloseRequest = proc() =
