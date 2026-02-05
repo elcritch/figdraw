@@ -143,6 +143,7 @@ type Context* = ref object
   imageAvailableSemaphore: VkSemaphore
   renderFinishedSemaphore: VkSemaphore
   inFlightFence: VkFence
+  presentCommandBuffer: VkCommandBuffer
 
   uploadBuffer: VkBuffer
   uploadMemory: VkDeviceMemory
@@ -970,8 +971,8 @@ proc presentFrame(ctx: Context) =
   let height = ctx.canvas.height.int32
   if width <= 0 or height <= 0:
     return
-  if ctx.presentFrameCount <= 3 or (ctx.presentFrameCount mod 240'u64) == 0'u64:
-    debug "presentFrame begin",
+  if ctx.presentFrameCount <= 5 or (ctx.presentFrameCount mod 240'u64) == 0'u64:
+    info "presentFrame begin",
       frame = ctx.presentFrameCount,
       width = width,
       height = height,
@@ -1011,12 +1012,18 @@ proc presentFrame(ctx: Context) =
   let acquireResult = vkAcquireNextImageKHR(
     ctx.device,
     ctx.swapchain,
-    high(uint64),
+    250_000_000'u64,
     ctx.imageAvailableSemaphore,
     VkFence(0),
     imageIndex.addr,
   )
-  if acquireResult == VkErrorOutOfDateKhr:
+  if acquireResult == VkTimeout:
+    warn "vkAcquireNextImageKHR timed out", frame = ctx.presentFrameCount
+    return
+  elif acquireResult == VkNotReady:
+    warn "vkAcquireNextImageKHR returned not-ready", frame = ctx.presentFrameCount
+    return
+  elif acquireResult == VkErrorOutOfDateKhr:
     ctx.swapchainOutOfDate = true
     warn "vkAcquireNextImageKHR returned out-of-date", frame = ctx.presentFrameCount
     return
@@ -1056,8 +1063,8 @@ proc presentFrame(ctx: Context) =
       frame = ctx.presentFrameCount, result = $presentResult
   elif presentResult != VkSuccess:
     checkVkResult presentResult
-  elif ctx.presentFrameCount <= 3 or (ctx.presentFrameCount mod 240'u64) == 0'u64:
-    debug "presentFrame submitted",
+  elif ctx.presentFrameCount <= 5 or (ctx.presentFrameCount mod 240'u64) == 0'u64:
+    info "presentFrame submitted",
       frame = ctx.presentFrameCount,
       imageIndex = imageIndex,
       width = int(ctx.swapchainExtent.width),
