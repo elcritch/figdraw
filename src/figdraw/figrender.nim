@@ -75,8 +75,9 @@ proc newFigRenderer*(atlasSize: int, pixelScale = 1.0'f32): FigRenderer =
     result.ctx =
       newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
   elif UseVulkanBackend:
-    result.ctx =
-      newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
+    result.ctx = vulkan_context.newContext(
+      atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
+    )
   else:
     result.ctx =
       newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
