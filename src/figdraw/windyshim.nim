@@ -2,6 +2,8 @@ import unicode, vmath, windy/common
 
 import ./commons
 
+const UseWindyOpenGL = not (UseMetalBackend or UseVulkanBackend)
+
 when defined(emscripten):
   import windy/platforms/emscripten/platform
 elif defined(windows):
@@ -19,7 +21,7 @@ elif defined(linux) or defined(bsd):
 else:
   {.error: "windyshim: unsupported OS".}
 
-when not UseMetalBackend:
+when UseWindyOpenGL:
   import figdraw/utils/glutils
 
 export common, platform, unicode, vmath
@@ -36,7 +38,7 @@ proc newWindyWindow*(size: IVec2, fullscreen = false, title = "FigDraw"): Window
   )
   let window = newWindow(title, size, visible = false)
 
-  when not UseMetalBackend:
+  when UseWindyOpenGL:
     startOpenGL(openglVersion)
 
   when not defined(emscripten):
@@ -45,7 +47,7 @@ proc newWindyWindow*(size: IVec2, fullscreen = false, title = "FigDraw"): Window
     else:
       window.size = size
     window.visible = true
-  when not UseMetalBackend:
+  when UseWindyOpenGL:
     window.makeContextCurrent()
 
   return window

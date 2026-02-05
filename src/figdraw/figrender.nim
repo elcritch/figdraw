@@ -15,6 +15,8 @@ import ./opengl/glcommons
 when UseMetalBackend:
   import ./metal/metal_context
   import metalx/metal
+elif UseVulkanBackend:
+  import ./vulkan/vulkan_context
 else:
   import pkg/opengl
   import ./utils/glutils
@@ -35,10 +37,11 @@ when UseMetalBackend:
 proc takeScreenshot*(
     renderer: FigRenderer, frame: Rect = rect(0, 0, 0, 0), readFront: bool = true
 ): Image =
-  discard readFront
   let ctx: Context = renderer.ctx
   when UseMetalBackend:
     result = ctx.readPixels(frame)
+  elif UseVulkanBackend:
+    result = ctx.readPixels(frame, readFront = readFront)
   else:
     var viewport: array[4, GLint]
     glGetIntegerv(GL_VIEWPORT, viewport[0].addr)
@@ -69,6 +72,9 @@ proc takeScreenshot*(
 proc newFigRenderer*(atlasSize: int, pixelScale = 1.0'f32): FigRenderer =
   result = FigRenderer()
   when UseMetalBackend:
+    result.ctx =
+      newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
+  elif UseVulkanBackend:
     result.ctx =
       newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
   else:
@@ -479,7 +485,7 @@ proc renderFrame*(
 ) =
   let ctx: Context = renderer.ctx
   let frameSize = frameSize.scaled()
-  when UseMetalBackend:
+  when UseMetalBackend or UseVulkanBackend:
     ctx.beginFrame(frameSize, clearMain = clearMain, clearMainColor = clearColor)
   else:
     if clearMain:
@@ -492,7 +498,7 @@ proc renderFrame*(
   ctx.restoreTransform()
   ctx.endFrame()
 
-  when defined(testOneFrame) and not UseMetalBackend:
+  when defined(testOneFrame) and not UseMetalBackend and not UseVulkanBackend:
     ## This is used for test only
     ## Take a screen shot of the first frame and exit.
     var img = takeScreenshot(renderer)
