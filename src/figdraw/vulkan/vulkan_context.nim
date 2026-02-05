@@ -157,6 +157,7 @@ const
   vkNullDevice = VkDevice(0)
   vkNullQueue = VkQueue(0)
   vkNullCommandPool = VkCommandPool(0)
+  vkNullCommandBuffer = VkCommandBuffer(0)
   vkNullSurface = VkSurfaceKHR(0)
   vkNullSwapchain = VkSwapchainKHR(0)
   vkNullSemaphore = VkSemaphore(0)
@@ -857,6 +858,13 @@ proc ensureGpuRuntime(ctx: Context) =
     let fenceInfo = newVkFenceCreateInfo(flags = VkFenceCreateFlags{SignaledBit})
     checkVkResult vkCreateFence(ctx.device, fenceInfo.addr, nil, ctx.inFlightFence.addr)
 
+    let cmdAlloc = newVkCommandBufferAllocateInfo(
+      commandPool = ctx.commandPool,
+      level = VkCommandBufferLevel.Primary,
+      commandBufferCount = 1,
+    )
+    ctx.presentCommandBuffer = allocateCommandBuffers(ctx.device, cmdAlloc)
+
     let initialW = max(1, ctx.frameSize.x.int32)
     let initialH = max(1, ctx.frameSize.y.int32)
     ctx.createSwapchain(initialW, initialH)
@@ -984,6 +992,18 @@ proc presentFrame(ctx: Context) =
     return
 
   let bytes = VkDeviceSize(width * height * 4)
+  let outBytes = cast[ptr UncheckedArray[uint8]](
+    mapMemory(ctx.device, ctx.outMemory, 0.VkDeviceSize, bytes, 0.VkMemoryMapFlags)
+  )
+  if ctx.presentFrameCount <= 5:
+    info "present source pixel RGBA",
+      frame = ctx.presentFrameCount,
+      r = int(outBytes[0]),
+      g = int(outBytes[1]),
+      b = int(outBytes[2]),
+      a = int(outBytes[3])
+  unmapMemory(ctx.device, ctx.outMemory)
+
   var srcBuffer = ctx.outBuffer
   if ctx.swapchainFormat == VK_FORMAT_B8G8R8A8_UNORM:
     ctx.ensureUploadBuffer(bytes)
@@ -994,6 +1014,14 @@ proc presentFrame(ctx: Context) =
       ctx.device, ctx.uploadMemory, 0.VkDeviceSize, bytes, 0.VkMemoryMapFlags
     ))
     swizzleRgbaToBgra(dst, src, int(bytes))
+    if ctx.presentFrameCount <= 5:
+      let uploadBytes = cast[ptr UncheckedArray[uint8]](dst)
+      info "present upload pixel BGRA",
+        frame = ctx.presentFrameCount,
+        b = int(uploadBytes[0]),
+        g = int(uploadBytes[1]),
+        r = int(uploadBytes[2]),
+        a = int(uploadBytes[3])
     unmapMemory(ctx.device, ctx.uploadMemory)
     unmapMemory(ctx.device, ctx.outMemory)
     srcBuffer = ctx.uploadBuffer
@@ -1031,12 +1059,11 @@ proc presentFrame(ctx: Context) =
     warn "vkAcquireNextImageKHR returned suboptimal", frame = ctx.presentFrameCount
   checkVkResult acquireResult
 
-  let cmdAlloc = newVkCommandBufferAllocateInfo(
-    commandPool = ctx.commandPool,
-    level = VkCommandBufferLevel.Primary,
-    commandBufferCount = 1,
-  )
-  var commandBuffer = allocateCommandBuffers(ctx.device, cmdAlloc)
+  if ctx.presentCommandBuffer == vkNullCommandBuffer:
+    warn "No Vulkan present command buffer allocated", frame = ctx.presentFrameCount
+    return
+
+  var commandBuffer = ctx.presentCommandBuffer
   checkVkResult vkResetCommandBuffer(commandBuffer, 0.VkCommandBufferResetFlags)
   recordPresentCopy(
     commandBuffer, ctx.swapchainImages[imageIndex.int], ctx.swapchainExtent, srcBuffer
@@ -1070,7 +1097,6 @@ proc presentFrame(ctx: Context) =
       width = int(ctx.swapchainExtent.width),
       height = int(ctx.swapchainExtent.height)
 
-  vkFreeCommandBuffers(ctx.device, ctx.commandPool, 1, commandBuffer.addr)
 
 proc runGpuCopy(ctx: Context) =
   if not ctx.gpuReady or ctx.canvas.isNil:
@@ -1177,6 +1203,11 @@ proc destroyGpu(ctx: Context) =
   if ctx.inFlightFence != vkNullFence:
     vkDestroyFence(ctx.device, ctx.inFlightFence, nil)
     ctx.inFlightFence = vkNullFence
+
+  if ctx.presentCommandBuffer != vkNullCommandBuffer and
+      ctx.commandPool != vkNullCommandPool:
+    vkFreeCommandBuffers(ctx.device, ctx.commandPool, 1, ctx.presentCommandBuffer.addr)
+    ctx.presentCommandBuffer = vkNullCommandBuffer
 
   ctx.destroySwapchain()
 
@@ -1356,6 +1387,7 @@ proc newContext*(
   result.imageAvailableSemaphore = vkNullSemaphore
   result.renderFinishedSemaphore = vkNullSemaphore
   result.inFlightFence = vkNullFence
+  result.presentCommandBuffer = vkNullCommandBuffer
   result.uploadBuffer = vkNullBuffer
   result.uploadMemory = vkNullMemory
   result.uploadBytes = 0.VkDeviceSize
