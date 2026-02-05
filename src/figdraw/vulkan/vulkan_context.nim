@@ -111,6 +111,7 @@ type Context* = ref object
   swapchainExtent: VkExtent2D
   swapchainOutOfDate: bool
   presentReady: bool
+  presentFrameCount: uint64
 
   imageAvailableSemaphore: VkSemaphore
   renderFinishedSemaphore: VkSemaphore
@@ -589,6 +590,11 @@ proc createSwapchain(ctx: Context, width, height: int32) =
   ctx.swapchainFormat = surfaceFormat.format
   ctx.swapchainExtent = extent
   ctx.swapchainOutOfDate = false
+  info "Created Vulkan swapchain",
+    width = int(ctx.swapchainExtent.width),
+    height = int(ctx.swapchainExtent.height),
+    imageCount = ctx.swapchainImages.len,
+    format = $ctx.swapchainFormat
 
 proc ensureSwapchain(ctx: Context, width, height: int32) =
   if not ctx.presentReady or width <= 0 or height <= 0:
@@ -601,6 +607,8 @@ proc ensureSwapchain(ctx: Context, width, height: int32) =
   if not needsRecreate:
     return
 
+  info "Recreating Vulkan swapchain",
+    width = width, height = height, outOfDate = ctx.swapchainOutOfDate
   if ctx.device != vkNullDevice:
     discard vkDeviceWaitIdle(ctx.device)
   ctx.createSwapchain(width, height)
@@ -893,13 +901,21 @@ proc presentFrame(ctx: Context) =
   if not ctx.presentReady or ctx.canvas.isNil:
     return
 
+  inc ctx.presentFrameCount
   let width = ctx.canvas.width.int32
   let height = ctx.canvas.height.int32
   if width <= 0 or height <= 0:
     return
+  if ctx.presentFrameCount <= 3 or (ctx.presentFrameCount mod 240'u64) == 0'u64:
+    debug "presentFrame begin",
+      frame = ctx.presentFrameCount,
+      width = width,
+      height = height,
+      outOfDate = ctx.swapchainOutOfDate
 
   ctx.ensureSwapchain(width, height)
   if ctx.swapchain == vkNullSwapchain:
+    warn "No Vulkan swapchain available for present", frame = ctx.presentFrameCount
     return
 
   let bytes = VkDeviceSize(width * height * 4)
@@ -917,9 +933,14 @@ proc presentFrame(ctx: Context) =
     unmapMemory(ctx.device, ctx.outMemory)
     srcBuffer = ctx.uploadBuffer
 
-  checkVkResult vkWaitForFences(
-    ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
+  let waitResult = vkWaitForFences(
+    ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), 250_000_000'u64
   )
+  if waitResult == VkTimeout:
+    warn "vkWaitForFences timed out",
+      frame = ctx.presentFrameCount, width = width, height = height
+    return
+  checkVkResult waitResult
   checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
 
   var imageIndex: uint32 = 0
@@ -933,7 +954,10 @@ proc presentFrame(ctx: Context) =
   )
   if acquireResult == VkErrorOutOfDateKhr:
     ctx.swapchainOutOfDate = true
+    warn "vkAcquireNextImageKHR returned out-of-date", frame = ctx.presentFrameCount
     return
+  elif acquireResult == VkSuboptimalKhr:
+    warn "vkAcquireNextImageKHR returned suboptimal", frame = ctx.presentFrameCount
   checkVkResult acquireResult
 
   let cmdAlloc = newVkCommandBufferAllocateInfo(
@@ -964,8 +988,16 @@ proc presentFrame(ctx: Context) =
   let presentResult = vkQueuePresentKHR(ctx.presentQueue, presentInfo.addr)
   if presentResult in [VkErrorOutOfDateKhr, VkSuboptimalKhr]:
     ctx.swapchainOutOfDate = true
+    warn "vkQueuePresentKHR needs swapchain recreate",
+      frame = ctx.presentFrameCount, result = $presentResult
   elif presentResult != VkSuccess:
     checkVkResult presentResult
+  elif ctx.presentFrameCount <= 3 or (ctx.presentFrameCount mod 240'u64) == 0'u64:
+    debug "presentFrame submitted",
+      frame = ctx.presentFrameCount,
+      imageIndex = imageIndex,
+      width = int(ctx.swapchainExtent.width),
+      height = int(ctx.swapchainExtent.height)
 
   vkFreeCommandBuffers(ctx.device, ctx.commandPool, 1, commandBuffer.addr)
 
@@ -1249,6 +1281,7 @@ proc newContext*(
   result.swapchainExtent = VkExtent2D(width: 0'u32, height: 0'u32)
   result.swapchainOutOfDate = false
   result.presentReady = false
+  result.presentFrameCount = 0'u64
   result.imageAvailableSemaphore = vkNullSemaphore
   result.renderFinishedSemaphore = vkNullSemaphore
   result.inFlightFence = vkNullFence
@@ -1525,15 +1558,16 @@ proc endFrame*(ctx: Context) =
 
   try:
     ctx.runGpuCopy()
-  except CatchableError:
+  except CatchableError as e:
     # Keep rendering robust if Vulkan copy fails in constrained environments.
+    warn "Vulkan compute copy failed; using CPU fallback", error = e.msg
     ctx.lastFrame = ctx.canvas.copy()
 
   try:
     ctx.presentFrame()
-  except CatchableError:
+  except CatchableError as e:
     # Keep rendering robust if present fails (headless systems, minimized windows, etc).
-    discard
+    warn "Vulkan present failed", error = e.msg
 
 proc translate*(ctx: Context, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
@@ -1582,6 +1616,7 @@ proc toScreen*(ctx: Context, windowFrame: Vec2, v: Vec2): Vec2 =
 proc clearPresentTarget*(ctx: Context) =
   if ctx.gpuReady:
     ctx.destroyGpu()
+  ctx.presentFrameCount = 0'u64
   ctx.presentTargetKind = presentTargetNone
   ctx.presentXlibDisplay = nil
   ctx.presentXlibWindow = 0'u64
