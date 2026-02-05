@@ -44,6 +44,33 @@ type PresentTargetKind = enum
   presentTargetWin32
   presentTargetMetal
 
+when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+  type VkXlibSurfaceCreateInfoKHRNative {.bycopy.} = object
+    sType: VkStructureType
+    pNext: pointer
+    flags: VkXlibSurfaceCreateFlagsKHR
+    dpy: pointer
+    window: culong
+
+  type VkCreateXlibSurfaceKHRNativeProc = proc(
+      instance: VkInstance,
+      pCreateInfo: ptr VkXlibSurfaceCreateInfoKHRNative,
+      pAllocator: ptr VkAllocationCallbacks,
+      pSurface: ptr VkSurfaceKHR,
+  ): VkResult {.stdcall.}
+
+  const VulkanDynLib =
+    when defined(windows):
+      "vulkan-1.dll"
+    elif defined(macosx):
+      "libMoltenVK.dylib"
+    else:
+      "libvulkan.so.1"
+
+  proc vkGetInstanceProcAddrNative(
+      instance: VkInstance, pName: cstring
+  ): pointer {.cdecl, dynlib: VulkanDynLib, importc: "vkGetInstanceProcAddr".}
+
 type QueueFamilyIndices = object
   graphicsFamily: uint32
   graphicsFound: bool
@@ -313,6 +340,10 @@ proc findQueueFamilies(
     result.presentFamily = result.graphicsFamily
     result.presentFound = true
 
+proc physicalDeviceName(physicalDevice: VkPhysicalDevice): string =
+  let props = getPhysicalDeviceProperties(physicalDevice)
+  $cast[cstring](props.deviceName.addr)
+
 proc swizzleRgbaToBgra(dst, src: ptr uint8, byteCount: int) =
   let srcArr = cast[ptr UncheckedArray[uint8]](src)
   let dstArr = cast[ptr UncheckedArray[uint8]](dst)
@@ -333,12 +364,20 @@ proc createPresentSurface(ctx: Context) =
   case ctx.presentTargetKind
   of presentTargetXlib:
     when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
-      loadVK_KHR_xlib_surface()
-      let createInfo = newVkXlibSurfaceCreateInfoKHR(
-        dpy = cast[ptr Display](ctx.presentXlibDisplay),
-        window = cast[vulkan.Window](ctx.presentXlibWindow),
+      let fnPtr = vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXlibSurfaceKHR")
+      if fnPtr.isNil:
+        raise newException(
+          ValueError, "vkCreateXlibSurfaceKHR is unavailable on this Vulkan loader"
+        )
+      let vkCreateXlibSurfaceKHRNative = cast[VkCreateXlibSurfaceKHRNativeProc](fnPtr)
+      var createInfo = VkXlibSurfaceCreateInfoKHRNative(
+        sType: VkStructureType.XlibSurfaceCreateInfoKHR,
+        pNext: nil,
+        flags: 0.VkXlibSurfaceCreateFlagsKHR,
+        dpy: ctx.presentXlibDisplay,
+        window: culong(ctx.presentXlibWindow),
       )
-      checkVkResult vkCreateXlibSurfaceKHR(
+      checkVkResult vkCreateXlibSurfaceKHRNative(
         ctx.instance, createInfo.addr, nil, ctx.surface.addr
       )
     else:
@@ -646,30 +685,55 @@ proc ensureGpuRuntime(ctx: Context) =
   var wantPresent = ctx.hasPresentTarget()
   var selectedQueues: QueueFamilyIndices
   for device in devices:
+    let devName = physicalDeviceName(device)
     let queues = findQueueFamilies(device, ctx.surface, requirePresent = wantPresent)
     if not queues.graphicsFound or not queues.presentFound:
+      debug "Skipping Vulkan device: missing required queue families",
+        device = devName,
+        wantPresent = wantPresent,
+        graphicsFound = queues.graphicsFound,
+        presentFound = queues.presentFound
       continue
 
     if wantPresent:
-      if not checkDeviceExtensionSupport(device, @[VkKhrSwapchainExtensionName]):
+      let hasSwapchain = checkDeviceExtensionSupport(
+        device, @[VkKhrSwapchainExtensionName]
+      )
+      if not hasSwapchain:
+        debug "Skipping Vulkan device: missing VK_KHR_swapchain", device = devName
         continue
       let support = querySwapChainSupport(device, ctx.surface)
       if support.formats.len == 0 or support.presentModes.len == 0:
+        debug "Skipping Vulkan device: surface has no usable swapchain support",
+          device = devName,
+          formatCount = support.formats.len,
+          presentModeCount = support.presentModes.len
         continue
 
     ctx.physicalDevice = device
     selectedQueues = queues
+    info "Selected Vulkan physical device",
+      device = devName,
+      graphicsQueue = queues.graphicsFamily,
+      presentQueue = queues.presentFamily,
+      wantPresent = wantPresent
     break
 
   if ctx.physicalDevice == vkNullPhysicalDevice and wantPresent:
     warn "No Vulkan present-capable physical device found; falling back to offscreen mode"
     wantPresent = false
     for device in devices:
+      let devName = physicalDeviceName(device)
       let queues = findQueueFamilies(device, ctx.surface, requirePresent = false)
       if not queues.graphicsFound:
+        debug "Skipping Vulkan device (offscreen fallback): missing graphics queue",
+          device = devName
         continue
       ctx.physicalDevice = device
       selectedQueues = queues
+      info "Selected Vulkan physical device for offscreen fallback",
+        device = devName,
+        graphicsQueue = queues.graphicsFamily
       break
 
   if ctx.physicalDevice == vkNullPhysicalDevice:

@@ -94,10 +94,21 @@ when UseMetalBackend:
     handle.layer.setDrawableSize(NSSize(width: sz.x.float, height: sz.y.float))
 
 when UseVulkanBackend and (defined(linux) or defined(bsd)):
+  import chronicles
   import std/importutils
   import x11/xlib
+  import windy/platforms/linux/x11/glx
 
   privateAccess(Window)
+
+  const libGLX =
+    when defined(linux):
+      "libGL.so.1"
+    else:
+      "libGL.so"
+
+  {.pragma: libglx, cdecl, dynlib: libGLX, importc.}
+  proc glXGetCurrentDisplay(): PDisplay {.libglx.}
 
   var vulkanDisplay: PDisplay
 
@@ -107,9 +118,17 @@ when UseVulkanBackend and (defined(linux) or defined(bsd)):
     result = vulkanDisplay
 
   proc attachVulkanSurface*(window: Window, ctx: vulkan_context.Context) =
-    let display = sharedVulkanDisplay()
+    # Prefer the same X11 display connection Windy uses for this window.
+    window.makeContextCurrent()
+    var display = glXGetCurrentDisplay()
+    if display.isNil:
+      warn "glXGetCurrentDisplay returned nil; falling back to XOpenDisplay"
+      display = sharedVulkanDisplay()
     if display.isNil:
       raise newException(ValueError, "Failed to open X11 display for Vulkan surface")
+    info "attachVulkanSurface xlib",
+      display = cast[uint64](display),
+      window = cast[uint64](window.handle)
     ctx.setPresentXlibTarget(cast[pointer](display), cast[uint64](window.handle))
 
 when UseVulkanBackend and defined(windows):
