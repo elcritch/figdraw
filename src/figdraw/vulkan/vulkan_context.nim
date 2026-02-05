@@ -134,6 +134,7 @@ type Context* = ref object
   surface: VkSurfaceKHR
   swapchain: VkSwapchainKHR
   swapchainImages: seq[VkImage]
+  swapchainImageInitialized: seq[bool]
   swapchainFormat: VkFormat
   swapchainExtent: VkExtent2D
   swapchainOutOfDate: bool
@@ -563,6 +564,7 @@ proc destroySwapchain(ctx: Context) =
     vkDestroySwapchainKHR(ctx.device, ctx.swapchain, nil)
     ctx.swapchain = vkNullSwapchain
   ctx.swapchainImages.setLen(0)
+  ctx.swapchainImageInitialized.setLen(0)
   ctx.swapchainFormat = VK_FORMAT_UNDEFINED
   ctx.swapchainExtent = VkExtent2D(width: 0'u32, height: 0'u32)
 
@@ -627,6 +629,9 @@ proc createSwapchain(ctx: Context, width, height: int32) =
     discard vkGetSwapchainImagesKHR(
       ctx.device, ctx.swapchain, actualCount.addr, ctx.swapchainImages[0].addr
     )
+  ctx.swapchainImageInitialized.setLen(actualCount)
+  for i in 0 ..< actualCount.int:
+    ctx.swapchainImageInitialized[i] = false
 
   ctx.swapchainFormat = surfaceFormat.format
   ctx.swapchainExtent = extent
@@ -883,15 +888,28 @@ proc recordPresentCopy(
     image: VkImage,
     extent: VkExtent2D,
     srcBuffer: VkBuffer,
+    oldLayout: VkImageLayout,
 ) =
   let beginInfo = newVkCommandBufferBeginInfo(pInheritanceInfo = nil)
   checkVkResult vkBeginCommandBuffer(commandBuffer, beginInfo.addr)
 
+  let
+    srcStage =
+      if oldLayout == VK_IMAGE_LAYOUT_UNDEFINED:
+        VkPipelineStageFlags{TopOfPipeBit}
+      else:
+        VkPipelineStageFlags{BottomOfPipeBit}
+    srcAccess =
+      if oldLayout == VK_IMAGE_LAYOUT_UNDEFINED:
+        0.VkAccessFlags
+      else:
+        VkAccessFlags{MemoryReadBit}
+
   var barrierToTransfer = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-    srcAccessMask: 0.VkAccessFlags,
+    srcAccessMask: srcAccess,
     dstAccessMask: VkAccessFlags{TransferWriteBit},
-    oldLayout: VK_IMAGE_LAYOUT_UNDEFINED,
+    oldLayout: oldLayout,
     newLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
@@ -907,7 +925,7 @@ proc recordPresentCopy(
 
   vkCmdPipelineBarrier(
     commandBuffer,
-    VkPipelineStageFlags{TopOfPipeBit},
+    srcStage,
     VkPipelineStageFlags{TransferBit},
     0.VkDependencyFlags,
     0,
@@ -1065,8 +1083,18 @@ proc presentFrame(ctx: Context) =
 
   var commandBuffer = ctx.presentCommandBuffer
   checkVkResult vkResetCommandBuffer(commandBuffer, 0.VkCommandBufferResetFlags)
+  let oldLayout =
+    if imageIndex.int < ctx.swapchainImageInitialized.len and
+        ctx.swapchainImageInitialized[imageIndex.int]:
+      VkImageLayout.PresentSrcKhr
+    else:
+      VK_IMAGE_LAYOUT_UNDEFINED
   recordPresentCopy(
-    commandBuffer, ctx.swapchainImages[imageIndex.int], ctx.swapchainExtent, srcBuffer
+    commandBuffer,
+    ctx.swapchainImages[imageIndex.int],
+    ctx.swapchainExtent,
+    srcBuffer,
+    oldLayout,
   )
 
   let submitInfo = newVkSubmitInfo(
@@ -1091,11 +1119,16 @@ proc presentFrame(ctx: Context) =
   elif presentResult != VkSuccess:
     checkVkResult presentResult
   elif ctx.presentFrameCount <= 5 or (ctx.presentFrameCount mod 240'u64) == 0'u64:
+    if imageIndex.int < ctx.swapchainImageInitialized.len:
+      ctx.swapchainImageInitialized[imageIndex.int] = true
     info "presentFrame submitted",
       frame = ctx.presentFrameCount,
       imageIndex = imageIndex,
       width = int(ctx.swapchainExtent.width),
       height = int(ctx.swapchainExtent.height)
+  else:
+    if imageIndex.int < ctx.swapchainImageInitialized.len:
+      ctx.swapchainImageInitialized[imageIndex.int] = true
 
 
 proc runGpuCopy(ctx: Context) =
@@ -1379,6 +1412,7 @@ proc newContext*(
   result.surface = vkNullSurface
   result.swapchain = vkNullSwapchain
   result.swapchainImages = @[]
+  result.swapchainImageInitialized = @[]
   result.swapchainFormat = VK_FORMAT_UNDEFINED
   result.swapchainExtent = VkExtent2D(width: 0'u32, height: 0'u32)
   result.swapchainOutOfDate = false
