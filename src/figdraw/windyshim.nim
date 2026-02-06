@@ -156,12 +156,13 @@ proc setupBackend*(
   elif UseVulkanBackend:
     attachVulkanSurface(window, renderer.ctx)
 
-proc beginFrame*(renderer: FigRenderer) =
+proc beginFrame*(renderer: FigRenderer[WindyRenderBackend]) =
   ## Per-frame pre-render backend maintenance.
   when UseMetalBackend:
+    let window = renderer.backendState.window
     renderer.backendState.metalLayer.updateMetalLayer(window)
 
-proc endFrame*(renderer: FigRenderer) =
+proc endFrame*(renderer: FigRenderer[WindyRenderBackend]) =
   ## Present a frame for backends that need explicit window buffer swap.
   when UseWindyOpenGL:
     rendererwindow.swapBuffers()
