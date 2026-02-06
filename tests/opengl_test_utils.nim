@@ -7,6 +7,9 @@ import figdraw/commons
 import figdraw/fignodes
 import figdraw/figrender as glrenderer
 
+when UseVulkanBackend:
+  import pkg/vulkan/wrapper
+
 when not UseMetalBackend and not UseVulkanBackend:
   import pkg/opengl
   import figdraw/utils/glutils
@@ -51,6 +54,8 @@ proc renderAndScreenshotOnce*(
 
       result = glrenderer.takeScreenshot(renderer)
       result.writeFile(outputPath)
+    except VulkanError as exc:
+      raise newException(WindyError, "Vulkan device not available: " & exc.msg)
     except ValueError:
       raise newException(WindyError, "Vulkan device not available")
   else:
