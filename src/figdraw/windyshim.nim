@@ -1,6 +1,7 @@
 import unicode, vmath, windy/common
 
 import ./commons
+import ./figrender
 
 const UseWindyOpenGL = not (UseMetalBackend or UseVulkanBackend)
 
@@ -28,6 +29,17 @@ when UseWindyOpenGL:
   import figdraw/utils/glutils
 
 export common, platform, unicode, vmath
+
+proc windyBackendName*(): string =
+  when UseMetalBackend:
+    "Metal"
+  elif UseVulkanBackend:
+    "Vulkan"
+  else:
+    "OpenGL"
+
+proc windyWindowTitle*(suffix = "Windy RenderList"): string =
+  "figdraw: " & windyBackendName() & " + " & suffix
 
 proc logicalSize*(window: Window): Vec2 =
   result = vec2(window.size()).descaled()
@@ -112,8 +124,7 @@ when UseVulkanBackend and (defined(linux) or defined(bsd)):
     if display.isNil:
       raise newException(ValueError, "Failed to open X11 display for Vulkan surface")
     info "attachVulkanSurface xlib",
-      display = cast[uint64](display),
-      window = cast[uint64](window.handle)
+      display = cast[uint64](display), window = cast[uint64](window.handle)
     ctx.setPresentXlibTarget(cast[pointer](display), cast[uint64](window.handle))
 
 when UseVulkanBackend and defined(windows):
@@ -126,3 +137,30 @@ when UseVulkanBackend and defined(windows):
     let hinstance = cast[pointer](GetModuleHandleW(nil))
     let hwnd = cast[pointer](window.hWnd)
     ctx.setPresentWin32Target(hinstance, hwnd)
+
+type WindyRenderBackend* = object
+  ## Opaque per-window backend state used by windy + FigDraw integration.
+  when UseMetalBackend:
+    metalLayer*: MetalLayerHandle
+
+proc initWindyRenderBackend*(
+    window: Window, renderer: FigRenderer
+): WindyRenderBackend =
+  ## One-time backend hookup between a Windy window and FigDraw renderer.
+  when UseMetalBackend:
+    result.metalLayer = attachMetalLayer(window, renderer.ctx.metalDevice())
+    renderer.ctx.presentLayer = result.metalLayer.layer
+  elif UseVulkanBackend:
+    attachVulkanSurface(window, renderer.ctx)
+
+proc beginWindyRenderFrame*(backend: WindyRenderBackend, window: Window): Vec2 =
+  ## Per-frame pre-render backend maintenance.
+  when UseMetalBackend:
+    backend.metalLayer.updateMetalLayer(window)
+  result = window.logicalSize()
+
+proc endWindyRenderFrame*(backend: WindyRenderBackend, window: Window) =
+  ## Present a frame for backends that need explicit window buffer swap.
+  discard backend
+  when UseWindyOpenGL:
+    window.swapBuffers()
