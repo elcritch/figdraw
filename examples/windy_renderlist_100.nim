@@ -47,9 +47,11 @@ when isMainModule:
   if size != size.scaled():
     window.size = size.scaled()
 
-  let renderer =
-    newFigRenderer(atlasSize = when not defined(useFigDrawTextures): 512 else: 2048)
-  let windyBackend = initWindyRenderBackend(window, renderer)
+  let renderer = newFigRenderer(
+    atlasSize = when not defined(useFigDrawTextures): 512 else: 2048,
+    backendState = WindyRenderBackend(),
+  )
+  renderer.setupBackend(window)
 
   var makeRenderTreeMsSum = 0.0
   var renderFrameMsSum = 0.0
@@ -60,7 +62,8 @@ when isMainModule:
     inc globalFrame
     inc fpsFrames
 
-    let sz = beginWindyRenderFrame(windyBackend, window)
+    renderer.beginFrame()
+    let sz = window.logicalSize()
 
     let t0 = getMonoTime()
     var renders = makeRenderTree(float32(sz.x), float32(sz.y), globalFrame)
@@ -115,7 +118,7 @@ when isMainModule:
     let t1 = getMonoTime()
     renderer.renderFrame(renders, sz)
     renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
-    endWindyRenderFrame(windyBackend, window)
+    renderer.endFrame()
 
   window.onCloseRequest = proc() =
     app_running = false

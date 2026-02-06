@@ -25,8 +25,11 @@ else:
 
 const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
-type FigRenderer* = ref object
+type NoRendererBackendState* = object
+
+type FigRenderer*[BackendState = NoRendererBackendState] = ref object
   ctx*: Context
+  backendState*: BackendState
 
 when UseMetalBackend:
   proc metalDevice*(ctx: Context): MTLDevice =
@@ -34,8 +37,10 @@ when UseMetalBackend:
     ## need to import `figdraw/metal/glcontext_metal`.
     metal_context.metalDevice(ctx)
 
-proc takeScreenshot*(
-    renderer: FigRenderer, frame: Rect = rect(0, 0, 0, 0), readFront: bool = true
+proc takeScreenshot*[BackendState](
+    renderer: FigRenderer[BackendState],
+    frame: Rect = rect(0, 0, 0, 0),
+    readFront: bool = true,
 ): Image =
   let ctx: Context = renderer.ctx
   when UseMetalBackend:
@@ -69,8 +74,10 @@ proc takeScreenshot*(
     result.flipVertical()
     glReadBuffer(GL_BACK)
 
-proc newFigRenderer*(atlasSize: int, pixelScale = 1.0'f32): FigRenderer =
-  result = FigRenderer()
+proc newFigRenderer*(
+    atlasSize: int, pixelScale = 1.0'f32
+): FigRenderer[NoRendererBackendState] =
+  result = FigRenderer[NoRendererBackendState]()
   when UseMetalBackend:
     result.ctx =
       newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
@@ -82,9 +89,30 @@ proc newFigRenderer*(atlasSize: int, pixelScale = 1.0'f32): FigRenderer =
     result.ctx =
       newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
 
-proc newFigRenderer*(ctx: Context): FigRenderer =
+proc newFigRenderer*[BackendState](
+    atlasSize: int, backendState: BackendState, pixelScale = 1.0'f32
+): FigRenderer[BackendState] =
+  result = FigRenderer[BackendState](backendState: backendState)
+  when UseMetalBackend:
+    result.ctx =
+      newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
+  elif UseVulkanBackend:
+    result.ctx = vulkan_context.newContext(
+      atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
+    )
+  else:
+    result.ctx =
+      newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
+
+proc newFigRenderer*(ctx: Context): FigRenderer[NoRendererBackendState] =
   ## Uses a caller-created backend context.
-  result = FigRenderer(ctx: ctx)
+  result = FigRenderer[NoRendererBackendState](ctx: ctx)
+
+proc newFigRenderer*[BackendState](
+    ctx: Context, backendState: BackendState
+): FigRenderer[BackendState] =
+  ## Uses a caller-created backend context with custom backend state payload.
+  result = FigRenderer[BackendState](ctx: ctx, backendState: backendState)
 
 proc renderDrawable*(ctx: Context, node: Fig) =
   ## TODO: draw non-node stuff?
@@ -477,8 +505,8 @@ proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff]
     for rootIdx in list.rootIds:
       ctx.render(list.nodes, rootIdx, -1.FigIdx)
 
-proc renderFrame*(
-    renderer: FigRenderer,
+proc renderFrame*[BackendState](
+    renderer: FigRenderer[BackendState],
     nodes: var Renders,
     frameSize: Vec2,
     clearMain: bool = true,

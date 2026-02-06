@@ -140,27 +140,28 @@ when UseVulkanBackend and defined(windows):
 
 type WindyRenderBackend* = object
   ## Opaque per-window backend state used by windy + FigDraw integration.
+  window*: Window
   when UseMetalBackend:
     metalLayer*: MetalLayerHandle
 
-proc initWindyRenderBackend*(
-    window: Window, renderer: FigRenderer
-): WindyRenderBackend =
+proc setupBackend*(
+    renderer: FigRenderer,
+    window: Window,
+) =
   ## One-time backend hookup between a Windy window and FigDraw renderer.
+  renderer.backendState.window = window
   when UseMetalBackend:
-    result.metalLayer = attachMetalLayer(window, renderer.ctx.metalDevice())
-    renderer.ctx.presentLayer = result.metalLayer.layer
+    renderer.backendState.metalLayer = attachMetalLayer(window, renderer.ctx.metalDevice())
+    renderer.ctx.presentLayer = renderer.backendState.metalLayer.layer
   elif UseVulkanBackend:
     attachVulkanSurface(window, renderer.ctx)
 
-proc beginWindyRenderFrame*(backend: WindyRenderBackend, window: Window): Vec2 =
+proc beginFrame*(renderer: FigRenderer) =
   ## Per-frame pre-render backend maintenance.
   when UseMetalBackend:
-    backend.metalLayer.updateMetalLayer(window)
-  result = window.logicalSize()
+    renderer.backendState.metalLayer.updateMetalLayer(window)
 
-proc endWindyRenderFrame*(backend: WindyRenderBackend, window: Window) =
+proc endFrame*(renderer: FigRenderer) =
   ## Present a frame for backends that need explicit window buffer swap.
-  discard backend
   when UseWindyOpenGL:
-    window.swapBuffers()
+    rendererwindow.swapBuffers()
