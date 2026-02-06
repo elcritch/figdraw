@@ -68,7 +68,7 @@ jobs:
       if: runner.os == 'macOS'
       run: |
         # sync deps
-        atlas install --feature:windy --feature:sdl2 --feature:metal
+        atlas install --feature:windy --feature:sdl2
 
     - name: Build Tests
       if: runner.os == 'Linux'
