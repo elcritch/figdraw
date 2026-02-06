@@ -59,10 +59,10 @@ when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
     window: culong
 
   type VkCreateXlibSurfaceKHRNativeProc = proc(
-      instance: VkInstance,
-      pCreateInfo: ptr VkXlibSurfaceCreateInfoKHRNative,
-      pAllocator: ptr VkAllocationCallbacks,
-      pSurface: ptr VkSurfaceKHR,
+    instance: VkInstance,
+    pCreateInfo: ptr VkXlibSurfaceCreateInfoKHRNative,
+    pAllocator: ptr VkAllocationCallbacks,
+    pSurface: ptr VkSurfaceKHR,
   ): VkResult {.cdecl.}
 
   const VulkanDynLib =
@@ -74,7 +74,7 @@ when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
       "libvulkan.so.1"
 
   proc vkGetInstanceProcAddrNative(
-      instance: VkInstance, pName: cstring
+    instance: VkInstance, pName: cstring
   ): pointer {.cdecl, dynlib: VulkanDynLib, importc: "vkGetInstanceProcAddr".}
 
 type
@@ -137,6 +137,7 @@ type
 
     atlasPixels: Image
     atlasDirty: bool
+    atlasLayoutReady: bool
 
     instance: VkInstance
     physicalDevice: VkPhysicalDevice
@@ -263,7 +264,8 @@ proc findPresentQueueFamily(device: VkPhysicalDevice, surface: VkSurfaceKHR): in
     if family.queueCount == 0:
       continue
     var supported: VkBool32
-    discard vkGetPhysicalDeviceSurfaceSupportKHR(device, i.uint32, surface, supported.addr)
+    discard
+      vkGetPhysicalDeviceSurfaceSupportKHR(device, i.uint32, surface, supported.addr)
     if supported.ord == VkTrue:
       return i
   result = -1
@@ -303,7 +305,8 @@ proc querySwapChainSupport(
   )
 
   var formatCount: uint32
-  discard vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, formatCount.addr, nil)
+  discard
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, formatCount.addr, nil)
   if formatCount != 0:
     result.formats.setLen(formatCount)
     discard vkGetPhysicalDeviceSurfaceFormatsKHR(
@@ -511,10 +514,8 @@ proc createImageView(
     viewType = VK_IMAGE_VIEW_TYPE_2D,
     format = format,
     components = newVkComponentMapping(
-      VK_COMPONENT_SWIZZLE_IDENTITY,
-      VK_COMPONENT_SWIZZLE_IDENTITY,
-      VK_COMPONENT_SWIZZLE_IDENTITY,
-      VK_COMPONENT_SWIZZLE_IDENTITY,
+      VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+      VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
     ),
     subresourceRange = newVkImageSubresourceRange(
       aspectMask = aspectMask,
@@ -646,6 +647,7 @@ proc recreateAtlasGpu(ctx: Context) =
     ctx.atlasImage, VK_FORMAT_R8G8B8A8_UNORM, VkImageAspectFlags{ColorBit}
   )
   ctx.atlasDirty = true
+  ctx.atlasLayoutReady = false
   if ctx.descriptorSet != vkNullDescriptorSet:
     ctx.updateDescriptorSet()
 
@@ -664,8 +666,7 @@ proc createPipeline(ctx: Context) =
     finalLayout: VkImageLayout.PresentSrcKhr,
   )
   var colorAttachmentRef = VkAttachmentReference(
-    attachment: 0,
-    layout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    attachment: 0, layout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
   )
   var subpass = VkSubpassDescription(
     flags: 0.VkSubpassDescriptionFlags,
@@ -690,16 +691,18 @@ proc createPipeline(ctx: Context) =
   )
 
   let renderPassInfo = newVkRenderPassCreateInfo(
-    attachments = [colorAttachment],
-    subpasses = [subpass],
-    dependencies = [dependency],
+    attachments = [colorAttachment], subpasses = [subpass], dependencies = [dependency]
   )
-  checkVkResult vkCreateRenderPass(ctx.device, renderPassInfo.addr, nil, ctx.renderPass.addr)
+  checkVkResult vkCreateRenderPass(
+    ctx.device, renderPassInfo.addr, nil, ctx.renderPass.addr
+  )
 
-  let vertInfo = newVkShaderModuleCreateInfo(code = sdfVertSpv)
-  let fragInfo = newVkShaderModuleCreateInfo(code = sdfFragSpv)
-  ctx.vertShader = createShaderModule(ctx.device, vertInfo)
-  ctx.fragShader = createShaderModule(ctx.device, fragInfo)
+  if ctx.vertShader == vkNullShaderModule:
+    let vertInfo = newVkShaderModuleCreateInfo(code = sdfVertSpv)
+    ctx.vertShader = createShaderModule(ctx.device, vertInfo)
+  if ctx.fragShader == vkNullShaderModule:
+    let fragInfo = newVkShaderModuleCreateInfo(code = sdfFragSpv)
+    ctx.fragShader = createShaderModule(ctx.device, fragInfo)
 
   let vertStage = newVkPipelineShaderStageCreateInfo(
     stage = VkShaderStageFlagBits.VertexBit,
@@ -715,9 +718,7 @@ proc createPipeline(ctx: Context) =
   )
 
   let bindingDesc = VkVertexInputBindingDescription(
-    binding: 0,
-    stride: uint32(sizeof(Vertex)),
-    inputRate: VK_VERTEX_INPUT_RATE_VERTEX,
+    binding: 0, stride: uint32(sizeof(Vertex)), inputRate: VK_VERTEX_INPUT_RATE_VERTEX
   )
 
   let attrDescs = [
@@ -766,8 +767,7 @@ proc createPipeline(ctx: Context) =
   ]
 
   let vertexInputInfo = newVkPipelineVertexInputStateCreateInfo(
-    vertexBindingDescriptions = [bindingDesc],
-    vertexAttributeDescriptions = attrDescs,
+    vertexBindingDescriptions = [bindingDesc], vertexAttributeDescriptions = attrDescs
   )
 
   let inputAssembly = VkPipelineInputAssemblyStateCreateInfo(
@@ -848,8 +848,7 @@ proc createPipeline(ctx: Context) =
   )
 
   let pipelineLayoutInfo = newVkPipelineLayoutCreateInfo(
-    setLayouts = [ctx.descriptorSetLayout],
-    pushConstantRanges = [],
+    setLayouts = [ctx.descriptorSetLayout], pushConstantRanges = []
   )
   ctx.pipelineLayout = createPipelineLayout(ctx.device, pipelineLayoutInfo)
 
@@ -871,12 +870,7 @@ proc createPipeline(ctx: Context) =
     basePipelineIndex = -1,
   )
   checkVkResult vkCreateGraphicsPipelines(
-    ctx.device,
-    0.VkPipelineCache,
-    1,
-    pipelineInfo.addr,
-    nil,
-    ctx.pipeline.addr,
+    ctx.device, 0.VkPipelineCache, 1, pipelineInfo.addr, nil, ctx.pipeline.addr
   )
 
 proc createSwapchain(ctx: Context, width, height: int32) =
@@ -927,7 +921,9 @@ proc createSwapchain(ctx: Context, width, height: int32) =
   )
 
   var newSwapchain: VkSwapchainKHR
-  checkVkResult vkCreateSwapchainKHR(ctx.device, createInfo.addr, nil, newSwapchain.addr)
+  checkVkResult vkCreateSwapchainKHR(
+    ctx.device, createInfo.addr, nil, newSwapchain.addr
+  )
 
   ctx.destroySwapchain()
   ctx.swapchain = newSwapchain
@@ -962,10 +958,7 @@ proc createSwapchain(ctx: Context, width, height: int32) =
       layers = 1,
     )
     checkVkResult vkCreateFramebuffer(
-      ctx.device,
-      info.addr,
-      nil,
-      ctx.swapchainFramebuffers[i].addr,
+      ctx.device, info.addr, nil, ctx.swapchainFramebuffers[i].addr
     )
 
   info "Created Vulkan swapchain",
@@ -1014,21 +1007,33 @@ proc recordAtlasUpload(ctx: Context, cmd: VkCommandBuffer) =
   ctx.ensureAtlasUploadBuffer(bytes)
 
   let mapped = cast[ptr uint8](mapMemory(
-    ctx.device,
-    ctx.atlasUploadMemory,
-    0.VkDeviceSize,
-    bytes,
-    0.VkMemoryMapFlags,
+    ctx.device, ctx.atlasUploadMemory, 0.VkDeviceSize, bytes, 0.VkMemoryMapFlags
   ))
   copyMem(mapped, ctx.atlasPixels.data[0].addr, int(bytes))
   unmapMemory(ctx.device, ctx.atlasUploadMemory)
 
+  let atlasOldLayout =
+    if ctx.atlasLayoutReady:
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    else:
+      VK_IMAGE_LAYOUT_UNDEFINED
+  let atlasSrcAccess =
+    if ctx.atlasLayoutReady:
+      VkAccessFlags{ShaderReadBit}
+    else:
+      0.VkAccessFlags
+  let atlasSrcStage =
+    if ctx.atlasLayoutReady:
+      VkPipelineStageFlags{FragmentShaderBit}
+    else:
+      VkPipelineStageFlags{TopOfPipeBit}
+
   var barrierToTransfer = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
-    srcAccessMask: 0.VkAccessFlags,
+    srcAccessMask: atlasSrcAccess,
     dstAccessMask: VkAccessFlags{TransferWriteBit},
-    oldLayout: VK_IMAGE_LAYOUT_UNDEFINED,
+    oldLayout: atlasOldLayout,
     newLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
@@ -1043,7 +1048,7 @@ proc recordAtlasUpload(ctx: Context, cmd: VkCommandBuffer) =
   )
   vkCmdPipelineBarrier(
     cmd,
-    VkPipelineStageFlags{TopOfPipeBit},
+    atlasSrcStage,
     VkPipelineStageFlags{TransferBit},
     0.VkDependencyFlags,
     0,
@@ -1066,17 +1071,11 @@ proc recordAtlasUpload(ctx: Context, cmd: VkCommandBuffer) =
     ),
     imageOffset: newVkOffset3D(x = 0, y = 0, z = 0),
     imageExtent: newVkExtent3D(
-      width = ctx.atlasSize.uint32,
-      height = ctx.atlasSize.uint32,
-      depth = 1,
+      width = ctx.atlasSize.uint32, height = ctx.atlasSize.uint32, depth = 1
     ),
   )
   vkCmdCopyBufferToImage(
-    cmd,
-    ctx.atlasUploadBuffer,
-    ctx.atlasImage,
-    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-    1,
+    cmd, ctx.atlasUploadBuffer, ctx.atlasImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
     region.addr,
   )
 
@@ -1112,6 +1111,7 @@ proc recordAtlasUpload(ctx: Context, cmd: VkCommandBuffer) =
   )
 
   ctx.atlasDirty = false
+  ctx.atlasLayoutReady = true
 
 proc ensureGpuRuntime(ctx: Context) =
   if ctx.gpuReady:
@@ -1151,7 +1151,8 @@ proc ensureGpuRuntime(ctx: Context) =
       continue
 
     if wantPresent:
-      let hasSwapchain = checkDeviceExtensionSupport(device, @[VkKhrSwapchainExtensionName])
+      let hasSwapchain =
+        checkDeviceExtensionSupport(device, @[VkKhrSwapchainExtensionName])
       if not hasSwapchain:
         continue
       let support = querySwapChainSupport(device, ctx.surface)
@@ -1187,15 +1188,13 @@ proc ensureGpuRuntime(ctx: Context) =
   var queueCreateInfos =
     @[
       newVkDeviceQueueCreateInfo(
-        queueFamilyIndex = ctx.queueFamily,
-        queuePriorities = [1.0'f32],
+        queueFamilyIndex = ctx.queueFamily, queuePriorities = [1.0'f32]
       )
     ]
   if ctx.presentQueueFamily != ctx.queueFamily:
     queueCreateInfos.add(
       newVkDeviceQueueCreateInfo(
-        queueFamilyIndex = ctx.presentQueueFamily,
-        queuePriorities = [1.0'f32],
+        queueFamilyIndex = ctx.presentQueueFamily, queuePriorities = [1.0'f32]
       )
     )
 
@@ -1236,8 +1235,12 @@ proc ensureGpuRuntime(ctx: Context) =
   ctx.commandBuffer = allocateCommandBuffers(ctx.device, cmdAlloc)
 
   let semaphoreInfo = newVkSemaphoreCreateInfo()
-  checkVkResult vkCreateSemaphore(ctx.device, semaphoreInfo.addr, nil, ctx.imageAvailableSemaphore.addr)
-  checkVkResult vkCreateSemaphore(ctx.device, semaphoreInfo.addr, nil, ctx.renderFinishedSemaphore.addr)
+  checkVkResult vkCreateSemaphore(
+    ctx.device, semaphoreInfo.addr, nil, ctx.imageAvailableSemaphore.addr
+  )
+  checkVkResult vkCreateSemaphore(
+    ctx.device, semaphoreInfo.addr, nil, ctx.renderFinishedSemaphore.addr
+  )
   let fenceInfo = newVkFenceCreateInfo(flags = VkFenceCreateFlags{SignaledBit})
   checkVkResult vkCreateFence(ctx.device, fenceInfo.addr, nil, ctx.inFlightFence.addr)
 
@@ -1272,26 +1275,24 @@ proc ensureGpuRuntime(ctx: Context) =
     ),
   ]
   ctx.descriptorSetLayout = createDescriptorSetLayout(
-    ctx.device,
-    newVkDescriptorSetLayoutCreateInfo(bindings = setBindings),
+    ctx.device, newVkDescriptorSetLayoutCreateInfo(bindings = setBindings)
   )
 
   let poolSizes = [
-    newVkDescriptorPoolSize(`type` = VkDescriptorType.UniformBuffer, descriptorCount = 2),
     newVkDescriptorPoolSize(
-      `type` = VkDescriptorType.CombinedImageSampler,
-      descriptorCount = 2,
+      `type` = VkDescriptorType.UniformBuffer, descriptorCount = 2
+    ),
+    newVkDescriptorPoolSize(
+      `type` = VkDescriptorType.CombinedImageSampler, descriptorCount = 2
     ),
   ]
   ctx.descriptorPool = createDescriptorPool(
-    ctx.device,
-    newVkDescriptorPoolCreateInfo(maxSets = 1, poolSizes = poolSizes),
+    ctx.device, newVkDescriptorPoolCreateInfo(maxSets = 1, poolSizes = poolSizes)
   )
   ctx.descriptorSet = allocateDescriptorSets(
     ctx.device,
     newVkDescriptorSetAllocateInfo(
-      descriptorPool = ctx.descriptorPool,
-      setLayouts = [ctx.descriptorSetLayout],
+      descriptorPool = ctx.descriptorPool, setLayouts = [ctx.descriptorSetLayout]
     ),
   )
 
@@ -1316,11 +1317,7 @@ proc ensureGpuRuntime(ctx: Context) =
   ctx.indexBufferBytes = indexBytes
 
   let mappedIdx = cast[ptr uint8](mapMemory(
-    ctx.device,
-    ctx.indexMemory,
-    0.VkDeviceSize,
-    indexBytes,
-    0.VkMemoryMapFlags,
+    ctx.device, ctx.indexMemory, 0.VkDeviceSize, indexBytes, 0.VkMemoryMapFlags
   ))
   copyMem(mappedIdx, ctx.indices[0].addr, int(indexBytes))
   unmapMemory(ctx.device, ctx.indexMemory)
@@ -1358,7 +1355,9 @@ proc ensureGpuRuntime(ctx: Context) =
     borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
     unnormalizedCoordinates = VkBool32(VkFalse),
   )
-  checkVkResult vkCreateSampler(ctx.device, samplerInfo.addr, nil, ctx.atlasSampler.addr)
+  checkVkResult vkCreateSampler(
+    ctx.device, samplerInfo.addr, nil, ctx.atlasSampler.addr
+  )
 
   ctx.recreateAtlasGpu()
   ctx.updateDescriptorSet()
@@ -1406,20 +1405,14 @@ proc flush(ctx: Context) =
 
   let uploadBytes = VkDeviceSize(vertexCount * sizeof(Vertex))
   let mappedVertex = cast[ptr uint8](mapMemory(
-    ctx.device,
-    ctx.vertexMemory,
-    0.VkDeviceSize,
-    uploadBytes,
-    0.VkMemoryMapFlags,
+    ctx.device, ctx.vertexMemory, 0.VkDeviceSize, uploadBytes, 0.VkMemoryMapFlags
   ))
   copyMem(mappedVertex, ctx.vertexScratch[0].addr, int(uploadBytes))
   unmapMemory(ctx.device, ctx.vertexMemory)
 
   var vsu = VSUniforms(proj: ctx.proj)
   var fsu = FSUniforms(
-    windowFrame: ctx.frameSize,
-    aaFactor: ctx.aaFactor,
-    maskTexEnabled: 0'u32,
+    windowFrame: ctx.frameSize, aaFactor: ctx.aaFactor, maskTexEnabled: 0'u32
   )
 
   let mappedVs = cast[ptr uint8](mapMemory(
@@ -1448,20 +1441,11 @@ proc flush(ctx: Context) =
   let offs = [0.VkDeviceSize]
   vkCmdBindVertexBuffers(ctx.commandBuffer, 0, 1, vbs[0].unsafeAddr, offs[0].unsafeAddr)
   vkCmdBindIndexBuffer(
-    ctx.commandBuffer,
-    ctx.indexBuffer,
-    0.VkDeviceSize,
-    VK_INDEX_TYPE_UINT16,
+    ctx.commandBuffer, ctx.indexBuffer, 0.VkDeviceSize, VK_INDEX_TYPE_UINT16
   )
   vkCmdBindDescriptorSets(
-    ctx.commandBuffer,
-    VK_PIPELINE_BIND_POINT_GRAPHICS,
-    ctx.pipelineLayout,
-    0,
-    1,
-    ctx.descriptorSet.addr,
-    0,
-    nil,
+    ctx.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.pipelineLayout, 0, 1,
+    ctx.descriptorSet.addr, 0, nil,
   )
 
   let indexCount = uint32(ctx.quadCount * 6)
@@ -2032,11 +2016,7 @@ proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
     ctx.putImage(hash, image)
   let uvRect = ctx.entries[hash]
   ctx.drawUvRect(
-    pos,
-    pos + vec2(w.float32, h.float32),
-    uvRect.xy,
-    uvRect.xy + uvRect.wh,
-    color,
+    pos, pos + vec2(w.float32, h.float32), uvRect.xy, uvRect.xy + uvRect.wh, color
   )
 
 proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32, color: Color) =
@@ -2073,6 +2053,7 @@ proc beginFrame*(
 ) =
   assert ctx.frameBegun == false, "ctx.beginFrame has already been called."
   ctx.frameBegun = true
+  ctx.commandRecording = false
   ctx.maskBegun = false
   ctx.maskDepth = 0
   ctx.frameSize = frameSize
@@ -2087,13 +2068,8 @@ proc beginFrame*(
     return
 
   checkVkResult vkWaitForFences(
-    ctx.device,
-    1,
-    ctx.inFlightFence.addr,
-    VkBool32(VkTrue),
-    high(uint64),
+    ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
   )
-  checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
 
   let acquireResult = vkAcquireNextImageKHR(
     ctx.device,
@@ -2105,8 +2081,10 @@ proc beginFrame*(
   )
   if acquireResult in [VkErrorOutOfDateKhr, VkSuboptimalKhr]:
     ctx.swapchainOutOfDate = true
+    debug "Acquire returned out-of-date/suboptimal", result = $acquireResult
     return
   checkVkResult acquireResult
+  checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
 
   checkVkResult vkResetCommandBuffer(ctx.commandBuffer, 0.VkCommandBufferResetFlags)
   let beginInfo = newVkCommandBufferBeginInfo(pInheritanceInfo = nil)
@@ -2131,14 +2109,14 @@ proc beginFrame*(
     pNext: nil,
     renderPass: ctx.renderPass,
     framebuffer: ctx.swapchainFramebuffers[ctx.acquiredImageIndex.int],
-    renderArea: newVkRect2D(
-      offset = newVkOffset2D(x = 0, y = 0),
-      extent = ctx.swapchainExtent,
-    ),
+    renderArea:
+      newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent),
     clearValueCount: 1,
     pClearValues: clear.addr,
   )
-  vkCmdBeginRenderPass(ctx.commandBuffer, renderPassInfo.addr, VK_SUBPASS_CONTENTS_INLINE)
+  vkCmdBeginRenderPass(
+    ctx.commandBuffer, renderPassInfo.addr, VK_SUBPASS_CONTENTS_INLINE
+  )
 
   let viewport = newVkViewport(
     x = 0,
@@ -2148,19 +2126,14 @@ proc beginFrame*(
     minDepth = 0,
     maxDepth = 1,
   )
-  let scissor = newVkRect2D(
-    offset = newVkOffset2D(x = 0, y = 0),
-    extent = ctx.swapchainExtent,
-  )
+  let scissor =
+    newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent)
   vkCmdSetViewport(ctx.commandBuffer, 0, 1, viewport.addr)
   vkCmdSetScissor(ctx.commandBuffer, 0, 1, scissor.addr)
   ctx.commandRecording = true
 
 proc beginFrame*(
-    ctx: Context,
-    frameSize: Vec2,
-    clearMain = false,
-    clearMainColor: Color = whiteColor,
+    ctx: Context, frameSize: Vec2, clearMain = false, clearMainColor: Color = whiteColor
 ) =
   beginFrame(
     ctx,
@@ -2202,6 +2175,7 @@ proc endFrame*(ctx: Context) =
   let presentResult = vkQueuePresentKHR(ctx.presentQueue, presentInfo.addr)
   if presentResult in [VkErrorOutOfDateKhr, VkSuboptimalKhr]:
     ctx.swapchainOutOfDate = true
+    debug "Present returned out-of-date/suboptimal", result = $presentResult
   elif presentResult != VkSuccess:
     checkVkResult presentResult
 
@@ -2310,6 +2284,7 @@ proc destroyGpu(ctx: Context) =
   ctx.presentReady = false
   ctx.commandRecording = false
   ctx.swapchainOutOfDate = false
+  ctx.atlasLayoutReady = false
 
 proc newContext*(
     atlasSize = 1024,
@@ -2335,6 +2310,7 @@ proc newContext*(
   result.atlasPixels = newImage(atlasSize, atlasSize)
   result.atlasPixels.fill(rgba(0, 0, 0, 0))
   result.atlasDirty = true
+  result.atlasLayoutReady = false
 
   result.positions = newSeq[float32](2 * maxQuads * 4)
   result.colors = newSeq[uint8](4 * maxQuads * 4)
