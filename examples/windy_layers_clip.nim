@@ -160,7 +160,7 @@ proc makeRenderTree*(w, h: float32): Renders =
 when isMainModule:
   var appRunning = true
 
-  let title = "figdraw: Windy Layers + Clip"
+  let title = windyWindowTitle("Windy Layers + Clip")
   let size = ivec2(800, 375)
   var frames = 0
   var fpsFrames = 0
@@ -174,29 +174,21 @@ when isMainModule:
   if size != size.scaled():
     window.size = size.scaled()
 
-  let renderer = glrenderer.newFigRenderer(atlasSize = 192)
-
-  when UseMetalBackend:
-    let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
-    renderer.ctx.presentLayer = metalHandle.layer
+  let renderer =
+    glrenderer.newFigRenderer(atlasSize = 192, backendState = WindyRenderBackend())
+  renderer.setupBackend(window)
 
   var renders = makeRenderTree(0.0'f32, 0.0'f32)
   var lastSize = vec2(0.0'f32, 0.0'f32)
 
-  when UseMetalBackend:
-    proc updateMetalLayer() =
-      metalHandle.updateMetalLayer(window)
-
   proc redraw() =
-    when UseMetalBackend:
-      updateMetalLayer()
+    renderer.beginFrame()
     let sz = window.logicalSize()
     if sz != lastSize:
       lastSize = sz
       renders = makeRenderTree(sz.x, sz.y)
     renderer.renderFrame(renders, sz)
-    when not UseMetalBackend:
-      window.swapBuffers()
+    renderer.endFrame()
 
   window.onCloseRequest = proc() =
     appRunning = false

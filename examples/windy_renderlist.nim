@@ -81,13 +81,7 @@ proc makeRenderTree*(w, h: float32): Renders =
 when isMainModule:
   var app_running = true
 
-  let title =
-    when UseMetalBackend:
-      "figdraw: Metal + Windy RenderList"
-    elif UseVulkanBackend:
-      "figdraw: Vulkan + Windy RenderList"
-    else:
-      "figdraw: OpenGL + Windy RenderList"
+  let title = windyWindowTitle("Windy RenderList")
   let size = ivec2(800, 600)
   var frames = 0
   var fpsFrames = 0
@@ -101,23 +95,12 @@ when isMainModule:
   if size != size.scaled():
     window.size = size.scaled()
 
-  let renderer = glrenderer.newFigRenderer(atlasSize = 192)
-
-  when UseMetalBackend:
-    let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
-    renderer.ctx.presentLayer = metalHandle.layer
-  when UseVulkanBackend:
-    attachVulkanSurface(window, renderer.ctx)
-    info "Attached Vulkan surface to window"
+  let renderer =
+    glrenderer.newFigRenderer(atlasSize = 192, backendState = WindyRenderBackend())
+  renderer.setupBackend(window)
 
   info "Windy renderlist startup",
-    backend =
-      when UseMetalBackend:
-        "metal"
-      elif UseVulkanBackend:
-        "vulkan"
-      else:
-        "opengl",
+    backend = windyBackendName().toLowerAscii(),
     windowW = window.size().x,
     windowH = window.size().y,
     scale = window.contentScale()
@@ -126,14 +109,9 @@ when isMainModule:
   var lastSize = vec2(0.0'f32, 0.0'f32)
   var redrawCount = 0
 
-  when UseMetalBackend:
-    proc updateMetalLayer() =
-      metalHandle.updateMetalLayer(window)
-
   proc redraw() =
     inc redrawCount
-    when UseMetalBackend:
-      updateMetalLayer()
+    renderer.beginFrame()
     let sz = window.logicalSize()
     if sz != lastSize:
       lastSize = sz
@@ -144,8 +122,7 @@ when isMainModule:
     renderer.renderFrame(renders, sz)
     if redrawCount <= 3 or (redrawCount mod 240) == 0:
       debug "redraw end", redraw = redrawCount
-    when not UseMetalBackend and not UseVulkanBackend:
-      window.swapBuffers()
+    renderer.endFrame()
 
   window.onCloseRequest = proc() =
     info "Close requested"

@@ -467,7 +467,7 @@ when isMainModule:
   let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
   let monoFont = monoTypeface.fontWithSize(14.0'f32)
 
-  let title = "figdraw: 3D + overlay"
+  let title = windyWindowTitle("3D + overlay")
   let size = ivec2(900, 640)
 
   let window = newWindyWindow(size = size, fullscreen = false, title = title)
@@ -479,16 +479,11 @@ when isMainModule:
   if size != size.scaled():
     window.size = size.scaled()
 
-  let renderer = glrenderer.newFigRenderer(atlasSize = 512)
-  when UseMetalBackend:
-    let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
-    renderer.ctx.presentLayer = metalHandle.layer
-    when defined(macosx):
-      metalHandle.layer.setOpaque(false)
-
-  when UseMetalBackend:
-    proc updateMetalLayer() =
-      metalHandle.updateMetalLayer(window)
+  let renderer =
+    glrenderer.newFigRenderer(atlasSize = 512, backendState = WindyRenderBackend())
+  renderer.setupBackend(window)
+  when UseMetalBackend and defined(macosx):
+    renderer.backendState.metalLayer.layer.setOpaque(false)
 
   startOpenGL(openglVersion)
   window.makeContextCurrent()
@@ -501,8 +496,7 @@ when isMainModule:
   let fpsAlpha = 0.005
 
   proc redraw() =
-    when UseMetalBackend:
-      updateMetalLayer()
+    renderer.beginFrame()
 
     let now = epochTime()
     let dt = now - lastFrameTime
@@ -543,7 +537,7 @@ when isMainModule:
       )
     else:
       renderer.renderFrame(renders, sz, clearMain = false)
-      window.swapBuffers()
+    renderer.endFrame()
 
   window.onCloseRequest = proc() =
     app_running = false

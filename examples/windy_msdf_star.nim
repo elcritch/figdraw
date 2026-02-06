@@ -294,7 +294,7 @@ when isMainModule:
 
   var app_running = true
 
-  let title = "figdraw: OpenGL + Windy MSDF/MTSDF"
+  let title = windyWindowTitle("Windy MSDF/MTSDF")
   let size = ivec2(1024, 640)
 
   let typefaceId = loadTypeface("Ubuntu.ttf")
@@ -316,26 +316,19 @@ when isMainModule:
 
   let animStart = epochTime()
 
-  let renderer = glrenderer.newFigRenderer(atlasSize = 2048)
-
-  when UseMetalBackend:
-    let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
-    renderer.ctx.presentLayer = metalHandle.layer
+  let renderer =
+    glrenderer.newFigRenderer(atlasSize = 2048, backendState = WindyRenderBackend())
+  renderer.setupBackend(window)
 
   var makeRenderTreeMsSum = 0.0
   var renderFrameMsSum = 0.0
   var lastElementCount = 0
 
-  when UseMetalBackend:
-    proc updateMetalLayer() =
-      metalHandle.updateMetalLayer(window)
-
   proc redraw() =
     inc frames
     inc fpsFrames
 
-    when UseMetalBackend:
-      updateMetalLayer()
+    renderer.beginFrame()
 
     let sz = window.logicalSize()
     let t = (epochTime() - animStart).float32
@@ -393,9 +386,7 @@ when isMainModule:
     let t1 = getMonoTime()
     renderer.renderFrame(renders, sz)
     renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
-
-    when not UseMetalBackend:
-      window.swapBuffers()
+    renderer.endFrame()
 
   window.onCloseRequest = proc() =
     app_running = false

@@ -5,7 +5,7 @@ import common/fontutils
 import common/imgutils
 
 const UseVulkanBackend* {.booldefine: "figdraw.vulkan".} =
-  defined(freebsd) or defined(linux)
+  defined(bsd) or defined(linux)
 const UseMetalBackend* {.booldefine: "figdraw.metal".} =
   defined(macosx) and not UseVulkanBackend
 

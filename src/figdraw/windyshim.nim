@@ -144,14 +144,12 @@ type WindyRenderBackend* = object
   when UseMetalBackend:
     metalLayer*: MetalLayerHandle
 
-proc setupBackend*(
-    renderer: FigRenderer,
-    window: Window,
-) =
+proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a Windy window and FigDraw renderer.
   renderer.backendState.window = window
   when UseMetalBackend:
-    renderer.backendState.metalLayer = attachMetalLayer(window, renderer.ctx.metalDevice())
+    renderer.backendState.metalLayer =
+      attachMetalLayer(window, renderer.ctx.metalDevice())
     renderer.ctx.presentLayer = renderer.backendState.metalLayer.layer
   elif UseVulkanBackend:
     attachVulkanSurface(window, renderer.ctx)
@@ -165,4 +163,4 @@ proc beginFrame*(renderer: FigRenderer[WindyRenderBackend]) =
 proc endFrame*(renderer: FigRenderer[WindyRenderBackend]) =
   ## Present a frame for backends that need explicit window buffer swap.
   when UseWindyOpenGL:
-    rendererwindow.swapBuffers()
+    renderer.backendState.window.swapBuffers()

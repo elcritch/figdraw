@@ -255,22 +255,16 @@ when isMainModule:
   var fpsFrames = 0
   var fpsStart = epochTime()
   var needsRedraw = true
-  let window =
-    newWindyWindow(size = size, fullscreen = false, title = "figdraw: Windy + Text")
+  let window = newWindyWindow(
+    size = size, fullscreen = false, title = windyWindowTitle("Windy + Text")
+  )
 
-  let renderer = glrenderer.newFigRenderer(atlasSize = 4096)
-
-  when UseMetalBackend:
-    let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
-    renderer.ctx.presentLayer = metalHandle.layer
-
-  when UseMetalBackend:
-    proc updateMetalLayer() =
-      metalHandle.updateMetalLayer(window)
+  let renderer =
+    glrenderer.newFigRenderer(atlasSize = 4096, backendState = WindyRenderBackend())
+  renderer.setupBackend(window)
 
   proc redraw() =
-    when UseMetalBackend:
-      updateMetalLayer()
+    renderer.beginFrame()
     let sz = window.logicalSize()
     let szOrig = window.size()
     let factor = round(szOrig.x.float32 / size.x.float32, 1)
@@ -278,8 +272,7 @@ when isMainModule:
 
     var renders = makeRenderTree(sz.x, sz.y, uiFont, monoFont)
     renderer.renderFrame(renders, sz)
-    when not UseMetalBackend:
-      window.swapBuffers()
+    renderer.endFrame()
 
   window.onCloseRequest = proc() =
     app_running = false
