@@ -16,9 +16,9 @@ type
 
   Fig* = object
     zlevel*: ZLevel
-    childCount*: int8
     parent*: FigIdx = (-1).FigIdx
     flags*: set[FigFlags]
+    childCount*: int16
 
     screenBox*: Rect
 
@@ -93,7 +93,7 @@ proc addChild*(
   let newIdx = list.nodes.len
   assert newIdx <= high(int16).int
 
-  if list.nodes[pidx].childCount == high(int8):
+  if list.nodes[pidx].childCount == high(typeof(list.nodes[pidx].childCount)):
     raise newException(ValueError, "RenderList parent childCount overflow")
   inc list.nodes[pidx].childCount
 
