@@ -32,7 +32,13 @@ when isMainModule:
   let fpsFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
   var fpsText = "0.0 FPS"
 
-  let title = "figdraw: OpenGL + Windy RenderList"
+  let title =
+    when UseMetalBackend:
+      "figdraw: Metal + Windy RenderList"
+    elif UseVulkanBackend:
+      "figdraw: Vulkan + Windy RenderList"
+    else:
+      "figdraw: OpenGL + Windy RenderList"
   let size = ivec2(800, 600)
 
   var frames = 0
@@ -53,6 +59,8 @@ when isMainModule:
   when UseMetalBackend:
     let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
     renderer.ctx.presentLayer = metalHandle.layer
+  when UseVulkanBackend:
+    attachVulkanSurface(window, renderer.ctx)
 
   var makeRenderTreeMsSum = 0.0
   var renderFrameMsSum = 0.0
@@ -126,7 +134,7 @@ when isMainModule:
     renderer.renderFrame(renders, sz)
     renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
 
-    when not UseMetalBackend:
+    when not UseMetalBackend and not UseVulkanBackend:
       window.swapBuffers()
 
   window.onCloseRequest = proc() =
