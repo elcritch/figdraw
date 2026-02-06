@@ -1,6 +1,12 @@
 import unicode, vmath, windy/common
 
 import ./commons
+import ./figrender
+
+const UseWindyOpenGL = not (UseMetalBackend or UseVulkanBackend)
+
+when UseVulkanBackend:
+  import ./vulkan/vulkan_context
 
 when defined(emscripten):
   import windy/platforms/emscripten/platform
@@ -19,10 +25,21 @@ elif defined(linux) or defined(bsd):
 else:
   {.error: "windyshim: unsupported OS".}
 
-when not UseMetalBackend:
+when UseWindyOpenGL:
   import figdraw/utils/glutils
 
 export common, platform, unicode, vmath
+
+proc windyBackendName*(): string =
+  when UseMetalBackend:
+    "Metal"
+  elif UseVulkanBackend:
+    "Vulkan"
+  else:
+    "OpenGL"
+
+proc windyWindowTitle*(suffix = "Windy RenderList"): string =
+  "figdraw: " & windyBackendName() & " + " & suffix
 
 proc logicalSize*(window: Window): Vec2 =
   result = vec2(window.size()).descaled()
@@ -36,7 +53,7 @@ proc newWindyWindow*(size: IVec2, fullscreen = false, title = "FigDraw"): Window
   )
   let window = newWindow(title, size, visible = false)
 
-  when not UseMetalBackend:
+  when UseWindyOpenGL:
     startOpenGL(openglVersion)
 
   when not defined(emscripten):
@@ -45,7 +62,7 @@ proc newWindyWindow*(size: IVec2, fullscreen = false, title = "FigDraw"): Window
     else:
       window.size = size
     window.visible = true
-  when not UseMetalBackend:
+  when UseWindyOpenGL:
     window.makeContextCurrent()
 
   return window
@@ -87,3 +104,63 @@ when UseMetalBackend:
     handle.layer.setFrame(handle.hostView.bounds())
     let sz = window.size()
     handle.layer.setDrawableSize(NSSize(width: sz.x.float, height: sz.y.float))
+
+when UseVulkanBackend and (defined(linux) or defined(bsd)):
+  import chronicles
+  import std/importutils
+  import x11/xlib
+
+  privateAccess(Window)
+
+  var vulkanDisplay: PDisplay
+
+  proc sharedVulkanDisplay(): PDisplay =
+    if vulkanDisplay.isNil:
+      vulkanDisplay = XOpenDisplay(nil)
+    result = vulkanDisplay
+
+  proc attachVulkanSurface*(window: Window, ctx: vulkan_context.Context) =
+    var display = sharedVulkanDisplay()
+    if display.isNil:
+      raise newException(ValueError, "Failed to open X11 display for Vulkan surface")
+    info "attachVulkanSurface xlib",
+      display = cast[uint64](display), window = cast[uint64](window.handle)
+    ctx.setPresentXlibTarget(cast[pointer](display), cast[uint64](window.handle))
+
+when UseVulkanBackend and defined(windows):
+  import std/importutils
+  import windy/platforms/win32/windefs
+
+  privateAccess(Window)
+
+  proc attachVulkanSurface*(window: Window, ctx: vulkan_context.Context) =
+    let hinstance = cast[pointer](GetModuleHandleW(nil))
+    let hwnd = cast[pointer](window.hWnd)
+    ctx.setPresentWin32Target(hinstance, hwnd)
+
+type WindyRenderBackend* = object
+  ## Opaque per-window backend state used by windy + FigDraw integration.
+  window*: Window
+  when UseMetalBackend:
+    metalLayer*: MetalLayerHandle
+
+proc setupBackend*(renderer: FigRenderer, window: Window) =
+  ## One-time backend hookup between a Windy window and FigDraw renderer.
+  renderer.backendState.window = window
+  when UseMetalBackend:
+    renderer.backendState.metalLayer =
+      attachMetalLayer(window, renderer.ctx.metalDevice())
+    renderer.ctx.presentLayer = renderer.backendState.metalLayer.layer
+  elif UseVulkanBackend:
+    attachVulkanSurface(window, renderer.ctx)
+
+proc beginFrame*(renderer: FigRenderer[WindyRenderBackend]) =
+  ## Per-frame pre-render backend maintenance.
+  when UseMetalBackend:
+    let window = renderer.backendState.window
+    renderer.backendState.metalLayer.updateMetalLayer(window)
+
+proc endFrame*(renderer: FigRenderer[WindyRenderBackend]) =
+  ## Present a frame for backends that need explicit window buffer swap.
+  when UseWindyOpenGL:
+    renderer.backendState.window.swapBuffers()

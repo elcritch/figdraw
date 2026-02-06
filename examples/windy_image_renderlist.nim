@@ -65,7 +65,7 @@ when isMainModule:
 
   var app_running = true
 
-  let title = "figdraw: OpenGL + Windy RenderList"
+  let title = windyWindowTitle("Windy Image RenderList")
   let size = ivec2(800, 600)
   var frames = 0
   var fpsFrames = 0
@@ -80,24 +80,15 @@ when isMainModule:
     window.size = size.scaled()
 
   let renderer =
-    glrenderer.newFigRenderer(atlasSize = 2048, )
-
-  when UseMetalBackend:
-    let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
-    renderer.ctx.presentLayer = metalHandle.layer
-
-  when UseMetalBackend:
-    proc updateMetalLayer() =
-      metalHandle.updateMetalLayer(window)
+    glrenderer.newFigRenderer(atlasSize = 2048, backendState = WindyRenderBackend())
+  renderer.setupBackend(window)
 
   proc redraw() =
-    when UseMetalBackend:
-      updateMetalLayer()
+    renderer.beginFrame()
     let sz = window.logicalSize()
     var renders = makeRenderTree(sz.x, sz.y)
     renderer.renderFrame(renders, sz)
-    when not UseMetalBackend:
-      window.swapBuffers()
+    renderer.endFrame()
 
   window.onCloseRequest = proc() =
     app_running = false

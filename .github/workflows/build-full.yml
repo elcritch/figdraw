@@ -20,7 +20,7 @@ jobs:
     steps:
     - uses: actions/checkout@v1
 
-    - name: Setup software OpenGL (Mesa) + Xvfb
+    - name: Setup software OpenGL/Vulkan (Mesa) + Xvfb
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
@@ -28,10 +28,19 @@ jobs:
           xvfb \
           xauth \
           mesa-utils \
+          vulkan-tools \
+          mesa-vulkan-drivers \
+          libvulkan1 \
           libgl1-mesa-dri \
           libglx-mesa0 \
           libegl-mesa0 \
           libgles2
+
+    - name: Vulkan diagnostics
+      if: runner.os == 'Linux'
+      run: |
+        ls -la /usr/share/vulkan/icd.d || true
+        vulkaninfo --summary || true
 
     - name: Install GrabNim
       run: |
@@ -68,7 +77,7 @@ jobs:
       if: runner.os == 'macOS'
       run: |
         # sync deps
-        atlas install --feature:windy --feature:sdl2 --feature:metal
+        atlas install --feature:windy --feature:sdl2
 
     - name: Build Tests
       if: runner.os == 'Linux'
@@ -78,6 +87,8 @@ jobs:
         LIBGL_ALWAYS_SOFTWARE: "1"
         MESA_GL_VERSION_OVERRIDE: "3.3"
         MESA_GLSL_VERSION_OVERRIDE: "330"
+        VK_ICD_FILENAMES: "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+        VK_DRIVER_FILES: "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
       run: |
         xvfb-run -a -s "-screen 0 1280x1024x24" nim test
 

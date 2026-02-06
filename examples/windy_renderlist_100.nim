@@ -32,7 +32,7 @@ when isMainModule:
   let fpsFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
   var fpsText = "0.0 FPS"
 
-  let title = "figdraw: OpenGL + Windy RenderList"
+  let title = windyWindowTitle("Windy RenderList")
   let size = ivec2(800, 600)
 
   var frames = 0
@@ -47,29 +47,22 @@ when isMainModule:
   if size != size.scaled():
     window.size = size.scaled()
 
-  let renderer =
-    newFigRenderer(atlasSize = when not defined(useFigDrawTextures): 512 else: 2048)
-
-  when UseMetalBackend:
-    let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
-    renderer.ctx.presentLayer = metalHandle.layer
+  let renderer = newFigRenderer(
+    atlasSize = when not defined(useFigDrawTextures): 512 else: 2048,
+    backendState = WindyRenderBackend(),
+  )
+  renderer.setupBackend(window)
 
   var makeRenderTreeMsSum = 0.0
   var renderFrameMsSum = 0.0
   var lastElementCount = 0
-
-  when UseMetalBackend:
-    proc updateMetalLayer() =
-      metalHandle.updateMetalLayer(window)
 
   proc redraw() =
     inc frames
     inc globalFrame
     inc fpsFrames
 
-    when UseMetalBackend:
-      updateMetalLayer()
-
+    renderer.beginFrame()
     let sz = window.logicalSize()
 
     let t0 = getMonoTime()
@@ -125,9 +118,7 @@ when isMainModule:
     let t1 = getMonoTime()
     renderer.renderFrame(renders, sz)
     renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
-
-    when not UseMetalBackend:
-      window.swapBuffers()
+    renderer.endFrame()
 
   window.onCloseRequest = proc() =
     app_running = false

@@ -14,6 +14,9 @@ import figdraw/fignodes
 import figdraw/figrender as glrenderer
 import figdraw/utils/glutils
 import pkg/opengl
+when UseVulkanBackend:
+  import pkg/pixie
+  import figdraw/vulkan/vulkan_context
 
 when UseMetalBackend and defined(macosx):
   import darwin/objc/runtime
@@ -367,6 +370,7 @@ proc makeOverlay*(
     rows: openArray[string],
     monoFont: FigFont,
     bg: Color = rgba(0, 0, 0, 0).color,
+    bgImageId: ImageId = default(ImageId),
 ): Renders =
   var list = RenderList()
 
@@ -379,6 +383,18 @@ proc makeOverlay*(
       fill: bg,
     )
   )
+
+  if bgImageId.int != 0:
+    discard list.addChild(
+      rootIdx,
+      Fig(
+        kind: nkImage,
+        childCount: 0,
+        zlevel: 0.ZLevel,
+        screenBox: rect(0, 0, w, h),
+        image: ImageStyle(color: whiteColor, id: bgImageId),
+      ),
+    )
 
   let pad = 16'f32
   let panelWBase = min(340'f32, w * 0.3'f32)
@@ -467,7 +483,7 @@ when isMainModule:
   let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
   let monoFont = monoTypeface.fontWithSize(14.0'f32)
 
-  let title = "figdraw: 3D + overlay"
+  let title = windyWindowTitle("3D + overlay")
   let size = ivec2(900, 640)
 
   let window = newWindyWindow(size = size, fullscreen = false, title = title)
@@ -479,16 +495,11 @@ when isMainModule:
   if size != size.scaled():
     window.size = size.scaled()
 
-  let renderer = glrenderer.newFigRenderer(atlasSize = 512)
-  when UseMetalBackend:
-    let metalHandle = attachMetalLayer(window, renderer.ctx.metalDevice())
-    renderer.ctx.presentLayer = metalHandle.layer
-    when defined(macosx):
-      metalHandle.layer.setOpaque(false)
-
-  when UseMetalBackend:
-    proc updateMetalLayer() =
-      metalHandle.updateMetalLayer(window)
+  let renderer =
+    glrenderer.newFigRenderer(atlasSize = 2048, backendState = WindyRenderBackend())
+  renderer.setupBackend(window)
+  when UseMetalBackend and defined(macosx):
+    renderer.backendState.metalLayer.layer.setOpaque(false)
 
   startOpenGL(openglVersion)
   window.makeContextCurrent()
@@ -499,10 +510,31 @@ when isMainModule:
   var lastFrameTime = startTime
   var fpsValue = 0.0
   let fpsAlpha = 0.005
+  when UseVulkanBackend:
+    var bgImageTargetW = 0
+    var bgImageTargetH = 0
+    var bgImageId = default(ImageId)
+
+  when UseVulkanBackend:
+    proc captureGlBackBuffer(frameSizePx: IVec2): Image =
+      let w = max(1, frameSizePx.x.int)
+      let h = max(1, frameSizePx.y.int)
+      glFinish()
+      glReadBuffer(GL_BACK)
+      result = newImage(w, h)
+      glReadPixels(
+        0.GLint,
+        0.GLint,
+        w.GLint,
+        h.GLint,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        result.data[0].addr,
+      )
+      result.flipVertical()
 
   proc redraw() =
-    when UseMetalBackend:
-      updateMetalLayer()
+    renderer.beginFrame()
 
     let now = epochTime()
     let dt = now - lastFrameTime
@@ -528,7 +560,6 @@ when isMainModule:
     let triRows = triangleInfoRows(mvp, 0)
     for row in triRows:
       rows.add(row)
-    var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
 
     useDepthBuffer(true)
     glClearColor(0.08, 0.1, 0.14, 1.0)
@@ -537,18 +568,46 @@ when isMainModule:
     useDepthBuffer(false)
 
     when UseMetalBackend:
+      var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
       window.swapBuffers()
       renderer.renderFrame(
         renders, sz, clearMain = true, clearColor = rgba(0, 0, 0, 0).color
       )
+    elif UseVulkanBackend:
+      let framePx = window.size()
+      let bgImage = captureGlBackBuffer(framePx)
+      if framePx.x > bgImageTargetW or framePx.y > bgImageTargetH or bgImageId.int == 0:
+        bgImageTargetW = max(bgImageTargetW, framePx.x)
+        bgImageTargetH = max(bgImageTargetH, framePx.y)
+        let key =
+          "windy_3d_overlay_glbg_target_" & $bgImageTargetW & "x" & $bgImageTargetH
+        bgImageId = imgId(key)
+        let bgUpload =
+          if bgImage.width != bgImageTargetW or bgImage.height != bgImageTargetH:
+            bgImage.resize(bgImageTargetW, bgImageTargetH)
+          else:
+            bgImage
+        vulkan_context.putImage(renderer.ctx, bgImageId.Hash, bgUpload)
+      else:
+        let bgUpload =
+          if bgImage.width != bgImageTargetW or bgImage.height != bgImageTargetH:
+            bgImage.resize(bgImageTargetW, bgImageTargetH)
+          else:
+            bgImage
+        vulkan_context.updateImage(renderer.ctx, bgImageId.Hash, bgUpload)
+      var renders = makeOverlay(
+        sz.x, sz.y, rows, monoFont, bg = rgba(0, 0, 0, 255).color, bgImageId = bgImageId
+      )
+      renderer.renderFrame(renders, sz, clearMain = true)
     else:
+      var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
       renderer.renderFrame(renders, sz, clearMain = false)
-      window.swapBuffers()
+    renderer.endFrame()
 
   window.onCloseRequest = proc() =
     app_running = false
   window.onResize = proc() =
-    redraw()
+    discard
 
   try:
     while app_running:

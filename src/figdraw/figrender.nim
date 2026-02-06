@@ -15,6 +15,8 @@ import ./opengl/glcommons
 when UseMetalBackend:
   import ./metal/metal_context
   import metalx/metal
+elif UseVulkanBackend:
+  import ./vulkan/vulkan_context
 else:
   import pkg/opengl
   import ./utils/glutils
@@ -23,8 +25,11 @@ else:
 
 const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
-type FigRenderer* = ref object
+type NoRendererBackendState* = object
+
+type FigRenderer*[BackendState = NoRendererBackendState] = ref object
   ctx*: Context
+  backendState*: BackendState
 
 when UseMetalBackend:
   proc metalDevice*(ctx: Context): MTLDevice =
@@ -32,13 +37,16 @@ when UseMetalBackend:
     ## need to import `figdraw/metal/glcontext_metal`.
     metal_context.metalDevice(ctx)
 
-proc takeScreenshot*(
-    renderer: FigRenderer, frame: Rect = rect(0, 0, 0, 0), readFront: bool = true
+proc takeScreenshot*[BackendState](
+    renderer: FigRenderer[BackendState],
+    frame: Rect = rect(0, 0, 0, 0),
+    readFront: bool = true,
 ): Image =
-  discard readFront
   let ctx: Context = renderer.ctx
   when UseMetalBackend:
     result = ctx.readPixels(frame)
+  elif UseVulkanBackend:
+    result = ctx.readPixels(frame, readFront = readFront)
   else:
     var viewport: array[4, GLint]
     glGetIntegerv(GL_VIEWPORT, viewport[0].addr)
@@ -66,18 +74,45 @@ proc takeScreenshot*(
     result.flipVertical()
     glReadBuffer(GL_BACK)
 
-proc newFigRenderer*(atlasSize: int, pixelScale = 1.0'f32): FigRenderer =
-  result = FigRenderer()
+proc newFigRenderer*(
+    atlasSize: int, pixelScale = 1.0'f32
+): FigRenderer[NoRendererBackendState] =
+  result = FigRenderer[NoRendererBackendState]()
   when UseMetalBackend:
     result.ctx =
       newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
+  elif UseVulkanBackend:
+    result.ctx = vulkan_context.newContext(
+      atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
+    )
   else:
     result.ctx =
       newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
 
-proc newFigRenderer*(ctx: Context): FigRenderer =
+proc newFigRenderer*[BackendState](
+    atlasSize: int, backendState: BackendState, pixelScale = 1.0'f32
+): FigRenderer[BackendState] =
+  result = FigRenderer[BackendState](backendState: backendState)
+  when UseMetalBackend:
+    result.ctx =
+      newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
+  elif UseVulkanBackend:
+    result.ctx = vulkan_context.newContext(
+      atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
+    )
+  else:
+    result.ctx =
+      newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
+
+proc newFigRenderer*(ctx: Context): FigRenderer[NoRendererBackendState] =
   ## Uses a caller-created backend context.
-  result = FigRenderer(ctx: ctx)
+  result = FigRenderer[NoRendererBackendState](ctx: ctx)
+
+proc newFigRenderer*[BackendState](
+    ctx: Context, backendState: BackendState
+): FigRenderer[BackendState] =
+  ## Uses a caller-created backend context with custom backend state payload.
+  result = FigRenderer[BackendState](ctx: ctx, backendState: backendState)
 
 proc renderDrawable*(ctx: Context, node: Fig) =
   ## TODO: draw non-node stuff?
@@ -470,8 +505,8 @@ proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff]
     for rootIdx in list.rootIds:
       ctx.render(list.nodes, rootIdx, -1.FigIdx)
 
-proc renderFrame*(
-    renderer: FigRenderer,
+proc renderFrame*[BackendState](
+    renderer: FigRenderer[BackendState],
     nodes: var Renders,
     frameSize: Vec2,
     clearMain: bool = true,
@@ -479,7 +514,7 @@ proc renderFrame*(
 ) =
   let ctx: Context = renderer.ctx
   let frameSize = frameSize.scaled()
-  when UseMetalBackend:
+  when UseMetalBackend or UseVulkanBackend:
     ctx.beginFrame(frameSize, clearMain = clearMain, clearMainColor = clearColor)
   else:
     if clearMain:
@@ -492,7 +527,7 @@ proc renderFrame*(
   ctx.restoreTransform()
   ctx.endFrame()
 
-  when defined(testOneFrame) and not UseMetalBackend:
+  when defined(testOneFrame) and not UseMetalBackend and not UseVulkanBackend:
     ## This is used for test only
     ## Take a screen shot of the first frame and exit.
     var img = takeScreenshot(renderer)

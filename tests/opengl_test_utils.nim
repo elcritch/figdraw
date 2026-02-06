@@ -7,7 +7,10 @@ import figdraw/commons
 import figdraw/fignodes
 import figdraw/figrender as glrenderer
 
-when not UseMetalBackend:
+when UseVulkanBackend:
+  import pkg/vulkan/wrapper
+
+when not UseMetalBackend and not UseVulkanBackend:
   import pkg/opengl
   import figdraw/utils/glutils
 
@@ -15,7 +18,7 @@ proc ensureTestOutputDir*(subdir = "output"): string =
   result = getCurrentDir() / "tests" / subdir
   createDir(result)
 
-when not UseMetalBackend:
+when not UseMetalBackend and not UseVulkanBackend:
   proc newTestWindow(windowW, windowH: float32, title: string): Window =
     let window = newWindow(title, ivec2(windowW.int32, windowH.int32), visible = false)
     startOpenGL(openglVersion)
@@ -42,6 +45,19 @@ proc renderAndScreenshotOnce*(
       result.writeFile(outputPath)
     except ValueError:
       raise newException(WindyError, "Metal device not available")
+  elif UseVulkanBackend:
+    try:
+      let renderer = glrenderer.newFigRenderer(atlasSize = atlasSize)
+
+      var renders = makeRenders(windowW.float32, windowH.float32)
+      renderer.renderFrame(renders, vec2(windowW.float32, windowH.float32))
+
+      result = glrenderer.takeScreenshot(renderer)
+      result.writeFile(outputPath)
+    except VulkanError as exc:
+      raise newException(WindyError, "Vulkan device not available: " & exc.msg)
+    except ValueError:
+      raise newException(WindyError, "Vulkan device not available")
   else:
     let window = newTestWindow(windowW.float32, windowH.float32, title)
     if glGetString(GL_VERSION) == nil:
@@ -71,19 +87,13 @@ proc renderAndScreenshotOverlayOnce*(
     title = "figdraw test: opengl overlay screenshot",
 ): Image =
   when UseMetalBackend:
-    try:
-      let renderer = glrenderer.newFigRenderer(atlasSize = atlasSize)
-      let frameSize = vec2(windowW.float32, windowH.float32)
-      var renders = makeRenders(windowW.float32, windowH.float32)
-      drawBackground(frameSize)
-      renderer.renderFrame(
-        renders, vec2(windowW.float32, windowH.float32), clearMain = true
-      )
-
-      result = glrenderer.takeScreenshot(renderer)
-      result.writeFile(outputPath)
-    except ValueError:
-      raise newException(WindyError, "Metal device not available")
+    raise newException(
+      WindyError, "OpenGL overlay background rendering is unsupported on Metal backend"
+    )
+  elif UseVulkanBackend:
+    raise newException(
+      WindyError, "OpenGL overlay background rendering is unsupported on Vulkan backend"
+    )
   else:
     let window = newTestWindow(windowW.float32, windowH.float32, title)
     if glGetString(GL_VERSION) == nil:
