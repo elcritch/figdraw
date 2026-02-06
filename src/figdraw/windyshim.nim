@@ -97,18 +97,8 @@ when UseVulkanBackend and (defined(linux) or defined(bsd)):
   import chronicles
   import std/importutils
   import x11/xlib
-  import windy/platforms/linux/x11/glx
 
   privateAccess(Window)
-
-  const libGLX =
-    when defined(linux):
-      "libGL.so.1"
-    else:
-      "libGL.so"
-
-  {.pragma: libglx, cdecl, dynlib: libGLX, importc.}
-  proc glXGetCurrentDisplay(): PDisplay {.libglx.}
 
   var vulkanDisplay: PDisplay
 
@@ -118,12 +108,7 @@ when UseVulkanBackend and (defined(linux) or defined(bsd)):
     result = vulkanDisplay
 
   proc attachVulkanSurface*(window: Window, ctx: vulkan_context.Context) =
-    # Prefer the same X11 display connection Windy uses for this window.
-    window.makeContextCurrent()
-    var display = glXGetCurrentDisplay()
-    if display.isNil:
-      warn "glXGetCurrentDisplay returned nil; falling back to XOpenDisplay"
-      display = sharedVulkanDisplay()
+    var display = sharedVulkanDisplay()
     if display.isNil:
       raise newException(ValueError, "Failed to open X11 display for Vulkan surface")
     info "attachVulkanSurface xlib",
