@@ -511,7 +511,8 @@ when isMainModule:
   var fpsValue = 0.0
   let fpsAlpha = 0.005
   when UseVulkanBackend:
-    var bgImageKey = ""
+    var bgImageTargetW = 0
+    var bgImageTargetH = 0
     var bgImageId = default(ImageId)
 
   when UseVulkanBackend:
@@ -575,14 +576,25 @@ when isMainModule:
     elif UseVulkanBackend:
       let framePx = window.size()
       let bgImage = captureGlBackBuffer(framePx)
-      let nextBgKey = "windy_3d_overlay_glbg_" & $bgImage.width & "x" & $bgImage.height
-      let nextBgId = imgId(nextBgKey)
-      if bgImageKey != nextBgKey:
-        vulkan_context.putImage(renderer.ctx, nextBgId.Hash, bgImage)
-        bgImageKey = nextBgKey
-        bgImageId = nextBgId
+      if framePx.x > bgImageTargetW or framePx.y > bgImageTargetH or bgImageId.int == 0:
+        bgImageTargetW = max(bgImageTargetW, framePx.x)
+        bgImageTargetH = max(bgImageTargetH, framePx.y)
+        let key =
+          "windy_3d_overlay_glbg_target_" & $bgImageTargetW & "x" & $bgImageTargetH
+        bgImageId = imgId(key)
+        let bgUpload =
+          if bgImage.width != bgImageTargetW or bgImage.height != bgImageTargetH:
+            bgImage.resize(bgImageTargetW, bgImageTargetH)
+          else:
+            bgImage
+        vulkan_context.putImage(renderer.ctx, bgImageId.Hash, bgUpload)
       else:
-        vulkan_context.updateImage(renderer.ctx, bgImageId.Hash, bgImage)
+        let bgUpload =
+          if bgImage.width != bgImageTargetW or bgImage.height != bgImageTargetH:
+            bgImage.resize(bgImageTargetW, bgImageTargetH)
+          else:
+            bgImage
+        vulkan_context.updateImage(renderer.ctx, bgImageId.Hash, bgUpload)
       var renders = makeOverlay(
         sz.x, sz.y, rows, monoFont, bg = rgba(0, 0, 0, 255).color, bgImageId = bgImageId
       )
@@ -595,7 +607,7 @@ when isMainModule:
   window.onCloseRequest = proc() =
     app_running = false
   window.onResize = proc() =
-    redraw()
+    discard
 
   try:
     while app_running:
