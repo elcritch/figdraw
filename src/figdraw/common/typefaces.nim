@@ -53,7 +53,7 @@ template registerStaticTypeface*(
     name: static[string], path: static[string], kind: static[TypeFaceKinds] = TTF
 ) =
   ## Registers a static typeface by reading the font file at compile-time.
-  const fontData = staticRead(path)
+  const fontData {.gensym.} = staticRead(path)
   registerStaticTypefaceData(name, fontData, kind)
 
 proc hash*(tp: Typeface): Hash =
