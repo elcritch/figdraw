@@ -1,4 +1,4 @@
-version       = "0.18.3"
+version       = "0.18.4"
 author        = "Jaremy Creechley"
 description   = "UI Engine for Nim"
 license       = "MIT"
@@ -39,12 +39,5 @@ feature "vulkan":
   requires "https://github.com/planetis-m/vulkan#head"
 feature "metal":
   requires "https://github.com/elcritch/metalx#head"
-
-
-feature "windex":
-  requires "https://github.com/elcritch/windex"
-
-feature "reference":
-  requires "https://github.com/elcritch/figuro"
 
 
