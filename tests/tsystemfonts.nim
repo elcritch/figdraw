@@ -55,7 +55,7 @@ suite "system fonts":
 
     test "find common linux/freebsd system font":
       let font =
-        findSystemFontFile(["DejaVu Sans", "Noto Sans", "Liberation Sans", "Ubuntu"])
+        findSystemFontFile(["DejaVu Sans.ttf", "Noto Sans", "Liberation Sans", "Ubuntu"])
       check font.len > 0
       check fileExists(font)
   else:
