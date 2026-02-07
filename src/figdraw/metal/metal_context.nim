@@ -137,6 +137,8 @@ proc toKey*(h: Hash): Hash =
 proc hasImage*(ctx: Context, key: Hash): bool =
   key in ctx.entries
 
+proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool
+
 proc mtlRegion2D(x, y, w, h: int): MTLRegion =
   result.origin = MTLOrigin(x: NSUInteger(x), y: NSUInteger(y), z: 0)
   result.size = MTLSize(width: NSUInteger(w), height: NSUInteger(h), depth: 1)
@@ -625,7 +627,9 @@ proc drawMsdfImage*(
     sdThreshold: float32 = 0.5,
     strokeWeight: float32 = 0.0'f32,
 ) =
-  let rect = ctx.entries[imageId]
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
   ctx.drawUvRectAtlasSdf(
@@ -649,7 +653,9 @@ proc drawMtsdfImage*(
     sdThreshold: float32 = 0.5,
     strokeWeight: float32 = 0.0'f32,
 ) =
-  let rect = ctx.entries[imageId]
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
   ctx.drawUvRectAtlasSdf(
@@ -731,8 +737,12 @@ proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
 proc drawUvRect(ctx: Context, rect, uvRect: Rect, color: Color) =
   ctx.drawUvRect(rect.xy, rect.xy + rect.wh, uvRect.xy, uvRect.xy + uvRect.wh, color)
 
-proc getImageRect(ctx: Context, imageId: Hash): Rect =
-  ctx.entries[imageId]
+proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool =
+  if imageId notin ctx.entries:
+    warn "missing image in context", imageId = imageId
+    return false
+  rect = ctx.entries[imageId]
+  true
 
 proc drawImage*(
     ctx: Context,
@@ -741,7 +751,9 @@ proc drawImage*(
     color = color(1, 1, 1, 1),
     scale = 1.0,
 ) =
-  let rect = ctx.getImageRect(imageId)
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   let wh = rect.wh * ctx.atlasSize.float32 * scale
   ctx.drawUvRect(pos, pos + wh, rect.xy, rect.xy + rect.wh, color)
 
@@ -752,7 +764,9 @@ proc drawImage*(
     color = color(1, 1, 1, 1),
     size: Vec2,
 ) =
-  let rect = ctx.getImageRect(imageId)
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   ctx.drawUvRect(pos, pos + size, rect.xy, rect.xy + rect.wh, color)
 
 proc drawImageAdj*(
@@ -762,9 +776,10 @@ proc drawImageAdj*(
     color = color(1, 1, 1, 1),
     size: Vec2,
 ) =
-  let
-    rect = ctx.getImageRect(imageId)
-    adj = vec2(2 / ctx.atlasSize.float32)
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
+  let adj = vec2(2 / ctx.atlasSize.float32)
   ctx.drawUvRect(pos, pos + size, rect.xy + adj, rect.xy + rect.wh - adj, color)
 
 proc drawSprite*(
@@ -774,9 +789,10 @@ proc drawSprite*(
     color = color(1, 1, 1, 1),
     scale = 1.0,
 ) =
-  let
-    rect = ctx.getImageRect(imageId)
-    wh = rect.wh * ctx.atlasSize.float32 * scale
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
+  let wh = rect.wh * ctx.atlasSize.float32 * scale
   ctx.drawUvRect(pos - wh / 2, pos + wh / 2, rect.xy, rect.xy + rect.wh, color)
 
 proc drawSprite*(
@@ -786,7 +802,9 @@ proc drawSprite*(
     color = color(1, 1, 1, 1),
     size: Vec2,
 ) =
-  let rect = ctx.getImageRect(imageId)
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   ctx.drawUvRect(pos - size / 2, pos + size / 2, rect.xy, rect.xy + rect.wh, color)
 
 proc drawRect*(ctx: Context, rect: Rect, color: Color) =
