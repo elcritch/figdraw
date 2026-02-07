@@ -22,6 +22,10 @@ when not defined(nimscript):
     ## loads typeface from pixie
     loadTypeface(name)
 
+  proc getTypeface*(name: string, fallbackNames: seq[string]): TypefaceId =
+    ## loads typeface from pixie, searching optional fallback names
+    loadTypeface(name, fallbackNames)
+
   proc getTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId =
     loadTypeface(name, data, kind)
 

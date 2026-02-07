@@ -12,6 +12,8 @@ import figdraw/extras/systemfonts
 proc resetFontState() =
   typefaceTable = initTable[TypefaceId, Typeface]()
   fontTable = initTable[FontId, FigFont]()
+  staticTypefaceTable =
+    initTable[string, tuple[name: string, data: string, kind: TypeFaceKinds]]()
   #withLock imageCachedLock:
   #  imageCached.clear()
 
@@ -178,3 +180,21 @@ suite "fontutils":
       let id = loadTypeface(requestName)
       check id.int != 0
       check typefaceTable[id].filePath.len > 0
+
+  test "loadTypeface searches static registry via fallbackNames":
+    let oldDataDir = figDataDir()
+    let emptyDir = getTempDir() / "figdraw-font-embedded-fallback-test"
+    if not dirExists(emptyDir):
+      createDir(emptyDir)
+    setFigDataDir(emptyDir)
+    defer:
+      setFigDataDir(oldDataDir)
+      if dirExists(emptyDir):
+        removeDir(emptyDir)
+
+    registerStaticTypeface("test-ubuntu.ttf", "../data/Ubuntu.ttf", TTF)
+
+    let missingName = "__figdraw_missing_font_for_embedded_fallback__.ttf"
+    let id = loadTypeface(missingName, ["test-ubuntu.ttf"])
+    check id.int != 0
+    check typefaceTable[id].filePath == "test-ubuntu.ttf"
