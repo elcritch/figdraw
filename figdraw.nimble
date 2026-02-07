@@ -1,4 +1,4 @@
-version       = "0.18.4"
+version       = "0.18.5"
 author        = "Jaremy Creechley"
 description   = "UI Engine for Nim"
 license       = "MIT"
@@ -20,7 +20,7 @@ requires "supersnappy"
 
 when defined(macosx):
   requires "https://github.com/elcritch/metalx >= 0.4.2 "
-when defined(linux) or defined(bsd):
+when defined(linux) or defined(bsd) or defined(windows):
   requires "https://github.com/planetis-m/vulkan#head"
 
 feature "siwin":
