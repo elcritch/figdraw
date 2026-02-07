@@ -121,6 +121,9 @@ type
     frameBegun: bool
     maskBegun: bool
     maskDepth: int
+    pendingMaskRect: Rect
+    pendingMaskValid: bool
+    clipRects: seq[Rect]
     pixelate*: bool
     pixelScale*: float32
     aaFactor: float32
@@ -162,6 +165,7 @@ type
     swapchainFormat: VkFormat
     swapchainExtent: VkExtent2D
     swapchainOutOfDate: bool
+    swapchainTransferSrcSupported: bool
     presentReady: bool
 
     renderPass: VkRenderPass
@@ -180,6 +184,12 @@ type
     inFlightFence: VkFence
     acquiredImageIndex: uint32
     commandRecording: bool
+    readbackBuffer: VkBuffer
+    readbackMemory: VkDeviceMemory
+    readbackBytes: VkDeviceSize
+    readbackWidth: int32
+    readbackHeight: int32
+    readbackReady: bool
 
     atlasImage: VkImage
     atlasImageMemory: VkDeviceMemory
@@ -192,6 +202,8 @@ type
     vertexBuffer: VkBuffer
     vertexMemory: VkDeviceMemory
     vertexBufferBytes: VkDeviceSize
+    frameVertexBuffers: seq[VkBuffer]
+    frameVertexMemories: seq[VkDeviceMemory]
     indexBuffer: VkBuffer
     indexMemory: VkDeviceMemory
     indexBufferBytes: VkDeviceSize
@@ -533,6 +545,10 @@ proc ensureSwapchain(ctx: Context, width, height: int32)
 proc ensureGpuRuntime(ctx: Context)
 proc destroyGpu(ctx: Context)
 proc flush(ctx: Context)
+proc ensureReadbackBuffer(ctx: Context, bytes: VkDeviceSize)
+proc recordSwapchainReadback(ctx: Context)
+proc clearFrameVertexUploads(ctx: Context)
+proc applyClipScissor(ctx: Context)
 
 proc destroySwapchain(ctx: Context) =
   for fb in ctx.swapchainFramebuffers:
@@ -899,6 +915,15 @@ proc createSwapchain(ctx: Context, width, height: int32) =
     else:
       @[]
 
+  let imageUsage =
+    if TransferSrcBit in support.capabilities.supportedUsageFlags:
+      ctx.swapchainTransferSrcSupported = true
+      VkImageUsageFlags{ColorAttachmentBit, TransferSrcBit}
+    else:
+      ctx.swapchainTransferSrcSupported = false
+      warn "Vulkan swapchain does not support transfer src; readPixels disabled"
+      VkImageUsageFlags{ColorAttachmentBit}
+
   var createInfo = newVkSwapchainCreateInfoKHR(
     surface = ctx.surface,
     minImageCount = imageCount,
@@ -906,7 +931,7 @@ proc createSwapchain(ctx: Context, width, height: int32) =
     imageColorSpace = surfaceFormat.colorSpace,
     imageExtent = extent,
     imageArrayLayers = 1,
-    imageUsage = VkImageUsageFlags{ColorAttachmentBit},
+    imageUsage = imageUsage,
     imageSharingMode =
       if queueFamilyIndices.len > 0:
         VK_SHARING_MODE_CONCURRENT
@@ -980,6 +1005,8 @@ proc ensureSwapchain(ctx: Context, width, height: int32) =
 
   if ctx.device != vkNullDevice:
     discard vkDeviceWaitIdle(ctx.device)
+    ctx.clearFrameVertexUploads()
+    ctx.clearFrameVertexUploads()
   ctx.createSwapchain(width, height)
 
 proc ensureAtlasUploadBuffer(ctx: Context, bytes: VkDeviceSize) =
@@ -1001,6 +1028,37 @@ proc ensureAtlasUploadBuffer(ctx: Context, bytes: VkDeviceSize) =
   ctx.atlasUploadBuffer = alloc.buffer
   ctx.atlasUploadMemory = alloc.memory
   ctx.atlasUploadBytes = bytes
+
+proc ensureReadbackBuffer(ctx: Context, bytes: VkDeviceSize) =
+  if ctx.readbackBuffer != vkNullBuffer and ctx.readbackBytes >= bytes:
+    return
+
+  if ctx.readbackBuffer != vkNullBuffer:
+    destroyBuffer(ctx.device, ctx.readbackBuffer)
+    ctx.readbackBuffer = vkNullBuffer
+  if ctx.readbackMemory != vkNullMemory:
+    freeMemory(ctx.device, ctx.readbackMemory)
+    ctx.readbackMemory = vkNullMemory
+
+  let alloc = ctx.createBuffer(
+    size = bytes,
+    usage = VkBufferUsageFlags{TransferDstBit},
+    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
+  )
+  ctx.readbackBuffer = alloc.buffer
+  ctx.readbackMemory = alloc.memory
+  ctx.readbackBytes = bytes
+
+proc clearFrameVertexUploads(ctx: Context) =
+  for buf in ctx.frameVertexBuffers:
+    if buf != vkNullBuffer:
+      destroyBuffer(ctx.device, buf)
+  ctx.frameVertexBuffers.setLen(0)
+
+  for mem in ctx.frameVertexMemories:
+    if mem != vkNullMemory:
+      freeMemory(ctx.device, mem)
+  ctx.frameVertexMemories.setLen(0)
 
 proc recordAtlasUpload(ctx: Context, cmd: VkCommandBuffer) =
   let bytes = VkDeviceSize(ctx.atlasSize * ctx.atlasSize * 4)
@@ -1112,6 +1170,131 @@ proc recordAtlasUpload(ctx: Context, cmd: VkCommandBuffer) =
 
   ctx.atlasDirty = false
   ctx.atlasLayoutReady = true
+
+proc recordSwapchainReadback(ctx: Context) =
+  if not ctx.swapchainTransferSrcSupported:
+    return
+  if ctx.swapchainImages.len == 0:
+    return
+
+  let width = int32(ctx.swapchainExtent.width)
+  let height = int32(ctx.swapchainExtent.height)
+  if width <= 0 or height <= 0:
+    return
+
+  let readbackBytes = VkDeviceSize(width * height * 4)
+  ctx.ensureReadbackBuffer(readbackBytes)
+
+  let swapchainImage = ctx.swapchainImages[ctx.acquiredImageIndex.int]
+  var imageToTransfer = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    pNext: nil,
+    srcAccessMask: VkAccessFlags{ColorAttachmentWriteBit},
+    dstAccessMask: VkAccessFlags{TransferReadBit},
+    oldLayout: VkImageLayout.PresentSrcKhr,
+    newLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: swapchainImage,
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  vkCmdPipelineBarrier(
+    ctx.commandBuffer,
+    VkPipelineStageFlags{ColorAttachmentOutputBit},
+    VkPipelineStageFlags{TransferBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    imageToTransfer.addr,
+  )
+
+  var copyRegion = VkBufferImageCopy(
+    bufferOffset: 0.VkDeviceSize,
+    bufferRowLength: 0,
+    bufferImageHeight: 0,
+    imageSubresource: newVkImageSubresourceLayers(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      mipLevel = 0,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+    imageOffset: newVkOffset3D(x = 0, y = 0, z = 0),
+    imageExtent: newVkExtent3D(
+      width = ctx.swapchainExtent.width, height = ctx.swapchainExtent.height, depth = 1
+    ),
+  )
+  vkCmdCopyImageToBuffer(
+    ctx.commandBuffer, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    ctx.readbackBuffer, 1, copyRegion.addr,
+  )
+
+  var readbackBarrier = VkBufferMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+    pNext: nil,
+    srcAccessMask: VkAccessFlags{TransferWriteBit},
+    dstAccessMask: VkAccessFlags{HostReadBit},
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    buffer: ctx.readbackBuffer,
+    offset: 0.VkDeviceSize,
+    size: readbackBytes,
+  )
+  vkCmdPipelineBarrier(
+    ctx.commandBuffer,
+    VkPipelineStageFlags{TransferBit},
+    VkPipelineStageFlags{HostBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    1,
+    readbackBarrier.addr,
+    0,
+    nil,
+  )
+
+  var imageToPresent = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    pNext: nil,
+    srcAccessMask: VkAccessFlags{TransferReadBit},
+    dstAccessMask: 0.VkAccessFlags,
+    oldLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    newLayout: VkImageLayout.PresentSrcKhr,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: swapchainImage,
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  vkCmdPipelineBarrier(
+    ctx.commandBuffer,
+    VkPipelineStageFlags{TransferBit},
+    VkPipelineStageFlags{BottomOfPipeBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    imageToPresent.addr,
+  )
+
+  ctx.readbackWidth = width
+  ctx.readbackHeight = height
+  ctx.readbackReady = true
 
 proc ensureGpuRuntime(ctx: Context) =
   if ctx.gpuReady:
@@ -1404,11 +1587,19 @@ proc flush(ctx: Context) =
     v.sdfFactors[1] = ctx.sdfFactors[i * 2 + 1]
 
   let uploadBytes = VkDeviceSize(vertexCount * sizeof(Vertex))
+  let vertexAlloc = ctx.createBuffer(
+    size = uploadBytes,
+    usage = VkBufferUsageFlags{VertexBufferBit},
+    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
+  )
+  ctx.frameVertexBuffers.add(vertexAlloc.buffer)
+  ctx.frameVertexMemories.add(vertexAlloc.memory)
+
   let mappedVertex = cast[ptr uint8](mapMemory(
-    ctx.device, ctx.vertexMemory, 0.VkDeviceSize, uploadBytes, 0.VkMemoryMapFlags
+    ctx.device, vertexAlloc.memory, 0.VkDeviceSize, uploadBytes, 0.VkMemoryMapFlags
   ))
   copyMem(mappedVertex, ctx.vertexScratch[0].addr, int(uploadBytes))
-  unmapMemory(ctx.device, ctx.vertexMemory)
+  unmapMemory(ctx.device, vertexAlloc.memory)
 
   var vsu = VSUniforms(proj: ctx.proj)
   var fsu = FSUniforms(
@@ -1437,7 +1628,7 @@ proc flush(ctx: Context) =
 
   vkCmdBindPipeline(ctx.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.pipeline)
 
-  let vbs = [ctx.vertexBuffer]
+  let vbs = [vertexAlloc.buffer]
   let offs = [0.VkDeviceSize]
   vkCmdBindVertexBuffers(ctx.commandBuffer, 0, 1, vbs[0].unsafeAddr, offs[0].unsafeAddr)
   vkCmdBindIndexBuffer(
@@ -2023,6 +2214,51 @@ proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32, color: Color) 
   for i in 0 ..< poly.len:
     ctx.line(poly[i], poly[(i + 1) mod poly.len], weight, color)
 
+proc intersectRects(a, b: Rect): Rect =
+  let
+    x0 = max(a.x, b.x)
+    y0 = max(a.y, b.y)
+    x1 = min(a.x + a.w, b.x + b.w)
+    y1 = min(a.y + a.h, b.y + b.h)
+  if x1 <= x0 or y1 <= y0:
+    return rect(0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32)
+  rect(x0, y0, x1 - x0, y1 - y0)
+
+proc fullFrameRect(ctx: Context): Rect =
+  rect(0.0'f32, 0.0'f32, ctx.frameSize.x, ctx.frameSize.y)
+
+proc applyClipScissor(ctx: Context) =
+  if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain:
+    return
+
+  let clipRect =
+    if ctx.clipRects.len > 0:
+      ctx.clipRects[^1]
+    else:
+      ctx.fullFrameRect()
+
+  let maxW = max(0'i32, ctx.swapchainExtent.width.int32)
+  let maxH = max(0'i32, ctx.swapchainExtent.height.int32)
+
+  var x0 = clamp(floor(clipRect.x).int32, 0'i32, maxW)
+  var y0 = clamp(floor(clipRect.y).int32, 0'i32, maxH)
+  var x1 = clamp(ceil(clipRect.x + clipRect.w).int32, 0'i32, maxW)
+  var y1 = clamp(ceil(clipRect.y + clipRect.h).int32, 0'i32, maxH)
+  if x1 < x0:
+    x1 = x0
+  if y1 < y0:
+    y1 = y0
+
+  var scissor = newVkRect2D(
+    offset = newVkOffset2D(x = x0, y = y0),
+    extent = newVkExtent2D(width = uint32(x1 - x0), height = uint32(y1 - y0)),
+  )
+  vkCmdSetScissor(ctx.commandBuffer, 0, 1, scissor.addr)
+
+proc setMaskRect*(ctx: Context, clipRect: Rect) =
+  ctx.pendingMaskRect = clipRect
+  ctx.pendingMaskValid = true
+
 proc clearMask*(ctx: Context) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   ctx.flush()
@@ -2031,6 +2267,7 @@ proc beginMask*(ctx: Context) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginMask has already been called."
   ctx.flush()
+  ctx.pendingMaskValid = false
   ctx.maskBegun = true
   inc ctx.maskDepth
 
@@ -2039,10 +2276,27 @@ proc endMask*(ctx: Context) =
   ctx.flush()
   ctx.maskBegun = false
 
+  let maskRect =
+    if ctx.pendingMaskValid:
+      ctx.pendingMaskRect
+    else:
+      ctx.fullFrameRect()
+  let effective =
+    if ctx.clipRects.len > 0:
+      intersectRects(ctx.clipRects[^1], maskRect)
+    else:
+      maskRect
+  ctx.clipRects.add(effective)
+  ctx.applyClipScissor()
+  ctx.pendingMaskValid = false
+
 proc popMask*(ctx: Context) =
   ctx.flush()
   if ctx.maskDepth > 0:
     dec ctx.maskDepth
+  if ctx.clipRects.len > 0:
+    discard ctx.clipRects.pop()
+  ctx.applyClipScissor()
 
 proc beginFrame*(
     ctx: Context,
@@ -2056,6 +2310,8 @@ proc beginFrame*(
   ctx.commandRecording = false
   ctx.maskBegun = false
   ctx.maskDepth = 0
+  ctx.pendingMaskValid = false
+  ctx.clipRects.setLen(0)
   ctx.frameSize = frameSize
   ctx.proj = proj
 
@@ -2070,6 +2326,7 @@ proc beginFrame*(
   checkVkResult vkWaitForFences(
     ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
   )
+  ctx.clearFrameVertexUploads()
 
   let acquireResult = vkAcquireNextImageKHR(
     ctx.device,
@@ -2153,10 +2410,12 @@ proc endFrame*(ctx: Context) =
 
   ctx.flush()
   vkCmdEndRenderPass(ctx.commandBuffer)
+  ctx.readbackReady = false
+  ctx.recordSwapchainReadback()
   checkVkResult vkEndCommandBuffer(ctx.commandBuffer)
 
   let waitSemaphores = [ctx.imageAvailableSemaphore]
-  let waitStages = [VkPipelineStageFlags{ColorAttachmentOutputBit}]
+  let waitStages = [VkPipelineStageFlags{ColorAttachmentOutputBit, TransferBit}]
   let signalSemaphores = [ctx.renderFinishedSemaphore]
   let submitInfo = newVkSubmitInfo(
     waitSemaphores = waitSemaphores,
@@ -2268,6 +2527,13 @@ proc destroyGpu(ctx: Context) =
     freeMemory(ctx.device, ctx.fsUniformMemory)
     ctx.fsUniformMemory = vkNullMemory
 
+  if ctx.readbackBuffer != vkNullBuffer:
+    destroyBuffer(ctx.device, ctx.readbackBuffer)
+    ctx.readbackBuffer = vkNullBuffer
+  if ctx.readbackMemory != vkNullMemory:
+    freeMemory(ctx.device, ctx.readbackMemory)
+    ctx.readbackMemory = vkNullMemory
+
   if ctx.device != vkNullDevice:
     destroyDevice(ctx.device)
     ctx.device = vkNullDevice
@@ -2284,7 +2550,9 @@ proc destroyGpu(ctx: Context) =
   ctx.presentReady = false
   ctx.commandRecording = false
   ctx.swapchainOutOfDate = false
+  ctx.swapchainTransferSrcSupported = false
   ctx.atlasLayoutReady = false
+  ctx.readbackReady = false
 
 proc newContext*(
     atlasSize = 1024,
@@ -2348,7 +2616,19 @@ proc newContext*(
   result.swapchainFormat = VK_FORMAT_UNDEFINED
   result.swapchainExtent = VkExtent2D(width: 0, height: 0)
   result.swapchainOutOfDate = false
+  result.swapchainTransferSrcSupported = false
   result.presentReady = false
+  result.readbackBuffer = vkNullBuffer
+  result.readbackMemory = vkNullMemory
+  result.readbackBytes = 0.VkDeviceSize
+  result.readbackWidth = 0
+  result.readbackHeight = 0
+  result.readbackReady = false
+  result.pendingMaskRect = rect(0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32)
+  result.pendingMaskValid = false
+  result.clipRects = @[]
+  result.frameVertexBuffers = @[]
+  result.frameVertexMemories = @[]
 
 proc translate*(ctx: Context, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
@@ -2411,5 +2691,62 @@ proc readPixels*(
     ctx: Context, frame: Rect = rect(0, 0, 0, 0), readFront = true
 ): Image =
   discard readFront
-  discard frame
-  result = newImage(1, 1)
+  if not ctx.gpuReady:
+    raise newException(ValueError, "Vulkan context is not initialized")
+  if ctx.readbackBuffer == vkNullBuffer or ctx.readbackMemory == vkNullMemory or
+      not ctx.readbackReady:
+    raise newException(ValueError, "No Vulkan frame has been rendered yet")
+  if ctx.readbackWidth <= 0 or ctx.readbackHeight <= 0:
+    raise newException(ValueError, "Vulkan readback dimensions are invalid")
+
+  checkVkResult vkWaitForFences(
+    ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
+  )
+
+  let texW = ctx.readbackWidth.int
+  let texH = ctx.readbackHeight.int
+
+  var x = frame.x.int
+  var y = frame.y.int
+  var w = frame.w.int
+  var h = frame.h.int
+  if w <= 0 or h <= 0:
+    x = 0
+    y = 0
+    w = texW
+    h = texH
+
+  x = clamp(x, 0, texW)
+  y = clamp(y, 0, texH)
+  w = clamp(w, 0, texW - x)
+  h = clamp(h, 0, texH - y)
+
+  if w <= 0 or h <= 0:
+    result = newImage(1, 1)
+    return
+
+  let mapped = cast[ptr UncheckedArray[uint8]](mapMemory(
+    ctx.device, ctx.readbackMemory, 0.VkDeviceSize, ctx.readbackBytes,
+    0.VkMemoryMapFlags,
+  ))
+  defer:
+    unmapMemory(ctx.device, ctx.readbackMemory)
+
+  result = newImage(w, h)
+  let stride = texW * 4
+  let bgrFormat = ctx.swapchainFormat == VK_FORMAT_B8G8R8A8_UNORM
+
+  for row in 0 ..< h:
+    let srcRow = y + row
+    var src = srcRow * stride + x * 4
+    for col in 0 ..< w:
+      let dst = row * w + col
+      let b = mapped[src + 0]
+      let g = mapped[src + 1]
+      let r = mapped[src + 2]
+      let a = mapped[src + 3]
+      if bgrFormat:
+        result.data[dst] = rgbx(r, g, b, a)
+      else:
+        result.data[dst] = rgbx(b, g, r, a)
+      src += 4
