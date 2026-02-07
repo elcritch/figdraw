@@ -25,6 +25,7 @@ proc round*(v: Vec2): Vec2 =
   vec2(round(v.x), round(v.y))
 
 const quadLimit = 10_921
+const maxFramesInFlight = 3
 
 type PassKind = enum
   pkNone
@@ -33,6 +34,31 @@ type PassKind = enum
   pkBlit
 
 type SdfModeData = uint16
+
+type FlushBuffers = object
+  positions: ObjcOwned[MTLBuffer]
+  positionsCapacity: int
+  colors: ObjcOwned[MTLBuffer]
+  colorsCapacity: int
+  uvs: ObjcOwned[MTLBuffer]
+  uvsCapacity: int
+  sdfParams: ObjcOwned[MTLBuffer]
+  sdfParamsCapacity: int
+  sdfRadii: ObjcOwned[MTLBuffer]
+  sdfRadiiCapacity: int
+  sdfModeAttr: ObjcOwned[MTLBuffer]
+  sdfModeAttrCapacity: int
+  sdfFactors: ObjcOwned[MTLBuffer]
+  sdfFactorsCapacity: int
+
+type FrameArena = object
+  flushBuffers: seq[FlushBuffers]
+  flushBufferCursor: int
+  inUse: bool
+
+type InFlightFrame = object
+  commandBuffer: ObjcOwned[MTLCommandBuffer]
+  arenaIndex: int
 
 type ContextObj = object # Metal objects
   device: ObjcOwned[MTLDevice]
@@ -84,8 +110,9 @@ type ContextObj = object # Metal objects
 
   # For screenshot readback.
   lastCommitted: ObjcOwned[MTLCommandBuffer]
-  # Per-flush vertex buffers that must live until the command buffer completes.
-  frameBuffers: seq[ObjcOwned[MTLBuffer]]
+  frameArenas: seq[FrameArena]
+  activeArena: int
+  inFlightFrames: seq[InFlightFrame]
 
   # Drains per-frame autoreleased Metal/Foundation objects (render pass descriptors,
   # temporary NSStrings, etc). Without an autorelease pool, these accumulate and look
@@ -109,6 +136,8 @@ proc toKey*(h: Hash): Hash =
 
 proc hasImage*(ctx: Context, key: Hash): bool =
   key in ctx.entries
+
+proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool
 
 proc mtlRegion2D(x, y, w, h: int): MTLRegion =
   result.origin = MTLOrigin(x: NSUInteger(x), y: NSUInteger(y), z: 0)
@@ -598,7 +627,9 @@ proc drawMsdfImage*(
     sdThreshold: float32 = 0.5,
     strokeWeight: float32 = 0.0'f32,
 ) =
-  let rect = ctx.entries[imageId]
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
   ctx.drawUvRectAtlasSdf(
@@ -622,7 +653,9 @@ proc drawMtsdfImage*(
     sdThreshold: float32 = 0.5,
     strokeWeight: float32 = 0.0'f32,
 ) =
-  let rect = ctx.entries[imageId]
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
   ctx.drawUvRectAtlasSdf(
@@ -704,8 +737,12 @@ proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
 proc drawUvRect(ctx: Context, rect, uvRect: Rect, color: Color) =
   ctx.drawUvRect(rect.xy, rect.xy + rect.wh, uvRect.xy, uvRect.xy + uvRect.wh, color)
 
-proc getImageRect(ctx: Context, imageId: Hash): Rect =
-  ctx.entries[imageId]
+proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool =
+  if imageId notin ctx.entries:
+    warn "missing image in context", imageId = imageId
+    return false
+  rect = ctx.entries[imageId]
+  true
 
 proc drawImage*(
     ctx: Context,
@@ -714,7 +751,9 @@ proc drawImage*(
     color = color(1, 1, 1, 1),
     scale = 1.0,
 ) =
-  let rect = ctx.getImageRect(imageId)
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   let wh = rect.wh * ctx.atlasSize.float32 * scale
   ctx.drawUvRect(pos, pos + wh, rect.xy, rect.xy + rect.wh, color)
 
@@ -725,7 +764,9 @@ proc drawImage*(
     color = color(1, 1, 1, 1),
     size: Vec2,
 ) =
-  let rect = ctx.getImageRect(imageId)
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   ctx.drawUvRect(pos, pos + size, rect.xy, rect.xy + rect.wh, color)
 
 proc drawImageAdj*(
@@ -735,9 +776,10 @@ proc drawImageAdj*(
     color = color(1, 1, 1, 1),
     size: Vec2,
 ) =
-  let
-    rect = ctx.getImageRect(imageId)
-    adj = vec2(2 / ctx.atlasSize.float32)
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
+  let adj = vec2(2 / ctx.atlasSize.float32)
   ctx.drawUvRect(pos, pos + size, rect.xy + adj, rect.xy + rect.wh - adj, color)
 
 proc drawSprite*(
@@ -747,9 +789,10 @@ proc drawSprite*(
     color = color(1, 1, 1, 1),
     scale = 1.0,
 ) =
-  let
-    rect = ctx.getImageRect(imageId)
-    wh = rect.wh * ctx.atlasSize.float32 * scale
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
+  let wh = rect.wh * ctx.atlasSize.float32 * scale
   ctx.drawUvRect(pos - wh / 2, pos + wh / 2, rect.xy, rect.xy + rect.wh, color)
 
 proc drawSprite*(
@@ -759,7 +802,9 @@ proc drawSprite*(
     color = color(1, 1, 1, 1),
     size: Vec2,
 ) =
-  let rect = ctx.getImageRect(imageId)
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   ctx.drawUvRect(pos - size / 2, pos + size / 2, rect.xy, rect.xy + rect.wh, color)
 
 proc drawRect*(ctx: Context, rect: Rect, color: Color) =
@@ -958,6 +1003,26 @@ proc popMask*(ctx: Context) =
   ctx.flush()
   dec ctx.maskTextureWrite
 
+proc reapCompletedFrames(ctx: Context) =
+  if ctx.inFlightFrames.len == 0:
+    return
+
+  var write = 0
+  for i in 0 ..< ctx.inFlightFrames.len:
+    let frame = ctx.inFlightFrames[i]
+    if not frame.commandBuffer.isNil and
+        status(frame.commandBuffer.borrow) < NSUInteger(4):
+      if write != i:
+        ctx.inFlightFrames[write] = frame
+      inc write
+    else:
+      if frame.arenaIndex >= 0 and frame.arenaIndex < ctx.frameArenas.len:
+        ctx.frameArenas[frame.arenaIndex].inUse = false
+        ctx.frameArenas[frame.arenaIndex].flushBufferCursor = 0
+
+  if write < ctx.inFlightFrames.len:
+    ctx.inFlightFrames.setLen(write)
+
 proc beginFrame*(
     ctx: Context,
     frameSize: Vec2,
@@ -973,11 +1038,23 @@ proc beginFrame*(
   ctx.ensureDeviceAndPipelines()
   ctx.ensureMask0()
 
-  if not ctx.lastCommitted.isNil:
-    # Avoid overlapping command buffers that write to the same offscreen texture.
-    waitUntilCompleted(ctx.lastCommitted.borrow)
-  # Safe to release per-flush buffers from the previous frame.
-  ctx.frameBuffers.setLen(0)
+  ctx.reapCompletedFrames()
+  if ctx.inFlightFrames.len >= maxFramesInFlight:
+    waitUntilCompleted(ctx.inFlightFrames[0].commandBuffer.borrow)
+    ctx.reapCompletedFrames()
+
+  ctx.activeArena = -1
+  for i in 0 ..< ctx.frameArenas.len:
+    if not ctx.frameArenas[i].inUse:
+      ctx.activeArena = i
+      break
+  if ctx.activeArena < 0:
+    ctx.activeArena = ctx.frameArenas.len
+    ctx.frameArenas.add(
+      FrameArena(flushBuffers: @[], flushBufferCursor: 0, inUse: false)
+    )
+  ctx.frameArenas[ctx.activeArena].inUse = true
+  ctx.frameArenas[ctx.activeArena].flushBufferCursor = 0
 
   ctx.maskBegun = false
   ctx.maskTextureWrite = 0
@@ -1051,6 +1128,13 @@ proc endFrame*(ctx: Context) =
 
   commit(ctx.commandBuffer.borrow)
   ctx.lastCommitted = ctx.commandBuffer
+
+  var inFlight = InFlightFrame()
+  inFlight.commandBuffer = ctx.commandBuffer
+  inFlight.arenaIndex = ctx.activeArena
+  ctx.inFlightFrames.add(inFlight)
+  ctx.activeArena = -1
+
   ctx.commandBuffer.clear()
   ctx.frameAutoreleasePool.stop()
 
@@ -1123,6 +1207,25 @@ proc readPixels*(ctx: Context, frame: Rect = rect(0, 0, 0, 0)): Image =
     let bi = i * 4
     result.data[i] = rgbx(tmp[bi + 2], tmp[bi + 1], tmp[bi + 0], tmp[bi + 3])
 
+proc ensureFlushBufferCapacity(
+    ctx: Context, buffer: var ObjcOwned[MTLBuffer], capacity: var int, neededBytes: int
+) =
+  if neededBytes <= 0:
+    return
+  if not buffer.isNil and capacity >= neededBytes:
+    return
+
+  var newCapacity = max(neededBytes, 4 * 1024)
+  if capacity > 0:
+    newCapacity = max(newCapacity, capacity * 2)
+
+  buffer.resetRetained(
+    newBufferWithLength(
+      ctx.device.borrow, NSUInteger(newCapacity), MTLResourceOptions(0)
+    )
+  )
+  capacity = newCapacity
+
 proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
   if ctx.quadCount == 0:
     return
@@ -1151,8 +1254,11 @@ proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
     enc, (if ctx.maskBegun: ctx.pipelineMask.borrow else: ctx.pipelineMain.borrow)
   )
 
-  # Create per-flush buffers to avoid overwriting shared buffers before the GPU
-  # consumes them (mask passes and multiple flushes can overlap).
+  if ctx.activeArena < 0 or ctx.activeArena >= ctx.frameArenas.len:
+    raise newException(ValueError, "No active Metal frame arena")
+
+  # Reuse one buffer slot per flush within the frame arena. Arenas are reused only
+  # after their command buffer has completed.
   let positionsBytes = vertexCount * 2 * sizeof(float32)
   let uvsBytes = vertexCount * 2 * sizeof(float32)
   let colorsBytes = vertexCount * 4 * sizeof(uint8)
@@ -1161,78 +1267,49 @@ proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
   let sdfModeBytes = vertexCount * sizeof(SdfModeData)
   let sdfFactorsBytes = vertexCount * 2 * sizeof(float32)
 
-  let positionsBuf = fromRetained(
-    newBufferWithBytes(
-      ctx.device.borrow,
-      ctx.positions.data[0].addr,
-      NSUInteger(positionsBytes),
-      MTLResourceOptions(0),
-    )
+  var arena = addr ctx.frameArenas[ctx.activeArena]
+  if arena[].flushBufferCursor >= arena[].flushBuffers.len:
+    arena[].flushBuffers.setLen(arena[].flushBufferCursor + 1)
+  var flushBuffers = addr arena[].flushBuffers[arena[].flushBufferCursor]
+  inc arena[].flushBufferCursor
+
+  ctx.ensureFlushBufferCapacity(
+    flushBuffers[].positions, flushBuffers[].positionsCapacity, positionsBytes
   )
-  let uvsBuf = fromRetained(
-    newBufferWithBytes(
-      ctx.device.borrow,
-      ctx.uvs.data[0].addr,
-      NSUInteger(uvsBytes),
-      MTLResourceOptions(0),
-    )
+  ctx.ensureFlushBufferCapacity(
+    flushBuffers[].uvs, flushBuffers[].uvsCapacity, uvsBytes
   )
-  let colorsBuf = fromRetained(
-    newBufferWithBytes(
-      ctx.device.borrow,
-      ctx.colors.data[0].addr,
-      NSUInteger(colorsBytes),
-      MTLResourceOptions(0),
-    )
+  ctx.ensureFlushBufferCapacity(
+    flushBuffers[].colors, flushBuffers[].colorsCapacity, colorsBytes
   )
-  let sdfParamsBuf = fromRetained(
-    newBufferWithBytes(
-      ctx.device.borrow,
-      ctx.sdfParams.data[0].addr,
-      NSUInteger(sdfParamsBytes),
-      MTLResourceOptions(0),
-    )
+  ctx.ensureFlushBufferCapacity(
+    flushBuffers[].sdfParams, flushBuffers[].sdfParamsCapacity, sdfParamsBytes
   )
-  let sdfRadiiBuf = fromRetained(
-    newBufferWithBytes(
-      ctx.device.borrow,
-      ctx.sdfRadii.data[0].addr,
-      NSUInteger(sdfRadiiBytes),
-      MTLResourceOptions(0),
-    )
+  ctx.ensureFlushBufferCapacity(
+    flushBuffers[].sdfRadii, flushBuffers[].sdfRadiiCapacity, sdfRadiiBytes
   )
-  let sdfModeBuf = fromRetained(
-    newBufferWithBytes(
-      ctx.device.borrow,
-      ctx.sdfModeAttr.data[0].addr,
-      NSUInteger(sdfModeBytes),
-      MTLResourceOptions(0),
-    )
+  ctx.ensureFlushBufferCapacity(
+    flushBuffers[].sdfModeAttr, flushBuffers[].sdfModeAttrCapacity, sdfModeBytes
   )
-  let sdfFactorsBuf = fromRetained(
-    newBufferWithBytes(
-      ctx.device.borrow,
-      ctx.sdfFactors.data[0].addr,
-      NSUInteger(sdfFactorsBytes),
-      MTLResourceOptions(0),
-    )
+  ctx.ensureFlushBufferCapacity(
+    flushBuffers[].sdfFactors, flushBuffers[].sdfFactorsCapacity, sdfFactorsBytes
   )
 
-  ctx.frameBuffers.add(positionsBuf)
-  ctx.frameBuffers.add(uvsBuf)
-  ctx.frameBuffers.add(colorsBuf)
-  ctx.frameBuffers.add(sdfParamsBuf)
-  ctx.frameBuffers.add(sdfRadiiBuf)
-  ctx.frameBuffers.add(sdfModeBuf)
-  ctx.frameBuffers.add(sdfFactorsBuf)
+  copyToBuf(flushBuffers[].positions.borrow, ctx.positions.data, positionsBytes)
+  copyToBuf(flushBuffers[].uvs.borrow, ctx.uvs.data, uvsBytes)
+  copyToBuf(flushBuffers[].colors.borrow, ctx.colors.data, colorsBytes)
+  copyToBuf(flushBuffers[].sdfParams.borrow, ctx.sdfParams.data, sdfParamsBytes)
+  copyToBuf(flushBuffers[].sdfRadii.borrow, ctx.sdfRadii.data, sdfRadiiBytes)
+  copyToBuf(flushBuffers[].sdfModeAttr.borrow, ctx.sdfModeAttr.data, sdfModeBytes)
+  copyToBuf(flushBuffers[].sdfFactors.borrow, ctx.sdfFactors.data, sdfFactorsBytes)
 
-  setVertexBuffer(enc, positionsBuf.borrow, 0, 0)
-  setVertexBuffer(enc, uvsBuf.borrow, 0, 1)
-  setVertexBuffer(enc, colorsBuf.borrow, 0, 2)
-  setVertexBuffer(enc, sdfParamsBuf.borrow, 0, 3)
-  setVertexBuffer(enc, sdfRadiiBuf.borrow, 0, 4)
-  setVertexBuffer(enc, sdfModeBuf.borrow, 0, 5)
-  setVertexBuffer(enc, sdfFactorsBuf.borrow, 0, 6)
+  setVertexBuffer(enc, flushBuffers[].positions.borrow, 0, 0)
+  setVertexBuffer(enc, flushBuffers[].uvs.borrow, 0, 1)
+  setVertexBuffer(enc, flushBuffers[].colors.borrow, 0, 2)
+  setVertexBuffer(enc, flushBuffers[].sdfParams.borrow, 0, 3)
+  setVertexBuffer(enc, flushBuffers[].sdfRadii.borrow, 0, 4)
+  setVertexBuffer(enc, flushBuffers[].sdfModeAttr.borrow, 0, 5)
+  setVertexBuffer(enc, flushBuffers[].sdfFactors.borrow, 0, 6)
 
   type VSUniforms = object
     proj: Mat4
@@ -1287,7 +1364,9 @@ proc newContext*(
     result.pixelate = pixelate
     result.pixelScale = pixelScale
     result.aaFactor = 1.2'f32
-    result.frameBuffers = @[]
+    result.frameArenas = @[]
+    result.activeArena = -1
+    result.inFlightFrames = @[]
 
     result.ensureDeviceAndPipelines()
 

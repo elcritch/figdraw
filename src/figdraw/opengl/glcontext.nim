@@ -73,6 +73,8 @@ proc toKey*(h: Hash): Hash =
 proc hasImage*(ctx: Context, key: Hash): bool =
   key in ctx.entries
 
+proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool
+
 proc upload(ctx: Context) =
   ## When buffers change, uploads them to GPU.
   ctx.positions.buffer.count = ctx.quadCount * 4
@@ -611,7 +613,9 @@ proc drawMsdfImage*(
     sdThreshold: float32 = 0.5,
     strokeWeight: float32 = 0.0'f32,
 ) =
-  let rect = ctx.entries[imageId]
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
   ctx.drawUvRectAtlasSdf(
@@ -635,7 +639,9 @@ proc drawMtsdfImage*(
     sdThreshold: float32 = 0.5,
     strokeWeight: float32 = 0.0'f32,
 ) =
-  let rect = ctx.entries[imageId]
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
   ctx.drawUvRectAtlasSdf(
@@ -722,8 +728,12 @@ proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
 proc drawUvRect(ctx: Context, rect, uvRect: Rect, color: Color) =
   ctx.drawUvRect(rect.xy, rect.xy + rect.wh, uvRect.xy, uvRect.xy + uvRect.wh, color)
 
-proc getImageRect(ctx: Context, imageId: Hash): Rect =
-  return ctx.entries[imageId]
+proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool =
+  if imageId notin ctx.entries:
+    warn "missing image in context", imageId = imageId
+    return false
+  rect = ctx.entries[imageId]
+  true
 
 proc drawImage*(
     ctx: Context,
@@ -733,9 +743,10 @@ proc drawImage*(
     scale = 1.0,
 ) =
   ## Draws image the UI way - pos at top-left.
-  let
-    rect = ctx.getImageRect(imageId)
-    wh = rect.wh * ctx.atlasSize.float32 * scale
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
+  let wh = rect.wh * ctx.atlasSize.float32 * scale
   ctx.drawUvRect(pos, pos + wh, rect.xy, rect.xy + rect.wh, color)
 
 proc drawImage*(
@@ -746,7 +757,9 @@ proc drawImage*(
     size: Vec2,
 ) =
   ## Draws image the UI way - pos at top-left.
-  let rect = ctx.getImageRect(imageId)
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   ctx.drawUvRect(pos, pos + size, rect.xy, rect.xy + rect.wh, color)
 
 proc drawImageAdj*(
@@ -757,9 +770,10 @@ proc drawImageAdj*(
     size: Vec2,
 ) =
   ## Draws image the UI way - pos at top-left.
-  let
-    rect = ctx.getImageRect(imageId)
-    adj = vec2(2 / ctx.atlasSize.float32)
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
+  let adj = vec2(2 / ctx.atlasSize.float32)
   ctx.drawUvRect(pos, pos + size, rect.xy + adj, rect.xy + rect.wh - adj, color)
 
 proc drawSprite*(
@@ -770,9 +784,10 @@ proc drawSprite*(
     scale = 1.0,
 ) =
   ## Draws image the game way - pos at center.
-  let
-    rect = ctx.getImageRect(imageId)
-    wh = rect.wh * ctx.atlasSize.float32 * scale
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
+  let wh = rect.wh * ctx.atlasSize.float32 * scale
   ctx.drawUvRect(pos - wh / 2, pos + wh / 2, rect.xy, rect.xy + rect.wh, color)
 
 proc drawSprite*(
@@ -783,7 +798,9 @@ proc drawSprite*(
     size: Vec2,
 ) =
   ## Draws image the game way - pos at center.
-  let rect = ctx.getImageRect(imageId)
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
   ctx.drawUvRect(pos - size / 2, pos + size / 2, rect.xy, rect.xy + rect.wh, color)
 
 proc drawRect*(ctx: Context, rect: Rect, color: Color) =

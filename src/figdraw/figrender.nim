@@ -145,9 +145,9 @@ proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
       charPos = vec2(glyph.pos.x.scaled(), scaled(glyph.pos.y - glyph.descent))
     if glyphId notin ctx.entries:
       glyph.generateGlyph()
-      notice "no glyph in context: ",
-        glyphId = glyphId, glyph = glyph.rune, glyphRepr = repr(glyph.rune)
-      #continue
+      warn "missing glyph image in context",
+        glyphId = glyphId, glyphRune = $glyph.rune, glyphRuneRepr = repr(glyph.rune)
+      continue
     ctx.drawImage(glyphId, charPos, glyph.color)
 
 import macros except `$`

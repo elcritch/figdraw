@@ -1,7 +1,6 @@
---nimcache:
-  ".nimcache/"
---passc:
-  "-Wno-incompatible-function-pointer-types"
+--nimcache:".nimcache/"
+--passc:"-Wno-incompatible-function-pointer-types"
+--define:useMalloc
 
 import std/strutils
 
