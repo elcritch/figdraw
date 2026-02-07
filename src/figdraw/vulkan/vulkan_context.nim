@@ -184,6 +184,9 @@ type
     inFlightFence: VkFence
     acquiredImageIndex: uint32
     commandRecording: bool
+    renderPassBegun: bool
+    frameNeedsClear: bool
+    frameClearColor: Color
     readbackBuffer: VkBuffer
     readbackMemory: VkDeviceMemory
     readbackBytes: VkDeviceSize
@@ -545,6 +548,7 @@ proc ensureSwapchain(ctx: Context, width, height: int32)
 proc ensureGpuRuntime(ctx: Context)
 proc destroyGpu(ctx: Context)
 proc flush(ctx: Context)
+proc beginRenderPassIfNeeded(ctx: Context)
 proc ensureReadbackBuffer(ctx: Context, bytes: VkDeviceSize)
 proc recordSwapchainReadback(ctx: Context)
 proc clearFrameVertexUploads(ctx: Context)
@@ -674,7 +678,7 @@ proc createPipeline(ctx: Context) =
     flags: 0.VkAttachmentDescriptionFlags,
     format: ctx.swapchainFormat,
     samples: VK_SAMPLE_COUNT_1_BIT,
-    loadOp: VK_ATTACHMENT_LOAD_OP_CLEAR,
+    loadOp: VK_ATTACHMENT_LOAD_OP_LOAD,
     storeOp: VK_ATTACHMENT_STORE_OP_STORE,
     stencilLoadOp: VK_ATTACHMENT_LOAD_OP_DONT_CARE,
     stencilStoreOp: VK_ATTACHMENT_STORE_OP_DONT_CARE,
@@ -1559,7 +1563,11 @@ proc flush(ctx: Context) =
   if not ctx.commandRecording:
     return
   if ctx.atlasDirty:
+    if ctx.renderPassBegun:
+      vkCmdEndRenderPass(ctx.commandBuffer)
+      ctx.renderPassBegun = false
     ctx.recordAtlasUpload(ctx.commandBuffer)
+  ctx.beginRenderPassIfNeeded()
 
   let vertexCount = ctx.quadCount * 4
   for i in 0 ..< vertexCount:
@@ -2229,8 +2237,73 @@ proc intersectRects(a, b: Rect): Rect =
 proc fullFrameRect(ctx: Context): Rect =
   rect(0.0'f32, 0.0'f32, ctx.frameSize.x, ctx.frameSize.y)
 
+proc beginRenderPassIfNeeded(ctx: Context) =
+  if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain or ctx.renderPassBegun:
+    return
+
+  let renderPassInfo = VkRenderPassBeginInfo(
+    sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+    pNext: nil,
+    renderPass: ctx.renderPass,
+    framebuffer: ctx.swapchainFramebuffers[ctx.acquiredImageIndex.int],
+    renderArea:
+      newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent),
+    clearValueCount: 0,
+    pClearValues: nil,
+  )
+  vkCmdBeginRenderPass(
+    ctx.commandBuffer, renderPassInfo.addr, VK_SUBPASS_CONTENTS_INLINE
+  )
+  ctx.renderPassBegun = true
+
+  let viewport = newVkViewport(
+    x = 0,
+    y = 0,
+    width = ctx.swapchainExtent.width.float32,
+    height = ctx.swapchainExtent.height.float32,
+    minDepth = 0,
+    maxDepth = 1,
+  )
+  vkCmdSetViewport(ctx.commandBuffer, 0, 1, viewport.addr)
+
+  var fullScissor =
+    newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent)
+  vkCmdSetScissor(ctx.commandBuffer, 0, 1, fullScissor.addr)
+
+  if ctx.frameNeedsClear:
+    let clearValue = VkClearValue(
+      color: VkClearColorValue(
+        float32: [
+          ctx.frameClearColor.r.float32,
+          ctx.frameClearColor.g.float32,
+          ctx.frameClearColor.b.float32,
+          ctx.frameClearColor.a.float32,
+        ]
+      )
+    )
+    var clearAttachment = VkClearAttachment(
+      aspectMask: VkImageAspectFlags{ColorBit},
+      colorAttachment: 0,
+      clearValue: clearValue,
+    )
+    var clearRect = VkClearRect(
+      rect:
+        newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent),
+      baseArrayLayer: 0,
+      layerCount: 1,
+    )
+    vkCmdClearAttachments(
+      ctx.commandBuffer, 1, clearAttachment.addr, 1, clearRect.addr
+    )
+    ctx.frameNeedsClear = false
+
+  if ctx.clipRects.len > 0:
+    ctx.applyClipScissor()
+
 proc applyClipScissor(ctx: Context) =
-  if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain:
+  if
+    not ctx.commandRecording or ctx.swapchain == vkNullSwapchain or
+    not ctx.renderPassBegun:
     return
 
   let clipRect =
@@ -2310,12 +2383,16 @@ proc beginFrame*(
   assert ctx.frameBegun == false, "ctx.beginFrame has already been called."
   ctx.frameBegun = true
   ctx.commandRecording = false
+  ctx.renderPassBegun = false
   ctx.maskBegun = false
   ctx.maskDepth = 0
   ctx.pendingMaskValid = false
   ctx.clipRects.setLen(0)
   ctx.frameSize = frameSize
   ctx.proj = proj
+  ctx.frameNeedsClear = true
+  ctx.frameClearColor =
+    if clearMain: clearMainColor else: rgba(0, 0, 0, 255).color
 
   ctx.ensureGpuRuntime()
 
@@ -2348,48 +2425,10 @@ proc beginFrame*(
   checkVkResult vkResetCommandBuffer(ctx.commandBuffer, 0.VkCommandBufferResetFlags)
   let beginInfo = newVkCommandBufferBeginInfo(pInheritanceInfo = nil)
   checkVkResult vkBeginCommandBuffer(ctx.commandBuffer, beginInfo.addr)
+  ctx.commandRecording = true
 
   if ctx.atlasDirty:
     ctx.recordAtlasUpload(ctx.commandBuffer)
-
-  let clear = VkClearValue(
-    color: VkClearColorValue(
-      float32: [
-        if clearMain: clearMainColor.r.float32 else: 0.0'f32,
-        if clearMain: clearMainColor.g.float32 else: 0.0'f32,
-        if clearMain: clearMainColor.b.float32 else: 0.0'f32,
-        if clearMain: clearMainColor.a.float32 else: 1.0'f32,
-      ]
-    )
-  )
-
-  let renderPassInfo = VkRenderPassBeginInfo(
-    sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-    pNext: nil,
-    renderPass: ctx.renderPass,
-    framebuffer: ctx.swapchainFramebuffers[ctx.acquiredImageIndex.int],
-    renderArea:
-      newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent),
-    clearValueCount: 1,
-    pClearValues: clear.addr,
-  )
-  vkCmdBeginRenderPass(
-    ctx.commandBuffer, renderPassInfo.addr, VK_SUBPASS_CONTENTS_INLINE
-  )
-
-  let viewport = newVkViewport(
-    x = 0,
-    y = 0,
-    width = ctx.swapchainExtent.width.float32,
-    height = ctx.swapchainExtent.height.float32,
-    minDepth = 0,
-    maxDepth = 1,
-  )
-  let scissor =
-    newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent)
-  vkCmdSetViewport(ctx.commandBuffer, 0, 1, viewport.addr)
-  vkCmdSetScissor(ctx.commandBuffer, 0, 1, scissor.addr)
-  ctx.commandRecording = true
 
 proc beginFrame*(
     ctx: Context, frameSize: Vec2, clearMain = false, clearMainColor: Color = whiteColor
@@ -2411,7 +2450,10 @@ proc endFrame*(ctx: Context) =
     return
 
   ctx.flush()
-  vkCmdEndRenderPass(ctx.commandBuffer)
+  ctx.beginRenderPassIfNeeded()
+  if ctx.renderPassBegun:
+    vkCmdEndRenderPass(ctx.commandBuffer)
+    ctx.renderPassBegun = false
   ctx.readbackReady = false
   ctx.recordSwapchainReadback()
   checkVkResult vkEndCommandBuffer(ctx.commandBuffer)
@@ -2551,6 +2593,8 @@ proc destroyGpu(ctx: Context) =
   ctx.gpuReady = false
   ctx.presentReady = false
   ctx.commandRecording = false
+  ctx.renderPassBegun = false
+  ctx.frameNeedsClear = false
   ctx.swapchainOutOfDate = false
   ctx.swapchainTransferSrcSupported = false
   ctx.atlasLayoutReady = false
@@ -2629,6 +2673,9 @@ proc newContext*(
   result.pendingMaskRect = rect(0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32)
   result.pendingMaskValid = false
   result.clipRects = @[]
+  result.renderPassBegun = false
+  result.frameNeedsClear = false
+  result.frameClearColor = rgba(0, 0, 0, 255).color
   result.frameVertexBuffers = @[]
   result.frameVertexMemories = @[]
 
