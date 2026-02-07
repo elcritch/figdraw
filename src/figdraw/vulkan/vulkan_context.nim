@@ -2603,7 +2603,7 @@ proc destroyGpu(ctx: Context) =
 proc newContext*(
     atlasSize = 1024,
     atlasMargin = 4,
-    maxQuads = 1024,
+    maxQuads = quadLimit,
     pixelate = false,
     pixelScale = 1.0,
 ): Context =
