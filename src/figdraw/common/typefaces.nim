@@ -12,6 +12,7 @@ import ./rchannels
 import ./imgutils
 import ./fonttypes
 import ./shared
+import ../extras/systemfonts
 
 var
   typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
@@ -59,9 +60,27 @@ proc readTypefaceImpl(
 
 proc loadTypeface*(name: string): FontId =
   ## loads a font from a file and adds it to the font index
+  proc resolveTypefacePath(name: string): string =
+    let dataPath = figDataDir() / name
+    if fileExists(dataPath):
+      info "resolved typeface from figDataDir", requested = name, path = dataPath
+      return dataPath
+
+    if fileExists(name):
+      info "resolved typeface from direct path", requested = name, path = name
+      return name
+
+    let stem = splitFile(name).name
+    let systemPath = findSystemFontFile([name, stem])
+    if systemPath.len > 0:
+      info "resolved typeface from system fonts", requested = name, path = systemPath
+      return systemPath
+
+    warn "unable to resolve typeface path", requested = name, figDataDir = figDataDir()
+    result = name
 
   let
-    typefacePath = figDataDir() / name
+    typefacePath = resolveTypefacePath(name)
     typeface = readTypeface(typefacePath)
     id = typeface.getId()
 

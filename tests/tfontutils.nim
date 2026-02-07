@@ -7,6 +7,7 @@ import figdraw/commons
 import figdraw/common/fonttypes
 import figdraw/common/typefaces
 import figdraw/common/fontglyphs
+import figdraw/extras/systemfonts
 
 proc resetFontState() =
   typefaceTable = initTable[TypefaceId, Typeface]()
@@ -110,3 +111,52 @@ suite "fontutils":
         check hasImage(glyph.hash().ImageId)
       inc idx
     check idx == positions.len
+
+  test "loadTypeface prefers figDataDir over other paths":
+    let oldDataDir = figDataDir()
+    let tempDir = getTempDir() / "figdraw-font-priority-test"
+    let fontName = "Ubuntu.ttf"
+    let tempFontPath = tempDir / fontName
+    if not dirExists(tempDir):
+      createDir(tempDir)
+
+    copyFile(oldDataDir / fontName, tempFontPath)
+    setFigDataDir(tempDir)
+    defer:
+      setFigDataDir(oldDataDir)
+      if fileExists(tempFontPath):
+        removeFile(tempFontPath)
+      if dirExists(tempDir):
+        removeDir(tempDir)
+
+    let id = loadTypeface(fontName)
+    check id.int != 0
+    check typefaceTable[id].filePath == tempFontPath
+
+  test "loadTypeface falls back to system fonts":
+    let oldDataDir = figDataDir()
+    let emptyDir = getTempDir() / "figdraw-font-system-fallback-test"
+    if not dirExists(emptyDir):
+      createDir(emptyDir)
+    setFigDataDir(emptyDir)
+    defer:
+      setFigDataDir(oldDataDir)
+      if dirExists(emptyDir):
+        removeDir(emptyDir)
+
+    var candidates: seq[string]
+    when defined(windows):
+      candidates = @["Arial", "Segoe UI", "Tahoma", "Verdana", "Calibri"]
+    elif defined(macosx):
+      candidates = @["Helvetica", "Arial", "Menlo", "SFNS"]
+    elif defined(linux) or defined(freebsd):
+      candidates = @["DejaVu Sans", "Noto Sans", "Liberation Sans", "Ubuntu"]
+
+    let systemPath = findSystemFontFile(candidates)
+    if systemPath.len == 0:
+      check true
+    else:
+      let requestName = extractFilename(systemPath)
+      let id = loadTypeface(requestName)
+      check id.int != 0
+      check typefaceTable[id].filePath.len > 0
