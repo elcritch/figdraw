@@ -129,6 +129,13 @@ proc convertArrangement*(
   for rect in arrangement.selectionRects:
     selectionRects.add rect
 
+  for i, span in arrangement.spans:
+    # hmmm, really should figure this out based on the font coordinate inversion
+    # or whatever causes this...
+    for j in span[0]..span[1]:
+      selectionRects[j].y -= gfonts[i].lineHeight / 6
+
+
   result = GlyphArrangement(
     contentHash: block:
       var h = Hash(0)
