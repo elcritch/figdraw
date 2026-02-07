@@ -25,6 +25,7 @@ proc round*(v: Vec2): Vec2 =
   vec2(round(v.x), round(v.y))
 
 const quadLimit = 10_921
+const maxFramesInFlight = 3
 
 type PassKind = enum
   pkNone
@@ -33,6 +34,10 @@ type PassKind = enum
   pkBlit
 
 type SdfModeData = uint16
+
+type InFlightFrame = object
+  commandBuffer: ObjcOwned[MTLCommandBuffer]
+  buffers: seq[ObjcOwned[MTLBuffer]]
 
 type ContextObj = object # Metal objects
   device: ObjcOwned[MTLDevice]
@@ -84,8 +89,9 @@ type ContextObj = object # Metal objects
 
   # For screenshot readback.
   lastCommitted: ObjcOwned[MTLCommandBuffer]
-  # Per-flush vertex buffers that must live until the command buffer completes.
+  # Per-flush vertex buffers kept alive until their command buffer completes.
   frameBuffers: seq[ObjcOwned[MTLBuffer]]
+  inFlightFrames: seq[InFlightFrame]
 
   # Drains per-frame autoreleased Metal/Foundation objects (render pass descriptors,
   # temporary NSStrings, etc). Without an autorelease pool, these accumulate and look
@@ -958,6 +964,22 @@ proc popMask*(ctx: Context) =
   ctx.flush()
   dec ctx.maskTextureWrite
 
+proc reapCompletedFrames(ctx: Context) =
+  if ctx.inFlightFrames.len == 0:
+    return
+
+  var write = 0
+  for i in 0 ..< ctx.inFlightFrames.len:
+    let frame = ctx.inFlightFrames[i]
+    if not frame.commandBuffer.isNil and
+        status(frame.commandBuffer.borrow) < NSUInteger(4):
+      if write != i:
+        ctx.inFlightFrames[write] = frame
+      inc write
+
+  if write < ctx.inFlightFrames.len:
+    ctx.inFlightFrames.setLen(write)
+
 proc beginFrame*(
     ctx: Context,
     frameSize: Vec2,
@@ -973,10 +995,10 @@ proc beginFrame*(
   ctx.ensureDeviceAndPipelines()
   ctx.ensureMask0()
 
-  if not ctx.lastCommitted.isNil:
-    # Avoid overlapping command buffers that write to the same offscreen texture.
-    waitUntilCompleted(ctx.lastCommitted.borrow)
-  # Safe to release per-flush buffers from the previous frame.
+  ctx.reapCompletedFrames()
+  if ctx.inFlightFrames.len >= maxFramesInFlight:
+    waitUntilCompleted(ctx.inFlightFrames[0].commandBuffer.borrow)
+    ctx.reapCompletedFrames()
   ctx.frameBuffers.setLen(0)
 
   ctx.maskBegun = false
@@ -1051,6 +1073,13 @@ proc endFrame*(ctx: Context) =
 
   commit(ctx.commandBuffer.borrow)
   ctx.lastCommitted = ctx.commandBuffer
+
+  var inFlight = InFlightFrame()
+  inFlight.commandBuffer = ctx.commandBuffer
+  inFlight.buffers = ctx.frameBuffers
+  ctx.inFlightFrames.add(inFlight)
+  ctx.frameBuffers.setLen(0)
+
   ctx.commandBuffer.clear()
   ctx.frameAutoreleasePool.stop()
 
@@ -1288,6 +1317,7 @@ proc newContext*(
     result.pixelScale = pixelScale
     result.aaFactor = 1.2'f32
     result.frameBuffers = @[]
+    result.inFlightFrames = @[]
 
     result.ensureDeviceAndPipelines()
 
