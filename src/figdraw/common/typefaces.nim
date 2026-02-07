@@ -12,18 +12,49 @@ import ./rchannels
 import ./imgutils
 import ./fonttypes
 import ./shared
-
-var
-  typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
-  fontTable*: Table[FontId, FigFont]
-  fontLock*: Lock
-
-fontLock.initLock()
+import ../extras/systemfonts
 
 type TypeFaceKinds* = enum
   TTF
   OTF
   SVG
+
+var
+  typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
+  fontTable*: Table[FontId, FigFont]
+  staticTypefaceTable*:
+    Table[string, tuple[name: string, data: string, kind: TypeFaceKinds]]
+  fontLock*: Lock
+
+fontLock.initLock()
+
+proc normalizeTypefaceLookupName(name: string): string =
+  name.toLowerAscii()
+
+proc lookupTypefaceNames(name: string): seq[string] =
+  result.add(name.normalizeTypefaceLookupName())
+  let fileName = extractFilename(name)
+  if fileName.len > 0:
+    result.add(fileName.normalizeTypefaceLookupName())
+  let stem = splitFile(name).name
+  if stem.len > 0:
+    result.add(stem.normalizeTypefaceLookupName())
+  let fileStem = splitFile(fileName).name
+  if fileStem.len > 0:
+    result.add(fileStem.normalizeTypefaceLookupName())
+
+proc registerStaticTypefaceData(name, data: string, kind: TypeFaceKinds) =
+  ## Registers a static typeface blob that can be found by loadTypeface.
+  let entry = (name: name, data: data, kind: kind)
+  for key in lookupTypefaceNames(name):
+    staticTypefaceTable[key] = entry
+
+template registerStaticTypeface*(
+    name: static[string], path: static[string], kind: static[TypeFaceKinds] = TTF
+) =
+  ## Registers a static typeface by reading the font file at compile-time.
+  const fontData {.gensym.} = staticRead(path)
+  registerStaticTypefaceData(name, fontData, kind)
 
 proc hash*(tp: Typeface): Hash =
   var h = Hash(0)
@@ -57,13 +88,67 @@ proc readTypefaceImpl(
 
   result.filePath = name
 
-proc loadTypeface*(name: string): FontId =
+proc loadTypeface*(name: string, fallbackNames: openArray[string] = []): FontId =
   ## loads a font from a file and adds it to the font index
 
-  let
-    typefacePath = figDataDir() / name
-    typeface = readTypeface(typefacePath)
-    id = typeface.getId()
+  proc resolveTypefacePath(name: string): string =
+    let dataPath = figDataDir() / name
+    if fileExists(dataPath):
+      info "resolved typeface from figDataDir", requested = name, path = dataPath
+      return dataPath
+
+    if fileExists(name):
+      info "resolved typeface from direct path", requested = name, path = name
+      return name
+
+    let stem = splitFile(name).name
+    let systemPath = findSystemFontFile([name, stem])
+    if systemPath.len > 0:
+      info "resolved typeface from system fonts", requested = name, path = systemPath
+      return systemPath
+
+    warn "unable to resolve typeface path", requested = name, figDataDir = figDataDir()
+    result = ""
+
+  var candidateNames = @[name]
+  candidateNames.add(fallbackNames)
+
+  var loaded = false
+  var typeface: Typeface
+  for candidate in candidateNames:
+    let typefacePath = resolveTypefacePath(candidate)
+    if typefacePath.len > 0:
+      try:
+        typeface = readTypeface(typefacePath)
+        loaded = true
+        break
+      except PixieError:
+        warn "failed to read resolved typeface path",
+          requested = name, candidate = candidate, path = typefacePath
+
+    for key in lookupTypefaceNames(candidate):
+      if key in staticTypefaceTable:
+        let staticEntry = staticTypefaceTable[key]
+        try:
+          info "resolved typeface from static registry",
+            requested = name, candidate = candidate, staticName = staticEntry.name
+          typeface =
+            readTypefaceImpl(staticEntry.name, staticEntry.data, staticEntry.kind)
+          loaded = true
+          break
+        except PixieError:
+          warn "failed to read static registered typeface",
+            requested = name, candidate = candidate, staticName = staticEntry.name
+    if loaded:
+      break
+
+  if not loaded:
+    raise newException(
+      PixieError,
+      "Unable to resolve typeface '" & name & "' with fallback names: " & $fallbackNames,
+    )
+
+  let id = typeface.getId()
 
   doAssert id != 0
   if id in typefaceTable:

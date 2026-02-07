@@ -14,7 +14,7 @@ import ./fonttypes
 import ./typefaces
 import ./fontglyphs
 
-export loadTypeface, convertFont
+export loadTypeface, convertFont, registerStaticTypeface
 
 proc calcMinMaxContent(
     textLayout: GlyphArrangement

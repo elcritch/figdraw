@@ -16,6 +16,7 @@ import figdraw/figrender as glrenderer
 when not UseMetalBackend:
   import figdraw/utils/glutils
 
+const FontName {.strdefine: "figdraw.defaultfont".}: string = "Ubuntu.ttf"
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
 proc findPhraseRange(text, phrase: string): Slice[int16] =
@@ -122,7 +123,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
       zlevel: z,
       screenBox: rect(0, 0, w, h),
       fill: rgba(245, 245, 245, 255).color,
-    )
+    ),
   )
 
   let pad = 40'f32
@@ -247,7 +248,12 @@ when isMainModule:
   else:
     setFigUiScale 1.0
 
-  let typefaceId = loadTypeface("Ubuntu.ttf")
+  let fontName = getEnv("FONT", FontName)
+  # looks for fonts, fallback to static fonts if not found
+  registerStaticTypeface("Ubuntu.ttf", "../data/Ubuntu.ttf")
+  registerStaticTypeface("HackNerdFont-Regular.ttf", "../data/HackNerdFont-Regular.ttf")
+
+  let typefaceId = loadTypeface(fontName, @["Ubuntu.ttf"])
   let uiFont = FigFont(typefaceId: typefaceId, size: 28.0'f32)
   let monoTypefaceId = loadTypeface("HackNerdFont-Regular.ttf")
   let monoFont = FigFont(typefaceId: monoTypefaceId, size: 20.0'f32)
