@@ -111,13 +111,15 @@ proc buildMonoWordLayouts*(
   result = layouts
 
 proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
-  var list = RenderList()
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  let z = 0.ZLevel
 
-  let rootIdx = list.addRoot(
+  let rootIdx = result.addRoot(
+    z,
     Fig(
       kind: nkRectangle,
       childCount: 0,
-      zlevel: 0.ZLevel,
+      zlevel: z,
       screenBox: rect(0, 0, w, h),
       fill: rgba(245, 245, 245, 255).color,
     )
@@ -125,12 +127,13 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
 
   let pad = 40'f32
   let cardRect = rect(pad, pad, w - pad * 2, h - pad * 2)
-  let cardIdx = list.addChild(
+  let cardIdx = result.addChild(
+    z,
     rootIdx,
     Fig(
       kind: nkRectangle,
       childCount: 0,
-      zlevel: 0.ZLevel,
+      zlevel: z,
       screenBox: cardRect,
       fill: rgba(255, 255, 255, 255).color,
       stroke: RenderStroke(weight: 2.0, color: rgba(0, 0, 0, 25).color),
@@ -178,12 +181,13 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
 
   let (layout, highlightRange) = buildBodyTextLayout(uiFont, textRect)
 
-  discard list.addChild(
+  discard result.addChild(
+    z,
     cardIdx,
     Fig(
       kind: nkText,
       childCount: 0,
-      zlevel: 0.ZLevel,
+      zlevel: z,
       screenBox: textRect,
       selectionRange: highlightRange,
       fill: rgba(255, 232, 140, 255).color,
@@ -196,12 +200,13 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
     ),
   )
 
-  discard list.addChild(
+  discard result.addChild(
+    z,
     cardIdx,
     Fig(
       kind: nkRectangle,
       childCount: 0,
-      zlevel: 0.ZLevel,
+      zlevel: z,
       screenBox: monoRect,
       fill: rgba(27, 29, 36, 255).color,
       stroke: RenderStroke(weight: 1.5, color: rgba(0, 0, 0, 50).color),
@@ -217,20 +222,18 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
   ]
   let monoLayouts = buildMonoWordLayouts(monoFont, monoText, monoPad, monoColors)
   for monoLayout in monoLayouts:
-    discard list.addChild(
+    discard result.addChild(
+      z,
       cardIdx,
       Fig(
         kind: nkText,
         childCount: 0,
-        zlevel: 0.ZLevel,
+        zlevel: z,
         screenBox: monoRect,
         fill: clearColor,
         textLayout: monoLayout,
       ),
     )
-
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
-  result.layers[0.ZLevel] = list
 
 when isMainModule:
   when defined(emscripten):

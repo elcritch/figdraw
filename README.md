@@ -11,6 +11,42 @@
 - Supports layering and multiple "roots" per layer - great for menus, overlays, etc.
 - Lightweight and high performance by design! Low allocations for each frame.
 
+## Quick Start
+
+This part assumes a recent Atlas (>= 0.9.6) version:
+
+```sh
+# Try the repo:
+git clone https://github.com/elcritch/figdraw
+cd figdraw
+atlas install --feature:windy --feature:sdl2
+
+# Run an example:
+nim c -r examples/windy_renderlist.nim
+```
+
+```sh
+# Use as a dependency (in your own project):
+atlas use https://github.com/elcritch/figdraw
+```
+
+Alternatively Nimble should work as well:
+```sh
+nimble install https://github.com/elcritch/figdraw
+```
+
+**NOTE**: If you get errors you may need to install a newer version of Nimble or Atlas that support "features".
+
+### Install / Usage Notes
+
+**IMPORTANT**: to use features like windy, you'll want to add it to requires:
+
+```nim
+requires "https://github.com/elcritch/figdraw[windy]"
+```
+
+Alternatively, you can just `atlas use windy`.
+
 ## What's It Look Like?
 
 Here's the primary rounded rect primitive with corners, borders, and shadows:
@@ -45,42 +81,6 @@ Finally there will be a C API and a setup to compile FigDraw as a shared library
 
 - Nim `>= 2.0.10` (ARC/ORC-based memory managers; required by `src/figdraw/common/rchannels.nim`)
 - OpenGL (desktop GL by default; GLES/emscripten shader paths via `-d:useOpenGlEs` and/or `-d:emscripten`)
-
-## Quick Start
-
-This part assumes a recent Atlas (>= 0.9.6) version:
-
-```sh
-# Try the repo:
-git clone https://github.com/elcritch/figdraw
-cd figdraw
-atlas install --feature:windy --feature:sdl2
-
-# Run an example:
-nim c -r examples/windy_renderlist.nim
-```
-
-```sh
-# Use as a dependency (in your own project):
-atlas use https://github.com/elcritch/figdraw
-```
-
-Alternatively Nimble should work as well:
-```sh
-nimble install https://github.com/elcritch/figdraw
-```
-
-**NOTE**: If you get errors you may need to install a newer version of Nimble or Atlas that support "features".
-
-### Install / Usage Notes
-
-Note that to use features like windy, you'll want to add it to requires:
-
-```nim
-requires "https://github.com/elcritch/figdraw[windy]"
-```
-
-Alternatively, install metalx and pass `-d:figdraw.metal=true`.
 
 ## Using Library
 
