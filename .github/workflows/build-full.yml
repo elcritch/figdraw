@@ -10,6 +10,9 @@ on:
 jobs:
   tests:
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       matrix:
         nimversion:
@@ -17,6 +20,7 @@ jobs:
         os:
           - ubuntu-24.04
           - macos-14
+          - windows-2022
     steps:
     - uses: actions/checkout@v1
 
@@ -43,15 +47,23 @@ jobs:
         vulkaninfo --summary || true
 
     - name: Install GrabNim
+      if: runner.os != 'Windows'
       run: |
         curl -fsSL https://codeberg.org/janAkali/grabnim/raw/branch/master/misc/install.sh | sh
         echo "$HOME/.local/share/grabnim/current/bin" >> $GITHUB_PATH
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
     - name: Install Nim
+      if: runner.os != 'Windows'
       run: |
         grabnim ${{ matrix.nimversion }}
         nim -v
+
+    - name: Install Nim (Windows)
+      if: runner.os == 'Windows'
+      uses: jiro4989/setup-nim-action@v2
+      with:
+        nim-version: ${{ matrix.nimversion }}
 
     - name: Install Atlas
       run: |
@@ -79,6 +91,12 @@ jobs:
         # sync deps
         atlas install --feature:windy --feature:sdl2
 
+    - name: Install Deps
+      if: runner.os == 'Windows'
+      run: |
+        # sync deps
+        atlas install --feature:windy --feature:sdl2
+
     - name: Build Tests
       if: runner.os == 'Linux'
       env:
@@ -94,6 +112,13 @@ jobs:
 
     - name: Build Tests
       if: runner.os == 'macOS'
+      run: |
+        nim test
+
+    - name: Build Tests
+      if: runner.os == 'Windows'
+      env:
+        NIMFLAGS: "-d:figdraw.opengl=on -d:figdraw.vulkan=off"
       run: |
         nim test
 
