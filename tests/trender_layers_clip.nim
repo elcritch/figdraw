@@ -167,9 +167,6 @@ suite "opengl layer + clip render":
     if fileExists(outPath):
       removeFile(outPath)
     block renderOnce:
-      when UseVulkanBackend:
-        skip()
-        break renderOnce
       var img: Image
       try:
         img = renderAndScreenshotOnce(

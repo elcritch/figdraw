@@ -197,11 +197,14 @@ proc scaledCorners(
     result[corner] = corners[corner].scaled()
 
 proc drawMasks(ctx: Context, node: Fig) =
-  ctx.drawRoundedRectSdf(
-    rect = node.screenBox.scaled(),
-    color = rgba(255, 0, 0, 255).color,
-    radii = node.corners.scaledCorners(),
-  )
+  when UseVulkanBackend:
+    ctx.setMaskRect(node.screenBox.scaled())
+  else:
+    ctx.drawRoundedRectSdf(
+      rect = node.screenBox.scaled(),
+      color = rgba(255, 0, 0, 255).color,
+      radii = node.corners.scaledCorners(),
+    )
 
 proc renderDropShadows(ctx: Context, node: Fig) =
   ## drawing shadows with various techniques

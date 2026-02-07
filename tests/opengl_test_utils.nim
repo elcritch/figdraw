@@ -46,11 +46,21 @@ proc renderAndScreenshotOnce*(
     except ValueError:
       raise newException(WindyError, "Metal device not available")
   elif UseVulkanBackend:
+    let window = newWindyWindow(
+      size = ivec2(windowW.int32, windowH.int32), fullscreen = false, title = title
+    )
     try:
-      let renderer = glrenderer.newFigRenderer(atlasSize = atlasSize)
+      let renderer = glrenderer.newFigRenderer(
+        atlasSize = atlasSize, backendState = WindyRenderBackend()
+      )
+      renderer.setupBackend(window)
 
-      var renders = makeRenders(windowW.float32, windowH.float32)
-      renderer.renderFrame(renders, vec2(windowW.float32, windowH.float32))
+      pollEvents()
+      let sz = window.logicalSize()
+      var renders = makeRenders(sz.x, sz.y)
+      renderer.beginFrame()
+      renderer.renderFrame(renders, sz)
+      renderer.endFrame()
 
       result = glrenderer.takeScreenshot(renderer)
       result.writeFile(outputPath)
@@ -58,6 +68,8 @@ proc renderAndScreenshotOnce*(
       raise newException(WindyError, "Vulkan device not available: " & exc.msg)
     except ValueError:
       raise newException(WindyError, "Vulkan device not available")
+    finally:
+      window.close()
   else:
     let window = newTestWindow(windowW.float32, windowH.float32, title)
     if glGetString(GL_VERSION) == nil:
