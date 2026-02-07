@@ -11,8 +11,8 @@ import figdraw/utils/glutils
 
 import renderlist_100_common
 
-when UseMetalBackend:
-  {.error: "sdl2 examples haven't been ported to metal, try windy examples".}
+when UseMetalBackend or UseVulkanBackend:
+  {.error: "sdl2 examples only support OpenGL; use windy examples for Metal/Vulkan (or pass -d:figdraw.vulkan=off).".}
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const NoSleep {.booldefine: "figdraw.noSleep".}: bool = true

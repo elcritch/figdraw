@@ -14,7 +14,7 @@ task test, "run unit test":
     if file.startsWith("examples/windy_") and file.endsWith(".nim"):
       exec("nim c " & file)
     elif file.startsWith("examples/sdl2_") and file.endsWith(".nim"):
-      exec("nim c -d:figdraw.metal=off " & file)
+      exec("nim c -d:figdraw.metal=off -d:figdraw.vulkan=off " & file)
 
 task test_emscripten, "build emscripten examples":
   for file in listFiles("examples"):

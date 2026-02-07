@@ -10,8 +10,8 @@ import figdraw/utils/glutils
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
-when UseMetalBackend:
-  {.error: "sdl2 examples haven't been ported to metal, try windy examples".}
+when UseMetalBackend or UseVulkanBackend:
+  {.error: "sdl2 examples only support OpenGL; use windy examples for Metal/Vulkan (or pass -d:figdraw.vulkan=off).".}
 
 type SdlWindow = ref object
   window: WindowPtr
