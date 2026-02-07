@@ -1558,6 +1558,8 @@ proc flush(ctx: Context) =
     return
   if not ctx.commandRecording:
     return
+  if ctx.atlasDirty:
+    ctx.recordAtlasUpload(ctx.commandBuffer)
 
   let vertexCount = ctx.quadCount * 4
   for i in 0 ..< vertexCount:
