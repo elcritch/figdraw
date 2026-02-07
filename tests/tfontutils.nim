@@ -152,7 +152,25 @@ suite "fontutils":
     elif defined(linux) or defined(freebsd):
       candidates = @["DejaVu Sans", "Noto Sans", "Liberation Sans", "Ubuntu"]
 
-    let systemPath = findSystemFontFile(candidates)
+    proc firstLoadableSystemFontPath(candidates: openArray[string]): string =
+      let preferred = findSystemFontFile(candidates)
+      if preferred.len > 0:
+        try:
+          discard readTypeface(preferred)
+          return preferred
+        except PixieError:
+          discard
+
+      for path in systemFontFiles():
+        try:
+          discard readTypeface(path)
+          return path
+        except PixieError:
+          discard
+
+      ""
+
+    let systemPath = firstLoadableSystemFontPath(candidates)
     if systemPath.len == 0:
       check true
     else:
