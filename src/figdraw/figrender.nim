@@ -39,19 +39,16 @@ const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
 type
   NoRendererBackendState* = object
-  Context* = BackendContext
 
 type FigRenderer*[BackendState = NoRendererBackendState] = ref object
-  ctx*: Context
+  ctx*: BackendContext
   backendState*: BackendState
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
-    preferredCtx*: Context
-    fallbackCtx*: Context
     fallbackAtlasSize: int
     fallbackPixelate: bool
     fallbackPixelScale: float32
 
-template entries*(ctx: Context): untyped =
+template entries*(ctx: BackendContext): untyped =
   ctx.entriesPtr()[]
 
 proc backendKind*[BackendState](
@@ -67,26 +64,19 @@ when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     warn "Preferred backend failed, falling back to OpenGL at runtime",
       preferredBackend = backendName(PreferredBackendKind), backendError = reason
 
-  proc ensureFallbackContext[BackendState](
-      renderer: FigRenderer[BackendState]
-  ): Context =
-    if renderer.fallbackCtx.isNil:
-      renderer.fallbackCtx = opengl_context.newContext(
-        atlasSize = renderer.fallbackAtlasSize,
-        pixelate = renderer.fallbackPixelate,
-        pixelScale = renderer.fallbackPixelScale,
-      )
-    result = renderer.fallbackCtx
-
   proc useOpenGlFallback[BackendState](
       renderer: FigRenderer[BackendState], reason: string
   ) =
     let alreadyOpenGl =
-      renderer.ctx.kind() == rbOpenGL and not renderer.fallbackCtx.isNil
+      not renderer.ctx.isNil and renderer.ctx.kind() == rbOpenGL
     if alreadyOpenGl:
       return
     try:
-      renderer.ctx = renderer.ensureFallbackContext()
+      renderer.ctx = opengl_context.newContext(
+        atlasSize = renderer.fallbackAtlasSize,
+        pixelate = renderer.fallbackPixelate,
+        pixelScale = renderer.fallbackPixelScale,
+      )
     except CatchableError as glExc:
       raise newException(
         ValueError,
@@ -118,10 +108,9 @@ proc initRendererContext[BackendState](
     renderer.fallbackPixelate = pixelate
     renderer.fallbackPixelScale = pixelScale
     try:
-      renderer.preferredCtx = preferred_backend.newContext(
+      renderer.ctx = preferred_backend.newContext(
         atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale
       )
-      renderer.ctx = renderer.preferredCtx
     except CatchableError as exc:
       renderer.useOpenGlFallback(exc.msg)
   elif UseMetalBackend:
@@ -147,17 +136,17 @@ proc newFigRenderer*[BackendState](
   result = FigRenderer[BackendState](backendState: backendState)
   result.initRendererContext(atlasSize, pixelScale, pixelate = false)
 
-proc newFigRenderer*(ctx: Context): FigRenderer[NoRendererBackendState] =
+proc newFigRenderer*(ctx: BackendContext): FigRenderer[NoRendererBackendState] =
   ## Uses a caller-created backend context.
   result = FigRenderer[NoRendererBackendState](ctx: ctx)
 
 proc newFigRenderer*[BackendState](
-    ctx: Context, backendState: BackendState
+    ctx: BackendContext, backendState: BackendState
 ): FigRenderer[BackendState] =
   ## Uses a caller-created backend context with custom backend state payload.
   result = FigRenderer[BackendState](ctx: ctx, backendState: backendState)
 
-proc renderDrawable*(ctx: Context, node: Fig) =
+proc renderDrawable*(ctx: BackendContext, node: Fig) =
   ## TODO: draw non-node stuff?
   let box = node.screenBox.scaled()
   for point in node.points:
@@ -166,7 +155,7 @@ proc renderDrawable*(ctx: Context, node: Fig) =
       bx = box.atXY(pos.x, pos.y)
     ctx.drawRect(bx, node.fill)
 
-proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
+proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
   if NfSelectText in node.flags and node.fill.a > 0:
     let rects = node.textLayout.selectionRects
@@ -239,32 +228,10 @@ proc scaledCorners(
   for corner in DirectionCorners:
     result[corner] = corners[corner].scaled()
 
-proc drawMasks(ctx: Context, node: Fig) =
-  when UseVulkanBackend:
-    if ctx.kind() == rbVulkan:
-      ctx.setMaskRect(node.screenBox.scaled())
-    else:
-      ctx.drawRoundedRectSdf(
-        rect = node.screenBox.scaled(),
-        color = rgba(255, 0, 0, 255).color,
-        radii = node.corners.scaledCorners(),
-        mode = figbackend.SdfMode.sdfModeClipAA,
-        factor = 4.0'f32,
-        spread = 0.0'f32,
-        shapeSize = vec2(0.0'f32, 0.0'f32),
-      )
-  else:
-    ctx.drawRoundedRectSdf(
-      rect = node.screenBox.scaled(),
-      color = rgba(255, 0, 0, 255).color,
-      radii = node.corners.scaledCorners(),
-      mode = figbackend.SdfMode.sdfModeClipAA,
-      factor = 4.0'f32,
-      spread = 0.0'f32,
-      shapeSize = vec2(0.0'f32, 0.0'f32),
-    )
+proc drawMasks(ctx: BackendContext, node: Fig) =
+  ctx.setMaskRect(node.screenBox.scaled(), node.corners.scaledCorners())
 
-proc renderDropShadows(ctx: Context, node: Fig) =
+proc renderDropShadows(ctx: BackendContext, node: Fig) =
   ## drawing shadows with various techniques
   for shadow in node.shadows:
     if shadow.style != DropShadow:
@@ -325,7 +292,7 @@ proc renderDropShadows(ctx: Context, node: Fig) =
         innerShadow = false,
       )
 
-proc renderInnerShadows(ctx: Context, node: Fig) =
+proc renderInnerShadows(ctx: BackendContext, node: Fig) =
   ## drawing inner shadows with various techniques
   for shadow in node.shadows:
     if shadow.style != InnerShadow:
@@ -396,7 +363,7 @@ proc hasActiveInnerShadow(node: Fig): bool =
     return true
   return false
 
-proc renderBoxes(ctx: Context, node: Fig) =
+proc renderBoxes(ctx: BackendContext, node: Fig) =
   ## drawing boxes for rectangles
 
   let
@@ -440,14 +407,14 @@ proc renderBoxes(ctx: Context, node: Fig) =
         doStroke = true,
       )
 
-proc renderImage(ctx: Context, node: Fig) =
+proc renderImage(ctx: BackendContext, node: Fig) =
   if node.image.id.int == 0:
     return
   let box = node.screenBox.scaled()
   let size = vec2(box.w, box.h)
   ctx.drawImage(node.image.id.Hash, pos = box.xy, color = node.image.color, size = size)
 
-proc renderMsdfImage(ctx: Context, node: Fig) =
+proc renderMsdfImage(ctx: BackendContext, node: Fig) =
   if node.msdfImage.id.int == 0:
     return
   let box = node.screenBox.scaled()
@@ -470,7 +437,7 @@ proc renderMsdfImage(ctx: Context, node: Fig) =
     strokeWeight = strokeWeight,
   )
 
-proc renderMtsdfImage(ctx: Context, node: Fig) =
+proc renderMtsdfImage(ctx: BackendContext, node: Fig) =
   if node.mtsdfImage.id.int == 0:
     return
   let box = node.screenBox.scaled()
@@ -494,7 +461,7 @@ proc renderMtsdfImage(ctx: Context, node: Fig) =
   )
 
 proc render(
-    ctx: Context, nodes: seq[Fig], nodeIdx, parentIdx: FigIdx
+    ctx: BackendContext, nodes: seq[Fig], nodeIdx, parentIdx: FigIdx
 ) {.forbids: [AppMainThreadEff].} =
   template node(): auto =
     nodes[nodeIdx.int]
@@ -565,7 +532,7 @@ proc render(
 
   postRender()
 
-proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff].} =
+proc renderRoot*(ctx: BackendContext, nodes: var Renders) {.forbids: [AppMainThreadEff].} =
   ## draw roots for each level
   var img: ImgObj
   while imageChan.tryRecv(img):
@@ -601,7 +568,7 @@ proc renderFrame*[BackendState](
       frameSize, clearMain = clearMain, clearMainColor = clearColor
     )
 
-  let ctx: Context = renderer.ctx
+  let ctx: BackendContext = renderer.ctx
 
   ctx.saveTransform()
   ctx.scale(ctx.pixelScale)
