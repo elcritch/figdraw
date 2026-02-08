@@ -237,50 +237,49 @@ proc createPresentSurface(ctx: VulkanContext) =
   case ctx.presentTargetKind
   of presentTargetXlib:
     when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
-      when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
-        case ctx.linuxSurfaceKind
-        of linuxSurfaceXcb:
-          let fnPtr = vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXcbSurfaceKHR")
-          if fnPtr.isNil:
-            raise newException(ValueError, "vkCreateXcbSurfaceKHR unavailable")
-          let xcbConn = XGetXCBConnection(ctx.presentXlibDisplay)
-          if xcbConn.isNil:
-            raise newException(
-              ValueError, "XGetXCBConnection returned nil for Vulkan XCB surface"
-            )
-          let vkCreateXcbSurfaceKHRNative = cast[VkCreateXcbSurfaceKHRNativeProc](fnPtr)
-          var createInfo = VkXcbSurfaceCreateInfoKHRNative(
-            sType: VkStructureType.XcbSurfaceCreateInfoKHR,
-            pNext: nil,
-            flags: 0.VkXcbSurfaceCreateFlagsKHR,
-            connection: xcbConn,
-            window: uint32(ctx.presentXlibWindow),
+      case ctx.linuxSurfaceKind
+      of linuxSurfaceXcb:
+        let fnPtr = vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXcbSurfaceKHR")
+        if fnPtr.isNil:
+          raise newException(ValueError, "vkCreateXcbSurfaceKHR unavailable")
+        let xcbConn = XGetXCBConnection(ctx.presentXlibDisplay)
+        if xcbConn.isNil:
+          raise newException(
+            ValueError, "XGetXCBConnection returned nil for Vulkan XCB surface"
           )
-          debug "Creating Vulkan XCB surface",
-            window = ctx.presentXlibWindow, xcbConnection = cast[uint64](xcbConn)
-          checkVkResult vkCreateXcbSurfaceKHRNative(
-            ctx.instance, createInfo.addr, nil, ctx.surface.addr
-          )
-        of linuxSurfaceXlib:
-          let fnPtr =
-            vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXlibSurfaceKHR")
-          if fnPtr.isNil:
-            raise newException(ValueError, "vkCreateXlibSurfaceKHR unavailable")
-          let vkCreateXlibSurfaceKHRNative =
-            cast[VkCreateXlibSurfaceKHRNativeProc](fnPtr)
-          var createInfo = VkXlibSurfaceCreateInfoKHRNative(
-            sType: VkStructureType.XlibSurfaceCreateInfoKHR,
-            pNext: nil,
-            flags: 0.VkXlibSurfaceCreateFlagsKHR,
-            dpy: ctx.presentXlibDisplay,
-            window: culong(ctx.presentXlibWindow),
-          )
-          debug "Creating Vulkan XLIB surface",
-            window = ctx.presentXlibWindow,
-            xlibDisplay = cast[uint64](ctx.presentXlibDisplay)
-          checkVkResult vkCreateXlibSurfaceKHRNative(
-            ctx.instance, createInfo.addr, nil, ctx.surface.addr
-          )
+        let vkCreateXcbSurfaceKHRNative = cast[VkCreateXcbSurfaceKHRNativeProc](fnPtr)
+        var createInfo = VkXcbSurfaceCreateInfoKHRNative(
+          sType: VkStructureType.XcbSurfaceCreateInfoKHR,
+          pNext: nil,
+          flags: 0.VkXcbSurfaceCreateFlagsKHR,
+          connection: xcbConn,
+          window: uint32(ctx.presentXlibWindow),
+        )
+        debug "Creating Vulkan XCB surface",
+          window = ctx.presentXlibWindow, xcbConnection = cast[uint64](xcbConn)
+        checkVkResult vkCreateXcbSurfaceKHRNative(
+          ctx.instance, createInfo.addr, nil, ctx.surface.addr
+        )
+      of linuxSurfaceXlib:
+        let fnPtr =
+          vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXlibSurfaceKHR")
+        if fnPtr.isNil:
+          raise newException(ValueError, "vkCreateXlibSurfaceKHR unavailable")
+        let vkCreateXlibSurfaceKHRNative =
+          cast[VkCreateXlibSurfaceKHRNativeProc](fnPtr)
+        var createInfo = VkXlibSurfaceCreateInfoKHRNative(
+          sType: VkStructureType.XlibSurfaceCreateInfoKHR,
+          pNext: nil,
+          flags: 0.VkXlibSurfaceCreateFlagsKHR,
+          dpy: ctx.presentXlibDisplay,
+          window: culong(ctx.presentXlibWindow),
+        )
+        debug "Creating Vulkan XLIB surface",
+          window = ctx.presentXlibWindow,
+          xlibDisplay = cast[uint64](ctx.presentXlibDisplay)
+        checkVkResult vkCreateXlibSurfaceKHRNative(
+          ctx.instance, createInfo.addr, nil, ctx.surface.addr
+        )
     else:
       raise newException(ValueError, "Xlib Vulkan surface unsupported on this OS")
   of presentTargetWin32:
