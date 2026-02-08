@@ -1010,7 +1010,7 @@ method popMask*(ctx: OpenGlContext) =
 
   dec ctx.maskTextureWrite
 
-proc beginFrame*(ctx: OpenGlContext, frameSize: Vec2, proj: Mat4) =
+proc beginFrameProj(ctx: OpenGlContext, frameSize: Vec2, proj: Mat4) =
   ## Starts a new frame.
   assert ctx.frameBegun == false, "ctx.beginFrame has already been called."
   ctx.frameBegun = true
@@ -1032,8 +1032,8 @@ proc beginFrame*(ctx: OpenGlContext, frameSize: Vec2, proj: Mat4) =
 
   ctx.clearMask()
 
-proc beginFrame*(ctx: OpenGlContext, frameSize: Vec2) =
-  beginFrame(
+proc beginFrameDefaultProj(ctx: OpenGlContext, frameSize: Vec2) =
+  beginFrameProj(
     ctx, frameSize, ortho[float32](0.0, frameSize.x, frameSize.y, 0, -1000.0, 1000.0)
   )
 
@@ -1093,17 +1093,18 @@ method pixelScale*(ctx: OpenGlContext): float32 =
   ctx.pixelScale
 
 method beginFrame*(
-    ctx: OpenGlContext, frameSize: Vec2, clearMain: bool, clearMainColor: Color
+    ctx: OpenGlContext,
+    frameSize: Vec2,
+    clearMain = false,
+    clearMainColor: Color = whiteColor,
 ) =
   if clearMain:
     glClearColor(
-      clearMainColor.r.GLfloat,
-      clearMainColor.g.GLfloat,
-      clearMainColor.b.GLfloat,
+      clearMainColor.r.GLfloat, clearMainColor.g.GLfloat, clearMainColor.b.GLfloat,
       clearMainColor.a.GLfloat,
     )
     glClear(GL_COLOR_BUFFER_BIT)
-  beginFrame(ctx, frameSize)
+  beginFrameDefaultProj(ctx, frameSize)
 
 method readPixels*(ctx: OpenGlContext, frame: Rect, readFront: bool): Image =
   var viewport: array[4, GLint]

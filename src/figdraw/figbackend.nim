@@ -43,9 +43,6 @@ type SdfMode* {.pure.} = enum
   sdfModeMtsdfAnnular = 16
 
 type BackendContext* = ref object of RootObj
-  fallbackAtlasSize: int
-  fallbackPixelate: bool
-  fallbackPixelScale: float32
 
 method kind*(impl: BackendContext): RendererBackendKind {.base.} =
   raise newException(ValueError, "Backend kind unavailable")
@@ -71,9 +68,7 @@ method updateImage*(impl: BackendContext, path: Hash, image: Image) {.base.} =
 method putImage*(impl: BackendContext, imgObj: ImgObj) {.base.} =
   raise newException(ValueError, "Backend putImage unavailable")
 
-method drawImage*(
-    impl: BackendContext, path: Hash, pos: Vec2, color: Color
-) {.base.} =
+method drawImage*(impl: BackendContext, path: Hash, pos: Vec2, color: Color) {.base.} =
   raise newException(ValueError, "Backend drawImage unavailable")
 
 method drawImage*(
@@ -163,9 +158,7 @@ method saveTransform*(impl: BackendContext) {.base.} =
 method restoreTransform*(impl: BackendContext) {.base.} =
   raise newException(ValueError, "Backend restoreTransform unavailable")
 
-method readPixels*(
-    impl: BackendContext, frame: Rect, readFront: bool
-): Image {.base.} =
+method readPixels*(impl: BackendContext, frame: Rect, readFront: bool): Image {.base.} =
   raise newException(ValueError, "Backend readPixels unavailable")
 
 when UseMetalBackend:
