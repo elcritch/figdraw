@@ -151,7 +151,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
         renderer.ctx.setPresentLayer(renderer.backendState.metalLayer.layer)
       except CatchableError as exc:
         when UseOpenGlFallback:
-          renderer.forceOpenGlFallback(exc.msg)
+          renderer.useOpenGlFallback(exc.msg)
         else:
           raise exc
   elif UseVulkanBackend:
@@ -160,7 +160,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
         attachVulkanSurface(window, renderer.ctx)
       except CatchableError as exc:
         when UseOpenGlFallback:
-          renderer.forceOpenGlFallback(exc.msg)
+          renderer.useOpenGlFallback(exc.msg)
         else:
           raise exc
 

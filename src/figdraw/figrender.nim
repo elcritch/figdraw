@@ -64,9 +64,10 @@ when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     warn "Preferred backend failed, falling back to OpenGL at runtime",
       preferredBackend = backendName(PreferredBackendKind), backendError = reason
 
-  proc useOpenGlFallback[BackendState](
+  proc useOpenGlFallback*[BackendState](
       renderer: FigRenderer[BackendState], reason: string
   ) =
+    logOpenGlFallback(reason)
     let alreadyOpenGl =
       not renderer.ctx.isNil and renderer.ctx.kind() == rbOpenGL
     if alreadyOpenGl:
@@ -83,12 +84,6 @@ when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
         "Preferred backend failed (" & reason &
           "), and OpenGL fallback could not initialize (" & glExc.msg & ")",
       )
-    logOpenGlFallback(reason)
-
-  proc forceOpenGlFallback*[BackendState](
-      renderer: FigRenderer[BackendState], reason = "runtime fallback requested"
-  ) =
-    renderer.useOpenGlFallback(reason)
 
 proc takeScreenshot*[BackendState](
     renderer: FigRenderer[BackendState],
@@ -107,6 +102,7 @@ proc initRendererContext[BackendState](
     renderer.fallbackAtlasSize = atlasSize
     renderer.fallbackPixelate = pixelate
     renderer.fallbackPixelScale = pixelScale
+    notice "Setting up preferred backend", preferredBackend = backendName(PreferredBackendKind)
     try:
       renderer.ctx = preferred_backend.newContext(
         atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale
