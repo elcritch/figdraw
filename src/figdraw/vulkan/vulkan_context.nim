@@ -8,17 +8,16 @@ import pkg/vulkan
 import pkg/vulkan/wrapper
 
 import ../commons
+import ../figbackend as figbackend
 import ../common/formatflippy
 import ../fignodes
 import ../utils/drawextras
+import ./vulkan_utils
 
 export drawextras
 
 logScope:
   scope = "vulkan"
-
-proc round*(v: Vec2): Vec2 =
-  vec2(round(v.x), round(v.y))
 
 const
   quadLimit = 10_921
@@ -30,19 +29,7 @@ when defined(emscripten):
 else:
   type SdfModeData = uint16
 
-type SdfMode* {.pure.} = enum
-  sdfModeAtlas = 0
-  sdfModeClipAA = 3
-  sdfModeDropShadow = 7
-  sdfModeDropShadowAA = 8
-  sdfModeInsetShadow = 9
-  sdfModeInsetShadowAnnular = 10
-  sdfModeAnnular = 11
-  sdfModeAnnularAA = 12
-  sdfModeMsdf = 13
-  sdfModeMtsdf = 14
-  sdfModeMsdfAnnular = 15
-  sdfModeMtsdfAnnular = 16
+type SdfMode* = figbackend.SdfMode
 
 type PresentTargetKind = enum
   presentTargetNone
@@ -51,44 +38,11 @@ type PresentTargetKind = enum
   presentTargetMetal
 
 when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
-  type VkXlibSurfaceCreateInfoKHRNative {.bycopy.} = object
-    sType: VkStructureType
-    pNext: pointer
-    flags: VkXlibSurfaceCreateFlagsKHR
-    dpy: pointer
-    window: culong
-
-  type VkCreateXlibSurfaceKHRNativeProc = proc(
-    instance: VkInstance,
-    pCreateInfo: ptr VkXlibSurfaceCreateInfoKHRNative,
-    pAllocator: ptr VkAllocationCallbacks,
-    pSurface: ptr VkSurfaceKHR,
-  ): VkResult {.cdecl.}
-
-  const VulkanDynLib =
-    when defined(windows):
-      "vulkan-1.dll"
-    elif defined(macosx):
-      "libMoltenVK.dylib"
-    else:
-      "libvulkan.so.1"
-
-  proc vkGetInstanceProcAddrNative(
-    instance: VkInstance, pName: cstring
-  ): pointer {.cdecl, dynlib: VulkanDynLib, importc: "vkGetInstanceProcAddr".}
+  type LinuxSurfaceKind = enum
+    linuxSurfaceXlib
+    linuxSurfaceXcb
 
 type
-  QueueFamilyIndices = object
-    graphicsFamily: uint32
-    graphicsFound: bool
-    presentFamily: uint32
-    presentFound: bool
-
-  SwapChainSupportDetails = object
-    capabilities: VkSurfaceCapabilitiesKHR
-    formats: seq[VkSurfaceFormatKHR]
-    presentModes: seq[VkPresentModeKHR]
-
   VSUniforms = object
     proj: Mat4
 
@@ -107,7 +61,7 @@ type
     sdfPad: uint16
     sdfFactors: array[2, float32]
 
-  Context* = ref object
+  VulkanContext* = ref object of figbackend.BackendContext
     atlasSize: int
     atlasMargin: int
     quadCount: int
@@ -156,6 +110,8 @@ type
     presentWin32Hinstance: pointer
     presentWin32Hwnd: pointer
     presentMetalLayer: pointer
+    when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+      linuxSurfaceKind: LinuxSurfaceKind
 
     surface: VkSurfaceKHR
     swapchain: VkSwapchainKHR
@@ -242,182 +198,16 @@ const
   vkNullSemaphore = VkSemaphore(0)
   vkNullFence = VkFence(0)
 
-proc hasPresentTarget(ctx: Context): bool =
+proc hasPresentTarget(ctx: VulkanContext): bool =
   ctx.presentTargetKind != presentTargetNone
 
-proc instanceExtensions(ctx: Context): seq[cstring] =
-  if not ctx.hasPresentTarget():
-    return @[]
-
-  result = @[VkKhrSurfaceExtensionName.cstring]
-  case ctx.presentTargetKind
-  of presentTargetXlib:
-    result.add(VkKhrXlibSurfaceExtensionName.cstring)
-  of presentTargetWin32:
-    result.add(VkKhrWin32SurfaceExtensionName.cstring)
-  of presentTargetMetal:
-    result.add(VkExtMetalSurfaceExtensionName.cstring)
-  of presentTargetNone:
-    discard
-
-proc toKey*(h: Hash): Hash =
-  h
-
-proc hasImage*(ctx: Context, key: Hash): bool =
+method hasImage*(ctx: VulkanContext, key: Hash): bool =
   key in ctx.entries
 
-proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool
-
-proc findGraphicsQueueFamily(device: VkPhysicalDevice): int =
-  let families = getQueueFamilyProperties(device)
-  for i, family in families:
-    if family.queueCount > 0 and VkQueueFlagBits.GraphicsBit in family.queueFlags:
-      return i
-  result = -1
-
-proc findPresentQueueFamily(device: VkPhysicalDevice, surface: VkSurfaceKHR): int =
-  let families = getQueueFamilyProperties(device)
-  for i, family in families:
-    if family.queueCount == 0:
-      continue
-    var supported: VkBool32
-    discard
-      vkGetPhysicalDeviceSurfaceSupportKHR(device, i.uint32, surface, supported.addr)
-    if supported.ord == VkTrue:
-      return i
-  result = -1
-
-proc checkDeviceExtensionSupport(
-    physicalDevice: VkPhysicalDevice, requiredExtensions: seq[string]
-): bool =
-  if requiredExtensions.len == 0:
-    return true
-
-  var extCount: uint32
-  discard vkEnumerateDeviceExtensionProperties(physicalDevice, nil, extCount.addr, nil)
-  if extCount == 0:
-    return false
-
-  var availableExts = newSeq[VkExtensionProperties](extCount)
-  discard vkEnumerateDeviceExtensionProperties(
-    physicalDevice, nil, extCount.addr, availableExts[0].addr
-  )
-
-  for required in requiredExtensions:
-    var found = false
-    for ext in availableExts:
-      if $cast[cstring](ext.extensionName.addr) == required:
-        found = true
-        break
-    if not found:
-      return false
-
-  result = true
-
-proc querySwapChainSupport(
-    physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR
-): SwapChainSupportDetails =
-  discard vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-    physicalDevice, surface, result.capabilities.addr
-  )
-
-  var formatCount: uint32
-  discard
-    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, formatCount.addr, nil)
-  if formatCount != 0:
-    result.formats.setLen(formatCount)
-    discard vkGetPhysicalDeviceSurfaceFormatsKHR(
-      physicalDevice, surface, formatCount.addr, result.formats[0].addr
-    )
-
-  var presentModeCount: uint32
-  discard vkGetPhysicalDeviceSurfacePresentModesKHR(
-    physicalDevice, surface, presentModeCount.addr, nil
-  )
-  if presentModeCount != 0:
-    result.presentModes.setLen(presentModeCount)
-    discard vkGetPhysicalDeviceSurfacePresentModesKHR(
-      physicalDevice, surface, presentModeCount.addr, result.presentModes[0].addr
-    )
-
-proc chooseSwapSurfaceFormat(
-    availableFormats: seq[VkSurfaceFormatKHR]
-): VkSurfaceFormatKHR =
-  for format in availableFormats:
-    if format.format == VK_FORMAT_B8G8R8A8_UNORM and
-        format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR:
-      return format
-
-  for format in availableFormats:
-    if format.format == VK_FORMAT_R8G8B8A8_UNORM and
-        format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR:
-      return format
-
-  result = availableFormats[0]
-
-proc chooseSwapPresentMode(
-    availablePresentModes: seq[VkPresentModeKHR]
-): VkPresentModeKHR =
-  for mode in availablePresentModes:
-    if mode == VK_PRESENT_MODE_MAILBOX_KHR:
-      return mode
-  VK_PRESENT_MODE_FIFO_KHR
-
-proc chooseSwapExtent(
-    capabilities: VkSurfaceCapabilitiesKHR, width, height: int32
-): VkExtent2D =
-  if capabilities.currentExtent.width != 0xFFFFFFFF'u32:
-    return capabilities.currentExtent
-
-  result.width = width.uint32
-  result.height = height.uint32
-  result.width = max(
-    capabilities.minImageExtent.width,
-    min(capabilities.maxImageExtent.width, result.width),
-  )
-  result.height = max(
-    capabilities.minImageExtent.height,
-    min(capabilities.maxImageExtent.height, result.height),
-  )
-
-proc findQueueFamilies(
-    physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR, requirePresent: bool
-): QueueFamilyIndices =
-  let graphics = findGraphicsQueueFamily(physicalDevice)
-  if graphics < 0:
-    return
-  result.graphicsFamily = graphics.uint32
-  result.graphicsFound = true
-
-  if requirePresent:
-    let present = findPresentQueueFamily(physicalDevice, surface)
-    if present < 0:
-      return
-    result.presentFamily = present.uint32
-    result.presentFound = true
-  else:
-    result.presentFamily = result.graphicsFamily
-    result.presentFound = true
-
-proc physicalDeviceName(physicalDevice: VkPhysicalDevice): string =
-  let props = getPhysicalDeviceProperties(physicalDevice)
-  $cast[cstring](props.deviceName.addr)
-
-proc findMemoryType(
-    physicalDevice: VkPhysicalDevice,
-    typeFilter: uint32,
-    properties: VkMemoryPropertyFlags,
-): uint32 =
-  let memoryProperties = getPhysicalDeviceMemoryProperties(physicalDevice)
-  for i in 0 ..< memoryProperties.memoryTypeCount.int:
-    let memoryType = memoryProperties.memoryTypes[i]
-    if (typeFilter and (1'u32 shl i.uint32)) != 0'u32 and
-        memoryType.propertyFlags >= properties:
-      return i.uint32
-  raise newException(ValueError, "Failed to find Vulkan memory type")
+proc tryGetImageRect(ctx: VulkanContext, imageId: Hash, rect: var Rect): bool
 
 proc createBuffer(
-    ctx: Context,
+    ctx: VulkanContext,
     size: VkDeviceSize,
     usage: VkBufferUsageFlags,
     properties: VkMemoryPropertyFlags,
@@ -438,7 +228,7 @@ proc createBuffer(
   result.memory = allocateMemory(ctx.device, alloc)
   bindBufferMemory(ctx.device, result.buffer, result.memory, 0.VkDeviceSize)
 
-proc createPresentSurface(ctx: Context) =
+proc createPresentSurface(ctx: VulkanContext) =
   if not ctx.hasPresentTarget() or ctx.instance == vkNullInstance:
     return
   if ctx.surface != vkNullSurface:
@@ -447,20 +237,49 @@ proc createPresentSurface(ctx: Context) =
   case ctx.presentTargetKind
   of presentTargetXlib:
     when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
-      let fnPtr = vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXlibSurfaceKHR")
-      if fnPtr.isNil:
-        raise newException(ValueError, "vkCreateXlibSurfaceKHR unavailable")
-      let vkCreateXlibSurfaceKHRNative = cast[VkCreateXlibSurfaceKHRNativeProc](fnPtr)
-      var createInfo = VkXlibSurfaceCreateInfoKHRNative(
-        sType: VkStructureType.XlibSurfaceCreateInfoKHR,
-        pNext: nil,
-        flags: 0.VkXlibSurfaceCreateFlagsKHR,
-        dpy: ctx.presentXlibDisplay,
-        window: culong(ctx.presentXlibWindow),
-      )
-      checkVkResult vkCreateXlibSurfaceKHRNative(
-        ctx.instance, createInfo.addr, nil, ctx.surface.addr
-      )
+      case ctx.linuxSurfaceKind
+      of linuxSurfaceXcb:
+        let fnPtr = vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXcbSurfaceKHR")
+        if fnPtr.isNil:
+          raise newException(ValueError, "vkCreateXcbSurfaceKHR unavailable")
+        let xcbConn = XGetXCBConnection(ctx.presentXlibDisplay)
+        if xcbConn.isNil:
+          raise newException(
+            ValueError, "XGetXCBConnection returned nil for Vulkan XCB surface"
+          )
+        let vkCreateXcbSurfaceKHRNative = cast[VkCreateXcbSurfaceKHRNativeProc](fnPtr)
+        var createInfo = VkXcbSurfaceCreateInfoKHRNative(
+          sType: VkStructureType.XcbSurfaceCreateInfoKHR,
+          pNext: nil,
+          flags: 0.VkXcbSurfaceCreateFlagsKHR,
+          connection: xcbConn,
+          window: uint32(ctx.presentXlibWindow),
+        )
+        debug "Creating Vulkan XCB surface",
+          window = ctx.presentXlibWindow, xcbConnection = cast[uint64](xcbConn)
+        checkVkResult vkCreateXcbSurfaceKHRNative(
+          ctx.instance, createInfo.addr, nil, ctx.surface.addr
+        )
+      of linuxSurfaceXlib:
+        let fnPtr =
+          vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXlibSurfaceKHR")
+        if fnPtr.isNil:
+          raise newException(ValueError, "vkCreateXlibSurfaceKHR unavailable")
+        let vkCreateXlibSurfaceKHRNative =
+          cast[VkCreateXlibSurfaceKHRNativeProc](fnPtr)
+        var createInfo = VkXlibSurfaceCreateInfoKHRNative(
+          sType: VkStructureType.XlibSurfaceCreateInfoKHR,
+          pNext: nil,
+          flags: 0.VkXlibSurfaceCreateFlagsKHR,
+          dpy: ctx.presentXlibDisplay,
+          window: culong(ctx.presentXlibWindow),
+        )
+        debug "Creating Vulkan XLIB surface",
+          window = ctx.presentXlibWindow,
+          xlibDisplay = cast[uint64](ctx.presentXlibDisplay)
+        checkVkResult vkCreateXlibSurfaceKHRNative(
+          ctx.instance, createInfo.addr, nil, ctx.surface.addr
+        )
     else:
       raise newException(ValueError, "Xlib Vulkan surface unsupported on this OS")
   of presentTargetWin32:
@@ -490,7 +309,7 @@ proc createPresentSurface(ctx: Context) =
     discard
 
 proc createImage(
-    ctx: Context,
+    ctx: VulkanContext,
     width, height: uint32,
     format: VkFormat,
     tiling: VkImageTiling,
@@ -524,7 +343,7 @@ proc createImage(
   )
 
 proc createImageView(
-    ctx: Context, image: VkImage, format: VkFormat, aspectMask: VkImageAspectFlags
+    ctx: VulkanContext, image: VkImage, format: VkFormat, aspectMask: VkImageAspectFlags
 ): VkImageView =
   let info = newVkImageViewCreateInfo(
     image = image,
@@ -544,19 +363,10 @@ proc createImageView(
   )
   checkVkResult vkCreateImageView(ctx.device, info.addr, nil, result.addr)
 
-proc destroySwapchain(ctx: Context)
-proc createSwapchain(ctx: Context, width, height: int32)
-proc ensureSwapchain(ctx: Context, width, height: int32)
-proc ensureGpuRuntime(ctx: Context)
-proc destroyGpu(ctx: Context)
-proc flush(ctx: Context)
-proc beginRenderPassIfNeeded(ctx: Context)
-proc ensureReadbackBuffer(ctx: Context, bytes: VkDeviceSize)
-proc recordSwapchainReadback(ctx: Context)
-proc clearFrameVertexUploads(ctx: Context)
-proc applyClipScissor(ctx: Context)
+proc fullFrameRect(ctx: VulkanContext): Rect =
+  rect(0.0'f32, 0.0'f32, ctx.frameSize.x, ctx.frameSize.y)
 
-proc destroySwapchain(ctx: Context) =
+proc destroySwapchain(ctx: VulkanContext) =
   for fb in ctx.swapchainFramebuffers:
     if fb != vkNullFramebuffer:
       vkDestroyFramebuffer(ctx.device, fb, nil)
@@ -572,7 +382,7 @@ proc destroySwapchain(ctx: Context) =
     vkDestroySwapchainKHR(ctx.device, ctx.swapchain, nil)
     ctx.swapchain = vkNullSwapchain
 
-proc destroyPipelineObjects(ctx: Context) =
+proc destroyPipelineObjects(ctx: VulkanContext) =
   if ctx.pipeline != vkNullPipeline:
     vkDestroyPipeline(ctx.device, ctx.pipeline, nil)
     ctx.pipeline = vkNullPipeline
@@ -583,7 +393,7 @@ proc destroyPipelineObjects(ctx: Context) =
     vkDestroyRenderPass(ctx.device, ctx.renderPass, nil)
     ctx.renderPass = vkNullRenderPass
 
-proc updateDescriptorSet(ctx: Context) =
+proc updateDescriptorSet(ctx: VulkanContext) =
   var vsInfo = newVkDescriptorBufferInfo(
     buffer = ctx.vsUniformBuffer,
     offset = 0.VkDeviceSize,
@@ -644,7 +454,7 @@ proc updateDescriptorSet(ctx: Context) =
   ]
   updateDescriptorSets(ctx.device, writes, [])
 
-proc recreateAtlasGpu(ctx: Context) =
+proc recreateAtlasGpu(ctx: VulkanContext) =
   if ctx.atlasView != vkNullImageView:
     vkDestroyImageView(ctx.device, ctx.atlasView, nil)
     ctx.atlasView = vkNullImageView
@@ -673,7 +483,7 @@ proc recreateAtlasGpu(ctx: Context) =
   if ctx.descriptorSet != vkNullDescriptorSet:
     ctx.updateDescriptorSet()
 
-proc createPipeline(ctx: Context) =
+proc createPipeline(ctx: VulkanContext) =
   ctx.destroyPipelineObjects()
 
   var colorAttachment = VkAttachmentDescription(
@@ -895,7 +705,7 @@ proc createPipeline(ctx: Context) =
     ctx.device, 0.VkPipelineCache, 1, pipelineInfo.addr, nil, ctx.pipeline.addr
   )
 
-proc createSwapchain(ctx: Context, width, height: int32) =
+proc createSwapchain(ctx: VulkanContext, width, height: int32) =
   if ctx.surface == vkNullSurface:
     return
 
@@ -998,7 +808,18 @@ proc createSwapchain(ctx: Context, width, height: int32) =
     imageCount = ctx.swapchainImages.len,
     format = $ctx.swapchainFormat
 
-proc ensureSwapchain(ctx: Context, width, height: int32) =
+proc clearFrameVertexUploads(ctx: VulkanContext) =
+  for buf in ctx.frameVertexBuffers:
+    if buf != vkNullBuffer:
+      destroyBuffer(ctx.device, buf)
+  ctx.frameVertexBuffers.setLen(0)
+
+  for mem in ctx.frameVertexMemories:
+    if mem != vkNullMemory:
+      freeMemory(ctx.device, mem)
+  ctx.frameVertexMemories.setLen(0)
+
+proc ensureSwapchain(ctx: VulkanContext, width, height: int32) =
   if not ctx.presentReady or width <= 0 or height <= 0:
     return
 
@@ -1015,7 +836,7 @@ proc ensureSwapchain(ctx: Context, width, height: int32) =
     ctx.clearFrameVertexUploads()
   ctx.createSwapchain(width, height)
 
-proc ensureAtlasUploadBuffer(ctx: Context, bytes: VkDeviceSize) =
+proc ensureAtlasUploadBuffer(ctx: VulkanContext, bytes: VkDeviceSize) =
   if ctx.atlasUploadBuffer != vkNullBuffer and ctx.atlasUploadBytes >= bytes:
     return
 
@@ -1035,7 +856,7 @@ proc ensureAtlasUploadBuffer(ctx: Context, bytes: VkDeviceSize) =
   ctx.atlasUploadMemory = alloc.memory
   ctx.atlasUploadBytes = bytes
 
-proc ensureReadbackBuffer(ctx: Context, bytes: VkDeviceSize) =
+proc ensureReadbackBuffer(ctx: VulkanContext, bytes: VkDeviceSize) =
   if ctx.readbackBuffer != vkNullBuffer and ctx.readbackBytes >= bytes:
     return
 
@@ -1055,18 +876,7 @@ proc ensureReadbackBuffer(ctx: Context, bytes: VkDeviceSize) =
   ctx.readbackMemory = alloc.memory
   ctx.readbackBytes = bytes
 
-proc clearFrameVertexUploads(ctx: Context) =
-  for buf in ctx.frameVertexBuffers:
-    if buf != vkNullBuffer:
-      destroyBuffer(ctx.device, buf)
-  ctx.frameVertexBuffers.setLen(0)
-
-  for mem in ctx.frameVertexMemories:
-    if mem != vkNullMemory:
-      freeMemory(ctx.device, mem)
-  ctx.frameVertexMemories.setLen(0)
-
-proc recordAtlasUpload(ctx: Context, cmd: VkCommandBuffer) =
+proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
   let bytes = VkDeviceSize(ctx.atlasSize * ctx.atlasSize * 4)
   ctx.ensureAtlasUploadBuffer(bytes)
 
@@ -1177,7 +987,7 @@ proc recordAtlasUpload(ctx: Context, cmd: VkCommandBuffer) =
   ctx.atlasDirty = false
   ctx.atlasLayoutReady = true
 
-proc recordSwapchainReadback(ctx: Context) =
+proc recordSwapchainReadback(ctx: VulkanContext) =
   if not ctx.swapchainTransferSrcSupported:
     return
   if ctx.swapchainImages.len == 0:
@@ -1302,25 +1112,192 @@ proc recordSwapchainReadback(ctx: Context) =
   ctx.readbackHeight = height
   ctx.readbackReady = true
 
-proc ensureGpuRuntime(ctx: Context) =
+proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
+  let loaderApiVersion = detectLoaderApiVersion()
+  let availableExts = queryInstanceExtensionNames()
+  let availableLayers = queryInstanceLayerNames()
+
+  var enabledExtNames: seq[string] = @[]
+  if ctx.hasPresentTarget():
+    enabledExtNames.add(VkKhrSurfaceExtensionName)
+    case ctx.presentTargetKind
+    of presentTargetXlib:
+      when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+        let hasXlib = VkKhrXlibSurfaceExtensionName in availableExts
+        let hasXcb = VkKhrXcbSurfaceExtensionName in availableExts
+        if hasXlib:
+          ctx.linuxSurfaceKind = linuxSurfaceXlib
+          enabledExtNames.add(VkKhrXlibSurfaceExtensionName)
+        elif hasXcb:
+          ctx.linuxSurfaceKind = linuxSurfaceXcb
+          enabledExtNames.add(VkKhrXcbSurfaceExtensionName)
+          warn "Vulkan XLIB surface extension unavailable; using XCB surface extension",
+            selectedExtension = VkKhrXcbSurfaceExtensionName
+        else:
+          # Keep legacy default behavior for clearer downstream errors.
+          ctx.linuxSurfaceKind = linuxSurfaceXlib
+          enabledExtNames.add(VkKhrXlibSurfaceExtensionName)
+          warn "Neither VK_KHR_xlib_surface nor VK_KHR_xcb_surface reported as available"
+      else:
+        enabledExtNames.add(VkKhrXlibSurfaceExtensionName)
+    of presentTargetWin32:
+      enabledExtNames.add(VkKhrWin32SurfaceExtensionName)
+    of presentTargetMetal:
+      enabledExtNames.add(VkExtMetalSurfaceExtensionName)
+    of presentTargetNone:
+      discard
+
+  var enabledExts: seq[cstring] = @[]
+  for name in enabledExtNames:
+    enabledExts.add(name.cstring)
+
+  debug "Vulkan instance setup",
+    loaderApiVersion = vulkanApiVersion(loaderApiVersion),
+    requestedExtensions = enabledExtNames,
+    availableExtensions = availableExts,
+    availableExtensionsCount = availableExts.len,
+    availableLayers = availableLayers,
+    presentTarget = $ctx.presentTargetKind
+  when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+    debug "Selected Linux Vulkan surface extension mode",
+      linuxSurfaceKind = $ctx.linuxSurfaceKind
+
+  var attempts: seq[uint32] = @[]
+  if loaderApiVersion >= vkApiVersion1_1:
+    attempts.add(vkApiVersion1_1)
+  attempts.add(vkApiVersion1_0)
+
+  for apiVersion in attempts:
+    let appInfo = newVkApplicationInfo(
+      pApplicationName = "figdraw-vulkan",
+      applicationVersion = vkMakeVersion(0, 0, 1, 0),
+      pEngineName = "figdraw",
+      engineVersion = vkMakeVersion(0, 0, 1, 0),
+      apiVersion = apiVersion,
+    )
+    let instanceInfo = newVkInstanceCreateInfo(
+      pApplicationInfo = appInfo.addr,
+      pEnabledLayerNames = [],
+      pEnabledExtensionNames = enabledExts,
+    )
+    try:
+      debug "Creating Vulkan instance",
+        requestedApiVersion = vulkanApiVersion(apiVersion),
+        requestedExtensions = enabledExtNames
+      return createInstance(instanceInfo)
+    except VulkanError as exc:
+      if exc.res == VkErrorIncompatibleDriver and apiVersion != vkApiVersion1_0:
+        warn "Vulkan instance creation failed; retrying with older API version",
+          attemptedApiVersion = vulkanApiVersion(apiVersion), reason = exc.msg
+        continue
+      raise
+
+  raise newException(
+    ValueError, "Failed to create Vulkan instance (no compatible Vulkan API version)"
+  )
+
+proc applyClipScissor(ctx: VulkanContext) =
+  if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain or
+      not ctx.renderPassBegun:
+    return
+
+  let clipRect =
+    if ctx.clipRects.len > 0:
+      ctx.clipRects[^1]
+    else:
+      ctx.fullFrameRect()
+
+  let maxW = max(0'i32, ctx.swapchainExtent.width.int32)
+  let maxH = max(0'i32, ctx.swapchainExtent.height.int32)
+
+  var x0 = clamp(floor(clipRect.x).int32, 0'i32, maxW)
+  var y0 = clamp(floor(clipRect.y).int32, 0'i32, maxH)
+  var x1 = clamp(ceil(clipRect.x + clipRect.w).int32, 0'i32, maxW)
+  var y1 = clamp(ceil(clipRect.y + clipRect.h).int32, 0'i32, maxH)
+  if x1 < x0:
+    x1 = x0
+  if y1 < y0:
+    y1 = y0
+
+  var scissor = newVkRect2D(
+    offset = newVkOffset2D(x = x0, y = y0),
+    extent = newVkExtent2D(width = uint32(x1 - x0), height = uint32(y1 - y0)),
+  )
+  vkCmdSetScissor(ctx.commandBuffer, 0, 1, scissor.addr)
+
+proc beginRenderPassIfNeeded(ctx: VulkanContext) =
+  if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain or ctx.renderPassBegun:
+    return
+
+  let renderPassInfo = VkRenderPassBeginInfo(
+    sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+    pNext: nil,
+    renderPass: ctx.renderPass,
+    framebuffer: ctx.swapchainFramebuffers[ctx.acquiredImageIndex.int],
+    renderArea:
+      newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent),
+    clearValueCount: 0,
+    pClearValues: nil,
+  )
+  vkCmdBeginRenderPass(
+    ctx.commandBuffer, renderPassInfo.addr, VK_SUBPASS_CONTENTS_INLINE
+  )
+  ctx.renderPassBegun = true
+
+  let viewport = newVkViewport(
+    x = 0,
+    y = 0,
+    width = ctx.swapchainExtent.width.float32,
+    height = ctx.swapchainExtent.height.float32,
+    minDepth = 0,
+    maxDepth = 1,
+  )
+  vkCmdSetViewport(ctx.commandBuffer, 0, 1, viewport.addr)
+
+  var fullScissor =
+    newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent)
+  vkCmdSetScissor(ctx.commandBuffer, 0, 1, fullScissor.addr)
+
+  if ctx.frameNeedsClear:
+    let clearValue = VkClearValue(
+      color: VkClearColorValue(
+        float32: [
+          ctx.frameClearColor.r.float32, ctx.frameClearColor.g.float32,
+          ctx.frameClearColor.b.float32, ctx.frameClearColor.a.float32,
+        ]
+      )
+    )
+    var clearAttachment = VkClearAttachment(
+      aspectMask: VkImageAspectFlags{ColorBit},
+      colorAttachment: 0,
+      clearValue: clearValue,
+    )
+    var clearRect = VkClearRect(
+      rect:
+        newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent),
+      baseArrayLayer: 0,
+      layerCount: 1,
+    )
+    vkCmdClearAttachments(ctx.commandBuffer, 1, clearAttachment.addr, 1, clearRect.addr)
+    ctx.frameNeedsClear = false
+
+  if ctx.clipRects.len > 0:
+    ctx.applyClipScissor()
+
+proc ensureGpuRuntime(ctx: VulkanContext) =
   if ctx.gpuReady:
     return
 
   vkPreload()
+  debug "Starting Vulkan runtime initialization",
+    hasPresentTarget = ctx.hasPresentTarget(),
+    presentTarget = $ctx.presentTargetKind,
+    xlibDisplay = cast[uint64](ctx.presentXlibDisplay),
+    xlibWindow = ctx.presentXlibWindow,
+    win32Hinstance = cast[uint64](ctx.presentWin32Hinstance),
+    win32Hwnd = cast[uint64](ctx.presentWin32Hwnd)
 
-  let appInfo = newVkApplicationInfo(
-    pApplicationName = "figdraw-vulkan",
-    applicationVersion = vkMakeVersion(0, 0, 1, 0),
-    pEngineName = "figdraw",
-    engineVersion = vkMakeVersion(0, 0, 1, 0),
-    apiVersion = vkApiVersion1_1,
-  )
-  let instanceInfo = newVkInstanceCreateInfo(
-    pApplicationInfo = appInfo.addr,
-    pEnabledLayerNames = [],
-    pEnabledExtensionNames = ctx.instanceExtensions(),
-  )
-  ctx.instance = createInstance(instanceInfo)
+  ctx.instance = ctx.createInstanceWithFallback()
   vkInit(ctx.instance, load1_2 = false, load1_3 = false)
 
   if ctx.hasPresentTarget():
@@ -1328,6 +1305,7 @@ proc ensureGpuRuntime(ctx: Context) =
     ctx.createPresentSurface()
 
   let devices = enumeratePhysicalDevices(ctx.instance)
+  debug "Enumerated Vulkan physical devices", deviceCount = devices.len
   if devices.len == 0:
     raise newException(ValueError, "No Vulkan physical devices found")
 
@@ -1337,14 +1315,28 @@ proc ensureGpuRuntime(ctx: Context) =
     let devName = physicalDeviceName(device)
     let queues = findQueueFamilies(device, ctx.surface, requirePresent = wantPresent)
     if not queues.graphicsFound or not queues.presentFound:
+      debug "Skipping Vulkan physical device (queue requirements)",
+        device = devName,
+        graphicsFound = queues.graphicsFound,
+        presentFound = queues.presentFound,
+        requirePresent = wantPresent
       continue
 
     if wantPresent:
       let hasSwapchain =
         checkDeviceExtensionSupport(device, @[VkKhrSwapchainExtensionName])
+      debug "Vulkan physical device present support",
+        device = devName,
+        hasSwapchainExt = hasSwapchain,
+        graphicsQueue = queues.graphicsFamily,
+        presentQueue = queues.presentFamily
       if not hasSwapchain:
         continue
       let support = querySwapChainSupport(device, ctx.surface)
+      debug "Vulkan physical device swapchain support",
+        device = devName,
+        formatCount = support.formats.len,
+        presentModeCount = support.presentModes.len
       if support.formats.len == 0 or support.presentModes.len == 0:
         continue
 
@@ -1358,13 +1350,18 @@ proc ensureGpuRuntime(ctx: Context) =
     break
 
   if ctx.physicalDevice == vkNullPhysicalDevice and wantPresent:
+    debug "No Vulkan device met present requirements; retrying without present queue"
     wantPresent = false
     for device in devices:
       let queues = findQueueFamilies(device, ctx.surface, requirePresent = false)
       if not queues.graphicsFound:
+        debug "Skipping Vulkan physical device (no graphics queue)",
+          device = physicalDeviceName(device)
         continue
       ctx.physicalDevice = device
       selectedQueues = queues
+      debug "Selected Vulkan physical device without present requirements",
+        device = physicalDeviceName(device), graphicsQueue = queues.graphicsFamily
       break
 
   if ctx.physicalDevice == vkNullPhysicalDevice:
@@ -1373,6 +1370,10 @@ proc ensureGpuRuntime(ctx: Context) =
   ctx.queueFamily = selectedQueues.graphicsFamily
   ctx.presentQueueFamily =
     if wantPresent: selectedQueues.presentFamily else: selectedQueues.graphicsFamily
+  debug "Using Vulkan queue families",
+    graphicsQueue = ctx.queueFamily,
+    presentQueue = ctx.presentQueueFamily,
+    wantPresent = wantPresent
 
   var queueCreateInfos =
     @[
@@ -1559,7 +1560,7 @@ proc ensureGpuRuntime(ctx: Context) =
 
   ctx.gpuReady = true
 
-proc flush(ctx: Context) =
+proc flush(ctx: VulkanContext) =
   if ctx.quadCount == 0:
     return
   if not ctx.commandRecording:
@@ -1655,7 +1656,7 @@ proc flush(ctx: Context) =
   vkCmdDrawIndexed(ctx.commandBuffer, indexCount, 1, 0, 0, 0)
   ctx.quadCount = 0
 
-proc checkBatch(ctx: Context) =
+proc checkBatch(ctx: VulkanContext) =
   if ctx.quadCount == ctx.maxQuads:
     ctx.flush()
 
@@ -1688,7 +1689,7 @@ proc copyIntoAtlas(atlas: Image, atX, atY: int, image: Image) =
       image.width * sizeof(ColorRGBA),
     )
 
-proc grow(ctx: Context) =
+proc grow(ctx: VulkanContext) =
   ctx.flush()
   ctx.atlasSize = ctx.atlasSize * 2
   info "grow atlasSize", atlasSize = ctx.atlasSize
@@ -1699,7 +1700,7 @@ proc grow(ctx: Context) =
   if ctx.gpuReady:
     ctx.recreateAtlasGpu()
 
-proc findEmptyRect(ctx: Context, width, height: int): Rect =
+proc findEmptyRect(ctx: VulkanContext, width, height: int): Rect =
   let imgWidth = width + ctx.atlasMargin * 2
   let imgHeight = height + ctx.atlasMargin * 2
 
@@ -1734,18 +1735,18 @@ proc findEmptyRect(ctx: Context, width, height: int): Rect =
     float32(height),
   )
 
-proc putImage*(ctx: Context, path: Hash, image: Image)
+method putImage*(ctx: VulkanContext, path: Hash, image: Image)
 
-proc addImage*(ctx: Context, key: Hash, image: Image) =
+method addImage*(ctx: VulkanContext, key: Hash, image: Image) =
   ctx.putImage(key, image)
 
-proc putImage*(ctx: Context, path: Hash, image: Image) =
+method putImage*(ctx: VulkanContext, path: Hash, image: Image) =
   let rect = ctx.findEmptyRect(image.width, image.height)
   ctx.entries[path] = rect / float(ctx.atlasSize)
   copyIntoAtlas(ctx.atlasPixels, int(rect.x), int(rect.y), image)
   ctx.atlasDirty = true
 
-proc updateImage*(ctx: Context, path: Hash, image: Image) =
+method updateImage*(ctx: VulkanContext, path: Hash, image: Image) =
   let rect = ctx.entries[path]
   assert rect.w == image.width.float / float(ctx.atlasSize)
   assert rect.h == image.height.float / float(ctx.atlasSize)
@@ -1757,12 +1758,12 @@ proc updateImage*(ctx: Context, path: Hash, image: Image) =
   )
   ctx.atlasDirty = true
 
-proc putFlippy*(ctx: Context, path: Hash, flippy: Flippy) =
+proc putFlippy*(ctx: VulkanContext, path: Hash, flippy: Flippy) =
   if flippy.mipmaps.len == 0:
     return
   ctx.putImage(path, flippy.mipmaps[0])
 
-proc putImage*(ctx: Context, imgObj: ImgObj) =
+method putImage*(ctx: VulkanContext, imgObj: ImgObj) =
   case imgObj.kind
   of FlippyImg:
     ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
@@ -1770,7 +1771,7 @@ proc putImage*(ctx: Context, imgObj: ImgObj) =
     ctx.putImage(imgObj.id.Hash, imgObj.pimg)
 
 proc drawQuad*(
-    ctx: Context,
+    ctx: VulkanContext,
     verts: array[4, Vec2],
     uvs: array[4, Vec2],
     colors: array[4, ColorRGBA],
@@ -1822,7 +1823,7 @@ proc drawQuad*(
   inc ctx.quadCount
 
 proc drawUvRectAtlasSdf(
-    ctx: Context,
+    ctx: VulkanContext,
     at, to: Vec2,
     uvAt, uvTo: Vec2,
     color: Color,
@@ -1891,8 +1892,8 @@ proc drawUvRectAtlasSdf(
 
   inc ctx.quadCount
 
-proc drawMsdfImage*(
-    ctx: Context,
+method drawMsdfImage*(
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -1906,19 +1907,21 @@ proc drawMsdfImage*(
     return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
+  let modeSel: SdfMode =
+    if strokeW > 0.0'f32: SdfMode.sdfModeMsdfAnnular else: SdfMode.sdfModeMsdf
   ctx.drawUvRectAtlasSdf(
     at = pos,
     to = pos + size,
     uvAt = rect.xy,
     uvTo = rect.xy + rect.wh,
     color = color,
-    mode = if strokeW > 0.0'f32: sdfModeMsdfAnnular else: sdfModeMsdf,
+    mode = modeSel,
     factors = vec2(pxRange, sdThreshold),
     params = params,
   )
 
-proc drawMtsdfImage*(
-    ctx: Context,
+method drawMtsdfImage*(
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -1932,23 +1935,25 @@ proc drawMtsdfImage*(
     return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
+  let modeSel: SdfMode =
+    if strokeW > 0.0'f32: SdfMode.sdfModeMtsdfAnnular else: SdfMode.sdfModeMtsdf
   ctx.drawUvRectAtlasSdf(
     at = pos,
     to = pos + size,
     uvAt = rect.xy,
     uvTo = rect.xy + rect.wh,
     color = color,
-    mode = if strokeW > 0.0'f32: sdfModeMtsdfAnnular else: sdfModeMtsdf,
+    mode = modeSel,
     factors = vec2(pxRange, sdThreshold),
     params = params,
   )
 
-proc setSdfGlobals*(ctx: Context, aaFactor: float32) =
+proc setSdfGlobals*(ctx: VulkanContext, aaFactor: float32) =
   if ctx.aaFactor == aaFactor:
     return
   ctx.aaFactor = aaFactor
 
-proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
+proc drawUvRect(ctx: VulkanContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
   ctx.checkBatch()
   assert ctx.quadCount < ctx.maxQuads
 
@@ -2011,10 +2016,10 @@ proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
 
   inc ctx.quadCount
 
-proc drawUvRect(ctx: Context, rect, uvRect: Rect, color: Color) =
+proc drawUvRect(ctx: VulkanContext, rect, uvRect: Rect, color: Color) =
   ctx.drawUvRect(rect.xy, rect.xy + rect.wh, uvRect.xy, uvRect.xy + uvRect.wh, color)
 
-proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool =
+proc tryGetImageRect(ctx: VulkanContext, imageId: Hash, rect: var Rect): bool =
   if imageId notin ctx.entries:
     warn "missing image in context", imageId = imageId
     return false
@@ -2022,11 +2027,11 @@ proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool =
   true
 
 proc drawImage*(
-    ctx: Context,
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
-    scale = 1.0,
+    scale: float32,
 ) =
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
@@ -2034,8 +2039,11 @@ proc drawImage*(
   let wh = rect.wh * ctx.atlasSize.float32 * scale
   ctx.drawUvRect(pos, pos + wh, rect.xy, rect.xy + rect.wh, color)
 
-proc drawImage*(
-    ctx: Context,
+method drawImage*(ctx: VulkanContext, imageId: Hash, pos: Vec2, color: Color) =
+  drawImage(ctx, imageId, pos, color, 1.0'f32)
+
+method drawImage*(
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -2046,8 +2054,8 @@ proc drawImage*(
     return
   ctx.drawUvRect(pos, pos + size, rect.xy, rect.xy + rect.wh, color)
 
-proc drawImageAdj*(
-    ctx: Context,
+method drawImageAdj*(
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -2060,7 +2068,7 @@ proc drawImageAdj*(
   ctx.drawUvRect(pos, pos + size, rect.xy + adj, rect.xy + rect.wh - adj, color)
 
 proc drawSprite*(
-    ctx: Context,
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -2073,7 +2081,7 @@ proc drawSprite*(
   ctx.drawUvRect(pos - wh / 2, pos + wh / 2, rect.xy, rect.xy + rect.wh, color)
 
 proc drawSprite*(
-    ctx: Context,
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -2084,7 +2092,7 @@ proc drawSprite*(
     return
   ctx.drawUvRect(pos - size / 2, pos + size / 2, rect.xy, rect.xy + rect.wh, color)
 
-proc drawRect*(ctx: Context, rect: Rect, color: Color) =
+method drawRect*(ctx: VulkanContext, rect: Rect, color: Color) =
   const imgKey = hash("rect")
   if imgKey notin ctx.entries:
     var image = newImage(4, 4)
@@ -2100,8 +2108,8 @@ proc drawRect*(ctx: Context, rect: Rect, color: Color) =
     color,
   )
 
-proc drawRoundedRectSdf*(
-    ctx: Context,
+method drawRoundedRectSdf*(
+    ctx: VulkanContext,
     rect: Rect,
     color: Color,
     radii: array[DirectionCorners, float32],
@@ -2213,7 +2221,7 @@ proc drawRoundedRectSdf*(
 
   inc ctx.quadCount
 
-proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
+proc line*(ctx: VulkanContext, a: Vec2, b: Vec2, weight: float32, color: Color) =
   let hash = hash((2345, a, b, (weight * 100).int, hash(color)))
 
   let
@@ -2237,7 +2245,7 @@ proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
     pos, pos + vec2(w.float32, h.float32), uvRect.xy, uvRect.xy + uvRect.wh, color
   )
 
-proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32, color: Color) =
+proc linePolygon*(ctx: VulkanContext, poly: seq[Vec2], weight: float32, color: Color) =
   for i in 0 ..< poly.len:
     ctx.line(poly[i], poly[(i + 1) mod poly.len], weight, color)
 
@@ -2248,109 +2256,16 @@ proc intersectRects(a, b: Rect): Rect =
     x1 = min(a.x + a.w, b.x + b.w)
     y1 = min(a.y + a.h, b.y + b.h)
   if x1 <= x0 or y1 <= y0:
-    return rect(0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32)
+    return rect(0, 0, 0, 0)
   rect(x0, y0, x1 - x0, y1 - y0)
 
-proc fullFrameRect(ctx: Context): Rect =
-  rect(0.0'f32, 0.0'f32, ctx.frameSize.x, ctx.frameSize.y)
-
-proc beginRenderPassIfNeeded(ctx: Context) =
-  if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain or ctx.renderPassBegun:
-    return
-
-  let renderPassInfo = VkRenderPassBeginInfo(
-    sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-    pNext: nil,
-    renderPass: ctx.renderPass,
-    framebuffer: ctx.swapchainFramebuffers[ctx.acquiredImageIndex.int],
-    renderArea:
-      newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent),
-    clearValueCount: 0,
-    pClearValues: nil,
-  )
-  vkCmdBeginRenderPass(
-    ctx.commandBuffer, renderPassInfo.addr, VK_SUBPASS_CONTENTS_INLINE
-  )
-  ctx.renderPassBegun = true
-
-  let viewport = newVkViewport(
-    x = 0,
-    y = 0,
-    width = ctx.swapchainExtent.width.float32,
-    height = ctx.swapchainExtent.height.float32,
-    minDepth = 0,
-    maxDepth = 1,
-  )
-  vkCmdSetViewport(ctx.commandBuffer, 0, 1, viewport.addr)
-
-  var fullScissor =
-    newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent)
-  vkCmdSetScissor(ctx.commandBuffer, 0, 1, fullScissor.addr)
-
-  if ctx.frameNeedsClear:
-    let clearValue = VkClearValue(
-      color: VkClearColorValue(
-        float32: [
-          ctx.frameClearColor.r.float32, ctx.frameClearColor.g.float32,
-          ctx.frameClearColor.b.float32, ctx.frameClearColor.a.float32,
-        ]
-      )
-    )
-    var clearAttachment = VkClearAttachment(
-      aspectMask: VkImageAspectFlags{ColorBit},
-      colorAttachment: 0,
-      clearValue: clearValue,
-    )
-    var clearRect = VkClearRect(
-      rect:
-        newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent),
-      baseArrayLayer: 0,
-      layerCount: 1,
-    )
-    vkCmdClearAttachments(ctx.commandBuffer, 1, clearAttachment.addr, 1, clearRect.addr)
-    ctx.frameNeedsClear = false
-
-  if ctx.clipRects.len > 0:
-    ctx.applyClipScissor()
-
-proc applyClipScissor(ctx: Context) =
-  if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain or
-      not ctx.renderPassBegun:
-    return
-
-  let clipRect =
-    if ctx.clipRects.len > 0:
-      ctx.clipRects[^1]
-    else:
-      ctx.fullFrameRect()
-
-  let maxW = max(0'i32, ctx.swapchainExtent.width.int32)
-  let maxH = max(0'i32, ctx.swapchainExtent.height.int32)
-
-  var x0 = clamp(floor(clipRect.x).int32, 0'i32, maxW)
-  var y0 = clamp(floor(clipRect.y).int32, 0'i32, maxH)
-  var x1 = clamp(ceil(clipRect.x + clipRect.w).int32, 0'i32, maxW)
-  var y1 = clamp(ceil(clipRect.y + clipRect.h).int32, 0'i32, maxH)
-  if x1 < x0:
-    x1 = x0
-  if y1 < y0:
-    y1 = y0
-
-  var scissor = newVkRect2D(
-    offset = newVkOffset2D(x = x0, y = y0),
-    extent = newVkExtent2D(width = uint32(x1 - x0), height = uint32(y1 - y0)),
-  )
-  vkCmdSetScissor(ctx.commandBuffer, 0, 1, scissor.addr)
-
-proc setMaskRect*(ctx: Context, clipRect: Rect) =
-  ctx.pendingMaskRect = clipRect
-  ctx.pendingMaskValid = true
-
-proc clearMask*(ctx: Context) =
+proc clearMask*(ctx: VulkanContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   ctx.flush()
 
-proc beginMask*(ctx: Context) =
+method beginMask*(
+    ctx: VulkanContext, clipRect: Rect, radii: array[DirectionCorners, float32]
+) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginMask has already been called."
   ctx.flush()
@@ -2358,7 +2273,10 @@ proc beginMask*(ctx: Context) =
   ctx.maskBegun = true
   inc ctx.maskDepth
 
-proc endMask*(ctx: Context) =
+  ctx.pendingMaskRect = clipRect
+  ctx.pendingMaskValid = true
+
+method endMask*(ctx: VulkanContext) =
   assert ctx.maskBegun == true, "ctx.maskBegun has not been called."
   ctx.flush()
   ctx.maskBegun = false
@@ -2377,7 +2295,7 @@ proc endMask*(ctx: Context) =
   ctx.applyClipScissor()
   ctx.pendingMaskValid = false
 
-proc popMask*(ctx: Context) =
+method popMask*(ctx: VulkanContext) =
   ctx.flush()
   if ctx.maskDepth > 0:
     dec ctx.maskDepth
@@ -2386,7 +2304,7 @@ proc popMask*(ctx: Context) =
   ctx.applyClipScissor()
 
 proc beginFrame*(
-    ctx: Context,
+    ctx: VulkanContext,
     frameSize: Vec2,
     proj: Mat4,
     clearMain = false,
@@ -2445,8 +2363,11 @@ proc beginFrame*(
   if ctx.atlasDirty:
     ctx.recordAtlasUpload(ctx.commandBuffer)
 
-proc beginFrame*(
-    ctx: Context, frameSize: Vec2, clearMain = false, clearMainColor: Color = whiteColor
+method beginFrame*(
+    ctx: VulkanContext,
+    frameSize: Vec2,
+    clearMain = false,
+    clearMainColor: Color = whiteColor,
 ) =
   beginFrame(
     ctx,
@@ -2456,7 +2377,7 @@ proc beginFrame*(
     clearMainColor = clearMainColor,
   )
 
-proc endFrame*(ctx: Context) =
+method endFrame*(ctx: VulkanContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame was not called first."
   assert ctx.maskDepth == 0, "Not all masks have been popped."
   ctx.frameBegun = false
@@ -2499,7 +2420,7 @@ proc endFrame*(ctx: Context) =
 
   ctx.commandRecording = false
 
-proc destroyGpu(ctx: Context) =
+proc destroyGpu(ctx: VulkanContext) =
   if ctx.isNil:
     return
 
@@ -2621,11 +2542,18 @@ proc newContext*(
     maxQuads = quadLimit,
     pixelate = false,
     pixelScale = 1.0,
-): Context =
+): VulkanContext =
+  info "Starting Vulkan Context",
+    atlasSize = atlasSize,
+    atlasMargin = atlasMargin,
+    maxQuads = maxQuads,
+    quadLimit = quadLimit,
+    pixelate = pixelate,
+    pixelScale = pixelScale
   if maxQuads > quadLimit:
     raise newException(ValueError, &"Quads cannot exceed {quadLimit}")
 
-  result = Context()
+  result = VulkanContext()
   result.atlasSize = atlasSize
   result.atlasMargin = atlasMargin
   result.maxQuads = maxQuads
@@ -2669,6 +2597,8 @@ proc newContext*(
   result.presentQueue = vkNullQueue
   result.presentQueueFamily = 0
   result.presentTargetKind = presentTargetNone
+  when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+    result.linuxSurfaceKind = linuxSurfaceXlib
   result.surface = vkNullSurface
   result.swapchain = vkNullSwapchain
   result.swapchainViews = @[]
@@ -2694,65 +2624,67 @@ proc newContext*(
   result.frameVertexBuffers = @[]
   result.frameVertexMemories = @[]
 
-proc translate*(ctx: Context, v: Vec2) =
+method translate*(ctx: VulkanContext, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
 
-proc rotate*(ctx: Context, angle: float32) =
+method rotate*(ctx: VulkanContext, angle: float32) =
   ctx.mat = ctx.mat * rotateZ(angle)
 
-proc scale*(ctx: Context, s: float32) =
+method scale*(ctx: VulkanContext, s: float32) =
   ctx.mat = ctx.mat * scale(vec3(s))
 
-proc scale*(ctx: Context, s: Vec2) =
+method scale*(ctx: VulkanContext, s: Vec2) =
   ctx.mat = ctx.mat * scale(vec3(s.x, s.y, 1))
 
-proc saveTransform*(ctx: Context) =
+method saveTransform*(ctx: VulkanContext) =
   ctx.mats.add ctx.mat
 
-proc restoreTransform*(ctx: Context) =
+method restoreTransform*(ctx: VulkanContext) =
   if ctx.mats.len > 0:
     ctx.mat = ctx.mats.pop()
 
-proc clearTransform*(ctx: Context) =
+proc clearTransform*(ctx: VulkanContext) =
   ctx.mat = mat4()
   ctx.mats.setLen(0)
 
-proc fromScreen*(ctx: Context, windowFrame: Vec2, v: Vec2): Vec2 =
+proc fromScreen*(ctx: VulkanContext, windowFrame: Vec2, v: Vec2): Vec2 =
   (ctx.mat.inverse() * vec3(v.x, windowFrame.y - v.y, 0)).xy
 
-proc toScreen*(ctx: Context, windowFrame: Vec2, v: Vec2): Vec2 =
+proc toScreen*(ctx: VulkanContext, windowFrame: Vec2, v: Vec2): Vec2 =
   result = (ctx.mat * vec3(v.x, v.y, 1)).xy
   result.y = -result.y + windowFrame.y
 
-proc clearPresentTarget*(ctx: Context) =
+proc clearPresentTarget*(ctx: VulkanContext) =
   if ctx.gpuReady:
     ctx.destroyGpu()
   ctx.presentTargetKind = presentTargetNone
+  when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+    ctx.linuxSurfaceKind = linuxSurfaceXlib
   ctx.presentXlibDisplay = nil
   ctx.presentXlibWindow = 0
   ctx.presentWin32Hinstance = nil
   ctx.presentWin32Hwnd = nil
   ctx.presentMetalLayer = nil
 
-proc setPresentXlibTarget*(ctx: Context, display: pointer, window: uint64) =
+method setPresentXlibTarget*(ctx: VulkanContext, display: pointer, window: uint64) =
   ctx.clearPresentTarget()
   ctx.presentTargetKind = presentTargetXlib
   ctx.presentXlibDisplay = display
   ctx.presentXlibWindow = window
 
-proc setPresentWin32Target*(ctx: Context, hinstance: pointer, hwnd: pointer) =
+method setPresentWin32Target*(ctx: VulkanContext, hinstance: pointer, hwnd: pointer) =
   ctx.clearPresentTarget()
   ctx.presentTargetKind = presentTargetWin32
   ctx.presentWin32Hinstance = hinstance
   ctx.presentWin32Hwnd = hwnd
 
-proc setPresentMetalLayer*(ctx: Context, layer: pointer) =
+proc setPresentMetalLayer*(ctx: VulkanContext, layer: pointer) =
   ctx.clearPresentTarget()
   ctx.presentTargetKind = presentTargetMetal
   ctx.presentMetalLayer = layer
 
-proc readPixels*(
-    ctx: Context, frame: Rect = rect(0, 0, 0, 0), readFront = true
+method readPixels*(
+    ctx: VulkanContext, frame: Rect = rect(0, 0, 0, 0), readFront = true
 ): Image =
   discard readFront
   if not ctx.gpuReady:
@@ -2814,3 +2746,12 @@ proc readPixels*(
       else:
         result.data[dst] = rgbx(b, g, r, a)
       src += 4
+
+method kind*(ctx: VulkanContext): figbackend.RendererBackendKind =
+  figbackend.RendererBackendKind.rbVulkan
+
+method entriesPtr*(ctx: VulkanContext): ptr Table[Hash, Rect] =
+  ctx.entries.addr
+
+method pixelScale*(ctx: VulkanContext): float32 =
+  ctx.pixelScale

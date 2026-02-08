@@ -1,20 +1,32 @@
 import std/[hashes, math, tables, unicode]
 export tables
 
-from pkg/pixie import Image, newImage, flipVertical
+from pkg/pixie import Image
 import pkg/chroma
 import pkg/chronicles
 
 import ./commons
-import ./utils/drawshadows
-import ./utils/drawboxes
+import ./figbackend
+import ./fignodes
 import ./common/fontglyphs
+export figbackend
 
-import ./opengl/glcommons
-
-when UseMetalBackend:
+when UseMetalBackend and UseOpenGlFallback:
+  import ./metal/metal_context as preferred_backend
+  import metalx/[metal, cametal]
+  import pkg/opengl
+  import ./utils/glutils
+  import ./opengl/glcontext as opengl_context
+  export glutils
+elif UseVulkanBackend and UseOpenGlFallback:
+  import ./vulkan/vulkan_context as preferred_backend
+  import pkg/opengl
+  import ./utils/glutils
+  import ./opengl/glcontext as opengl_context
+  export glutils
+elif UseMetalBackend:
   import ./metal/metal_context
-  import metalx/metal
+  import metalx/[metal, cametal]
 elif UseVulkanBackend:
   import ./vulkan/vulkan_context
 else:
@@ -25,96 +37,116 @@ else:
 
 const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
-type NoRendererBackendState* = object
+type
+  NoRendererBackendState* = object
 
 type FigRenderer*[BackendState = NoRendererBackendState] = ref object
-  ctx*: Context
+  ctx*: BackendContext
   backendState*: BackendState
+  when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    fallbackAtlasSize: int
+    fallbackPixelate: bool
+    fallbackPixelScale: float32
 
-when UseMetalBackend:
-  proc metalDevice*(ctx: Context): MTLDevice =
-    ## Convenience re-export so callers using `figdraw/figrender` don't also
-    ## need to import `figdraw/metal/glcontext_metal`.
-    metal_context.metalDevice(ctx)
+template entries*(ctx: BackendContext): untyped =
+  ctx.entriesPtr()[]
+
+proc backendKind*[BackendState](
+    renderer: FigRenderer[BackendState]
+): RendererBackendKind =
+  renderer.ctx.kind()
+
+proc backendName*[BackendState](renderer: FigRenderer[BackendState]): string =
+  backendName(renderer.backendKind())
+
+when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+  proc logOpenGlFallback(reason: string) =
+    warn "Preferred backend failed, falling back to OpenGL at runtime",
+      preferredBackend = backendName(PreferredBackendKind), backendError = reason
+
+  proc useOpenGlFallback*[BackendState](
+      renderer: FigRenderer[BackendState], reason: string
+  ) =
+    logOpenGlFallback(reason)
+    let alreadyOpenGl =
+      not renderer.ctx.isNil and renderer.ctx.kind() == rbOpenGL
+    if alreadyOpenGl:
+      return
+    try:
+      renderer.ctx = opengl_context.newContext(
+        atlasSize = renderer.fallbackAtlasSize,
+        pixelate = renderer.fallbackPixelate,
+        pixelScale = renderer.fallbackPixelScale,
+      )
+    except CatchableError as glExc:
+      raise newException(
+        ValueError,
+        "Preferred backend failed (" & reason &
+          "), and OpenGL fallback could not initialize (" & glExc.msg & ")",
+      )
 
 proc takeScreenshot*[BackendState](
     renderer: FigRenderer[BackendState],
     frame: Rect = rect(0, 0, 0, 0),
     readFront: bool = true,
 ): Image =
-  let ctx: Context = renderer.ctx
-  when UseMetalBackend:
-    result = ctx.readPixels(frame)
+  renderer.ctx.readPixels(frame, readFront = readFront)
+
+proc logBackend(msg: static string) =
+  info msg, preferredBackend = backendName(PreferredBackendKind)
+
+proc initRendererContext[BackendState](
+    renderer: FigRenderer[BackendState],
+    atlasSize: int,
+    pixelScale: float32,
+    pixelate = false,
+) =
+  logBackend("Setting up preferred backend")
+  when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    renderer.fallbackAtlasSize = atlasSize
+    renderer.fallbackPixelate = pixelate
+    renderer.fallbackPixelScale = pixelScale
+    try:
+      renderer.ctx = preferred_backend.newContext(
+        atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale
+      )
+      logBackend("Done setting up preferred backend")
+    except CatchableError as exc:
+      renderer.useOpenGlFallback(exc.msg)
+  elif UseMetalBackend:
+    renderer.ctx =
+      newContext(atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale)
   elif UseVulkanBackend:
-    result = ctx.readPixels(frame, readFront = readFront)
-  else:
-    var viewport: array[4, GLint]
-    glGetIntegerv(GL_VIEWPORT, viewport[0].addr)
-
-    let
-      viewportWidth = viewport[2].int
-      viewportHeight = viewport[3].int
-
-    var x = frame.x.int
-    var y = frame.y.int
-    var w = frame.w.int
-    var h = frame.h.int
-
-    if w <= 0 or h <= 0:
-      x = 0
-      y = 0
-      w = viewportWidth
-      h = viewportHeight
-
-    glReadBuffer(if readFront: GL_FRONT else: GL_BACK)
-    result = newImage(w, h)
-    glReadPixels(
-      x.GLint, y.GLint, w.GLint, h.GLint, GL_RGBA, GL_UNSIGNED_BYTE, result.data[0].addr
+    renderer.ctx = vulkan_context.newContext(
+      atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale
     )
-    result.flipVertical()
-    glReadBuffer(GL_BACK)
+  else:
+    renderer.ctx =
+      newContext(atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale)
 
 proc newFigRenderer*(
     atlasSize: int, pixelScale = 1.0'f32
 ): FigRenderer[NoRendererBackendState] =
   result = FigRenderer[NoRendererBackendState]()
-  when UseMetalBackend:
-    result.ctx =
-      newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
-  elif UseVulkanBackend:
-    result.ctx = vulkan_context.newContext(
-      atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
-    )
-  else:
-    result.ctx =
-      newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
+  result.initRendererContext(atlasSize, pixelScale, pixelate = false)
 
 proc newFigRenderer*[BackendState](
     atlasSize: int, backendState: BackendState, pixelScale = 1.0'f32
 ): FigRenderer[BackendState] =
   result = FigRenderer[BackendState](backendState: backendState)
-  when UseMetalBackend:
-    result.ctx =
-      newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
-  elif UseVulkanBackend:
-    result.ctx = vulkan_context.newContext(
-      atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
-    )
-  else:
-    result.ctx =
-      newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
+  result.initRendererContext(atlasSize, pixelScale, pixelate = false)
 
-proc newFigRenderer*(ctx: Context): FigRenderer[NoRendererBackendState] =
+proc newFigRenderer*(ctx: BackendContext): FigRenderer[NoRendererBackendState] =
   ## Uses a caller-created backend context.
   result = FigRenderer[NoRendererBackendState](ctx: ctx)
 
 proc newFigRenderer*[BackendState](
-    ctx: Context, backendState: BackendState
+    ctx: BackendContext, backendState: BackendState
 ): FigRenderer[BackendState] =
   ## Uses a caller-created backend context with custom backend state payload.
   result = FigRenderer[BackendState](ctx: ctx, backendState: backendState)
 
-proc renderDrawable*(ctx: Context, node: Fig) =
+proc renderDrawable*(ctx: BackendContext, node: Fig) =
   ## TODO: draw non-node stuff?
   let box = node.screenBox.scaled()
   for point in node.points:
@@ -123,7 +155,7 @@ proc renderDrawable*(ctx: Context, node: Fig) =
       bx = box.atXY(pos.x, pos.y)
     ctx.drawRect(bx, node.fill)
 
-proc renderText(ctx: Context, node: Fig) {.forbids: [AppMainThreadEff].} =
+proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
   if NfSelectText in node.flags and node.fill.a > 0:
     let rects = node.textLayout.selectionRects
@@ -196,17 +228,10 @@ proc scaledCorners(
   for corner in DirectionCorners:
     result[corner] = corners[corner].scaled()
 
-proc drawMasks(ctx: Context, node: Fig) =
-  when UseVulkanBackend:
-    ctx.setMaskRect(node.screenBox.scaled())
-  else:
-    ctx.drawRoundedRectSdf(
-      rect = node.screenBox.scaled(),
-      color = rgba(255, 0, 0, 255).color,
-      radii = node.corners.scaledCorners(),
-    )
+#proc drawMasks(ctx: BackendContext, node: Fig) =
+#  ctx.setMaskRect(node.screenBox.scaled(), node.corners.scaledCorners())
 
-proc renderDropShadows(ctx: Context, node: Fig) =
+proc renderDropShadows(ctx: BackendContext, node: Fig) =
   ## drawing shadows with various techniques
   for shadow in node.shadows:
     if shadow.style != DropShadow:
@@ -235,7 +260,7 @@ proc renderDropShadows(ctx: Context, node: Fig) =
         shapeSize = shadowRect.wh,
         color = shadow.color,
         radii = node.corners.scaledCorners(),
-        mode = sdfModeDropShadow,
+        mode = figbackend.SdfMode.sdfModeDropShadow,
         factor = shadowBlur,
         spread = shadowSpread,
       )
@@ -267,7 +292,7 @@ proc renderDropShadows(ctx: Context, node: Fig) =
         innerShadow = false,
       )
 
-proc renderInnerShadows(ctx: Context, node: Fig) =
+proc renderInnerShadows(ctx: BackendContext, node: Fig) =
   ## drawing inner shadows with various techniques
   for shadow in node.shadows:
     if shadow.style != InnerShadow:
@@ -285,7 +310,7 @@ proc renderInnerShadows(ctx: Context, node: Fig) =
         shapeSize = shadowRect.wh,
         color = shadow.color,
         radii = node.corners.scaledCorners(),
-        mode = sdfModeInsetShadowAnnular,
+        mode = figbackend.SdfMode.sdfModeInsetShadowAnnular,
         factor = shadow.blur.scaled(),
         spread = shadow.spread.scaled(),
       )
@@ -338,7 +363,7 @@ proc hasActiveInnerShadow(node: Fig): bool =
     return true
   return false
 
-proc renderBoxes(ctx: Context, node: Fig) =
+proc renderBoxes(ctx: BackendContext, node: Fig) =
   ## drawing boxes for rectangles
 
   let
@@ -347,7 +372,15 @@ proc renderBoxes(ctx: Context, node: Fig) =
 
   if node.fill.a > 0'f32:
     when not defined(useFigDrawTextures):
-      ctx.drawRoundedRectSdf(rect = box, color = node.fill, radii = corners)
+      ctx.drawRoundedRectSdf(
+        rect = box,
+        color = node.fill,
+        radii = corners,
+        mode = figbackend.SdfMode.sdfModeClipAA,
+        factor = 4.0'f32,
+        spread = 0.0'f32,
+        shapeSize = vec2(0.0'f32, 0.0'f32),
+      )
     else:
       if node.corners != [0'f32, 0'f32, 0'f32, 0'f32]:
         ctx.drawRoundedRect(rect = box, color = node.fill, radii = corners)
@@ -360,8 +393,10 @@ proc renderBoxes(ctx: Context, node: Fig) =
         rect = box,
         color = node.stroke.color,
         radii = corners,
-        mode = sdfModeAnnularAA,
+        mode = figbackend.SdfMode.sdfModeAnnularAA,
         factor = node.stroke.weight.scaled(),
+        spread = 0.0'f32,
+        shapeSize = vec2(0.0'f32, 0.0'f32),
       )
     else:
       ctx.drawRoundedRect(
@@ -372,14 +407,14 @@ proc renderBoxes(ctx: Context, node: Fig) =
         doStroke = true,
       )
 
-proc renderImage(ctx: Context, node: Fig) =
+proc renderImage(ctx: BackendContext, node: Fig) =
   if node.image.id.int == 0:
     return
   let box = node.screenBox.scaled()
   let size = vec2(box.w, box.h)
   ctx.drawImage(node.image.id.Hash, pos = box.xy, color = node.image.color, size = size)
 
-proc renderMsdfImage(ctx: Context, node: Fig) =
+proc renderMsdfImage(ctx: BackendContext, node: Fig) =
   if node.msdfImage.id.int == 0:
     return
   let box = node.screenBox.scaled()
@@ -402,7 +437,7 @@ proc renderMsdfImage(ctx: Context, node: Fig) =
     strokeWeight = strokeWeight,
   )
 
-proc renderMtsdfImage(ctx: Context, node: Fig) =
+proc renderMtsdfImage(ctx: BackendContext, node: Fig) =
   if node.mtsdfImage.id.int == 0:
     return
   let box = node.screenBox.scaled()
@@ -426,7 +461,7 @@ proc renderMtsdfImage(ctx: Context, node: Fig) =
   )
 
 proc render(
-    ctx: Context, nodes: seq[Fig], nodeIdx, parentIdx: FigIdx
+    ctx: BackendContext, nodes: seq[Fig], nodeIdx, parentIdx: FigIdx
 ) {.forbids: [AppMainThreadEff].} =
   template node(): auto =
     nodes[nodeIdx.int]
@@ -454,8 +489,7 @@ proc render(
 
   # handle clipping children content based on this node
   ifrender NfClipContent in node.flags:
-    ctx.beginMask()
-    ctx.drawMasks(node)
+    ctx.beginMask(node.screenBox.scaled(), node.corners.scaledCorners())
     ctx.endMask()
   finally:
     ctx.popMask()
@@ -484,8 +518,7 @@ proc render(
     else:
       if NfClipContent notin node.flags:
         if node.hasActiveInnerShadow():
-          ctx.beginMask()
-          ctx.drawMasks(node)
+          ctx.beginMask(node.screenBox.scaled(), node.corners.scaledCorners())
           ctx.endMask()
           ctx.renderInnerShadows(node)
           ctx.popMask()
@@ -497,7 +530,7 @@ proc render(
 
   postRender()
 
-proc renderRoot*(ctx: Context, nodes: var Renders) {.forbids: [AppMainThreadEff].} =
+proc renderRoot*(ctx: BackendContext, nodes: var Renders) {.forbids: [AppMainThreadEff].} =
   ## draw roots for each level
   var img: ImgObj
   while imageChan.tryRecv(img):
@@ -515,14 +548,25 @@ proc renderFrame*[BackendState](
     clearMain: bool = true,
     clearColor: Color = color(1.0, 1.0, 1.0, 1.0),
 ) =
-  let ctx: Context = renderer.ctx
   let frameSize = frameSize.scaled()
-  when UseMetalBackend or UseVulkanBackend:
-    ctx.beginFrame(frameSize, clearMain = clearMain, clearMainColor = clearColor)
+  when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    try:
+      renderer.ctx.beginFrame(
+        frameSize, clearMain = clearMain, clearMainColor = clearColor
+      )
+    except CatchableError as exc:
+      if renderer.ctx.kind() == rbOpenGL:
+        raise
+      renderer.useOpenGlFallback(exc.msg)
+      renderer.ctx.beginFrame(
+        frameSize, clearMain = clearMain, clearMainColor = clearColor
+      )
   else:
-    if clearMain:
-      clearColorBuffer(clearColor)
-    ctx.beginFrame(frameSize)
+    renderer.ctx.beginFrame(
+      frameSize, clearMain = clearMain, clearMainColor = clearColor
+    )
+
+  let ctx: BackendContext = renderer.ctx
 
   ctx.saveTransform()
   ctx.scale(ctx.pixelScale)
@@ -530,7 +574,7 @@ proc renderFrame*[BackendState](
   ctx.restoreTransform()
   ctx.endFrame()
 
-  when defined(testOneFrame) and not UseMetalBackend and not UseVulkanBackend:
+  when defined(testOneFrame) and (UseOpenGlBackend or UseOpenGlFallback):
     ## This is used for test only
     ## Take a screen shot of the first frame and exit.
     var img = takeScreenshot(renderer)

@@ -9,6 +9,7 @@ import pixie/simd
 import pkg/chronicles
 
 import ../commons
+import ../figbackend as figbackend
 import ../common/formatflippy
 import ../fignodes
 import ../utils/drawextras
@@ -30,7 +31,7 @@ when defined(emscripten):
 else:
   type SdfModeData = uint16
 
-type Context* = ref object
+type OpenGlContext* = ref object of figbackend.BackendContext
   mainShader, maskShader, activeShader: Shader
   atlasTexture: Texture
   maskTextureWrite: int ## Index into max textures for writing.
@@ -65,17 +66,17 @@ type Context* = ref object
   # SDF shader uniforms (global)
   aaFactor: float32
 
-proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite)
+proc flush(ctx: OpenGlContext, maskTextureRead: int = ctx.maskTextureWrite)
 
 proc toKey*(h: Hash): Hash =
   h
 
-proc hasImage*(ctx: Context, key: Hash): bool =
+method hasImage*(ctx: OpenGlContext, key: Hash): bool =
   key in ctx.entries
 
-proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool
+proc tryGetImageRect(ctx: OpenGlContext, imageId: Hash, rect: var Rect): bool
 
-proc upload(ctx: Context) =
+proc upload(ctx: OpenGlContext) =
   ## When buffers change, uploads them to GPU.
   ctx.positions.buffer.count = ctx.quadCount * 4
   ctx.colors.buffer.count = ctx.quadCount * 4
@@ -93,7 +94,7 @@ proc upload(ctx: Context) =
   bindBufferData(ctx.sdfModeAttr.buffer.addr, ctx.sdfModeAttr.data[0].addr)
   bindBufferData(ctx.sdfFactors.buffer.addr, ctx.sdfFactors.data[0].addr)
 
-proc setUpMaskFramebuffer(ctx: Context) =
+proc setUpMaskFramebuffer(ctx: OpenGlContext) =
   glBindFramebuffer(GL_FRAMEBUFFER, ctx.maskFramebufferId)
   glFramebufferTexture2D(
     GL_FRAMEBUFFER,
@@ -103,7 +104,7 @@ proc setUpMaskFramebuffer(ctx: Context) =
     0,
   )
 
-proc createAtlasTexture(ctx: Context, size: int): Texture =
+proc createAtlasTexture(ctx: OpenGlContext, size: int): Texture =
   result.width = size.GLint
   result.height = size.GLint
   result.componentType = GL_UNSIGNED_BYTE
@@ -117,7 +118,7 @@ proc createAtlasTexture(ctx: Context, size: int): Texture =
     result.magFilter = magLinear
   bindTextureData(result.addr, nil)
 
-proc addMaskTexture(ctx: Context, frameSize = vec2(1, 1)) =
+proc addMaskTexture(ctx: OpenGlContext, frameSize = vec2(1, 1)) =
   # Must be >0 for framebuffer creation below
   # Set to real value in beginFrame
   var maskTexture = Texture()
@@ -143,12 +144,19 @@ proc newContext*(
     maxQuads = 1024,
     pixelate = false,
     pixelScale = 1.0,
-): Context =
+): OpenGlContext =
   ## Creates a new context.
+  info "Starting OpenGL Context",
+       atlasSize = atlasSize,
+       atlasMargin = atlasMargin,
+       maxQuads = maxQuads,
+       quadLimit = quadLimit,
+       pixelate = pixelate,
+       pixelScale = pixelScale
   if maxQuads > quadLimit:
     raise newException(ValueError, &"Quads cannot exceed {quadLimit}")
 
-  result = Context()
+  result = OpenGlContext()
   result.atlasSize = atlasSize
   result.atlasMargin = atlasMargin
   result.maxQuads = maxQuads
@@ -301,7 +309,7 @@ proc hash(radii: array[DirectionCorners, float32]): Hash =
   for r in radii:
     result = result !& hash(r)
 
-proc grow(ctx: Context) =
+proc grow(ctx: OpenGlContext) =
   ctx.flush()
   ctx.atlasSize = ctx.atlasSize * 2
   info "grow atlasSize ", atlasSize = ctx.atlasSize
@@ -309,7 +317,7 @@ proc grow(ctx: Context) =
   ctx.atlasTexture = ctx.createAtlasTexture(ctx.atlasSize)
   ctx.entries.clear()
 
-proc findEmptyRect(ctx: Context, width, height: int): Rect =
+proc findEmptyRect(ctx: OpenGlContext, width, height: int): Rect =
   var imgWidth = width + ctx.atlasMargin * 2
   var imgHeight = height + ctx.atlasMargin * 2
 
@@ -333,7 +341,7 @@ proc findEmptyRect(ctx: Context, width, height: int): Rect =
         at = i
 
   if lowest + imgHeight > ctx.atlasSize:
-    #raise newException(Exception, "Context Atlas is full")
+    #raise newException(Exception, "OpenGlContext Atlas is full")
     ctx.grow()
     return ctx.findEmptyRect(width, height)
 
@@ -349,16 +357,16 @@ proc findEmptyRect(ctx: Context, width, height: int): Rect =
 
   return rect
 
-proc putImage*(ctx: Context, path: Hash, image: Image) =
+method putImage*(ctx: OpenGlContext, path: Hash, image: Image) =
   # Reminder: This does not set mipmaps (used for text, should it?)
   let rect = ctx.findEmptyRect(image.width, image.height)
   ctx.entries[path] = rect / float(ctx.atlasSize)
   updateSubImage(ctx.atlasTexture, int(rect.x), int(rect.y), image)
 
-proc addImage*(ctx: Context, key: Hash, image: Image) =
+method addImage*(ctx: OpenGlContext, key: Hash, image: Image) =
   ctx.putImage(key, image)
 
-proc updateImage*(ctx: Context, path: Hash, image: Image) =
+method updateImage*(ctx: OpenGlContext, path: Hash, image: Image) =
   ## Updates an image that was put there with putImage.
   ## Useful for things like video.
   ## * Must be the same size.
@@ -377,7 +385,7 @@ proc logFlippy(flippy: Flippy, file: string) =
   debug "putFlippy file",
     fwidth = $flippy.width, fheight = $flippy.height, flippyPath = file
 
-proc putFlippy*(ctx: Context, path: Hash, flippy: Flippy) =
+proc putFlippy*(ctx: OpenGlContext, path: Hash, flippy: Flippy) =
   logFlippy(flippy, $path)
   let rect = ctx.findEmptyRect(flippy.width, flippy.height)
   ctx.entries[path] = rect / float(ctx.atlasSize)
@@ -389,7 +397,7 @@ proc putFlippy*(ctx: Context, path: Hash, flippy: Flippy) =
     x = x div 2
     y = y div 2
 
-proc putImage*(ctx: Context, imgObj: ImgObj) =
+method putImage*(ctx: OpenGlContext, imgObj: ImgObj) =
   ## puts an ImgObj wrapper with either a flippy or image format
   case imgObj.kind
   of FlippyImg:
@@ -397,7 +405,7 @@ proc putImage*(ctx: Context, imgObj: ImgObj) =
   of PixieImg:
     ctx.putImage(imgObj.id.Hash, imgObj.pimg)
 
-proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
+proc flush(ctx: OpenGlContext, maskTextureRead: int = ctx.maskTextureWrite) =
   ## Flips - draws current buffer and starts a new one.
   if ctx.quadCount == 0:
     return
@@ -437,7 +445,7 @@ proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
 
   ctx.quadCount = 0
 
-proc checkBatch(ctx: Context) =
+proc checkBatch(ctx: OpenGlContext) =
   if ctx.quadCount == ctx.maxQuads:
     # ctx is full dump the images in the ctx now and start a new batch
     if ctx.maskBegun:
@@ -465,7 +473,7 @@ func `*`*(m: Mat4, v: Vec2): Vec2 =
   (m * vec3(v.x, v.y, 0.0)).xy
 
 proc drawQuad*(
-    ctx: Context,
+    ctx: OpenGlContext,
     verts: array[4, Vec2],
     uvs: array[4, Vec2],
     colors: array[4, ColorRGBA],
@@ -517,23 +525,10 @@ proc drawQuad*(
 
   inc ctx.quadCount
 
-type SdfMode* {.pure.} = enum
-  ## Subset of `sdfy/sdfytypes.SDFMode` with stable numeric values.
-  sdfModeAtlas = 0
-  sdfModeClipAA = 3
-  sdfModeDropShadow = 7
-  sdfModeDropShadowAA = 8
-  sdfModeInsetShadow = 9
-  sdfModeInsetShadowAnnular = 10
-  sdfModeAnnular = 11
-  sdfModeAnnularAA = 12
-  sdfModeMsdf = 13
-  sdfModeMtsdf = 14
-  sdfModeMsdfAnnular = 15
-  sdfModeMtsdfAnnular = 16
+type SdfMode* = figbackend.SdfMode
 
 proc drawUvRectAtlasSdf(
-    ctx: Context,
+    ctx: OpenGlContext,
     at, to: Vec2,
     uvAt, uvTo: Vec2,
     color: Color,
@@ -603,8 +598,8 @@ proc drawUvRectAtlasSdf(
 
   inc ctx.quadCount
 
-proc drawMsdfImage*(
-    ctx: Context,
+method drawMsdfImage*(
+    ctx: OpenGlContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -618,19 +613,21 @@ proc drawMsdfImage*(
     return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
+  let modeSel: SdfMode =
+    if strokeW > 0.0'f32: SdfMode.sdfModeMsdfAnnular else: SdfMode.sdfModeMsdf
   ctx.drawUvRectAtlasSdf(
     at = pos,
     to = pos + size,
     uvAt = rect.xy,
     uvTo = rect.xy + rect.wh,
     color = color,
-    mode = if strokeW > 0.0'f32: sdfModeMsdfAnnular else: sdfModeMsdf,
+    mode = modeSel,
     factors = vec2(pxRange, sdThreshold),
     params = params,
   )
 
-proc drawMtsdfImage*(
-    ctx: Context,
+method drawMtsdfImage*(
+    ctx: OpenGlContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -644,23 +641,25 @@ proc drawMtsdfImage*(
     return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
+  let modeSel: SdfMode =
+    if strokeW > 0.0'f32: SdfMode.sdfModeMtsdfAnnular else: SdfMode.sdfModeMtsdf
   ctx.drawUvRectAtlasSdf(
     at = pos,
     to = pos + size,
     uvAt = rect.xy,
     uvTo = rect.xy + rect.wh,
     color = color,
-    mode = if strokeW > 0.0'f32: sdfModeMtsdfAnnular else: sdfModeMtsdf,
+    mode = modeSel,
     factors = vec2(pxRange, sdThreshold),
     params = params,
   )
 
-proc setSdfGlobals*(ctx: Context, aaFactor: float32) =
+proc setSdfGlobals*(ctx: OpenGlContext, aaFactor: float32) =
   if ctx.aaFactor == aaFactor:
     return
   ctx.aaFactor = aaFactor
 
-proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
+proc drawUvRect(ctx: OpenGlContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
   ## Adds an image rect with a path to an ctx
   ctx.checkBatch()
 
@@ -725,10 +724,10 @@ proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
 
   inc ctx.quadCount
 
-proc drawUvRect(ctx: Context, rect, uvRect: Rect, color: Color) =
+proc drawUvRect(ctx: OpenGlContext, rect, uvRect: Rect, color: Color) =
   ctx.drawUvRect(rect.xy, rect.xy + rect.wh, uvRect.xy, uvRect.xy + uvRect.wh, color)
 
-proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool =
+proc tryGetImageRect(ctx: OpenGlContext, imageId: Hash, rect: var Rect): bool =
   if imageId notin ctx.entries:
     warn "missing image in context", imageId = imageId
     return false
@@ -736,11 +735,11 @@ proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool =
   true
 
 proc drawImage*(
-    ctx: Context,
+    ctx: OpenGlContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
-    scale = 1.0,
+    scale: float32,
 ) =
   ## Draws image the UI way - pos at top-left.
   var rect: Rect
@@ -749,8 +748,11 @@ proc drawImage*(
   let wh = rect.wh * ctx.atlasSize.float32 * scale
   ctx.drawUvRect(pos, pos + wh, rect.xy, rect.xy + rect.wh, color)
 
-proc drawImage*(
-    ctx: Context,
+method drawImage*(ctx: OpenGlContext, imageId: Hash, pos: Vec2, color: Color) =
+  drawImage(ctx, imageId, pos, color, 1.0'f32)
+
+method drawImage*(
+    ctx: OpenGlContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -762,8 +764,8 @@ proc drawImage*(
     return
   ctx.drawUvRect(pos, pos + size, rect.xy, rect.xy + rect.wh, color)
 
-proc drawImageAdj*(
-    ctx: Context,
+method drawImageAdj*(
+    ctx: OpenGlContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -777,7 +779,7 @@ proc drawImageAdj*(
   ctx.drawUvRect(pos, pos + size, rect.xy + adj, rect.xy + rect.wh - adj, color)
 
 proc drawSprite*(
-    ctx: Context,
+    ctx: OpenGlContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -791,7 +793,7 @@ proc drawSprite*(
   ctx.drawUvRect(pos - wh / 2, pos + wh / 2, rect.xy, rect.xy + rect.wh, color)
 
 proc drawSprite*(
-    ctx: Context,
+    ctx: OpenGlContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -803,7 +805,7 @@ proc drawSprite*(
     return
   ctx.drawUvRect(pos - size / 2, pos + size / 2, rect.xy, rect.xy + rect.wh, color)
 
-proc drawRect*(ctx: Context, rect: Rect, color: Color) =
+method drawRect*(ctx: OpenGlContext, rect: Rect, color: Color) =
   const imgKey = hash("rect")
   if imgKey notin ctx.entries:
     var image = newImage(4, 4)
@@ -821,8 +823,8 @@ proc drawRect*(ctx: Context, rect: Rect, color: Color) =
     color,
   )
 
-proc drawRoundedRectSdf*(
-    ctx: Context,
+method drawRoundedRectSdf*(
+    ctx: OpenGlContext,
     rect: Rect,
     color: Color,
     radii: array[DirectionCorners, float32],
@@ -936,7 +938,7 @@ proc drawRoundedRectSdf*(
 
   inc ctx.quadCount
 
-proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
+proc line*(ctx: OpenGlContext, a: Vec2, b: Vec2, weight: float32, color: Color) =
   let hash = hash((2345, a, b, (weight * 100).int, hash(color)))
 
   let
@@ -962,11 +964,11 @@ proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
     pos, pos + vec2(w.float32, h.float32), uvRect.xy, uvRect.xy + uvRect.wh, color
   )
 
-proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32, color: Color) =
+proc linePolygon*(ctx: OpenGlContext, poly: seq[Vec2], weight: float32, color: Color) =
   for i in 0 ..< poly.len:
     ctx.line(poly[i], poly[(i + 1) mod poly.len], weight, color)
 
-proc clearMask*(ctx: Context) =
+proc clearMask*(ctx: OpenGlContext) =
   ## Sets mask off (actually fills the mask with white).
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
 
@@ -979,7 +981,11 @@ proc clearMask*(ctx: Context) =
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
-proc beginMask*(ctx: Context) =
+method beginMask*(
+    ctx: OpenGlContext,
+    clipRect: Rect,
+    radii: array[DirectionCorners, float32]
+) =
   ## Starts drawing into a mask.
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginMask has already been called."
@@ -999,7 +1005,17 @@ proc beginMask*(ctx: Context) =
 
   ctx.activeShader = ctx.maskShader
 
-proc endMask*(ctx: Context) =
+  ctx.drawRoundedRectSdf(
+    rect = clipRect,
+    color = rgba(255, 0, 0, 255).color,
+    radii = radii,
+    mode = figbackend.SdfMode.sdfModeClipAA,
+    factor = 4.0'f32,
+    spread = 0.0'f32,
+    shapeSize = vec2(0.0'f32, 0.0'f32),
+  )
+
+method endMask*(ctx: OpenGlContext) =
   ## Stops drawing into the mask.
   assert ctx.maskBegun == true, "ctx.maskBegun has not been called."
   ctx.maskBegun = false
@@ -1010,12 +1026,12 @@ proc endMask*(ctx: Context) =
 
   ctx.activeShader = ctx.mainShader
 
-proc popMask*(ctx: Context) =
+method popMask*(ctx: OpenGlContext) =
   ctx.flush()
 
   dec ctx.maskTextureWrite
 
-proc beginFrame*(ctx: Context, frameSize: Vec2, proj: Mat4) =
+proc beginFrameProj(ctx: OpenGlContext, frameSize: Vec2, proj: Mat4) =
   ## Starts a new frame.
   assert ctx.frameBegun == false, "ctx.beginFrame has already been called."
   ctx.frameBegun = true
@@ -1037,12 +1053,12 @@ proc beginFrame*(ctx: Context, frameSize: Vec2, proj: Mat4) =
 
   ctx.clearMask()
 
-proc beginFrame*(ctx: Context, frameSize: Vec2) =
-  beginFrame(
+proc beginFrameDefaultProj(ctx: OpenGlContext, frameSize: Vec2) =
+  beginFrameProj(
     ctx, frameSize, ortho[float32](0.0, frameSize.x, frameSize.y, 0, -1000.0, 1000.0)
   )
 
-proc endFrame*(ctx: Context) =
+method endFrame*(ctx: OpenGlContext) =
   ## Ends a frame.
   assert ctx.frameBegun == true, "ctx.beginFrame was not called first."
   assert ctx.maskTextureWrite == 0, "Not all masks have been popped."
@@ -1050,40 +1066,90 @@ proc endFrame*(ctx: Context) =
 
   ctx.flush()
 
-proc translate*(ctx: Context, v: Vec2) =
+method translate*(ctx: OpenGlContext, v: Vec2) =
   ## Translate the internal transform.
   ctx.mat = ctx.mat * translate(vec3(v))
 
-proc rotate*(ctx: Context, angle: float32) =
+method rotate*(ctx: OpenGlContext, angle: float32) =
   ## Rotates the internal transform.
   ctx.mat = ctx.mat * rotateZ(angle)
 
-proc scale*(ctx: Context, s: float32) =
+method scale*(ctx: OpenGlContext, s: float32) =
   ## Scales the internal transform.
   ctx.mat = ctx.mat * scale(vec3(s))
 
-proc scale*(ctx: Context, s: Vec2) =
+method scale*(ctx: OpenGlContext, s: Vec2) =
   ## Scales the internal transform.
   ctx.mat = ctx.mat * scale(vec3(s.x, s.y, 1))
 
-proc saveTransform*(ctx: Context) =
+method saveTransform*(ctx: OpenGlContext) =
   ## Pushes a transform onto the stack.
   ctx.mats.add ctx.mat
 
-proc restoreTransform*(ctx: Context) =
+method restoreTransform*(ctx: OpenGlContext) =
   ## Pops a transform off the stack.
   ctx.mat = ctx.mats.pop()
 
-proc clearTransform*(ctx: Context) =
+proc clearTransform*(ctx: OpenGlContext) =
   ## Clears transform and transform stack.
   ctx.mat = mat4()
   ctx.mats.setLen(0)
 
-proc fromScreen*(ctx: Context, windowFrame: Vec2, v: Vec2): Vec2 =
+proc fromScreen*(ctx: OpenGlContext, windowFrame: Vec2, v: Vec2): Vec2 =
   ## Takes a point from screen and translates it to point inside the current transform.
   (ctx.mat.inverse() * vec3(v.x, windowFrame.y - v.y, 0)).xy
 
-proc toScreen*(ctx: Context, windowFrame: Vec2, v: Vec2): Vec2 =
+proc toScreen*(ctx: OpenGlContext, windowFrame: Vec2, v: Vec2): Vec2 =
   ## Takes a point from current transform and translates it to screen.
   result = (ctx.mat * vec3(v.x, v.y, 1)).xy
   result.y = -result.y + windowFrame.y
+
+method kind*(ctx: OpenGlContext): figbackend.RendererBackendKind =
+  figbackend.RendererBackendKind.rbOpenGL
+
+method entriesPtr*(ctx: OpenGlContext): ptr Table[Hash, Rect] =
+  ctx.entries.addr
+
+method pixelScale*(ctx: OpenGlContext): float32 =
+  ctx.pixelScale
+
+method beginFrame*(
+    ctx: OpenGlContext,
+    frameSize: Vec2,
+    clearMain = false,
+    clearMainColor: Color = whiteColor,
+) =
+  if clearMain:
+    glClearColor(
+      clearMainColor.r.GLfloat, clearMainColor.g.GLfloat, clearMainColor.b.GLfloat,
+      clearMainColor.a.GLfloat,
+    )
+    glClear(GL_COLOR_BUFFER_BIT)
+  beginFrameDefaultProj(ctx, frameSize)
+
+method readPixels*(ctx: OpenGlContext, frame: Rect, readFront: bool): Image =
+  var viewport: array[4, GLint]
+  glGetIntegerv(GL_VIEWPORT, viewport[0].addr)
+
+  let
+    viewportWidth = viewport[2].int
+    viewportHeight = viewport[3].int
+
+  var x = frame.x.int
+  var y = frame.y.int
+  var w = frame.w.int
+  var h = frame.h.int
+
+  if w <= 0 or h <= 0:
+    x = 0
+    y = 0
+    w = viewportWidth
+    h = viewportHeight
+
+  glReadBuffer(if readFront: GL_FRONT else: GL_BACK)
+  result = newImage(w, h)
+  glReadPixels(
+    x.GLint, y.GLint, w.GLint, h.GLint, GL_RGBA, GL_UNSIGNED_BYTE, result.data[0].addr
+  )
+  result.flipVertical()
+  glReadBuffer(GL_BACK)

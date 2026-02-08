@@ -16,7 +16,6 @@ import figdraw/utils/glutils
 import pkg/opengl
 when UseVulkanBackend:
   import pkg/pixie
-  import figdraw/vulkan/vulkan_context
 
 when UseMetalBackend and defined(macosx):
   import darwin/objc/runtime
@@ -499,7 +498,8 @@ when isMainModule:
     glrenderer.newFigRenderer(atlasSize = 2048, backendState = WindyRenderBackend())
   renderer.setupBackend(window)
   when UseMetalBackend and defined(macosx):
-    renderer.backendState.metalLayer.layer.setOpaque(false)
+    if renderer.backendKind() == rbMetal:
+      renderer.backendState.metalLayer.layer.setOpaque(false)
 
   startOpenGL(openglVersion)
   window.makeContextCurrent()
@@ -567,38 +567,47 @@ when isMainModule:
     drawPyramid(pyramid, sz.scaled(), mvp)
     useDepthBuffer(false)
 
-    when UseMetalBackend:
+    if renderer.backendKind() == rbMetal:
       var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
       window.swapBuffers()
       renderer.renderFrame(
         renders, sz, clearMain = true, clearColor = rgba(0, 0, 0, 0).color
       )
-    elif UseVulkanBackend:
-      let framePx = window.size()
-      let bgImage = captureGlBackBuffer(framePx)
-      if framePx.x > bgImageTargetW or framePx.y > bgImageTargetH or bgImageId.int == 0:
-        bgImageTargetW = max(bgImageTargetW, framePx.x)
-        bgImageTargetH = max(bgImageTargetH, framePx.y)
-        let key =
-          "windy_3d_overlay_glbg_target_" & $bgImageTargetW & "x" & $bgImageTargetH
-        bgImageId = imgId(key)
-        let bgUpload =
-          if bgImage.width != bgImageTargetW or bgImage.height != bgImageTargetH:
-            bgImage.resize(bgImageTargetW, bgImageTargetH)
-          else:
-            bgImage
-        vulkan_context.putImage(renderer.ctx, bgImageId.Hash, bgUpload)
+    elif renderer.backendKind() == rbVulkan:
+      when UseVulkanBackend:
+        let framePx = window.size()
+        let bgImage = captureGlBackBuffer(framePx)
+        if framePx.x > bgImageTargetW or framePx.y > bgImageTargetH or bgImageId.int == 0:
+          bgImageTargetW = max(bgImageTargetW, framePx.x)
+          bgImageTargetH = max(bgImageTargetH, framePx.y)
+          let key =
+            "windy_3d_overlay_glbg_target_" & $bgImageTargetW & "x" & $bgImageTargetH
+          bgImageId = imgId(key)
+          let bgUpload =
+            if bgImage.width != bgImageTargetW or bgImage.height != bgImageTargetH:
+              bgImage.resize(bgImageTargetW, bgImageTargetH)
+            else:
+              bgImage
+          renderer.ctx.putImage(bgImageId.Hash, bgUpload)
+        else:
+          let bgUpload =
+            if bgImage.width != bgImageTargetW or bgImage.height != bgImageTargetH:
+              bgImage.resize(bgImageTargetW, bgImageTargetH)
+            else:
+              bgImage
+          renderer.ctx.updateImage(bgImageId.Hash, bgUpload)
+        var renders = makeOverlay(
+          sz.x,
+          sz.y,
+          rows,
+          monoFont,
+          bg = rgba(0, 0, 0, 255).color,
+          bgImageId = bgImageId,
+        )
+        renderer.renderFrame(renders, sz, clearMain = true)
       else:
-        let bgUpload =
-          if bgImage.width != bgImageTargetW or bgImage.height != bgImageTargetH:
-            bgImage.resize(bgImageTargetW, bgImageTargetH)
-          else:
-            bgImage
-        vulkan_context.updateImage(renderer.ctx, bgImageId.Hash, bgUpload)
-      var renders = makeOverlay(
-        sz.x, sz.y, rows, monoFont, bg = rgba(0, 0, 0, 255).color, bgImageId = bgImageId
-      )
-      renderer.renderFrame(renders, sz, clearMain = true)
+        var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
+        renderer.renderFrame(renders, sz, clearMain = false)
     else:
       var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
       renderer.renderFrame(renders, sz, clearMain = false)
