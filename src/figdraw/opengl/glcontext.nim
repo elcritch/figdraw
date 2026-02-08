@@ -974,21 +974,6 @@ proc clearMask*(ctx: OpenGlContext) =
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
-#method setMaskRect*(
-#    ctx: OpenGlContext,
-#    clipRect: Rect,
-#    radii: array[DirectionCorners, float32],
-#) =
-#  ctx.drawRoundedRectSdf(
-#    rect = clipRect,
-#    color = rgba(255, 0, 0, 255).color,
-#    radii = radii,
-#    mode = figbackend.SdfMode.sdfModeClipAA,
-#    factor = 4.0'f32,
-#    spread = 0.0'f32,
-#    shapeSize = vec2(0.0'f32, 0.0'f32),
-#  )
-
 method beginMask*(
     ctx: OpenGlContext,
     clipRect: Rect,
