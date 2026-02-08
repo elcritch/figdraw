@@ -131,7 +131,7 @@ when UseVulkanBackend and defined(windows):
 
   privateAccess(Window)
 
-  proc attachVulkanSurface*(window: Window, ctx: Context) =
+  proc attachVulkanSurface*(window: Window, ctx: VulkanContext) =
     let hinstance = cast[pointer](GetModuleHandleW(nil))
     let hwnd = cast[pointer](window.hWnd)
     ctx.setPresentWin32Target(hinstance, hwnd)
@@ -159,7 +159,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
   elif UseVulkanBackend:
     if renderer.backendKind() == rbVulkan:
       try:
-        attachVulkanSurface(window, renderer.ctx)
+        attachVulkanSurface(window, renderer.ctx.VulkanBackend)
       except CatchableError as exc:
         when UseOpenGlFallback:
           renderer.useOpenGlFallback(exc.msg)
