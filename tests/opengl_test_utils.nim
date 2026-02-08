@@ -60,9 +60,13 @@ proc renderAndScreenshotOnce*(
       var renders = makeRenders(sz.x, sz.y)
       renderer.beginFrame()
       renderer.renderFrame(renders, sz)
-      renderer.endFrame()
-
-      result = glrenderer.takeScreenshot(renderer)
+      if renderer.backendKind() == rbOpenGL:
+        # OpenGL fallback renders into the back buffer; capture before swap.
+        result = glrenderer.takeScreenshot(renderer, readFront = false)
+        renderer.endFrame()
+      else:
+        renderer.endFrame()
+        result = glrenderer.takeScreenshot(renderer)
       result.writeFile(outputPath)
     except VulkanError as exc:
       raise newException(WindyError, "Vulkan device not available: " & exc.msg)

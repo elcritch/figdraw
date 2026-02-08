@@ -40,6 +40,11 @@ type PresentTargetKind = enum
   presentTargetMetal
 
 when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+  type LinuxSurfaceKind = enum
+    linuxSurfaceXlib
+    linuxSurfaceXcb
+
+when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
   type VkXlibSurfaceCreateInfoKHRNative {.bycopy.} = object
     sType: VkStructureType
     pNext: pointer
@@ -50,6 +55,20 @@ when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
   type VkCreateXlibSurfaceKHRNativeProc = proc(
     instance: VkInstance,
     pCreateInfo: ptr VkXlibSurfaceCreateInfoKHRNative,
+    pAllocator: ptr VkAllocationCallbacks,
+    pSurface: ptr VkSurfaceKHR,
+  ): VkResult {.cdecl.}
+
+  type VkXcbSurfaceCreateInfoKHRNative {.bycopy.} = object
+    sType: VkStructureType
+    pNext: pointer
+    flags: VkXcbSurfaceCreateFlagsKHR
+    connection: pointer
+    window: uint32
+
+  type VkCreateXcbSurfaceKHRNativeProc = proc(
+    instance: VkInstance,
+    pCreateInfo: ptr VkXcbSurfaceCreateInfoKHRNative,
     pAllocator: ptr VkAllocationCallbacks,
     pSurface: ptr VkSurfaceKHR,
   ): VkResult {.cdecl.}
@@ -65,6 +84,10 @@ when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
   proc vkGetInstanceProcAddrNative(
     instance: VkInstance, pName: cstring
   ): pointer {.cdecl, dynlib: VulkanDynLib, importc: "vkGetInstanceProcAddr".}
+
+  proc XGetXCBConnection(
+    display: pointer
+  ): pointer {.cdecl, dynlib: "libX11-xcb.so.1", importc.}
 
 type
   QueueFamilyIndices = object
@@ -145,6 +168,8 @@ type
     presentWin32Hinstance: pointer
     presentWin32Hwnd: pointer
     presentMetalLayer: pointer
+    when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+      linuxSurfaceKind: LinuxSurfaceKind
 
     surface: VkSurfaceKHR
     swapchain: VkSwapchainKHR
@@ -233,21 +258,6 @@ const
 
 proc hasPresentTarget(ctx: VulkanContext): bool =
   ctx.presentTargetKind != presentTargetNone
-
-proc instanceExtensions(ctx: VulkanContext): seq[cstring] =
-  if not ctx.hasPresentTarget():
-    return @[]
-
-  result = @[VkKhrSurfaceExtensionName.cstring]
-  case ctx.presentTargetKind
-  of presentTargetXlib:
-    result.add(VkKhrXlibSurfaceExtensionName.cstring)
-  of presentTargetWin32:
-    result.add(VkKhrWin32SurfaceExtensionName.cstring)
-  of presentTargetMetal:
-    result.add(VkExtMetalSurfaceExtensionName.cstring)
-  of presentTargetNone:
-    discard
 
 proc toKey*(h: Hash): Hash =
   h
@@ -436,20 +446,50 @@ proc createPresentSurface(ctx: VulkanContext) =
   case ctx.presentTargetKind
   of presentTargetXlib:
     when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
-      let fnPtr = vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXlibSurfaceKHR")
-      if fnPtr.isNil:
-        raise newException(ValueError, "vkCreateXlibSurfaceKHR unavailable")
-      let vkCreateXlibSurfaceKHRNative = cast[VkCreateXlibSurfaceKHRNativeProc](fnPtr)
-      var createInfo = VkXlibSurfaceCreateInfoKHRNative(
-        sType: VkStructureType.XlibSurfaceCreateInfoKHR,
-        pNext: nil,
-        flags: 0.VkXlibSurfaceCreateFlagsKHR,
-        dpy: ctx.presentXlibDisplay,
-        window: culong(ctx.presentXlibWindow),
-      )
-      checkVkResult vkCreateXlibSurfaceKHRNative(
-        ctx.instance, createInfo.addr, nil, ctx.surface.addr
-      )
+      when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+        case ctx.linuxSurfaceKind
+        of linuxSurfaceXcb:
+          let fnPtr = vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXcbSurfaceKHR")
+          if fnPtr.isNil:
+            raise newException(ValueError, "vkCreateXcbSurfaceKHR unavailable")
+          let xcbConn = XGetXCBConnection(ctx.presentXlibDisplay)
+          if xcbConn.isNil:
+            raise newException(
+              ValueError, "XGetXCBConnection returned nil for Vulkan XCB surface"
+            )
+          let vkCreateXcbSurfaceKHRNative = cast[VkCreateXcbSurfaceKHRNativeProc](fnPtr)
+          var createInfo = VkXcbSurfaceCreateInfoKHRNative(
+            sType: VkStructureType.XcbSurfaceCreateInfoKHR,
+            pNext: nil,
+            flags: 0.VkXcbSurfaceCreateFlagsKHR,
+            connection: xcbConn,
+            window: uint32(ctx.presentXlibWindow),
+          )
+          debug "Creating Vulkan XCB surface",
+            window = ctx.presentXlibWindow, xcbConnection = cast[uint64](xcbConn)
+          checkVkResult vkCreateXcbSurfaceKHRNative(
+            ctx.instance, createInfo.addr, nil, ctx.surface.addr
+          )
+        of linuxSurfaceXlib:
+          let fnPtr =
+            vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXlibSurfaceKHR")
+          if fnPtr.isNil:
+            raise newException(ValueError, "vkCreateXlibSurfaceKHR unavailable")
+          let vkCreateXlibSurfaceKHRNative =
+            cast[VkCreateXlibSurfaceKHRNativeProc](fnPtr)
+          var createInfo = VkXlibSurfaceCreateInfoKHRNative(
+            sType: VkStructureType.XlibSurfaceCreateInfoKHR,
+            pNext: nil,
+            flags: 0.VkXlibSurfaceCreateFlagsKHR,
+            dpy: ctx.presentXlibDisplay,
+            window: culong(ctx.presentXlibWindow),
+          )
+          debug "Creating Vulkan XLIB surface",
+            window = ctx.presentXlibWindow,
+            xlibDisplay = cast[uint64](ctx.presentXlibDisplay)
+          checkVkResult vkCreateXlibSurfaceKHRNative(
+            ctx.instance, createInfo.addr, nil, ctx.surface.addr
+          )
     else:
       raise newException(ValueError, "Xlib Vulkan surface unsupported on this OS")
   of presentTargetWin32:
@@ -1348,18 +1388,53 @@ proc queryInstanceLayerNames(): seq[string] =
 
 proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
   let loaderApiVersion = detectLoaderApiVersion()
-  let enabledExts = ctx.instanceExtensions()
-  var extNames: seq[string] = @[]
-  for ext in enabledExts:
-    extNames.add($ext)
-
   let availableExts = queryInstanceExtensionNames()
   let availableLayers = queryInstanceLayerNames()
+
+  var enabledExtNames: seq[string] = @[]
+  if ctx.hasPresentTarget():
+    enabledExtNames.add(VkKhrSurfaceExtensionName)
+    case ctx.presentTargetKind
+    of presentTargetXlib:
+      when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+        let hasXlib = VkKhrXlibSurfaceExtensionName in availableExts
+        let hasXcb = VkKhrXcbSurfaceExtensionName in availableExts
+        if hasXlib:
+          ctx.linuxSurfaceKind = linuxSurfaceXlib
+          enabledExtNames.add(VkKhrXlibSurfaceExtensionName)
+        elif hasXcb:
+          ctx.linuxSurfaceKind = linuxSurfaceXcb
+          enabledExtNames.add(VkKhrXcbSurfaceExtensionName)
+          warn "Vulkan XLIB surface extension unavailable; using XCB surface extension",
+            selectedExtension = VkKhrXcbSurfaceExtensionName
+        else:
+          # Keep legacy default behavior for clearer downstream errors.
+          ctx.linuxSurfaceKind = linuxSurfaceXlib
+          enabledExtNames.add(VkKhrXlibSurfaceExtensionName)
+          warn "Neither VK_KHR_xlib_surface nor VK_KHR_xcb_surface reported as available"
+      else:
+        enabledExtNames.add(VkKhrXlibSurfaceExtensionName)
+    of presentTargetWin32:
+      enabledExtNames.add(VkKhrWin32SurfaceExtensionName)
+    of presentTargetMetal:
+      enabledExtNames.add(VkExtMetalSurfaceExtensionName)
+    of presentTargetNone:
+      discard
+
+  var enabledExts: seq[cstring] = @[]
+  for name in enabledExtNames:
+    enabledExts.add(name.cstring)
+
   debug "Vulkan instance setup",
     loaderApiVersion = vulkanApiVersion(loaderApiVersion),
-    requestedExtensions = extNames,
+    requestedExtensions = enabledExtNames,
+    availableExtensions = availableExts,
     availableExtensionsCount = availableExts.len,
-    availableLayers = availableLayers
+    availableLayers = availableLayers,
+    presentTarget = $ctx.presentTargetKind
+  when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+    debug "Selected Linux Vulkan surface extension mode",
+      linuxSurfaceKind = $ctx.linuxSurfaceKind
 
   var attempts: seq[uint32] = @[]
   if loaderApiVersion >= vkApiVersion1_1:
@@ -1382,7 +1457,7 @@ proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
     try:
       debug "Creating Vulkan instance",
         requestedApiVersion = vulkanApiVersion(apiVersion),
-        requestedExtensions = extNames
+        requestedExtensions = enabledExtNames
       return createInstance(instanceInfo)
     except VulkanError as exc:
       if exc.res == VkErrorIncompatibleDriver and apiVersion != vkApiVersion1_0:
@@ -2799,6 +2874,8 @@ proc newContext*(
   result.presentQueue = vkNullQueue
   result.presentQueueFamily = 0
   result.presentTargetKind = presentTargetNone
+  when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+    result.linuxSurfaceKind = linuxSurfaceXlib
   result.surface = vkNullSurface
   result.swapchain = vkNullSwapchain
   result.swapchainViews = @[]
@@ -2858,6 +2935,8 @@ proc clearPresentTarget*(ctx: VulkanContext) =
   if ctx.gpuReady:
     ctx.destroyGpu()
   ctx.presentTargetKind = presentTargetNone
+  when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+    ctx.linuxSurfaceKind = linuxSurfaceXlib
   ctx.presentXlibDisplay = nil
   ctx.presentXlibWindow = 0
   ctx.presentWin32Hinstance = nil
