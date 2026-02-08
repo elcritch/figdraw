@@ -11,6 +11,7 @@ import metalx/[cametal, metal]
 import metalx/objc_owned
 
 import ../commons
+import ../figbackend as figbackend
 import ./metal_sources
 import ../common/formatflippy
 import ../fignodes
@@ -60,7 +61,7 @@ type InFlightFrame = object
   commandBuffer: ObjcOwned[MTLCommandBuffer]
   arenaIndex: int
 
-type ContextObj = object # Metal objects
+type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   device: ObjcOwned[MTLDevice]
   queue: ObjcOwned[MTLCommandQueue]
   commandBuffer: ObjcOwned[MTLCommandBuffer]
@@ -119,13 +120,11 @@ type ContextObj = object # Metal objects
   # like a per-frame leak in long-running apps.
   frameAutoreleasePool: AutoreleasePool
 
-type Context* = ref ContextObj
+proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite)
 
-proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite)
+proc ensureDeviceAndPipelines(ctx: MetalContext)
 
-proc ensureDeviceAndPipelines(ctx: Context)
-
-proc metalDevice*(ctx: Context): MTLDevice =
+method metalDevice*(ctx: MetalContext): MTLDevice =
   ## Exposes the MTLDevice for windowing code that needs to create a CAMetalLayer.
   if ctx.device.isNil:
     ctx.ensureDeviceAndPipelines()
@@ -134,17 +133,17 @@ proc metalDevice*(ctx: Context): MTLDevice =
 proc toKey*(h: Hash): Hash =
   h
 
-proc hasImage*(ctx: Context, key: Hash): bool =
+method hasImage*(ctx: MetalContext, key: Hash): bool =
   key in ctx.entries
 
-proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool
+proc tryGetImageRect(ctx: MetalContext, imageId: Hash, rect: var Rect): bool
 
 proc mtlRegion2D(x, y, w, h: int): MTLRegion =
   result.origin = MTLOrigin(x: NSUInteger(x), y: NSUInteger(y), z: 0)
   result.size = MTLSize(width: NSUInteger(w), height: NSUInteger(h), depth: 1)
 
 proc newTexture2D(
-    ctx: Context,
+    ctx: MetalContext,
     pixelFormat: MTLPixelFormat,
     width, height: int,
     usage: MTLTextureUsage,
@@ -158,12 +157,12 @@ proc newTexture2D(
   desc.setStorageMode(storageMode)
   result = ctx.device.borrow.newTextureWithDescriptor(desc)
 
-proc updateSubImage(ctx: Context, texture: MTLTexture, x, y: int, image: Image) =
+proc updateSubImage(ctx: MetalContext, texture: MTLTexture, x, y: int, image: Image) =
   # Pixie Image is RGBA; our atlas is RGBA8.
   let region = mtlRegion2D(x, y, image.width, image.height)
   texture.replaceRegion(region, 0, image.data[0].addr, NSUInteger(image.width * 4))
 
-proc createAtlasTexture(ctx: Context, size: int): MTLTexture =
+proc createAtlasTexture(ctx: MetalContext, size: int): MTLTexture =
   # No mipmaps for now; keep it simple and deterministic.
   result = ctx.newTexture2D(
     pixelFormat = MTLPixelFormatRGBA8Unorm,
@@ -172,7 +171,7 @@ proc createAtlasTexture(ctx: Context, size: int): MTLTexture =
     usage = MTLTextureUsageShaderRead,
   )
 
-proc createMaskTexture(ctx: Context, width, height: int): MTLTexture =
+proc createMaskTexture(ctx: MetalContext, width, height: int): MTLTexture =
   result = ctx.newTexture2D(
     pixelFormat = MTLPixelFormatR8Unorm,
     width = width,
@@ -183,7 +182,7 @@ proc createMaskTexture(ctx: Context, width, height: int): MTLTexture =
     ),
   )
 
-proc ensureMask0(ctx: Context) =
+proc ensureMask0(ctx: MetalContext) =
   if ctx.maskTextures.len > 0:
     return
   var tex = fromRetained(ctx.createMaskTexture(1, 1))
@@ -191,7 +190,7 @@ proc ensureMask0(ctx: Context) =
   tex.borrow.replaceRegion(mtlRegion2D(0, 0, 1, 1), 0, addr white, 1)
   ctx.maskTextures.add(tex)
 
-proc ensureOffscreen(ctx: Context, frameSize: Vec2) =
+proc ensureOffscreen(ctx: MetalContext, frameSize: Vec2) =
   let w = max(1, frameSize.x.int)
   let h = max(1, frameSize.y.int)
   if not ctx.offscreenTexture.isNil:
@@ -211,14 +210,14 @@ proc ensureOffscreen(ctx: Context, frameSize: Vec2) =
     )
   )
 
-proc endEncoder(ctx: Context) =
+proc endEncoder(ctx: MetalContext) =
   if not ctx.encoder.isNil:
     endEncoding(ctx.encoder)
     ctx.encoder = nil
     ctx.passKind = pkNone
 
 proc beginPass(
-    ctx: Context,
+    ctx: MetalContext,
     kind: PassKind,
     target: MTLTexture,
     clear: bool,
@@ -237,19 +236,19 @@ proc beginPass(
   ctx.encoder = renderCommandEncoderWithDescriptor(ctx.commandBuffer.borrow, pass)
   ctx.passKind = kind
 
-proc ensureMainPass(ctx: Context, clear: bool, clearColor: MTLClearColor) =
+proc ensureMainPass(ctx: MetalContext, clear: bool, clearColor: MTLClearColor) =
   if ctx.passKind == pkMain and not ctx.encoder.isNil:
     return
   ctx.beginPass(pkMain, ctx.offscreenTexture.borrow, clear, clearColor)
 
-proc ensureMaskPass(ctx: Context, clear: bool, clearColor: MTLClearColor) =
+proc ensureMaskPass(ctx: MetalContext, clear: bool, clearColor: MTLClearColor) =
   if ctx.passKind == pkMask and not ctx.encoder.isNil:
     return
   ctx.beginPass(
     pkMask, ctx.maskTextures[ctx.maskTextureWrite].borrow, clear, clearColor
   )
 
-proc ensureDeviceAndPipelines(ctx: Context) =
+proc ensureDeviceAndPipelines(ctx: MetalContext) =
   if not ctx.device.isNil and not ctx.queue.isNil and not ctx.pipelineMain.isNil and
       not ctx.pipelineMask.isNil and not ctx.pipelineBlit.isNil:
     return
@@ -355,7 +354,7 @@ proc ensureDeviceAndPipelines(ctx: Context) =
           error "Failed to create Metal blit pipeline", error = $err
         raise newException(ValueError, "Failed to create Metal blit pipeline")
 
-proc upload(ctx: Context) =
+proc upload(ctx: MetalContext) =
   let vertexCount = ctx.quadCount * 4
   if vertexCount <= 0:
     return
@@ -380,7 +379,7 @@ proc upload(ctx: Context) =
     ctx.sdfFactors.buffer.borrow, ctx.sdfFactors.data, vertexCount * 2 * sizeof(float32)
   )
 
-proc grow(ctx: Context) =
+proc grow(ctx: MetalContext) =
   ctx.flush()
   ctx.atlasSize = ctx.atlasSize * 2
   info "grow atlasSize ", atlasSize = ctx.atlasSize
@@ -388,7 +387,7 @@ proc grow(ctx: Context) =
   ctx.atlasTexture.resetRetained(ctx.createAtlasTexture(ctx.atlasSize))
   ctx.entries.clear()
 
-proc findEmptyRect(ctx: Context, width, height: int): Rect =
+proc findEmptyRect(ctx: MetalContext, width, height: int): Rect =
   var imgWidth = width + ctx.atlasMargin * 2
   var imgHeight = height + ctx.atlasMargin * 2
 
@@ -423,15 +422,15 @@ proc findEmptyRect(ctx: Context, width, height: int): Rect =
     float32(height),
   )
 
-proc putImage*(ctx: Context, path: Hash, image: Image) =
+method putImage*(ctx: MetalContext, path: Hash, image: Image) =
   let rect = ctx.findEmptyRect(image.width, image.height)
   ctx.entries[path] = rect / float(ctx.atlasSize)
   ctx.updateSubImage(ctx.atlasTexture.borrow, int(rect.x), int(rect.y), image)
 
-proc addImage*(ctx: Context, key: Hash, image: Image) =
+method addImage*(ctx: MetalContext, key: Hash, image: Image) =
   ctx.putImage(key, image)
 
-proc updateImage*(ctx: Context, path: Hash, image: Image) =
+method updateImage*(ctx: MetalContext, path: Hash, image: Image) =
   let rect = ctx.entries[path]
   assert rect.w == image.width.float / float(ctx.atlasSize)
   assert rect.h == image.height.float / float(ctx.atlasSize)
@@ -446,7 +445,7 @@ proc logFlippy(flippy: Flippy, file: string) =
   debug "putFlippy file",
     fwidth = $flippy.width, fheight = $flippy.height, flippyPath = file
 
-proc putFlippy*(ctx: Context, path: Hash, flippy: Flippy) =
+proc putFlippy*(ctx: MetalContext, path: Hash, flippy: Flippy) =
   # Metal backend currently uploads only mip 0.
   logFlippy(flippy, $path)
   if flippy.mipmaps.len == 0:
@@ -454,14 +453,14 @@ proc putFlippy*(ctx: Context, path: Hash, flippy: Flippy) =
   let mip0 = flippy.mipmaps[0]
   ctx.putImage(path, mip0)
 
-proc putImage*(ctx: Context, imgObj: ImgObj) =
+method putImage*(ctx: MetalContext, imgObj: ImgObj) =
   case imgObj.kind
   of FlippyImg:
     ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
   of PixieImg:
     ctx.putImage(imgObj.id.Hash, imgObj.pimg)
 
-proc checkBatch(ctx: Context) =
+proc checkBatch(ctx: MetalContext) =
   if ctx.quadCount == ctx.maxQuads:
     if ctx.maskBegun:
       ctx.flush(ctx.maskTextureWrite - 1)
@@ -488,7 +487,7 @@ func `*`*(m: Mat4, v: Vec2): Vec2 =
   (m * vec3(v.x, v.y, 0.0)).xy
 
 proc drawQuad*(
-    ctx: Context,
+    ctx: MetalContext,
     verts: array[4, Vec2],
     uvs: array[4, Vec2],
     colors: array[4, ColorRGBA],
@@ -536,22 +535,10 @@ proc drawQuad*(
 
   inc ctx.quadCount
 
-type SdfMode* {.pure.} = enum
-  sdfModeAtlas = 0
-  sdfModeClipAA = 3
-  sdfModeDropShadow = 7
-  sdfModeDropShadowAA = 8
-  sdfModeInsetShadow = 9
-  sdfModeInsetShadowAnnular = 10
-  sdfModeAnnular = 11
-  sdfModeAnnularAA = 12
-  sdfModeMsdf = 13
-  sdfModeMtsdf = 14
-  sdfModeMsdfAnnular = 15
-  sdfModeMtsdfAnnular = 16
+type SdfMode* = figbackend.SdfMode
 
 proc drawUvRectAtlasSdf(
-    ctx: Context,
+    ctx: MetalContext,
     at, to: Vec2,
     uvAt, uvTo: Vec2,
     color: Color,
@@ -617,8 +604,8 @@ proc drawUvRectAtlasSdf(
 
   inc ctx.quadCount
 
-proc drawMsdfImage*(
-    ctx: Context,
+method drawMsdfImage*(
+    ctx: MetalContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -632,19 +619,21 @@ proc drawMsdfImage*(
     return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
+  let modeSel: SdfMode =
+    if strokeW > 0.0'f32: SdfMode.sdfModeMsdfAnnular else: SdfMode.sdfModeMsdf
   ctx.drawUvRectAtlasSdf(
     at = pos,
     to = pos + size,
     uvAt = rect.xy,
     uvTo = rect.xy + rect.wh,
     color = color,
-    mode = if strokeW > 0.0'f32: sdfModeMsdfAnnular else: sdfModeMsdf,
+    mode = modeSel,
     factors = vec2(pxRange, sdThreshold),
     params = params,
   )
 
-proc drawMtsdfImage*(
-    ctx: Context,
+method drawMtsdfImage*(
+    ctx: MetalContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -658,23 +647,25 @@ proc drawMtsdfImage*(
     return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
+  let modeSel: SdfMode =
+    if strokeW > 0.0'f32: SdfMode.sdfModeMtsdfAnnular else: SdfMode.sdfModeMtsdf
   ctx.drawUvRectAtlasSdf(
     at = pos,
     to = pos + size,
     uvAt = rect.xy,
     uvTo = rect.xy + rect.wh,
     color = color,
-    mode = if strokeW > 0.0'f32: sdfModeMtsdfAnnular else: sdfModeMtsdf,
+    mode = modeSel,
     factors = vec2(pxRange, sdThreshold),
     params = params,
   )
 
-proc setSdfGlobals*(ctx: Context, aaFactor: float32) =
+proc setSdfGlobals*(ctx: MetalContext, aaFactor: float32) =
   if ctx.aaFactor == aaFactor:
     return
   ctx.aaFactor = aaFactor
 
-proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
+proc drawUvRect(ctx: MetalContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
   ctx.checkBatch()
   assert ctx.quadCount < ctx.maxQuads
 
@@ -734,10 +725,10 @@ proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
 
   inc ctx.quadCount
 
-proc drawUvRect(ctx: Context, rect, uvRect: Rect, color: Color) =
+proc drawUvRect(ctx: MetalContext, rect, uvRect: Rect, color: Color) =
   ctx.drawUvRect(rect.xy, rect.xy + rect.wh, uvRect.xy, uvRect.xy + uvRect.wh, color)
 
-proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool =
+proc tryGetImageRect(ctx: MetalContext, imageId: Hash, rect: var Rect): bool =
   if imageId notin ctx.entries:
     warn "missing image in context", imageId = imageId
     return false
@@ -745,11 +736,11 @@ proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool =
   true
 
 proc drawImage*(
-    ctx: Context,
+    ctx: MetalContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
-    scale = 1.0,
+    scale: float32,
 ) =
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
@@ -757,8 +748,11 @@ proc drawImage*(
   let wh = rect.wh * ctx.atlasSize.float32 * scale
   ctx.drawUvRect(pos, pos + wh, rect.xy, rect.xy + rect.wh, color)
 
-proc drawImage*(
-    ctx: Context,
+method drawImage*(ctx: MetalContext, imageId: Hash, pos: Vec2, color: Color) =
+  drawImage(ctx, imageId, pos, color, 1.0'f32)
+
+method drawImage*(
+    ctx: MetalContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -769,8 +763,8 @@ proc drawImage*(
     return
   ctx.drawUvRect(pos, pos + size, rect.xy, rect.xy + rect.wh, color)
 
-proc drawImageAdj*(
-    ctx: Context,
+method drawImageAdj*(
+    ctx: MetalContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -783,7 +777,7 @@ proc drawImageAdj*(
   ctx.drawUvRect(pos, pos + size, rect.xy + adj, rect.xy + rect.wh - adj, color)
 
 proc drawSprite*(
-    ctx: Context,
+    ctx: MetalContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -796,7 +790,7 @@ proc drawSprite*(
   ctx.drawUvRect(pos - wh / 2, pos + wh / 2, rect.xy, rect.xy + rect.wh, color)
 
 proc drawSprite*(
-    ctx: Context,
+    ctx: MetalContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -807,7 +801,7 @@ proc drawSprite*(
     return
   ctx.drawUvRect(pos - size / 2, pos + size / 2, rect.xy, rect.xy + rect.wh, color)
 
-proc drawRect*(ctx: Context, rect: Rect, color: Color) =
+method drawRect*(ctx: MetalContext, rect: Rect, color: Color) =
   const imgKey = hash("rect")
   if imgKey notin ctx.entries:
     var image = newImage(4, 4)
@@ -823,8 +817,8 @@ proc drawRect*(ctx: Context, rect: Rect, color: Color) =
     color,
   )
 
-proc drawRoundedRectSdf*(
-    ctx: Context,
+method drawRoundedRectSdf*(
+    ctx: MetalContext,
     rect: Rect,
     color: Color,
     radii: array[DirectionCorners, float32],
@@ -933,7 +927,7 @@ proc drawRoundedRectSdf*(
 
   inc ctx.quadCount
 
-proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
+proc line*(ctx: MetalContext, a: Vec2, b: Vec2, weight: float32, color: Color) =
   let hash = hash((2345, a, b, (weight * 100).int, hash(color)))
 
   let
@@ -957,11 +951,11 @@ proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
     pos, pos + vec2(w.float32, h.float32), uvRect.xy, uvRect.xy + uvRect.wh, color
   )
 
-proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32, color: Color) =
+proc linePolygon*(ctx: MetalContext, poly: seq[Vec2], weight: float32, color: Color) =
   for i in 0 ..< poly.len:
     ctx.line(poly[i], poly[(i + 1) mod poly.len], weight, color)
 
-proc beginMask*(ctx: Context) =
+method beginMask*(ctx: MetalContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginMask has already been called."
   # Flush any pending main-pass quads before switching into mask mode.
@@ -988,7 +982,7 @@ proc beginMask*(ctx: Context) =
     clearColor = MTLClearColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0),
   )
 
-proc endMask*(ctx: Context) =
+method endMask*(ctx: MetalContext) =
   assert ctx.maskBegun == true, "ctx.maskBegun has not been called."
   # Flush any remaining quads for this mask level while the mask pipeline is active.
   ctx.flush(ctx.maskTextureWrite - 1)
@@ -999,11 +993,11 @@ proc endMask*(ctx: Context) =
     clearColor = MTLClearColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0),
   )
 
-proc popMask*(ctx: Context) =
+method popMask*(ctx: MetalContext) =
   ctx.flush()
   dec ctx.maskTextureWrite
 
-proc reapCompletedFrames(ctx: Context) =
+proc reapCompletedFrames(ctx: MetalContext) =
   if ctx.inFlightFrames.len == 0:
     return
 
@@ -1024,7 +1018,7 @@ proc reapCompletedFrames(ctx: Context) =
     ctx.inFlightFrames.setLen(write)
 
 proc beginFrame*(
-    ctx: Context,
+    ctx: MetalContext,
     frameSize: Vec2,
     proj: Mat4,
     clearMain = false,
@@ -1086,8 +1080,8 @@ proc beginFrame*(
   # Always start in main pass.
   ctx.ensureMainPass(clear = clearMain, clearColor = clearMtl)
 
-proc beginFrame*(
-    ctx: Context, frameSize: Vec2, clearMain = false, clearMainColor: Color = whiteColor
+method beginFrame*(
+    ctx: MetalContext, frameSize: Vec2, clearMain = false, clearMainColor: Color = whiteColor
 ) =
   beginFrame(
     ctx,
@@ -1097,7 +1091,7 @@ proc beginFrame*(
     clearMainColor = clearMainColor,
   )
 
-proc endFrame*(ctx: Context) =
+method endFrame*(ctx: MetalContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame was not called first."
   assert ctx.maskTextureWrite == 0, "Not all masks have been popped."
   ctx.frameBegun = false
@@ -1138,41 +1132,41 @@ proc endFrame*(ctx: Context) =
   ctx.commandBuffer.clear()
   ctx.frameAutoreleasePool.stop()
 
-proc translate*(ctx: Context, v: Vec2) =
+method translate*(ctx: MetalContext, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
 
-proc rotate*(ctx: Context, angle: float32) =
+method rotate*(ctx: MetalContext, angle: float32) =
   ctx.mat = ctx.mat * rotateZ(angle)
 
-proc scale*(ctx: Context, s: float32) =
+method scale*(ctx: MetalContext, s: float32) =
   ctx.mat = ctx.mat * scale(vec3(s))
 
-proc scale*(ctx: Context, s: Vec2) =
+method scale*(ctx: MetalContext, s: Vec2) =
   ctx.mat = ctx.mat * scale(vec3(s.x, s.y, 1))
 
-proc saveTransform*(ctx: Context) =
+method saveTransform*(ctx: MetalContext) =
   ctx.mats.add ctx.mat
 
-proc restoreTransform*(ctx: Context) =
+method restoreTransform*(ctx: MetalContext) =
   ctx.mat = ctx.mats.pop()
 
-proc clearTransform*(ctx: Context) =
+proc clearTransform*(ctx: MetalContext) =
   ctx.mat = mat4()
   ctx.mats.setLen(0)
 
-proc fromScreen*(ctx: Context, windowFrame: Vec2, v: Vec2): Vec2 =
+proc fromScreen*(ctx: MetalContext, windowFrame: Vec2, v: Vec2): Vec2 =
   (ctx.mat.inverse() * vec3(v.x, windowFrame.y - v.y, 0)).xy
 
-proc toScreen*(ctx: Context, windowFrame: Vec2, v: Vec2): Vec2 =
+proc toScreen*(ctx: MetalContext, windowFrame: Vec2, v: Vec2): Vec2 =
   result = (ctx.mat * vec3(v.x, v.y, 1)).xy
   result.y = -result.y + windowFrame.y
 
-proc setPresentLayer*(ctx: Context, layer: CAMetalLayer) =
+method setPresentLayer*(ctx: MetalContext, layer: CAMetalLayer) =
   ## Optional: set a CAMetalLayer to present the offscreen result into.
   ## The caller is responsible for attaching/sizing/configuring the layer.
   ctx.presentLayer = layer
 
-proc readPixels*(ctx: Context, frame: Rect = rect(0, 0, 0, 0)): Image =
+proc readPixels*(ctx: MetalContext, frame: Rect = rect(0, 0, 0, 0)): Image =
   if ctx.lastCommitted.isNil:
     raise newException(ValueError, "No Metal frame has been committed yet")
   waitUntilCompleted(ctx.lastCommitted.borrow)
@@ -1208,7 +1202,7 @@ proc readPixels*(ctx: Context, frame: Rect = rect(0, 0, 0, 0)): Image =
     result.data[i] = rgbx(tmp[bi + 2], tmp[bi + 1], tmp[bi + 0], tmp[bi + 3])
 
 proc ensureFlushBufferCapacity(
-    ctx: Context, buffer: var ObjcOwned[MTLBuffer], capacity: var int, neededBytes: int
+    ctx: MetalContext, buffer: var ObjcOwned[MTLBuffer], capacity: var int, neededBytes: int
 ) =
   if neededBytes <= 0:
     return
@@ -1226,7 +1220,7 @@ proc ensureFlushBufferCapacity(
   )
   capacity = newCapacity
 
-proc flush(ctx: Context, maskTextureRead: int = ctx.maskTextureWrite) =
+proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   if ctx.quadCount == 0:
     return
 
@@ -1350,12 +1344,12 @@ proc newContext*(
     maxQuads = 1024,
     pixelate = false,
     pixelScale = 1.0,
-): Context =
+): MetalContext =
   if maxQuads > quadLimit:
     raise newException(ValueError, &"Quads cannot exceed {quadLimit}")
 
   withAutoreleasePool:
-    result = Context()
+    result = MetalContext()
     result.atlasSize = atlasSize
     result.atlasMargin = atlasMargin
     result.maxQuads = maxQuads
@@ -1454,3 +1448,16 @@ proc newContext*(
         MTLResourceOptions(0),
       )
     )
+
+method kind*(ctx: MetalContext): figbackend.RendererBackendKind =
+  figbackend.RendererBackendKind.rbMetal
+
+method entriesPtr*(ctx: MetalContext): ptr Table[Hash, Rect] =
+  ctx.entries.addr
+
+method pixelScale*(ctx: MetalContext): float32 =
+  ctx.pixelScale
+
+method readPixels*(ctx: MetalContext, frame: Rect, readFront: bool): Image =
+  discard readFront
+  readPixels(ctx, frame)

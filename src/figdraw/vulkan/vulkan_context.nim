@@ -8,6 +8,7 @@ import pkg/vulkan
 import pkg/vulkan/wrapper
 
 import ../commons
+import ../figbackend as figbackend
 import ../common/formatflippy
 import ../fignodes
 import ../utils/drawextras
@@ -30,19 +31,7 @@ when defined(emscripten):
 else:
   type SdfModeData = uint16
 
-type SdfMode* {.pure.} = enum
-  sdfModeAtlas = 0
-  sdfModeClipAA = 3
-  sdfModeDropShadow = 7
-  sdfModeDropShadowAA = 8
-  sdfModeInsetShadow = 9
-  sdfModeInsetShadowAnnular = 10
-  sdfModeAnnular = 11
-  sdfModeAnnularAA = 12
-  sdfModeMsdf = 13
-  sdfModeMtsdf = 14
-  sdfModeMsdfAnnular = 15
-  sdfModeMtsdfAnnular = 16
+type SdfMode* = figbackend.SdfMode
 
 type PresentTargetKind = enum
   presentTargetNone
@@ -107,7 +96,7 @@ type
     sdfPad: uint16
     sdfFactors: array[2, float32]
 
-  Context* = ref object
+  VulkanContext* = ref object of figbackend.BackendContext
     atlasSize: int
     atlasMargin: int
     quadCount: int
@@ -242,10 +231,10 @@ const
   vkNullSemaphore = VkSemaphore(0)
   vkNullFence = VkFence(0)
 
-proc hasPresentTarget(ctx: Context): bool =
+proc hasPresentTarget(ctx: VulkanContext): bool =
   ctx.presentTargetKind != presentTargetNone
 
-proc instanceExtensions(ctx: Context): seq[cstring] =
+proc instanceExtensions(ctx: VulkanContext): seq[cstring] =
   if not ctx.hasPresentTarget():
     return @[]
 
@@ -263,10 +252,10 @@ proc instanceExtensions(ctx: Context): seq[cstring] =
 proc toKey*(h: Hash): Hash =
   h
 
-proc hasImage*(ctx: Context, key: Hash): bool =
+method hasImage*(ctx: VulkanContext, key: Hash): bool =
   key in ctx.entries
 
-proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool
+proc tryGetImageRect(ctx: VulkanContext, imageId: Hash, rect: var Rect): bool
 
 proc findGraphicsQueueFamily(device: VkPhysicalDevice): int =
   let families = getQueueFamilyProperties(device)
@@ -417,7 +406,7 @@ proc findMemoryType(
   raise newException(ValueError, "Failed to find Vulkan memory type")
 
 proc createBuffer(
-    ctx: Context,
+    ctx: VulkanContext,
     size: VkDeviceSize,
     usage: VkBufferUsageFlags,
     properties: VkMemoryPropertyFlags,
@@ -438,7 +427,7 @@ proc createBuffer(
   result.memory = allocateMemory(ctx.device, alloc)
   bindBufferMemory(ctx.device, result.buffer, result.memory, 0.VkDeviceSize)
 
-proc createPresentSurface(ctx: Context) =
+proc createPresentSurface(ctx: VulkanContext) =
   if not ctx.hasPresentTarget() or ctx.instance == vkNullInstance:
     return
   if ctx.surface != vkNullSurface:
@@ -490,7 +479,7 @@ proc createPresentSurface(ctx: Context) =
     discard
 
 proc createImage(
-    ctx: Context,
+    ctx: VulkanContext,
     width, height: uint32,
     format: VkFormat,
     tiling: VkImageTiling,
@@ -524,7 +513,7 @@ proc createImage(
   )
 
 proc createImageView(
-    ctx: Context, image: VkImage, format: VkFormat, aspectMask: VkImageAspectFlags
+    ctx: VulkanContext, image: VkImage, format: VkFormat, aspectMask: VkImageAspectFlags
 ): VkImageView =
   let info = newVkImageViewCreateInfo(
     image = image,
@@ -544,19 +533,19 @@ proc createImageView(
   )
   checkVkResult vkCreateImageView(ctx.device, info.addr, nil, result.addr)
 
-proc destroySwapchain(ctx: Context)
-proc createSwapchain(ctx: Context, width, height: int32)
-proc ensureSwapchain(ctx: Context, width, height: int32)
-proc ensureGpuRuntime(ctx: Context)
-proc destroyGpu(ctx: Context)
-proc flush(ctx: Context)
-proc beginRenderPassIfNeeded(ctx: Context)
-proc ensureReadbackBuffer(ctx: Context, bytes: VkDeviceSize)
-proc recordSwapchainReadback(ctx: Context)
-proc clearFrameVertexUploads(ctx: Context)
-proc applyClipScissor(ctx: Context)
+proc destroySwapchain(ctx: VulkanContext)
+proc createSwapchain(ctx: VulkanContext, width, height: int32)
+proc ensureSwapchain(ctx: VulkanContext, width, height: int32)
+proc ensureGpuRuntime(ctx: VulkanContext)
+proc destroyGpu(ctx: VulkanContext)
+proc flush(ctx: VulkanContext)
+proc beginRenderPassIfNeeded(ctx: VulkanContext)
+proc ensureReadbackBuffer(ctx: VulkanContext, bytes: VkDeviceSize)
+proc recordSwapchainReadback(ctx: VulkanContext)
+proc clearFrameVertexUploads(ctx: VulkanContext)
+proc applyClipScissor(ctx: VulkanContext)
 
-proc destroySwapchain(ctx: Context) =
+proc destroySwapchain(ctx: VulkanContext) =
   for fb in ctx.swapchainFramebuffers:
     if fb != vkNullFramebuffer:
       vkDestroyFramebuffer(ctx.device, fb, nil)
@@ -572,7 +561,7 @@ proc destroySwapchain(ctx: Context) =
     vkDestroySwapchainKHR(ctx.device, ctx.swapchain, nil)
     ctx.swapchain = vkNullSwapchain
 
-proc destroyPipelineObjects(ctx: Context) =
+proc destroyPipelineObjects(ctx: VulkanContext) =
   if ctx.pipeline != vkNullPipeline:
     vkDestroyPipeline(ctx.device, ctx.pipeline, nil)
     ctx.pipeline = vkNullPipeline
@@ -583,7 +572,7 @@ proc destroyPipelineObjects(ctx: Context) =
     vkDestroyRenderPass(ctx.device, ctx.renderPass, nil)
     ctx.renderPass = vkNullRenderPass
 
-proc updateDescriptorSet(ctx: Context) =
+proc updateDescriptorSet(ctx: VulkanContext) =
   var vsInfo = newVkDescriptorBufferInfo(
     buffer = ctx.vsUniformBuffer,
     offset = 0.VkDeviceSize,
@@ -644,7 +633,7 @@ proc updateDescriptorSet(ctx: Context) =
   ]
   updateDescriptorSets(ctx.device, writes, [])
 
-proc recreateAtlasGpu(ctx: Context) =
+proc recreateAtlasGpu(ctx: VulkanContext) =
   if ctx.atlasView != vkNullImageView:
     vkDestroyImageView(ctx.device, ctx.atlasView, nil)
     ctx.atlasView = vkNullImageView
@@ -673,7 +662,7 @@ proc recreateAtlasGpu(ctx: Context) =
   if ctx.descriptorSet != vkNullDescriptorSet:
     ctx.updateDescriptorSet()
 
-proc createPipeline(ctx: Context) =
+proc createPipeline(ctx: VulkanContext) =
   ctx.destroyPipelineObjects()
 
   var colorAttachment = VkAttachmentDescription(
@@ -895,7 +884,7 @@ proc createPipeline(ctx: Context) =
     ctx.device, 0.VkPipelineCache, 1, pipelineInfo.addr, nil, ctx.pipeline.addr
   )
 
-proc createSwapchain(ctx: Context, width, height: int32) =
+proc createSwapchain(ctx: VulkanContext, width, height: int32) =
   if ctx.surface == vkNullSurface:
     return
 
@@ -998,7 +987,7 @@ proc createSwapchain(ctx: Context, width, height: int32) =
     imageCount = ctx.swapchainImages.len,
     format = $ctx.swapchainFormat
 
-proc ensureSwapchain(ctx: Context, width, height: int32) =
+proc ensureSwapchain(ctx: VulkanContext, width, height: int32) =
   if not ctx.presentReady or width <= 0 or height <= 0:
     return
 
@@ -1015,7 +1004,7 @@ proc ensureSwapchain(ctx: Context, width, height: int32) =
     ctx.clearFrameVertexUploads()
   ctx.createSwapchain(width, height)
 
-proc ensureAtlasUploadBuffer(ctx: Context, bytes: VkDeviceSize) =
+proc ensureAtlasUploadBuffer(ctx: VulkanContext, bytes: VkDeviceSize) =
   if ctx.atlasUploadBuffer != vkNullBuffer and ctx.atlasUploadBytes >= bytes:
     return
 
@@ -1035,7 +1024,7 @@ proc ensureAtlasUploadBuffer(ctx: Context, bytes: VkDeviceSize) =
   ctx.atlasUploadMemory = alloc.memory
   ctx.atlasUploadBytes = bytes
 
-proc ensureReadbackBuffer(ctx: Context, bytes: VkDeviceSize) =
+proc ensureReadbackBuffer(ctx: VulkanContext, bytes: VkDeviceSize) =
   if ctx.readbackBuffer != vkNullBuffer and ctx.readbackBytes >= bytes:
     return
 
@@ -1055,7 +1044,7 @@ proc ensureReadbackBuffer(ctx: Context, bytes: VkDeviceSize) =
   ctx.readbackMemory = alloc.memory
   ctx.readbackBytes = bytes
 
-proc clearFrameVertexUploads(ctx: Context) =
+proc clearFrameVertexUploads(ctx: VulkanContext) =
   for buf in ctx.frameVertexBuffers:
     if buf != vkNullBuffer:
       destroyBuffer(ctx.device, buf)
@@ -1066,7 +1055,7 @@ proc clearFrameVertexUploads(ctx: Context) =
       freeMemory(ctx.device, mem)
   ctx.frameVertexMemories.setLen(0)
 
-proc recordAtlasUpload(ctx: Context, cmd: VkCommandBuffer) =
+proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
   let bytes = VkDeviceSize(ctx.atlasSize * ctx.atlasSize * 4)
   ctx.ensureAtlasUploadBuffer(bytes)
 
@@ -1177,7 +1166,7 @@ proc recordAtlasUpload(ctx: Context, cmd: VkCommandBuffer) =
   ctx.atlasDirty = false
   ctx.atlasLayoutReady = true
 
-proc recordSwapchainReadback(ctx: Context) =
+proc recordSwapchainReadback(ctx: VulkanContext) =
   if not ctx.swapchainTransferSrcSupported:
     return
   if ctx.swapchainImages.len == 0:
@@ -1302,7 +1291,7 @@ proc recordSwapchainReadback(ctx: Context) =
   ctx.readbackHeight = height
   ctx.readbackReady = true
 
-proc ensureGpuRuntime(ctx: Context) =
+proc ensureGpuRuntime(ctx: VulkanContext) =
   if ctx.gpuReady:
     return
 
@@ -1559,7 +1548,7 @@ proc ensureGpuRuntime(ctx: Context) =
 
   ctx.gpuReady = true
 
-proc flush(ctx: Context) =
+proc flush(ctx: VulkanContext) =
   if ctx.quadCount == 0:
     return
   if not ctx.commandRecording:
@@ -1655,7 +1644,7 @@ proc flush(ctx: Context) =
   vkCmdDrawIndexed(ctx.commandBuffer, indexCount, 1, 0, 0, 0)
   ctx.quadCount = 0
 
-proc checkBatch(ctx: Context) =
+proc checkBatch(ctx: VulkanContext) =
   if ctx.quadCount == ctx.maxQuads:
     ctx.flush()
 
@@ -1688,7 +1677,7 @@ proc copyIntoAtlas(atlas: Image, atX, atY: int, image: Image) =
       image.width * sizeof(ColorRGBA),
     )
 
-proc grow(ctx: Context) =
+proc grow(ctx: VulkanContext) =
   ctx.flush()
   ctx.atlasSize = ctx.atlasSize * 2
   info "grow atlasSize", atlasSize = ctx.atlasSize
@@ -1699,7 +1688,7 @@ proc grow(ctx: Context) =
   if ctx.gpuReady:
     ctx.recreateAtlasGpu()
 
-proc findEmptyRect(ctx: Context, width, height: int): Rect =
+proc findEmptyRect(ctx: VulkanContext, width, height: int): Rect =
   let imgWidth = width + ctx.atlasMargin * 2
   let imgHeight = height + ctx.atlasMargin * 2
 
@@ -1734,18 +1723,18 @@ proc findEmptyRect(ctx: Context, width, height: int): Rect =
     float32(height),
   )
 
-proc putImage*(ctx: Context, path: Hash, image: Image)
+method putImage*(ctx: VulkanContext, path: Hash, image: Image)
 
-proc addImage*(ctx: Context, key: Hash, image: Image) =
+method addImage*(ctx: VulkanContext, key: Hash, image: Image) =
   ctx.putImage(key, image)
 
-proc putImage*(ctx: Context, path: Hash, image: Image) =
+method putImage*(ctx: VulkanContext, path: Hash, image: Image) =
   let rect = ctx.findEmptyRect(image.width, image.height)
   ctx.entries[path] = rect / float(ctx.atlasSize)
   copyIntoAtlas(ctx.atlasPixels, int(rect.x), int(rect.y), image)
   ctx.atlasDirty = true
 
-proc updateImage*(ctx: Context, path: Hash, image: Image) =
+method updateImage*(ctx: VulkanContext, path: Hash, image: Image) =
   let rect = ctx.entries[path]
   assert rect.w == image.width.float / float(ctx.atlasSize)
   assert rect.h == image.height.float / float(ctx.atlasSize)
@@ -1757,12 +1746,12 @@ proc updateImage*(ctx: Context, path: Hash, image: Image) =
   )
   ctx.atlasDirty = true
 
-proc putFlippy*(ctx: Context, path: Hash, flippy: Flippy) =
+proc putFlippy*(ctx: VulkanContext, path: Hash, flippy: Flippy) =
   if flippy.mipmaps.len == 0:
     return
   ctx.putImage(path, flippy.mipmaps[0])
 
-proc putImage*(ctx: Context, imgObj: ImgObj) =
+method putImage*(ctx: VulkanContext, imgObj: ImgObj) =
   case imgObj.kind
   of FlippyImg:
     ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
@@ -1770,7 +1759,7 @@ proc putImage*(ctx: Context, imgObj: ImgObj) =
     ctx.putImage(imgObj.id.Hash, imgObj.pimg)
 
 proc drawQuad*(
-    ctx: Context,
+    ctx: VulkanContext,
     verts: array[4, Vec2],
     uvs: array[4, Vec2],
     colors: array[4, ColorRGBA],
@@ -1822,7 +1811,7 @@ proc drawQuad*(
   inc ctx.quadCount
 
 proc drawUvRectAtlasSdf(
-    ctx: Context,
+    ctx: VulkanContext,
     at, to: Vec2,
     uvAt, uvTo: Vec2,
     color: Color,
@@ -1891,8 +1880,8 @@ proc drawUvRectAtlasSdf(
 
   inc ctx.quadCount
 
-proc drawMsdfImage*(
-    ctx: Context,
+method drawMsdfImage*(
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -1906,19 +1895,21 @@ proc drawMsdfImage*(
     return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
+  let modeSel: SdfMode =
+    if strokeW > 0.0'f32: SdfMode.sdfModeMsdfAnnular else: SdfMode.sdfModeMsdf
   ctx.drawUvRectAtlasSdf(
     at = pos,
     to = pos + size,
     uvAt = rect.xy,
     uvTo = rect.xy + rect.wh,
     color = color,
-    mode = if strokeW > 0.0'f32: sdfModeMsdfAnnular else: sdfModeMsdf,
+    mode = modeSel,
     factors = vec2(pxRange, sdThreshold),
     params = params,
   )
 
-proc drawMtsdfImage*(
-    ctx: Context,
+method drawMtsdfImage*(
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -1932,23 +1923,25 @@ proc drawMtsdfImage*(
     return
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
+  let modeSel: SdfMode =
+    if strokeW > 0.0'f32: SdfMode.sdfModeMtsdfAnnular else: SdfMode.sdfModeMtsdf
   ctx.drawUvRectAtlasSdf(
     at = pos,
     to = pos + size,
     uvAt = rect.xy,
     uvTo = rect.xy + rect.wh,
     color = color,
-    mode = if strokeW > 0.0'f32: sdfModeMtsdfAnnular else: sdfModeMtsdf,
+    mode = modeSel,
     factors = vec2(pxRange, sdThreshold),
     params = params,
   )
 
-proc setSdfGlobals*(ctx: Context, aaFactor: float32) =
+proc setSdfGlobals*(ctx: VulkanContext, aaFactor: float32) =
   if ctx.aaFactor == aaFactor:
     return
   ctx.aaFactor = aaFactor
 
-proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
+proc drawUvRect(ctx: VulkanContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
   ctx.checkBatch()
   assert ctx.quadCount < ctx.maxQuads
 
@@ -2011,10 +2004,10 @@ proc drawUvRect(ctx: Context, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
 
   inc ctx.quadCount
 
-proc drawUvRect(ctx: Context, rect, uvRect: Rect, color: Color) =
+proc drawUvRect(ctx: VulkanContext, rect, uvRect: Rect, color: Color) =
   ctx.drawUvRect(rect.xy, rect.xy + rect.wh, uvRect.xy, uvRect.xy + uvRect.wh, color)
 
-proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool =
+proc tryGetImageRect(ctx: VulkanContext, imageId: Hash, rect: var Rect): bool =
   if imageId notin ctx.entries:
     warn "missing image in context", imageId = imageId
     return false
@@ -2022,11 +2015,11 @@ proc tryGetImageRect(ctx: Context, imageId: Hash, rect: var Rect): bool =
   true
 
 proc drawImage*(
-    ctx: Context,
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
-    scale = 1.0,
+    scale: float32,
 ) =
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
@@ -2034,8 +2027,11 @@ proc drawImage*(
   let wh = rect.wh * ctx.atlasSize.float32 * scale
   ctx.drawUvRect(pos, pos + wh, rect.xy, rect.xy + rect.wh, color)
 
-proc drawImage*(
-    ctx: Context,
+method drawImage*(ctx: VulkanContext, imageId: Hash, pos: Vec2, color: Color) =
+  drawImage(ctx, imageId, pos, color, 1.0'f32)
+
+method drawImage*(
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -2046,8 +2042,8 @@ proc drawImage*(
     return
   ctx.drawUvRect(pos, pos + size, rect.xy, rect.xy + rect.wh, color)
 
-proc drawImageAdj*(
-    ctx: Context,
+method drawImageAdj*(
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -2060,7 +2056,7 @@ proc drawImageAdj*(
   ctx.drawUvRect(pos, pos + size, rect.xy + adj, rect.xy + rect.wh - adj, color)
 
 proc drawSprite*(
-    ctx: Context,
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -2073,7 +2069,7 @@ proc drawSprite*(
   ctx.drawUvRect(pos - wh / 2, pos + wh / 2, rect.xy, rect.xy + rect.wh, color)
 
 proc drawSprite*(
-    ctx: Context,
+    ctx: VulkanContext,
     imageId: Hash,
     pos: Vec2 = vec2(0, 0),
     color = color(1, 1, 1, 1),
@@ -2084,7 +2080,7 @@ proc drawSprite*(
     return
   ctx.drawUvRect(pos - size / 2, pos + size / 2, rect.xy, rect.xy + rect.wh, color)
 
-proc drawRect*(ctx: Context, rect: Rect, color: Color) =
+method drawRect*(ctx: VulkanContext, rect: Rect, color: Color) =
   const imgKey = hash("rect")
   if imgKey notin ctx.entries:
     var image = newImage(4, 4)
@@ -2100,8 +2096,8 @@ proc drawRect*(ctx: Context, rect: Rect, color: Color) =
     color,
   )
 
-proc drawRoundedRectSdf*(
-    ctx: Context,
+method drawRoundedRectSdf*(
+    ctx: VulkanContext,
     rect: Rect,
     color: Color,
     radii: array[DirectionCorners, float32],
@@ -2213,7 +2209,7 @@ proc drawRoundedRectSdf*(
 
   inc ctx.quadCount
 
-proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
+proc line*(ctx: VulkanContext, a: Vec2, b: Vec2, weight: float32, color: Color) =
   let hash = hash((2345, a, b, (weight * 100).int, hash(color)))
 
   let
@@ -2237,7 +2233,7 @@ proc line*(ctx: Context, a: Vec2, b: Vec2, weight: float32, color: Color) =
     pos, pos + vec2(w.float32, h.float32), uvRect.xy, uvRect.xy + uvRect.wh, color
   )
 
-proc linePolygon*(ctx: Context, poly: seq[Vec2], weight: float32, color: Color) =
+proc linePolygon*(ctx: VulkanContext, poly: seq[Vec2], weight: float32, color: Color) =
   for i in 0 ..< poly.len:
     ctx.line(poly[i], poly[(i + 1) mod poly.len], weight, color)
 
@@ -2251,10 +2247,10 @@ proc intersectRects(a, b: Rect): Rect =
     return rect(0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32)
   rect(x0, y0, x1 - x0, y1 - y0)
 
-proc fullFrameRect(ctx: Context): Rect =
+proc fullFrameRect(ctx: VulkanContext): Rect =
   rect(0.0'f32, 0.0'f32, ctx.frameSize.x, ctx.frameSize.y)
 
-proc beginRenderPassIfNeeded(ctx: Context) =
+proc beginRenderPassIfNeeded(ctx: VulkanContext) =
   if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain or ctx.renderPassBegun:
     return
 
@@ -2313,7 +2309,7 @@ proc beginRenderPassIfNeeded(ctx: Context) =
   if ctx.clipRects.len > 0:
     ctx.applyClipScissor()
 
-proc applyClipScissor(ctx: Context) =
+proc applyClipScissor(ctx: VulkanContext) =
   if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain or
       not ctx.renderPassBegun:
     return
@@ -2342,15 +2338,15 @@ proc applyClipScissor(ctx: Context) =
   )
   vkCmdSetScissor(ctx.commandBuffer, 0, 1, scissor.addr)
 
-proc setMaskRect*(ctx: Context, clipRect: Rect) =
+method setMaskRect*(ctx: VulkanContext, clipRect: Rect) =
   ctx.pendingMaskRect = clipRect
   ctx.pendingMaskValid = true
 
-proc clearMask*(ctx: Context) =
+proc clearMask*(ctx: VulkanContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   ctx.flush()
 
-proc beginMask*(ctx: Context) =
+method beginMask*(ctx: VulkanContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginMask has already been called."
   ctx.flush()
@@ -2358,7 +2354,7 @@ proc beginMask*(ctx: Context) =
   ctx.maskBegun = true
   inc ctx.maskDepth
 
-proc endMask*(ctx: Context) =
+method endMask*(ctx: VulkanContext) =
   assert ctx.maskBegun == true, "ctx.maskBegun has not been called."
   ctx.flush()
   ctx.maskBegun = false
@@ -2377,7 +2373,7 @@ proc endMask*(ctx: Context) =
   ctx.applyClipScissor()
   ctx.pendingMaskValid = false
 
-proc popMask*(ctx: Context) =
+method popMask*(ctx: VulkanContext) =
   ctx.flush()
   if ctx.maskDepth > 0:
     dec ctx.maskDepth
@@ -2386,7 +2382,7 @@ proc popMask*(ctx: Context) =
   ctx.applyClipScissor()
 
 proc beginFrame*(
-    ctx: Context,
+    ctx: VulkanContext,
     frameSize: Vec2,
     proj: Mat4,
     clearMain = false,
@@ -2445,8 +2441,8 @@ proc beginFrame*(
   if ctx.atlasDirty:
     ctx.recordAtlasUpload(ctx.commandBuffer)
 
-proc beginFrame*(
-    ctx: Context, frameSize: Vec2, clearMain = false, clearMainColor: Color = whiteColor
+method beginFrame*(
+    ctx: VulkanContext, frameSize: Vec2, clearMain = false, clearMainColor: Color = whiteColor
 ) =
   beginFrame(
     ctx,
@@ -2456,7 +2452,7 @@ proc beginFrame*(
     clearMainColor = clearMainColor,
   )
 
-proc endFrame*(ctx: Context) =
+method endFrame*(ctx: VulkanContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame was not called first."
   assert ctx.maskDepth == 0, "Not all masks have been popped."
   ctx.frameBegun = false
@@ -2499,7 +2495,7 @@ proc endFrame*(ctx: Context) =
 
   ctx.commandRecording = false
 
-proc destroyGpu(ctx: Context) =
+proc destroyGpu(ctx: VulkanContext) =
   if ctx.isNil:
     return
 
@@ -2621,11 +2617,11 @@ proc newContext*(
     maxQuads = quadLimit,
     pixelate = false,
     pixelScale = 1.0,
-): Context =
+): VulkanContext =
   if maxQuads > quadLimit:
     raise newException(ValueError, &"Quads cannot exceed {quadLimit}")
 
-  result = Context()
+  result = VulkanContext()
   result.atlasSize = atlasSize
   result.atlasMargin = atlasMargin
   result.maxQuads = maxQuads
@@ -2694,37 +2690,37 @@ proc newContext*(
   result.frameVertexBuffers = @[]
   result.frameVertexMemories = @[]
 
-proc translate*(ctx: Context, v: Vec2) =
+method translate*(ctx: VulkanContext, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
 
-proc rotate*(ctx: Context, angle: float32) =
+method rotate*(ctx: VulkanContext, angle: float32) =
   ctx.mat = ctx.mat * rotateZ(angle)
 
-proc scale*(ctx: Context, s: float32) =
+method scale*(ctx: VulkanContext, s: float32) =
   ctx.mat = ctx.mat * scale(vec3(s))
 
-proc scale*(ctx: Context, s: Vec2) =
+method scale*(ctx: VulkanContext, s: Vec2) =
   ctx.mat = ctx.mat * scale(vec3(s.x, s.y, 1))
 
-proc saveTransform*(ctx: Context) =
+method saveTransform*(ctx: VulkanContext) =
   ctx.mats.add ctx.mat
 
-proc restoreTransform*(ctx: Context) =
+method restoreTransform*(ctx: VulkanContext) =
   if ctx.mats.len > 0:
     ctx.mat = ctx.mats.pop()
 
-proc clearTransform*(ctx: Context) =
+proc clearTransform*(ctx: VulkanContext) =
   ctx.mat = mat4()
   ctx.mats.setLen(0)
 
-proc fromScreen*(ctx: Context, windowFrame: Vec2, v: Vec2): Vec2 =
+proc fromScreen*(ctx: VulkanContext, windowFrame: Vec2, v: Vec2): Vec2 =
   (ctx.mat.inverse() * vec3(v.x, windowFrame.y - v.y, 0)).xy
 
-proc toScreen*(ctx: Context, windowFrame: Vec2, v: Vec2): Vec2 =
+proc toScreen*(ctx: VulkanContext, windowFrame: Vec2, v: Vec2): Vec2 =
   result = (ctx.mat * vec3(v.x, v.y, 1)).xy
   result.y = -result.y + windowFrame.y
 
-proc clearPresentTarget*(ctx: Context) =
+proc clearPresentTarget*(ctx: VulkanContext) =
   if ctx.gpuReady:
     ctx.destroyGpu()
   ctx.presentTargetKind = presentTargetNone
@@ -2734,25 +2730,25 @@ proc clearPresentTarget*(ctx: Context) =
   ctx.presentWin32Hwnd = nil
   ctx.presentMetalLayer = nil
 
-proc setPresentXlibTarget*(ctx: Context, display: pointer, window: uint64) =
+method setPresentXlibTarget*(ctx: VulkanContext, display: pointer, window: uint64) =
   ctx.clearPresentTarget()
   ctx.presentTargetKind = presentTargetXlib
   ctx.presentXlibDisplay = display
   ctx.presentXlibWindow = window
 
-proc setPresentWin32Target*(ctx: Context, hinstance: pointer, hwnd: pointer) =
+method setPresentWin32Target*(ctx: VulkanContext, hinstance: pointer, hwnd: pointer) =
   ctx.clearPresentTarget()
   ctx.presentTargetKind = presentTargetWin32
   ctx.presentWin32Hinstance = hinstance
   ctx.presentWin32Hwnd = hwnd
 
-proc setPresentMetalLayer*(ctx: Context, layer: pointer) =
+proc setPresentMetalLayer*(ctx: VulkanContext, layer: pointer) =
   ctx.clearPresentTarget()
   ctx.presentTargetKind = presentTargetMetal
   ctx.presentMetalLayer = layer
 
-proc readPixels*(
-    ctx: Context, frame: Rect = rect(0, 0, 0, 0), readFront = true
+method readPixels*(
+    ctx: VulkanContext, frame: Rect = rect(0, 0, 0, 0), readFront = true
 ): Image =
   discard readFront
   if not ctx.gpuReady:
@@ -2814,3 +2810,12 @@ proc readPixels*(
       else:
         result.data[dst] = rgbx(b, g, r, a)
       src += 4
+
+method kind*(ctx: VulkanContext): figbackend.RendererBackendKind =
+  figbackend.RendererBackendKind.rbVulkan
+
+method entriesPtr*(ctx: VulkanContext): ptr Table[Hash, Rect] =
+  ctx.entries.addr
+
+method pixelScale*(ctx: VulkanContext): float32 =
+  ctx.pixelScale
