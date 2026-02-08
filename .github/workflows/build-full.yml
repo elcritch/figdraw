@@ -107,7 +107,6 @@ jobs:
         MESA_GLSL_VERSION_OVERRIDE: "330"
         VK_ICD_FILENAMES: "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
         VK_DRIVER_FILES: "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
-        NIMFLAGS: "-d:figdraw.opengl=off -d:figdraw.vulkan=on"
       run: |
         xvfb-run -a -s "-screen 0 1280x1024x24" nim test
 

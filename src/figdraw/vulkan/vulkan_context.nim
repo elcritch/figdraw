@@ -544,6 +544,11 @@ proc ensureReadbackBuffer(ctx: VulkanContext, bytes: VkDeviceSize)
 proc recordSwapchainReadback(ctx: VulkanContext)
 proc clearFrameVertexUploads(ctx: VulkanContext)
 proc applyClipScissor(ctx: VulkanContext)
+proc createInstanceWithFallback(ctx: VulkanContext): VkInstance
+proc detectLoaderApiVersion(): uint32
+proc queryInstanceExtensionNames(): seq[string]
+proc queryInstanceLayerNames(): seq[string]
+proc vulkanApiVersion(version: uint32): string
 
 proc destroySwapchain(ctx: VulkanContext) =
   for fb in ctx.swapchainFramebuffers:
@@ -1291,25 +1296,119 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
   ctx.readbackHeight = height
   ctx.readbackReady = true
 
+proc vulkanApiVersion(version: uint32): string =
+  &"{vkVersionMajor(version)}.{vkVersionMinor(version)}.{vkVersionPatch(version)}"
+
+proc detectLoaderApiVersion(): uint32 =
+  result = vkApiVersion1_0.uint32
+  if vkEnumerateInstanceVersion.isNil:
+    debug "vkEnumerateInstanceVersion unavailable; assuming Vulkan 1.0 loader"
+    return
+
+  var loaderApi = vkApiVersion1_0.uint32
+  let res = vkEnumerateInstanceVersion(loaderApi.addr)
+  if res == VkSuccess:
+    result = loaderApi
+    debug "Detected Vulkan loader API version",
+      apiVersion = vulkanApiVersion(loaderApi), rawApiVersion = loaderApi
+  else:
+    debug "Failed to query Vulkan loader API version",
+      result = $res, fallbackApiVersion = vulkanApiVersion(result)
+
+proc queryInstanceExtensionNames(): seq[string] =
+  if vkEnumerateInstanceExtensionProperties.isNil:
+    debug "vkEnumerateInstanceExtensionProperties unavailable"
+    return @[]
+
+  var count: uint32
+  let firstRes = vkEnumerateInstanceExtensionProperties(nil, count.addr, nil)
+  if firstRes != VkSuccess:
+    debug "Failed to enumerate Vulkan instance extensions (count)", result = $firstRes
+    return @[]
+
+  if count == 0:
+    return @[]
+
+  var props = newSeq[VkExtensionProperties](count.int)
+  let secondRes = vkEnumerateInstanceExtensionProperties(nil, count.addr, props[0].addr)
+  if secondRes != VkSuccess:
+    debug "Failed to enumerate Vulkan instance extensions (values)", result = $secondRes
+    return @[]
+
+  for ext in props:
+    result.add($cast[cstring](ext.extensionName.addr))
+
+proc queryInstanceLayerNames(): seq[string] =
+  try:
+    for layer in enumerateInstanceLayerProperties():
+      result.add($cast[cstring](layer.layerName.addr))
+  except VulkanError as exc:
+    debug "Failed to enumerate Vulkan instance layers", error = exc.msg
+    return @[]
+
+proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
+  let loaderApiVersion = detectLoaderApiVersion()
+  let enabledExts = ctx.instanceExtensions()
+  var extNames: seq[string] = @[]
+  for ext in enabledExts:
+    extNames.add($ext)
+
+  let availableExts = queryInstanceExtensionNames()
+  let availableLayers = queryInstanceLayerNames()
+  debug "Vulkan instance setup",
+    loaderApiVersion = vulkanApiVersion(loaderApiVersion),
+    requestedExtensions = extNames,
+    availableExtensionsCount = availableExts.len,
+    availableLayers = availableLayers
+
+  var attempts: seq[uint32] = @[]
+  if loaderApiVersion >= vkApiVersion1_1:
+    attempts.add(vkApiVersion1_1)
+  attempts.add(vkApiVersion1_0)
+
+  for apiVersion in attempts:
+    let appInfo = newVkApplicationInfo(
+      pApplicationName = "figdraw-vulkan",
+      applicationVersion = vkMakeVersion(0, 0, 1, 0),
+      pEngineName = "figdraw",
+      engineVersion = vkMakeVersion(0, 0, 1, 0),
+      apiVersion = apiVersion,
+    )
+    let instanceInfo = newVkInstanceCreateInfo(
+      pApplicationInfo = appInfo.addr,
+      pEnabledLayerNames = [],
+      pEnabledExtensionNames = enabledExts,
+    )
+    try:
+      debug "Creating Vulkan instance",
+        requestedApiVersion = vulkanApiVersion(apiVersion),
+        requestedExtensions = extNames
+      return createInstance(instanceInfo)
+    except VulkanError as exc:
+      if exc.res == VkErrorIncompatibleDriver and apiVersion != vkApiVersion1_0:
+        warn "Vulkan instance creation failed; retrying with older API version",
+          attemptedApiVersion = vulkanApiVersion(apiVersion), reason = exc.msg
+        continue
+      raise
+
+  raise newException(
+    ValueError, "Failed to create Vulkan instance (no compatible Vulkan API version)"
+  )
+
 proc ensureGpuRuntime(ctx: VulkanContext) =
   if ctx.gpuReady:
     return
 
   vkPreload()
+  debug "Starting Vulkan runtime initialization",
+    hasPresentTarget = ctx.hasPresentTarget(),
+    presentTarget = $ctx.presentTargetKind,
+    xlibDisplay = cast[uint64](ctx.presentXlibDisplay),
+    xlibWindow = ctx.presentXlibWindow,
+    win32Hinstance = cast[uint64](ctx.presentWin32Hinstance),
+    win32Hwnd = cast[uint64](ctx.presentWin32Hwnd)
 
-  let appInfo = newVkApplicationInfo(
-    pApplicationName = "figdraw-vulkan",
-    applicationVersion = vkMakeVersion(0, 0, 1, 0),
-    pEngineName = "figdraw",
-    engineVersion = vkMakeVersion(0, 0, 1, 0),
-    apiVersion = vkApiVersion1_1,
-  )
-  let instanceInfo = newVkInstanceCreateInfo(
-    pApplicationInfo = appInfo.addr,
-    pEnabledLayerNames = [],
-    pEnabledExtensionNames = ctx.instanceExtensions(),
-  )
-  ctx.instance = createInstance(instanceInfo)
+  ctx.instance = ctx.createInstanceWithFallback()
   vkInit(ctx.instance, load1_2 = false, load1_3 = false)
 
   if ctx.hasPresentTarget():
@@ -1317,6 +1416,7 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     ctx.createPresentSurface()
 
   let devices = enumeratePhysicalDevices(ctx.instance)
+  debug "Enumerated Vulkan physical devices", deviceCount = devices.len
   if devices.len == 0:
     raise newException(ValueError, "No Vulkan physical devices found")
 
@@ -1326,14 +1426,28 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     let devName = physicalDeviceName(device)
     let queues = findQueueFamilies(device, ctx.surface, requirePresent = wantPresent)
     if not queues.graphicsFound or not queues.presentFound:
+      debug "Skipping Vulkan physical device (queue requirements)",
+        device = devName,
+        graphicsFound = queues.graphicsFound,
+        presentFound = queues.presentFound,
+        requirePresent = wantPresent
       continue
 
     if wantPresent:
       let hasSwapchain =
         checkDeviceExtensionSupport(device, @[VkKhrSwapchainExtensionName])
+      debug "Vulkan physical device present support",
+        device = devName,
+        hasSwapchainExt = hasSwapchain,
+        graphicsQueue = queues.graphicsFamily,
+        presentQueue = queues.presentFamily
       if not hasSwapchain:
         continue
       let support = querySwapChainSupport(device, ctx.surface)
+      debug "Vulkan physical device swapchain support",
+        device = devName,
+        formatCount = support.formats.len,
+        presentModeCount = support.presentModes.len
       if support.formats.len == 0 or support.presentModes.len == 0:
         continue
 
@@ -1347,13 +1461,18 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     break
 
   if ctx.physicalDevice == vkNullPhysicalDevice and wantPresent:
+    debug "No Vulkan device met present requirements; retrying without present queue"
     wantPresent = false
     for device in devices:
       let queues = findQueueFamilies(device, ctx.surface, requirePresent = false)
       if not queues.graphicsFound:
+        debug "Skipping Vulkan physical device (no graphics queue)",
+          device = physicalDeviceName(device)
         continue
       ctx.physicalDevice = device
       selectedQueues = queues
+      debug "Selected Vulkan physical device without present requirements",
+        device = physicalDeviceName(device), graphicsQueue = queues.graphicsFamily
       break
 
   if ctx.physicalDevice == vkNullPhysicalDevice:
@@ -1362,6 +1481,10 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   ctx.queueFamily = selectedQueues.graphicsFamily
   ctx.presentQueueFamily =
     if wantPresent: selectedQueues.presentFamily else: selectedQueues.graphicsFamily
+  debug "Using Vulkan queue families",
+    graphicsQueue = ctx.queueFamily,
+    presentQueue = ctx.presentQueueFamily,
+    wantPresent = wantPresent
 
   var queueCreateInfos =
     @[
@@ -2343,9 +2466,7 @@ proc clearMask*(ctx: VulkanContext) =
   ctx.flush()
 
 method beginMask*(
-    ctx: VulkanContext,
-    clipRect: Rect,
-    radii: array[DirectionCorners, float32]
+    ctx: VulkanContext, clipRect: Rect, radii: array[DirectionCorners, float32]
 ) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginMask has already been called."
@@ -2445,7 +2566,10 @@ proc beginFrame*(
     ctx.recordAtlasUpload(ctx.commandBuffer)
 
 method beginFrame*(
-    ctx: VulkanContext, frameSize: Vec2, clearMain = false, clearMainColor: Color = whiteColor
+    ctx: VulkanContext,
+    frameSize: Vec2,
+    clearMain = false,
+    clearMainColor: Color = whiteColor,
 ) =
   beginFrame(
     ctx,
@@ -2622,12 +2746,12 @@ proc newContext*(
     pixelScale = 1.0,
 ): VulkanContext =
   info "Starting Vulkan Context",
-       atlasSize = atlasSize,
-       atlasMargin = atlasMargin,
-       maxQuads = maxQuads,
-       quadLimit = quadLimit,
-       pixelate = pixelate,
-       pixelScale = pixelScale
+    atlasSize = atlasSize,
+    atlasMargin = atlasMargin,
+    maxQuads = maxQuads,
+    quadLimit = quadLimit,
+    pixelate = pixelate,
+    pixelScale = pixelScale
   if maxQuads > quadLimit:
     raise newException(ValueError, &"Quads cannot exceed {quadLimit}")
 
