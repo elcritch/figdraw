@@ -159,7 +159,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
   elif UseVulkanBackend:
     if renderer.backendKind() == rbVulkan:
       try:
-        attachVulkanSurface(window, renderer.ctx.VulkanBackend)
+        attachVulkanSurface(window, VulkanContext(renderer.ctx))
       except CatchableError as exc:
         when UseOpenGlFallback:
           renderer.useOpenGlFallback(exc.msg)
