@@ -228,8 +228,8 @@ proc scaledCorners(
   for corner in DirectionCorners:
     result[corner] = corners[corner].scaled()
 
-proc drawMasks(ctx: BackendContext, node: Fig) =
-  ctx.setMaskRect(node.screenBox.scaled(), node.corners.scaledCorners())
+#proc drawMasks(ctx: BackendContext, node: Fig) =
+#  ctx.setMaskRect(node.screenBox.scaled(), node.corners.scaledCorners())
 
 proc renderDropShadows(ctx: BackendContext, node: Fig) =
   ## drawing shadows with various techniques
@@ -489,8 +489,7 @@ proc render(
 
   # handle clipping children content based on this node
   ifrender NfClipContent in node.flags:
-    ctx.beginMask()
-    ctx.drawMasks(node)
+    ctx.beginMask(node.screenBox.scaled(), node.corners.scaledCorners())
     ctx.endMask()
   finally:
     ctx.popMask()
@@ -519,8 +518,7 @@ proc render(
     else:
       if NfClipContent notin node.flags:
         if node.hasActiveInnerShadow():
-          ctx.beginMask()
-          ctx.drawMasks(node)
+          ctx.beginMask(node.screenBox.scaled(), node.corners.scaledCorners())
           ctx.endMask()
           ctx.renderInnerShadows(node)
           ctx.popMask()

@@ -121,14 +121,11 @@ method drawMtsdfImage*(
 ) {.base.} =
   raise newException(ValueError, "Backend drawMtsdfImage unavailable")
 
-method setMaskRect*(
+method beginMask*(
     impl: BackendContext,
     clipRect: Rect,
-    radii = array[DirectionCorners, float32]
+    radii: array[DirectionCorners, float32]
 ) {.base.} =
-  raise newException(ValueError, "Backend beginMask unavailable")
-
-method beginMask*(impl: BackendContext) {.base.} =
   raise newException(ValueError, "Backend beginMask unavailable")
 
 method endMask*(impl: BackendContext) {.base.} =

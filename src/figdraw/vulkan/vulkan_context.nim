@@ -2338,21 +2338,24 @@ proc applyClipScissor(ctx: VulkanContext) =
   )
   vkCmdSetScissor(ctx.commandBuffer, 0, 1, scissor.addr)
 
-method setMaskRect*(ctx: VulkanContext, clipRect: Rect) =
-  ctx.pendingMaskRect = clipRect
-  ctx.pendingMaskValid = true
-
 proc clearMask*(ctx: VulkanContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   ctx.flush()
 
-method beginMask*(ctx: VulkanContext) =
+method beginMask*(
+    ctx: VulkanContext,
+    clipRect: Rect,
+    radii: array[DirectionCorners, float32]
+) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginMask has already been called."
   ctx.flush()
   ctx.pendingMaskValid = false
   ctx.maskBegun = true
   inc ctx.maskDepth
+
+  ctx.pendingMaskRect = clipRect
+  ctx.pendingMaskValid = true
 
 method endMask*(ctx: VulkanContext) =
   assert ctx.maskBegun == true, "ctx.maskBegun has not been called."

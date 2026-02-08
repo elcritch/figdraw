@@ -955,7 +955,11 @@ proc linePolygon*(ctx: MetalContext, poly: seq[Vec2], weight: float32, color: Co
   for i in 0 ..< poly.len:
     ctx.line(poly[i], poly[(i + 1) mod poly.len], weight, color)
 
-method beginMask*(ctx: MetalContext) =
+method beginMask*(
+    ctx: MetalContext,
+    clipRect: Rect,
+    radii: array[DirectionCorners, float32]
+) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginMask has already been called."
   # Flush any pending main-pass quads before switching into mask mode.
@@ -982,11 +986,6 @@ method beginMask*(ctx: MetalContext) =
     clearColor = MTLClearColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0),
   )
 
-method setMaskRect*(
-    ctx: MetalContext,
-    clipRect: Rect,
-    radii: array[DirectionCorners, float32],
-) =
   ctx.drawRoundedRectSdf(
     rect = clipRect,
     color = rgba(255, 0, 0, 255).color,

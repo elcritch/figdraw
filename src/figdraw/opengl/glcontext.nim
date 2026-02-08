@@ -974,22 +974,26 @@ proc clearMask*(ctx: OpenGlContext) =
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
-method setMaskRect*(
+#method setMaskRect*(
+#    ctx: OpenGlContext,
+#    clipRect: Rect,
+#    radii: array[DirectionCorners, float32],
+#) =
+#  ctx.drawRoundedRectSdf(
+#    rect = clipRect,
+#    color = rgba(255, 0, 0, 255).color,
+#    radii = radii,
+#    mode = figbackend.SdfMode.sdfModeClipAA,
+#    factor = 4.0'f32,
+#    spread = 0.0'f32,
+#    shapeSize = vec2(0.0'f32, 0.0'f32),
+#  )
+
+method beginMask*(
     ctx: OpenGlContext,
     clipRect: Rect,
-    radii: array[DirectionCorners, float32],
+    radii: array[DirectionCorners, float32]
 ) =
-  ctx.drawRoundedRectSdf(
-    rect = clipRect,
-    color = rgba(255, 0, 0, 255).color,
-    radii = radii,
-    mode = figbackend.SdfMode.sdfModeClipAA,
-    factor = 4.0'f32,
-    spread = 0.0'f32,
-    shapeSize = vec2(0.0'f32, 0.0'f32),
-  )
-
-method beginMask*(ctx: OpenGlContext) =
   ## Starts drawing into a mask.
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginMask has already been called."
@@ -1008,6 +1012,16 @@ method beginMask*(ctx: OpenGlContext) =
   glClear(GL_COLOR_BUFFER_BIT)
 
   ctx.activeShader = ctx.maskShader
+
+  ctx.drawRoundedRectSdf(
+    rect = clipRect,
+    color = rgba(255, 0, 0, 255).color,
+    radii = radii,
+    mode = figbackend.SdfMode.sdfModeClipAA,
+    factor = 4.0'f32,
+    spread = 0.0'f32,
+    shapeSize = vec2(0.0'f32, 0.0'f32),
+  )
 
 method endMask*(ctx: OpenGlContext) =
   ## Stops drawing into the mask.
