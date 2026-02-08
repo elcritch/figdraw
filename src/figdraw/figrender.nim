@@ -92,21 +92,25 @@ proc takeScreenshot*[BackendState](
 ): Image =
   renderer.ctx.readPixels(frame, readFront = readFront)
 
+proc logBackend(msg: string) =
+  info msg, preferredBackend = backendName(PreferredBackendKind)
+
 proc initRendererContext[BackendState](
     renderer: FigRenderer[BackendState],
     atlasSize: int,
     pixelScale: float32,
     pixelate = false,
 ) =
+  logBackend("Setting up preferred backend")
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     renderer.fallbackAtlasSize = atlasSize
     renderer.fallbackPixelate = pixelate
     renderer.fallbackPixelScale = pixelScale
-    notice "Setting up preferred backend", preferredBackend = backendName(PreferredBackendKind)
     try:
       renderer.ctx = preferred_backend.newContext(
         atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale
       )
+      logBackend("Done setting up preferred backend")
     except CatchableError as exc:
       renderer.useOpenGlFallback(exc.msg)
   elif UseMetalBackend:
