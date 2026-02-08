@@ -4,9 +4,7 @@ import ./commons
 import ./figrender
 
 const UseWindyOpenGL = not (UseMetalBackend or UseVulkanBackend)
-
-when UseVulkanBackend:
-  import ./vulkan/vulkan_context
+const NeedWindyOpenGLContext = UseWindyOpenGL or UseOpenGlFallback
 
 when defined(emscripten):
   import windy/platforms/emscripten/platform
@@ -25,18 +23,16 @@ elif defined(linux) or defined(bsd):
 else:
   {.error: "windyshim: unsupported OS".}
 
-when UseWindyOpenGL:
+when NeedWindyOpenGLContext:
   import figdraw/utils/glutils
 
 export common, platform, unicode, vmath
 
 proc windyBackendName*(): string =
-  when UseMetalBackend:
-    "Metal"
-  elif UseVulkanBackend:
-    "Vulkan"
-  else:
-    "OpenGL"
+  backendName(PreferredBackendKind)
+
+proc windyBackendName*[BackendState](renderer: FigRenderer[BackendState]): string =
+  renderer.backendName()
 
 proc windyWindowTitle*(suffix = "Windy RenderList"): string =
   "figdraw: " & windyBackendName() & " + " & suffix
@@ -53,7 +49,7 @@ proc newWindyWindow*(size: IVec2, fullscreen = false, title = "FigDraw"): Window
   )
   let window = newWindow(title, size, visible = false)
 
-  when UseWindyOpenGL:
+  when NeedWindyOpenGLContext:
     startOpenGL(openglVersion)
 
   when not defined(emscripten):
@@ -62,7 +58,7 @@ proc newWindyWindow*(size: IVec2, fullscreen = false, title = "FigDraw"): Window
     else:
       window.size = size
     window.visible = true
-  when UseWindyOpenGL:
+  when NeedWindyOpenGLContext:
     window.makeContextCurrent()
 
   return window
@@ -119,7 +115,7 @@ when UseVulkanBackend and (defined(linux) or defined(bsd)):
       vulkanDisplay = XOpenDisplay(nil)
     result = vulkanDisplay
 
-  proc attachVulkanSurface*(window: Window, ctx: vulkan_context.Context) =
+  proc attachVulkanSurface*(window: Window, ctx: Context) =
     var display = sharedVulkanDisplay()
     if display.isNil:
       raise newException(ValueError, "Failed to open X11 display for Vulkan surface")
@@ -133,7 +129,7 @@ when UseVulkanBackend and defined(windows):
 
   privateAccess(Window)
 
-  proc attachVulkanSurface*(window: Window, ctx: vulkan_context.Context) =
+  proc attachVulkanSurface*(window: Window, ctx: Context) =
     let hinstance = cast[pointer](GetModuleHandleW(nil))
     let hwnd = cast[pointer](window.hWnd)
     ctx.setPresentWin32Target(hinstance, hwnd)
@@ -148,19 +144,37 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a Windy window and FigDraw renderer.
   renderer.backendState.window = window
   when UseMetalBackend:
-    renderer.backendState.metalLayer =
-      attachMetalLayer(window, renderer.ctx.metalDevice())
-    renderer.ctx.presentLayer = renderer.backendState.metalLayer.layer
+    if renderer.backendKind() == rbMetal:
+      try:
+        renderer.backendState.metalLayer =
+          attachMetalLayer(window, renderer.ctx.metalDevice())
+        renderer.ctx.setPresentLayer(renderer.backendState.metalLayer.layer)
+      except CatchableError as exc:
+        when UseOpenGlFallback:
+          renderer.ctx.forceOpenGlFallback(exc.msg)
+        else:
+          raise exc
   elif UseVulkanBackend:
-    attachVulkanSurface(window, renderer.ctx)
+    if renderer.backendKind() == rbVulkan:
+      try:
+        attachVulkanSurface(window, renderer.ctx)
+      except CatchableError as exc:
+        when UseOpenGlFallback:
+          renderer.ctx.forceOpenGlFallback(exc.msg)
+        else:
+          raise exc
 
 proc beginFrame*(renderer: FigRenderer[WindyRenderBackend]) =
   ## Per-frame pre-render backend maintenance.
   when UseMetalBackend:
-    let window = renderer.backendState.window
-    renderer.backendState.metalLayer.updateMetalLayer(window)
+    if renderer.backendKind() == rbMetal:
+      let window = renderer.backendState.window
+      renderer.backendState.metalLayer.updateMetalLayer(window)
+  when NeedWindyOpenGLContext:
+    if renderer.backendKind() == rbOpenGL:
+      renderer.backendState.window.makeContextCurrent()
 
 proc endFrame*(renderer: FigRenderer[WindyRenderBackend]) =
   ## Present a frame for backends that need explicit window buffer swap.
-  when UseWindyOpenGL:
+  if renderer.backendKind() == rbOpenGL:
     renderer.backendState.window.swapBuffers()

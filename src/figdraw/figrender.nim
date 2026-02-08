@@ -12,9 +12,22 @@ import ./common/fontglyphs
 
 import ./opengl/glcommons
 
-when UseMetalBackend:
+when UseMetalBackend and UseOpenGlFallback:
+  import ./metal/metal_context as preferred_backend
+  import metalx/[metal, cametal]
+  import pkg/opengl
+  import ./utils/glutils
+  import ./opengl/glcontext as opengl_context
+  export glutils
+elif UseVulkanBackend and UseOpenGlFallback:
+  import ./vulkan/vulkan_context as preferred_backend
+  import pkg/opengl
+  import ./utils/glutils
+  import ./opengl/glcontext as opengl_context
+  export glutils
+elif UseMetalBackend:
   import ./metal/metal_context
-  import metalx/metal
+  import metalx/[metal, cametal]
 elif UseVulkanBackend:
   import ./vulkan/vulkan_context
 else:
@@ -27,15 +40,443 @@ const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
 type NoRendererBackendState* = object
 
+type RendererBackendKind* {.pure.} = enum
+  rbOpenGL
+  rbMetal
+  rbVulkan
+
+proc backendName*(kind: RendererBackendKind): string =
+  case kind
+  of rbMetal: "Metal"
+  of rbVulkan: "Vulkan"
+  of rbOpenGL: "OpenGL"
+
+when UseMetalBackend:
+  const PreferredBackendKind* = rbMetal
+elif UseVulkanBackend:
+  const PreferredBackendKind* = rbVulkan
+else:
+  const PreferredBackendKind* = rbOpenGL
+
+when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+  type
+    SdfMode* {.pure.} = enum
+      sdfModeAtlas = 0
+      sdfModeClipAA = 3
+      sdfModeDropShadow = 7
+      sdfModeDropShadowAA = 8
+      sdfModeInsetShadow = 9
+      sdfModeInsetShadowAnnular = 10
+      sdfModeAnnular = 11
+      sdfModeAnnularAA = 12
+      sdfModeMsdf = 13
+      sdfModeMtsdf = 14
+      sdfModeMsdfAnnular = 15
+      sdfModeMtsdfAnnular = 16
+
+    Context* = ref object
+      preferredCtx*: preferred_backend.Context
+      fallbackCtx*: opengl_context.Context
+      activeBackend*: RendererBackendKind
+      fallbackAtlasSize: int
+      fallbackPixelate: bool
+      fallbackPixelScale: float32
+
+  proc activeBackendKind*(ctx: Context): RendererBackendKind =
+    ctx.activeBackend
+
+  proc ensureFallbackContext(ctx: Context) =
+    if not ctx.fallbackCtx.isNil:
+      return
+    ctx.fallbackCtx = opengl_context.newContext(
+      atlasSize = ctx.fallbackAtlasSize,
+      pixelate = ctx.fallbackPixelate,
+      pixelScale = ctx.fallbackPixelScale,
+    )
+
+  proc useOpenGlFallback(ctx: Context, reason: string) =
+    if ctx.activeBackend == rbOpenGL and not ctx.fallbackCtx.isNil:
+      return
+    try:
+      ctx.ensureFallbackContext()
+    except CatchableError as glExc:
+      raise newException(
+        ValueError,
+        "Preferred backend failed (" & reason &
+          "), and OpenGL fallback could not initialize (" & glExc.msg & ")",
+      )
+    warn "Preferred backend failed, falling back to OpenGL at runtime",
+      preferred = backendName(PreferredBackendKind), error = reason
+    ctx.activeBackend = rbOpenGL
+
+  proc forceOpenGlFallback*(ctx: Context, reason = "runtime fallback requested") =
+    ctx.useOpenGlFallback(reason)
+
+  proc entriesPtr(ctx: Context): ptr Table[Hash, Rect] =
+    if ctx.activeBackend == rbOpenGL:
+      result = ctx.fallbackCtx.entries.addr
+    else:
+      result = ctx.preferredCtx.entries.addr
+
+  template entries*(ctx: Context): untyped =
+    ctx.entriesPtr()[]
+
+  template pixelScale*(ctx: Context): untyped =
+    (
+      if ctx.activeBackend == rbOpenGL:
+        ctx.fallbackCtx.pixelScale
+      else:
+        ctx.preferredCtx.pixelScale
+    )
+
+  proc hasImage*(ctx: Context, key: Hash): bool =
+    if ctx.activeBackend == rbOpenGL:
+      result = opengl_context.hasImage(ctx.fallbackCtx, key)
+    else:
+      result = preferred_backend.hasImage(ctx.preferredCtx, key)
+
+  proc addImage*(ctx: Context, key: Hash, image: Image) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.addImage(ctx.fallbackCtx, key, image)
+    else:
+      preferred_backend.addImage(ctx.preferredCtx, key, image)
+
+  proc putImage*(ctx: Context, path: Hash, image: Image) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.putImage(ctx.fallbackCtx, path, image)
+    else:
+      preferred_backend.putImage(ctx.preferredCtx, path, image)
+
+  proc updateImage*(ctx: Context, path: Hash, image: Image) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.updateImage(ctx.fallbackCtx, path, image)
+    else:
+      preferred_backend.updateImage(ctx.preferredCtx, path, image)
+
+  proc putImage*(ctx: Context, imgObj: ImgObj) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.putImage(ctx.fallbackCtx, imgObj)
+    else:
+      preferred_backend.putImage(ctx.preferredCtx, imgObj)
+
+  proc drawImage*(ctx: Context, path: Hash, pos: Vec2, color: Color) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.drawImage(ctx.fallbackCtx, path, pos, color)
+    else:
+      preferred_backend.drawImage(ctx.preferredCtx, path, pos, color)
+
+  proc drawImage*(ctx: Context, path: Hash, pos: Vec2, color: Color, size: Vec2) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.drawImage(ctx.fallbackCtx, path, pos, color, size)
+    else:
+      preferred_backend.drawImage(ctx.preferredCtx, path, pos, color, size)
+
+  proc drawImageAdj*(ctx: Context, path: Hash, pos: Vec2, color: Color, size: Vec2) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.drawImageAdj(ctx.fallbackCtx, path, pos, color, size)
+    else:
+      preferred_backend.drawImageAdj(ctx.preferredCtx, path, pos, color, size)
+
+  proc drawRect*(ctx: Context, rect: Rect, color: Color) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.drawRect(ctx.fallbackCtx, rect, color)
+    else:
+      preferred_backend.drawRect(ctx.preferredCtx, rect, color)
+
+  proc drawRoundedRectSdf*(
+      ctx: Context,
+      rect: Rect,
+      color: Color,
+      radii: array[DirectionCorners, float32],
+      mode: SdfMode = sdfModeClipAA,
+      factor: float32 = 4.0,
+      spread: float32 = 0.0,
+      shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+  ) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.drawRoundedRectSdf(
+        ctx.fallbackCtx,
+        rect,
+        color,
+        radii,
+        mode = opengl_context.SdfMode(mode.ord),
+        factor = factor,
+        spread = spread,
+        shapeSize = shapeSize,
+      )
+    else:
+      preferred_backend.drawRoundedRectSdf(
+        ctx.preferredCtx,
+        rect,
+        color,
+        radii,
+        mode = preferred_backend.SdfMode(mode.ord),
+        factor = factor,
+        spread = spread,
+        shapeSize = shapeSize,
+      )
+
+  proc drawMsdfImage*(
+      ctx: Context,
+      path: Hash,
+      pos: Vec2,
+      color: Color,
+      size: Vec2,
+      pxRange: float32 = 4.0,
+      sdThreshold: float32 = 0.5,
+      strokeWeight: float32 = 0.0,
+  ) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.drawMsdfImage(
+        ctx.fallbackCtx,
+        path,
+        pos,
+        color,
+        size = size,
+        pxRange = pxRange,
+        sdThreshold = sdThreshold,
+        strokeWeight = strokeWeight,
+      )
+    else:
+      preferred_backend.drawMsdfImage(
+        ctx.preferredCtx,
+        path,
+        pos,
+        color,
+        size = size,
+        pxRange = pxRange,
+        sdThreshold = sdThreshold,
+        strokeWeight = strokeWeight,
+      )
+
+  proc drawMtsdfImage*(
+      ctx: Context,
+      path: Hash,
+      pos: Vec2,
+      color: Color,
+      size: Vec2,
+      pxRange: float32 = 4.0,
+      sdThreshold: float32 = 0.5,
+      strokeWeight: float32 = 0.0,
+  ) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.drawMtsdfImage(
+        ctx.fallbackCtx,
+        path,
+        pos,
+        color,
+        size = size,
+        pxRange = pxRange,
+        sdThreshold = sdThreshold,
+        strokeWeight = strokeWeight,
+      )
+    else:
+      preferred_backend.drawMtsdfImage(
+        ctx.preferredCtx,
+        path,
+        pos,
+        color,
+        size = size,
+        pxRange = pxRange,
+        sdThreshold = sdThreshold,
+        strokeWeight = strokeWeight,
+      )
+
+  proc beginMask*(ctx: Context) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.beginMask(ctx.fallbackCtx)
+    else:
+      preferred_backend.beginMask(ctx.preferredCtx)
+
+  proc endMask*(ctx: Context) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.endMask(ctx.fallbackCtx)
+    else:
+      preferred_backend.endMask(ctx.preferredCtx)
+
+  proc popMask*(ctx: Context) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.popMask(ctx.fallbackCtx)
+    else:
+      preferred_backend.popMask(ctx.preferredCtx)
+
+  proc beginFrame*(
+      ctx: Context, frameSize: Vec2, clearMain = true, clearMainColor = whiteColor
+  ) =
+    if ctx.activeBackend == rbOpenGL:
+      ctx.ensureFallbackContext()
+      if clearMain:
+        clearColorBuffer(clearMainColor)
+      opengl_context.beginFrame(ctx.fallbackCtx, frameSize)
+      return
+
+    try:
+      preferred_backend.beginFrame(
+        ctx.preferredCtx,
+        frameSize,
+        clearMain = clearMain,
+        clearMainColor = clearMainColor,
+      )
+    except CatchableError as exc:
+      ctx.useOpenGlFallback(exc.msg)
+      if clearMain:
+        clearColorBuffer(clearMainColor)
+      opengl_context.beginFrame(ctx.fallbackCtx, frameSize)
+
+  proc endFrame*(ctx: Context) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.endFrame(ctx.fallbackCtx)
+    else:
+      preferred_backend.endFrame(ctx.preferredCtx)
+
+  proc translate*(ctx: Context, v: Vec2) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.translate(ctx.fallbackCtx, v)
+    else:
+      preferred_backend.translate(ctx.preferredCtx, v)
+
+  proc rotate*(ctx: Context, angle: float32) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.rotate(ctx.fallbackCtx, angle)
+    else:
+      preferred_backend.rotate(ctx.preferredCtx, angle)
+
+  proc scale*(ctx: Context, s: float32) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.scale(ctx.fallbackCtx, s)
+    else:
+      preferred_backend.scale(ctx.preferredCtx, s)
+
+  proc scale*(ctx: Context, s: Vec2) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.scale(ctx.fallbackCtx, s)
+    else:
+      preferred_backend.scale(ctx.preferredCtx, s)
+
+  proc saveTransform*(ctx: Context) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.saveTransform(ctx.fallbackCtx)
+    else:
+      preferred_backend.saveTransform(ctx.preferredCtx)
+
+  proc restoreTransform*(ctx: Context) =
+    if ctx.activeBackend == rbOpenGL:
+      opengl_context.restoreTransform(ctx.fallbackCtx)
+    else:
+      preferred_backend.restoreTransform(ctx.preferredCtx)
+
+  proc readPixels*(
+      ctx: Context, frame: Rect = rect(0, 0, 0, 0), readFront: bool = true
+  ): Image =
+    if ctx.activeBackend == rbOpenGL:
+      ctx.ensureFallbackContext()
+      var viewport: array[4, GLint]
+      glGetIntegerv(GL_VIEWPORT, viewport[0].addr)
+
+      let
+        viewportWidth = viewport[2].int
+        viewportHeight = viewport[3].int
+
+      var x = frame.x.int
+      var y = frame.y.int
+      var w = frame.w.int
+      var h = frame.h.int
+
+      if w <= 0 or h <= 0:
+        x = 0
+        y = 0
+        w = viewportWidth
+        h = viewportHeight
+
+      glReadBuffer(if readFront: GL_FRONT else: GL_BACK)
+      result = newImage(w, h)
+      glReadPixels(
+        x.GLint,
+        y.GLint,
+        w.GLint,
+        h.GLint,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        result.data[0].addr,
+      )
+      result.flipVertical()
+      glReadBuffer(GL_BACK)
+    else:
+      when UseMetalBackend:
+        result = preferred_backend.readPixels(ctx.preferredCtx, frame)
+      else:
+        result =
+          preferred_backend.readPixels(ctx.preferredCtx, frame, readFront = readFront)
+
+  when UseMetalBackend:
+    proc metalDevice*(ctx: Context): MTLDevice =
+      if ctx.preferredCtx.isNil:
+        return nil
+      preferred_backend.metalDevice(ctx.preferredCtx)
+
+    proc setPresentLayer*(ctx: Context, layer: CAMetalLayer) =
+      if ctx.preferredCtx.isNil:
+        return
+      preferred_backend.setPresentLayer(ctx.preferredCtx, layer)
+
+  when UseVulkanBackend:
+    proc setPresentXlibTarget*(ctx: Context, display: pointer, window: uint64) =
+      if ctx.preferredCtx.isNil:
+        return
+      preferred_backend.setPresentXlibTarget(ctx.preferredCtx, display, window)
+
+    proc setPresentWin32Target*(ctx: Context, hinstance: pointer, hwnd: pointer) =
+      if ctx.preferredCtx.isNil:
+        return
+      preferred_backend.setPresentWin32Target(ctx.preferredCtx, hinstance, hwnd)
+
+  proc newRuntimeContext(
+      atlasSize = 1024, pixelate = false, pixelScale = 1.0
+  ): Context =
+    result = Context(
+      activeBackend: PreferredBackendKind,
+      fallbackAtlasSize: atlasSize,
+      fallbackPixelate: pixelate,
+      fallbackPixelScale: pixelScale.float32,
+    )
+    try:
+      result.preferredCtx = preferred_backend.newContext(
+        atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale
+      )
+    except CatchableError as exc:
+      result.useOpenGlFallback(exc.msg)
+
+else:
+  proc activeBackendKind*(ctx: Context): RendererBackendKind =
+    PreferredBackendKind
+
+  when UseMetalBackend:
+    proc metalDevice*(ctx: Context): MTLDevice =
+      ## Convenience re-export so callers using `figdraw/figrender` don't also
+      ## need to import `figdraw/metal/glcontext_metal`.
+      metal_context.metalDevice(ctx)
+
+    proc setPresentLayer*(ctx: Context, layer: CAMetalLayer) =
+      metal_context.setPresentLayer(ctx, layer)
+
+  when UseVulkanBackend:
+    proc setPresentXlibTarget*(ctx: Context, display: pointer, window: uint64) =
+      vulkan_context.setPresentXlibTarget(ctx, display, window)
+
+    proc setPresentWin32Target*(ctx: Context, hinstance: pointer, hwnd: pointer) =
+      vulkan_context.setPresentWin32Target(ctx, hinstance, hwnd)
+
 type FigRenderer*[BackendState = NoRendererBackendState] = ref object
   ctx*: Context
   backendState*: BackendState
 
-when UseMetalBackend:
-  proc metalDevice*(ctx: Context): MTLDevice =
-    ## Convenience re-export so callers using `figdraw/figrender` don't also
-    ## need to import `figdraw/metal/glcontext_metal`.
-    metal_context.metalDevice(ctx)
+proc backendKind*[BackendState](
+    renderer: FigRenderer[BackendState]
+): RendererBackendKind =
+  activeBackendKind(renderer.ctx)
+
+proc backendName*[BackendState](renderer: FigRenderer[BackendState]): string =
+  backendName(renderer.backendKind())
 
 proc takeScreenshot*[BackendState](
     renderer: FigRenderer[BackendState],
@@ -43,7 +484,9 @@ proc takeScreenshot*[BackendState](
     readFront: bool = true,
 ): Image =
   let ctx: Context = renderer.ctx
-  when UseMetalBackend:
+  when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    result = ctx.readPixels(frame, readFront = readFront)
+  elif UseMetalBackend:
     result = ctx.readPixels(frame)
   elif UseVulkanBackend:
     result = ctx.readPixels(frame, readFront = readFront)
@@ -78,7 +521,11 @@ proc newFigRenderer*(
     atlasSize: int, pixelScale = 1.0'f32
 ): FigRenderer[NoRendererBackendState] =
   result = FigRenderer[NoRendererBackendState]()
-  when UseMetalBackend:
+  when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    result.ctx = newRuntimeContext(
+      atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
+    )
+  elif UseMetalBackend:
     result.ctx =
       newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
   elif UseVulkanBackend:
@@ -93,7 +540,11 @@ proc newFigRenderer*[BackendState](
     atlasSize: int, backendState: BackendState, pixelScale = 1.0'f32
 ): FigRenderer[BackendState] =
   result = FigRenderer[BackendState](backendState: backendState)
-  when UseMetalBackend:
+  when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    result.ctx = newRuntimeContext(
+      atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale
+    )
+  elif UseMetalBackend:
     result.ctx =
       newContext(atlasSize = atlasSize, pixelate = false, pixelScale = pixelScale)
   elif UseVulkanBackend:
@@ -197,14 +648,24 @@ proc scaledCorners(
     result[corner] = corners[corner].scaled()
 
 proc drawMasks(ctx: Context, node: Fig) =
-  when UseVulkanBackend:
+  when UseVulkanBackend and not UseOpenGlFallback:
     ctx.setMaskRect(node.screenBox.scaled())
   else:
-    ctx.drawRoundedRectSdf(
-      rect = node.screenBox.scaled(),
-      color = rgba(255, 0, 0, 255).color,
-      radii = node.corners.scaledCorners(),
-    )
+    when UseVulkanBackend and UseOpenGlFallback:
+      if ctx.activeBackendKind() == rbVulkan:
+        ctx.setMaskRect(node.screenBox.scaled())
+      else:
+        ctx.drawRoundedRectSdf(
+          rect = node.screenBox.scaled(),
+          color = rgba(255, 0, 0, 255).color,
+          radii = node.corners.scaledCorners(),
+        )
+    else:
+      ctx.drawRoundedRectSdf(
+        rect = node.screenBox.scaled(),
+        color = rgba(255, 0, 0, 255).color,
+        radii = node.corners.scaledCorners(),
+      )
 
 proc renderDropShadows(ctx: Context, node: Fig) =
   ## drawing shadows with various techniques
@@ -517,7 +978,9 @@ proc renderFrame*[BackendState](
 ) =
   let ctx: Context = renderer.ctx
   let frameSize = frameSize.scaled()
-  when UseMetalBackend or UseVulkanBackend:
+  when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    ctx.beginFrame(frameSize, clearMain = clearMain, clearMainColor = clearColor)
+  elif UseMetalBackend or UseVulkanBackend:
     ctx.beginFrame(frameSize, clearMain = clearMain, clearMainColor = clearColor)
   else:
     if clearMain:
@@ -530,7 +993,7 @@ proc renderFrame*[BackendState](
   ctx.restoreTransform()
   ctx.endFrame()
 
-  when defined(testOneFrame) and not UseMetalBackend and not UseVulkanBackend:
+  when defined(testOneFrame) and (UseOpenGlBackend or UseOpenGlFallback):
     ## This is used for test only
     ## Take a screen shot of the first frame and exit.
     var img = takeScreenshot(renderer)

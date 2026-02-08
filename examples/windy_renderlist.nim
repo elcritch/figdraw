@@ -100,7 +100,7 @@ when isMainModule:
   renderer.setupBackend(window)
 
   info "Windy renderlist startup",
-    backend = windyBackendName().toLowerAscii(),
+    backend = renderer.windyBackendName().toLowerAscii(),
     windowW = window.size().x,
     windowH = window.size().y,
     scale = window.contentScale()

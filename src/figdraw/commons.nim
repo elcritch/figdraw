@@ -6,12 +6,15 @@ import common/imgutils
 
 const WantVulkanBackend {.booldefine: "figdraw.vulkan".} =
   defined(bsd) or defined(linux) or defined(windows)
-const WantMetalBackend {.booldefine: "figdraw.metal".} =
-  defined(macosx)
+const WantMetalBackend {.booldefine: "figdraw.metal".} = defined(macosx)
 const UseOpenGlBackend* {.booldefine: "figdraw.opengl".} =
   not (WantMetalBackend or WantVulkanBackend)
 const UseVulkanBackend* = WantVulkanBackend and not UseOpenGlBackend
-const UseMetalBackend* = WantMetalBackend and not UseOpenGlBackend and not UseVulkanBackend
+const UseMetalBackend* =
+  WantMetalBackend and not UseOpenGlBackend and not UseVulkanBackend
+const WantOpenGlFallback* {.booldefine: "figdraw.openglFallback".} =
+  UseMetalBackend or UseVulkanBackend
+const UseOpenGlFallback* = WantOpenGlFallback and not UseOpenGlBackend
 
 export shared, uimaths, rchannels
 export fontutils
