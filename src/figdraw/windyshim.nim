@@ -106,6 +106,8 @@ when UseVulkanBackend and (defined(linux) or defined(bsd)):
   import std/importutils
   import x11/xlib
 
+  import vulkan/vulkan_context
+
   privateAccess(Window)
 
   var vulkanDisplay: PDisplay
