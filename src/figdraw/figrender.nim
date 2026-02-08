@@ -92,7 +92,7 @@ proc takeScreenshot*[BackendState](
 ): Image =
   renderer.ctx.readPixels(frame, readFront = readFront)
 
-proc logBackend(msg: string) =
+proc logBackend(msg: static string) =
   info msg, preferredBackend = backendName(PreferredBackendKind)
 
 proc initRendererContext[BackendState](
