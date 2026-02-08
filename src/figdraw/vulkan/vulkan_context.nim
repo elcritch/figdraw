@@ -2621,6 +2621,13 @@ proc newContext*(
     pixelate = false,
     pixelScale = 1.0,
 ): VulkanContext =
+  info "Starting Vulkan Context",
+       atlasSize = atlasSize,
+       atlasMargin = atlasMargin,
+       maxQuads = maxQuads,
+       quadLimit = quadLimit,
+       pixelate = pixelate,
+       pixelScale = pixelScale
   if maxQuads > quadLimit:
     raise newException(ValueError, &"Quads cannot exceed {quadLimit}")
 

@@ -146,6 +146,13 @@ proc newContext*(
     pixelScale = 1.0,
 ): OpenGlContext =
   ## Creates a new context.
+  info "Starting OpenGL Context",
+       atlasSize = atlasSize,
+       atlasMargin = atlasMargin,
+       maxQuads = maxQuads,
+       quadLimit = quadLimit,
+       pixelate = pixelate,
+       pixelScale = pixelScale
   if maxQuads > quadLimit:
     raise newException(ValueError, &"Quads cannot exceed {quadLimit}")
 
