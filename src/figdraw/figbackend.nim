@@ -5,6 +5,7 @@ from pkg/pixie import Image
 import pkg/chroma
 
 import ./commons
+import ./figbasics
 import ./fignodes
 
 when UseMetalBackend:
