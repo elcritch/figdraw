@@ -38,7 +38,7 @@ proc imgId*(name: string): ImageId =
   hash(name).ImageId
 
 proc logImage(file: string) =
-  debug "load image file", flippyPath = file
+  trace "load image file", flippyPath = file
 
 proc resolveAssetPath(filePath: string): string =
   if filePath.len == 0:
