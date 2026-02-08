@@ -43,6 +43,9 @@ type SdfMode* {.pure.} = enum
   sdfModeMtsdfAnnular = 16
 
 type BackendContext* = ref object of RootObj
+  fallbackAtlasSize: int
+  fallbackPixelate: bool
+  fallbackPixelScale: float32
 
 method kind*(impl: BackendContext): RendererBackendKind {.base.} =
   raise newException(ValueError, "Backend kind unavailable")

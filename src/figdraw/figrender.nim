@@ -42,17 +42,14 @@ const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
 type NoRendererBackendState* = object
 
-when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
-  type
-    Context* = ref object
-      preferredCtx*: preferred_backend.Context
-      fallbackCtx*: opengl_context.Context
-      activeCtx*: BackendContext
-      fallbackAtlasSize: int
-      fallbackPixelate: bool
-      fallbackPixelScale: float32
+type ContextArgs* = object
+  fallbackAtlasSize: int
+  fallbackPixelate: bool
+  fallbackPixelScale: float32
 
-  proc ensureFallbackContext(ctx: Context): opengl_context.Context =
+when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+
+  proc ensureFallbackContext(ctx: ContextArgs): opengl_context.Context =
     if ctx.fallbackCtx.isNil:
       ctx.fallbackCtx = opengl_context.newContext(
         atlasSize = ctx.fallbackAtlasSize,
@@ -61,7 +58,7 @@ when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
       )
     result = ctx.fallbackCtx
 
-  proc useOpenGlFallback(ctx: Context, reason: string) =
+  proc useOpenGlFallback(ctx: ContextArgs, reason: string) =
     let alreadyOpenGl =
       (not ctx.activeCtx.isNil) and ctx.activeCtx.kind() == rbOpenGL and
       (not ctx.fallbackCtx.isNil)
@@ -78,159 +75,11 @@ when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     warn "Preferred backend failed, falling back to OpenGL at runtime",
       preferred = backendName(PreferredBackendKind), error = reason
 
-  proc forceOpenGlFallback*(ctx: Context, reason = "runtime fallback requested") =
+  proc forceOpenGlFallback*(ctx: ContextArgs, reason = "runtime fallback requested") =
     ctx.useOpenGlFallback(reason)
 
-  proc activeBackendKind*(ctx: Context): RendererBackendKind =
-    ctx.activeCtx.kind()
-
-  proc entriesPtr(ctx: Context): ptr Table[Hash, Rect] =
-    ctx.activeCtx.entriesPtr()
-
-  template entries*(ctx: Context): untyped =
-    ctx.entriesPtr()[]
-
-  proc pixelScale*(ctx: Context): float32 =
-    ctx.activeCtx.pixelScale()
-
-  proc hasImage*(ctx: Context, key: Hash): bool =
-    ctx.activeCtx.hasImage(key)
-
-  proc addImage*(ctx: Context, key: Hash, image: Image) =
-    ctx.activeCtx.addImage(key, image)
-
-  proc putImage*(ctx: Context, path: Hash, image: Image) =
-    ctx.activeCtx.putImage(path, image)
-
-  proc updateImage*(ctx: Context, path: Hash, image: Image) =
-    ctx.activeCtx.updateImage(path, image)
-
-  proc putImage*(ctx: Context, imgObj: ImgObj) =
-    ctx.activeCtx.putImage(imgObj)
-
-  proc drawImage*(ctx: Context, path: Hash, pos: Vec2, color: Color) =
-    ctx.activeCtx.drawImage(path, pos, color)
-
-  proc drawImage*(ctx: Context, path: Hash, pos: Vec2, color: Color, size: Vec2) =
-    ctx.activeCtx.drawImage(path, pos, color, size)
-
-  proc drawImageAdj*(ctx: Context, path: Hash, pos: Vec2, color: Color, size: Vec2) =
-    ctx.activeCtx.drawImageAdj(path, pos, color, size)
-
-  proc drawRect*(ctx: Context, rect: Rect, color: Color) =
-    ctx.activeCtx.drawRect(rect, color)
-
-  proc drawRoundedRectSdf*(
-      ctx: Context,
-      rect: Rect,
-      color: Color,
-      radii: array[DirectionCorners, float32],
-      mode: figbackend.SdfMode = figbackend.SdfMode.sdfModeClipAA,
-      factor: float32 = 4.0,
-      spread: float32 = 0.0,
-      shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
-  ) =
-    ctx.activeCtx.drawRoundedRectSdf(
-      rect = rect,
-      color = color,
-      radii = radii,
-      mode = mode,
-      factor = factor,
-      spread = spread,
-      shapeSize = shapeSize,
-    )
-
-  proc drawMsdfImage*(
-      ctx: Context,
-      path: Hash,
-      pos: Vec2,
-      color: Color,
-      size: Vec2,
-      pxRange: float32 = 4.0,
-      sdThreshold: float32 = 0.5,
-      strokeWeight: float32 = 0.0,
-  ) =
-    ctx.activeCtx.drawMsdfImage(
-      path = path,
-      pos = pos,
-      color = color,
-      size = size,
-      pxRange = pxRange,
-      sdThreshold = sdThreshold,
-      strokeWeight = strokeWeight,
-    )
-
-  proc drawMtsdfImage*(
-      ctx: Context,
-      path: Hash,
-      pos: Vec2,
-      color: Color,
-      size: Vec2,
-      pxRange: float32 = 4.0,
-      sdThreshold: float32 = 0.5,
-      strokeWeight: float32 = 0.0,
-  ) =
-    ctx.activeCtx.drawMtsdfImage(
-      path = path,
-      pos = pos,
-      color = color,
-      size = size,
-      pxRange = pxRange,
-      sdThreshold = sdThreshold,
-      strokeWeight = strokeWeight,
-    )
-
-  proc beginMask*(ctx: Context) =
-    ctx.activeCtx.beginMask()
-
-  proc endMask*(ctx: Context) =
-    ctx.activeCtx.endMask()
-
-  proc popMask*(ctx: Context) =
-    ctx.activeCtx.popMask()
-
-  proc beginFrame*(
-      ctx: Context, frameSize: Vec2, clearMain = true, clearMainColor = whiteColor
-  ) =
-    try:
-      ctx.activeCtx.beginFrame(frameSize, clearMain, clearMainColor)
-    except CatchableError as exc:
-      if ctx.activeCtx.kind() == rbOpenGL:
-        raise
-      ctx.useOpenGlFallback(exc.msg)
-      ctx.activeCtx.beginFrame(frameSize, clearMain, clearMainColor)
-
-  proc endFrame*(ctx: Context) =
-    ctx.activeCtx.endFrame()
-
-  proc translate*(ctx: Context, v: Vec2) =
-    ctx.activeCtx.translate(v)
-
-  proc rotate*(ctx: Context, angle: float32) =
-    ctx.activeCtx.rotate(angle)
-
-  proc scale*(ctx: Context, s: float32) =
-    ctx.activeCtx.scale(s)
-
-  proc scale*(ctx: Context, s: Vec2) =
-    ctx.activeCtx.scale(s)
-
-  proc saveTransform*(ctx: Context) =
-    ctx.activeCtx.saveTransform()
-
-  proc restoreTransform*(ctx: Context) =
-    ctx.activeCtx.restoreTransform()
-
-  proc readPixels*(
-      ctx: Context, frame: Rect = rect(0, 0, 0, 0), readFront: bool = true
-  ): Image =
-    result = ctx.activeCtx.readPixels(frame, readFront)
-
-  proc setMaskRect*(ctx: Context, clipRect: Rect) =
-    ctx.activeCtx.setMaskRect(clipRect)
-
   when UseMetalBackend:
-    proc metalDevice*(ctx: Context): MTLDevice =
+    proc metalDevice*(ctx: ContextArgs): MTLDevice =
       if ctx.preferredCtx.isNil:
         return nil
       ctx.preferredCtx.metalDevice()
