@@ -115,7 +115,7 @@ when UseVulkanBackend and (defined(linux) or defined(bsd)):
       vulkanDisplay = XOpenDisplay(nil)
     result = vulkanDisplay
 
-  proc attachVulkanSurface*(window: Window, ctx: Context) =
+  proc attachVulkanSurface*(window: Window, ctx: VulkanContext) =
     var display = sharedVulkanDisplay()
     if display.isNil:
       raise newException(ValueError, "Failed to open X11 display for Vulkan surface")
