@@ -534,7 +534,7 @@ proc renderRoot*(ctx: BackendContext, nodes: var Renders) {.forbids: [AppMainThr
   ## draw roots for each level
   var img: ImgObj
   while imageChan.tryRecv(img):
-    debug "image loaded", id = $img.id.Hash
+    trace "image loaded", id = $img.id.Hash
     ctx.putImage(img)
 
   for zlvl, list in nodes.layers.pairs():
