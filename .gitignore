@@ -1,10 +1,13 @@
 *
 !*/
 !*.*
+!.githooks
+!.githooks/pre-commit
 nim.cfg
 vendor/*/
 nimcache
 *.out
+
 
 .tool-versions
 *.dSYM/

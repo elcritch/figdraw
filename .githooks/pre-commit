@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+set -eu
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+target_file="config.nims"
+needle="begin Nimble config"
+
+# Skip quickly unless config.nims is staged for commit.
+if ! git diff --cached --name-only -- "$target_file" | grep -Fxq "$target_file"; then
+  exit 0
+fi
+
+# Reject only when the staged diff introduces the Nimble block marker.
+if git diff --cached -- "$target_file" | grep -Eq "^\\+.*$needle"; then
+  echo "pre-commit: refusing commit because staged $target_file contains '$needle'." >&2
+  echo "pre-commit: remove the Nimble-generated block or unstage $target_file." >&2
+  exit 1
+fi

@@ -19,3 +19,7 @@ task test_emscripten, "build emscripten examples":
   for file in listFiles("examples"):
     if file.startsWith("examples/windy_") and file.endsWith(".nim"):
       exec("nim c -d:emscripten " & file)
+# begin Nimble config (version 2)
+when withDir(thisDir(), system.fileExists("nimble.paths")):
+  include "nimble.paths"
+# end Nimble config
