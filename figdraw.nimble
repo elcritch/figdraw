@@ -23,9 +23,6 @@ when defined(macosx):
 when defined(linux) or defined(bsd) or defined(windows):
   requires "https://github.com/planetis-m/vulkan#b223dc9"
 
-feature "siwin":
-  requires "siwin"
-
 feature "lottie":
   requires "jsony"
 
@@ -34,6 +31,10 @@ feature "sdl2":
 
 feature "windy":
   requires "windy"
+feature "surfer":
+  requires "https://github.com/nim-windowing/surfer"
+feature "siwin":
+  requires "siwin >= 0.9.3"
 
 feature "vulkan":
   requires "https://github.com/planetis-m/vulkan#b223dc9"
