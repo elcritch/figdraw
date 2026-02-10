@@ -110,6 +110,13 @@ jobs:
       run: |
         xvfb-run -a -s "-screen 0 1280x1024x24" nim test
 
+    - name: Build Tests (Vulkan Compile Check)
+      if: runner.os == 'Linux'
+      env:
+        NIMFLAGS: "-d:figdraw.opengl=off -d:figdraw.vulkan=on"
+      run: |
+        nim test_compile
+
     - name: Build Tests
       if: runner.os == 'macOS'
       run: |
@@ -118,7 +125,21 @@ jobs:
     - name: Build Tests
       if: runner.os == 'Windows'
       env:
-        NIMFLAGS: "-d:figdraw.opengl=on -d:figdraw.vulkan=off"
+        NIMFLAGS: "-d:figdraw.vulkan=off"
+      run: |
+        nim test
+
+    - name: Build Tests (Vulkan Compile Check)
+      if: runner.os == 'Windows'
+      env:
+        NIMFLAGS: "-d:figdraw.opengl=off -d:figdraw.vulkan=on"
+      run: |
+        nim test_compile
+
+    - name: Build Tests (Vulkan Run Check)
+      if: runner.os == 'Windows'
+      env:
+        NIMFLAGS: "-d:figdraw.vulkan=on"
       run: |
         nim test
 
