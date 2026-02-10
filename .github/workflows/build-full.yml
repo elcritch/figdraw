@@ -125,7 +125,7 @@ jobs:
     - name: Build Tests
       if: runner.os == 'Windows'
       env:
-        NIMFLAGS: "-d:figdraw.opengl=on -d:figdraw.vulkan=off"
+        NIMFLAGS: "-d:figdraw.vulkan=off"
       run: |
         nim test
 
@@ -139,7 +139,7 @@ jobs:
     - name: Build Tests (Vulkan Run Check)
       if: runner.os == 'Windows'
       env:
-        NIMFLAGS: "-d:figdraw.opengl=off -d:figdraw.vulkan=on"
+        NIMFLAGS: "-d:figdraw.vulkan=on"
       run: |
         nim test
 
