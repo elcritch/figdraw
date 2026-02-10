@@ -77,6 +77,8 @@ when UseMetalBackend:
     hostView*: NSView
     layer*: CAMetalLayer
 
+  proc setOpaque(layer: CAMetalLayer, opaque: bool) {.objc: "setOpaque:".}
+
   proc attachMetalLayer*(
       window: Window,
       device: MTLDevice,
@@ -100,6 +102,10 @@ when UseMetalBackend:
     handle.layer.setFrame(handle.hostView.bounds())
     let sz = window.size()
     handle.layer.setDrawableSize(NSSize(width: sz.x.float, height: sz.y.float))
+
+  proc setOpaque*(handle: MetalLayerHandle, opaque: bool) =
+    ## Controls CAMetalLayer opacity without exposing Objective-C details.
+    handle.layer.setOpaque(opaque)
 
 when UseVulkanBackend and (defined(linux) or defined(bsd)):
   import chronicles

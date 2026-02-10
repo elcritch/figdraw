@@ -17,12 +17,6 @@ import pkg/opengl
 when UseVulkanBackend:
   import pkg/pixie
 
-when UseMetalBackend and defined(macosx):
-  import darwin/objc/runtime
-  import metalx/cametal
-
-  proc setOpaque(layer: CAMetalLayer, opaque: bool) {.objc: "setOpaque:".}
-
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
 type PyramidGl = object
@@ -499,7 +493,7 @@ when isMainModule:
   renderer.setupBackend(window)
   when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:
-      renderer.backendState.metalLayer.layer.setOpaque(false)
+      renderer.backendState.metalLayer.setOpaque(false)
 
   startOpenGL(openglVersion)
   window.makeContextCurrent()
