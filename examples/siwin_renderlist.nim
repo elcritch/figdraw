@@ -10,7 +10,6 @@ import figdraw/windowing/siwinshim
 import figdraw/commons
 import figdraw/fignodes
 import figdraw/figrender as glrenderer
-import figdraw/utils/glutils
 
 logScope:
   scope = "siwin_renderlist"
@@ -86,10 +85,9 @@ when isMainModule:
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
-
-  startOpenGL(openglVersion)
-  appWindow.makeCurrent()
-  let renderer = glrenderer.newFigRenderer(atlasSize = 192)
+  let renderer =
+    glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
+  renderer.setupBackend(appWindow)
 
   info "Siwin renderlist startup",
     backend = renderer.backendName().toLowerAscii(),
@@ -105,7 +103,7 @@ when isMainModule:
 
   proc redraw() =
     inc redrawCount
-    appWindow.makeCurrent()
+    renderer.beginFrame()
     let sz = appWindow.logicalSize()
     if sz != lastSize:
       lastSize = sz
@@ -115,6 +113,7 @@ when isMainModule:
     renderer.renderFrame(renders, sz)
     if redrawCount <= 3 or (redrawCount mod 240) == 0:
       debug "redraw end", redraw = redrawCount
+    renderer.endFrame()
 
   appWindow.eventsHandler = WindowEventsHandler(
     onClose: proc(e: CloseEvent) =
@@ -124,7 +123,6 @@ when isMainModule:
     onResize: proc(e: ResizeEvent) =
       appWindow.refreshUiScale(useAutoScale)
       redraw()
-      appWindow.presentNow()
     ,
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:

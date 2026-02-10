@@ -475,10 +475,15 @@ when isMainModule:
   let size = ivec2(900, 640)
   let appWindow = newSiwinWindow(size = size, title = title, vsync = true)
   let useAutoScale = appWindow.configureUiScale()
+  let renderer =
+    glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+  renderer.setupBackend(appWindow)
+  when UseMetalBackend and defined(macosx):
+    if renderer.backendKind() == rbMetal:
+      renderer.backendState.metalLayer.setOpaque(false)
 
   startOpenGL(openglVersion)
   appWindow.makeCurrent()
-  let renderer = glrenderer.newFigRenderer(atlasSize = 2048)
 
   let pyramid = initPyramid()
 
@@ -488,6 +493,7 @@ when isMainModule:
   let fpsAlpha = 0.005
 
   proc redraw() =
+    renderer.beginFrame()
     appWindow.makeCurrent()
 
     let now = epochTime()
@@ -521,8 +527,16 @@ when isMainModule:
     drawPyramid(pyramid, sz.scaled(), mvp)
     useDepthBuffer(false)
 
-    var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
-    renderer.renderFrame(renders, sz, clearMain = false)
+    if renderer.backendKind() == rbMetal:
+      var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
+      appWindow.presentNow()
+      renderer.renderFrame(
+        renders, sz, clearMain = true, clearColor = rgba(0, 0, 0, 0).color
+      )
+    else:
+      var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
+      renderer.renderFrame(renders, sz, clearMain = false)
+    renderer.endFrame()
 
   appWindow.eventsHandler = WindowEventsHandler(
     onClose: proc(e: CloseEvent) =
@@ -531,7 +545,6 @@ when isMainModule:
     onResize: proc(e: ResizeEvent) =
       appWindow.refreshUiScale(useAutoScale)
       redraw()
-      appWindow.presentNow()
     ,
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:
