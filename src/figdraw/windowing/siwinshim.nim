@@ -137,6 +137,6 @@ proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
       renderer.backendState.window.makeCurrent()
 
 proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
-  ## Present a frame for backends that need explicit window buffer swap.
-  if renderer.backendKind() == rbOpenGL:
-    renderer.backendState.window.presentNow()
+  ## siwin's step() already flushes OpenGL buffers after onRender callbacks.
+  ## Avoid explicit swapping here to prevent double-buffer flips/flicker.
+  discard

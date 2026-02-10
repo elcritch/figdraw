@@ -529,7 +529,6 @@ when isMainModule:
 
     if renderer.backendKind() == rbMetal:
       var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
-      appWindow.presentNow()
       renderer.renderFrame(
         renders, sz, clearMain = true, clearColor = rgba(0, 0, 0, 0).color
       )
