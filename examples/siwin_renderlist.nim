@@ -106,6 +106,10 @@ proc contentScale(window: Window): float32 =
   let backing = contentView.convertRectToBacking(frame)
   (backing.size.width / frame.size.width).float32
 
+proc presentNow(window: Window) =
+  let cocoaWindow = WindowCocoa(window)
+  cocoaWindow.handle.contentView.NSOpenGLView.openGLContext.flushBuffer()
+
 when isMainModule:
   var app_running = true
 
@@ -146,7 +150,6 @@ when isMainModule:
     if sz != lastSize:
       lastSize = sz
       renders = makeRenderTree(sz.x, sz.y)
-      info "Logical size changed", width = sz.x, height = sz.y, redraw = redrawCount
     if redrawCount <= 3 or (redrawCount mod 240) == 0:
       debug "redraw start", redraw = redrawCount, width = sz.x, height = sz.y
     renderer.renderFrame(renders, sz)
@@ -163,12 +166,8 @@ when isMainModule:
         setFigUiScale appWindow.contentScale()
       let physical = appWindow.backingSize()
       let logical = appWindow.logicalSize()
-      info "Window resize callback",
-        physicalW = physical.x,
-        physicalH = physical.y,
-        logicalW = logical.x,
-        logicalH = logical.y
       redraw()
+      appWindow.presentNow()
     ,
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:
