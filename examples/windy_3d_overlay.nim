@@ -7,7 +7,7 @@ import chroma
 when defined(useWindex):
   import windex
 else:
-  import figdraw/windyshim
+  import figdraw/windowing/windyshim
 
 import figdraw/commons
 import figdraw/fignodes

@@ -48,7 +48,7 @@ type
       name*: FigName
 
 static:
-  echo "FigNode SIZE: ", sizeof(Fig)
+  doAssert sizeof(Fig) < 256, "FigNode SIZE: should be smaller than 256! Got: " & $sizeof(Fig)
 
 proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"
