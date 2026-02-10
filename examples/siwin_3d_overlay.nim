@@ -4,20 +4,13 @@ else:
   import std/[os, times, math, strformat, strutils]
 import chroma
 
-when defined(macosx):
-  import siwin/platforms/any/window
-  import siwin/platforms/cocoa/window
-else:
-  {.error: "siwin_3d_overlay currently supports macOS/Cocoa only.".}
+import figdraw/windowing/siwinshim
 
 import figdraw/commons
 import figdraw/fignodes
 import figdraw/figrender as glrenderer
 import figdraw/utils/glutils
 import pkg/opengl
-
-when UseMetalBackend or UseVulkanBackend:
-  {.error: "siwin examples only support OpenGL; pass -d:figdraw.opengl=on (and disable Metal/Vulkan).".}
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
@@ -468,9 +461,6 @@ proc makeOverlay*(
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
 
-proc logicalSize(window: Window): Vec2 =
-  vec2(window.size()).descaled()
-
 when isMainModule:
   when defined(emscripten):
     setFigDataDir("/data")
@@ -481,20 +471,14 @@ when isMainModule:
   let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
   let monoFont = monoTypeface.fontWithSize(14.0'f32)
 
-  let title = "figdraw: siwin + 3D + overlay"
+  let title = siwinWindowTitle("Siwin 3D + overlay")
   let size = ivec2(900, 640)
-
-  let appWindow = newOpenglWindowCocoa(size = size, title = title, vsync = true)
-
-  if getEnv("HDI") != "":
-    setFigUiScale getEnv("HDI").parseFloat()
-  else:
-    setFigUiScale(1.0)
-
-  let renderer = glrenderer.newFigRenderer(atlasSize = 2048)
+  let appWindow = newSiwinWindow(size = size, title = title, vsync = true)
+  let useAutoScale = appWindow.configureUiScale()
 
   startOpenGL(openglVersion)
   appWindow.makeCurrent()
+  let renderer = glrenderer.newFigRenderer(atlasSize = 2048)
 
   let pyramid = initPyramid()
 
@@ -544,6 +528,11 @@ when isMainModule:
     onClose: proc(e: CloseEvent) =
       app_running = false
     ,
+    onResize: proc(e: ResizeEvent) =
+      appWindow.refreshUiScale(useAutoScale)
+      redraw()
+      appWindow.presentNow()
+    ,
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:
         close(e.window)
@@ -552,6 +541,7 @@ when isMainModule:
       redraw()
   )
   appWindow.firstStep()
+  appWindow.refreshUiScale(useAutoScale)
 
   try:
     while app_running and appWindow.opened:
