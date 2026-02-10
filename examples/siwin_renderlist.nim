@@ -85,10 +85,17 @@ proc makeRenderTree*(w, h: float32): Renders =
     ),
   )
 
-proc logicalSize(window: Window): Vec2 =
-  vec2(window.size()).descaled()
-
 privateAccess(WindowCocoaObj)
+
+proc backingSize(window: Window): IVec2 =
+  let cocoaWindow = WindowCocoa(window)
+  let contentView = cocoaWindow.handle.contentView
+  let frame = contentView.frame
+  let backing = contentView.convertRectToBacking(frame)
+  ivec2(backing.size.width.int32, backing.size.height.int32)
+
+proc logicalSize(window: Window): Vec2 =
+  vec2(window.backingSize()).descaled()
 
 proc contentScale(window: Window): float32 =
   let cocoaWindow = WindowCocoa(window)
@@ -114,7 +121,7 @@ when isMainModule:
   if not useAutoScale:
     setFigUiScale hdiEnv.parseFloat()
   else:
-    setFigUiScale(1.0)
+    setFigUiScale appWindow.contentScale()
 
   startOpenGL(openglVersion)
   appWindow.makeCurrent()
@@ -122,8 +129,10 @@ when isMainModule:
 
   info "Siwin renderlist startup",
     backend = renderer.backendName().toLowerAscii(),
-    windowW = appWindow.size().x,
-    windowH = appWindow.size().y,
+    windowW = appWindow.backingSize().x,
+    windowH = appWindow.backingSize().y,
+    logicalW = appWindow.logicalSize().x,
+    logicalH = appWindow.logicalSize().y,
     scale = appWindow.contentScale()
 
   var renders = makeRenderTree(0.0'f32, 0.0'f32)
@@ -152,7 +161,7 @@ when isMainModule:
     onResize: proc(e: ResizeEvent) =
       if useAutoScale:
         setFigUiScale appWindow.contentScale()
-      let physical = appWindow.size()
+      let physical = appWindow.backingSize()
       let logical = appWindow.logicalSize()
       info "Window resize callback",
         physicalW = physical.x,
