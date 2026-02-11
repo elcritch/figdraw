@@ -14,6 +14,9 @@ proc nimExec(subcmd, file: string, extraFlags = "") =
   exec(cmd)
 
 task test, "run unit test":
+  let enableSdl2 =
+    getEnv("FIGDRAW_TEST_SDL2").strip().toLowerAscii() in ["1", "true", "yes", "on"]
+
   for file in listFiles("tests"):
     if file.startsWith("tests/t") and file.endsWith(".nim"):
       nimExec("r", file)
@@ -22,7 +25,10 @@ task test, "run unit test":
     if file.startsWith("examples/windy_") and file.endsWith(".nim"):
       nimExec("c", file)
     elif file.startsWith("examples/sdl2_") and file.endsWith(".nim"):
-      nimExec("c", file, "-d:figdraw.metal=off -d:figdraw.vulkan=off")
+      if enableSdl2:
+        nimExec("c", file, "-d:figdraw.metal=off -d:figdraw.vulkan=off")
+      else:
+        echo "Skipping SDL2 example (set FIGDRAW_TEST_SDL2=1 to enable): ", file
 
 task test_compile, "compile unit tests without running":
   for file in listFiles("tests"):

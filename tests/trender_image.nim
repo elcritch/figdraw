@@ -18,7 +18,6 @@ proc makeRenderTree(w, h: float32): Renders =
       kind: nkRectangle,
       childCount: 0,
       zlevel: 0.ZLevel,
-      name: "root".toFigName(),
       screenBox: rect(0, 0, w, h),
       fill: rgba(160, 160, 160, 255).color,
     )
@@ -30,7 +29,6 @@ proc makeRenderTree(w, h: float32): Renders =
       kind: nkImage,
       childCount: 0,
       zlevel: 0.ZLevel,
-      name: "img".toFigName(),
       screenBox: rect(60, 60, 160, 160),
       image:
         ImageStyle(color: rgba(255, 255, 255, 255).color, id: hash("img1.png").ImageId),

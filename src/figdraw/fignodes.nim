@@ -44,20 +44,11 @@ type
     else:
       discard
 
-    when FigDrawNames:
-      name*: FigName
-
 static:
   doAssert sizeof(Fig) < 256, "FigNode SIZE: should be smaller than 256! Got: " & $sizeof(Fig)
 
 proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"
-
-proc toFigName*(s: string): FigName =
-  toStackString(s[0 ..< min(s.len(), s.len())], FigStringCap)
-
-proc toFigName*(s: FigName): FigName =
-  s
 
 proc `+`*(a, b: FigIdx): FigIdx {.borrow.}
 proc `<=`*(a, b: FigIdx): bool {.borrow.}

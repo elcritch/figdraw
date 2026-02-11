@@ -8,10 +8,9 @@ const UseSiwinOpenGL = not (UseMetalBackend or UseVulkanBackend)
 const NeedSiwinOpenGLContext = UseSiwinOpenGL or UseOpenGlFallback
 
 when defined(macosx):
-  import std/importutils
+  import darwin/app_kit/[nsview]
   import siwin/platforms/any/window as siAnyWindow
   import siwin/platforms/cocoa/window as siCocoaWindow
-  import siwin/platforms/cocoa/cocoa as siCocoa
   when UseMetalBackend:
     import ./siwinmetal as siwinmetal
 else:
@@ -21,8 +20,6 @@ when NeedSiwinOpenGLContext:
   import figdraw/utils/glutils
 
 export siAnyWindow, siCocoaWindow, vmath
-
-privateAccess(WindowCocoaObj)
 
 proc siwinBackendName*(): string =
   backendName(PreferredBackendKind)
@@ -37,7 +34,10 @@ proc newSiwinWindow*(
     size: IVec2, fullscreen = false, title = "FigDraw", vsync = true, msaa = 0'i32
 ): Window =
   let window =
-    newOpenglWindowCocoa(size = size, title = title, vsync = vsync, msaa = msaa)
+    when UseMetalBackend and not NeedSiwinOpenGLContext:
+      newMetalWindowCocoa(size = size, title = title)
+    else:
+      newOpenglWindowCocoa(size = size, title = title, vsync = vsync, msaa = msaa)
   when NeedSiwinOpenGLContext:
     startOpenGL(openglVersion)
     window.makeCurrent()
@@ -46,8 +46,7 @@ proc newSiwinWindow*(
   result = window
 
 proc backingSize*(window: Window): IVec2 =
-  let cocoaWindow = WindowCocoa(window)
-  let contentView = cocoaWindow.handle.contentView
+  let contentView = cast[NSView](WindowCocoa(window).nativeViewHandle())
   let frame = contentView.frame
   let backing = contentView.convertRectToBacking(frame)
   ivec2(backing.size.width.int32, backing.size.height.int32)
@@ -56,8 +55,7 @@ proc logicalSize*(window: Window): Vec2 =
   vec2(window.backingSize()).descaled()
 
 proc contentScale*(window: Window): float32 =
-  let cocoaWindow = WindowCocoa(window)
-  let contentView = cocoaWindow.handle.contentView
+  let contentView = cast[NSView](WindowCocoa(window).nativeViewHandle())
   let frame = contentView.frame
   if frame.size.width <= 0:
     return 1.0
@@ -79,8 +77,7 @@ proc refreshUiScale*(window: Window, autoScale: bool) =
 
 proc presentNow*(window: Window) =
   if window of WindowCocoaOpengl:
-    let cocoaWindow = WindowCocoa(window)
-    cocoaWindow.handle.contentView.NSOpenGLView.openGLContext.flushBuffer()
+    WindowCocoaOpengl(window).swapBuffers()
 
 when UseMetalBackend:
   type MetalLayerHandle* = siwinmetal.SiwinMetalLayerHandle
@@ -93,7 +90,7 @@ when UseMetalBackend:
     ## Attaches a CAMetalLayer to a siwin macOS window.
     let sz = window.backingSize()
     result = siwinmetal.attachMetalLayerToWindowPtr(
-      cast[pointer](WindowCocoa(window).handle.int), sz.x, sz.y, device, pixelFormat
+      WindowCocoa(window).nativeWindowHandle(), sz.x, sz.y, device, pixelFormat
     )
 
   proc updateMetalLayer*(handle: MetalLayerHandle, window: Window) =

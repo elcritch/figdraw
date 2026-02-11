@@ -1,15 +1,13 @@
 import std/sequtils
-import stack_strings
 import ../fignodes
 
 type RenderTree* = ref object
   id*: int
-  name*: string
   children*: seq[RenderTree]
 
 func `[]`*(a: RenderTree, idx: int): RenderTree =
   if a.children.len() == 0:
-    return RenderTree(name: "Missing")
+    return RenderTree()
   a.children[idx]
 
 func `==`*(a, b: RenderTree): bool =
@@ -20,24 +18,18 @@ func `==`*(a, b: RenderTree): bool =
   `==`(a[], b[])
 
 proc toTree*(nodes: seq[Fig], idx = 0.FigIdx, depth = 1): RenderTree =
-  let n = nodes[idx.int]
   result = RenderTree(id: idx.int)
-  when FigDrawNames:
-    result.name = $n.name
   for ci in nodes.childIndex(idx):
     result.children.add toTree(nodes, ci, depth + 1)
 
 proc toTree*(list: RenderList): RenderTree =
-  result = RenderTree(name: "pseudoRoot")
+  result = RenderTree()
   for rootIdx in list.rootIds:
     # echo "toTree:rootIdx: ", rootIdx.int
     result.children.add toTree(list.nodes, rootIdx)
 
 proc toRenderFig*[N](current: N): Fig =
   result = Fig(kind: current.kind)
-
-  when FigDrawNames:
-    result.name = current.name.toFigName()
 
   result.screenBox = current.screenBox
   result.flags = current.flags

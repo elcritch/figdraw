@@ -1,6 +1,4 @@
 import std/unittest
-import std/strutils
-import pkg/chronicles
 
 import figdraw/fignodes
 import figdraw/common/transfer
@@ -28,8 +26,6 @@ proc draw(fig: TestBasic) =
 proc draw(fig: TestFig) =
   withWidget(fig):
     this.zlevel = 20
-    # discard this.name.tryAdd("root")
-    this.name = atom"root"
     Rectangle.new "body":
       Rectangle.new "child0":
         discard
@@ -57,8 +53,6 @@ suite "test layers":
 
     draw(self)
     let renders = copyInto(self)
-    for r in renders[0.ZLevel].nodes:
-      echo "render: ", $r.name
     #for k, v in renders.pairs():
     #  echo k
     #  for n in v:
@@ -94,38 +88,23 @@ suite "test layers":
 
     echo "\nzlevel: ", -10.ZLevel
     echo repr renders[-10.ZLevel].toTree()
-    let res10 = renders[-10.ZLevel].toTree()
-    check res10.name == "pseudoRoot"
-    check res10[0].name == "child13"
-    check res10[0][0].name == "child131"
-    check res10[1].name == "child21"
+    discard renders[-10.ZLevel].toTree()
 
     echo "\nzlevel: ", 20.ZLevel
     let res20 = renders[20.ZLevel].toTree()
     echo "res20: ", res20.repr
 
-    check res20.name == "pseudoRoot"
     check res20.children.len() == 1
     check res20[0].children.len() == 2
     check res20[0][0].children.len() == 1
     check res20[0][0][0].children.len() == 1
 
-    check res20[0].name == "root"
-    check res20[0][0].name == "body"
-    check res20[0][0][0].name == "child0"
-    check res20[0][0][0][0].name == "child01"
-    check res20[0][1].name == "body2"
-
     echo "\nzlevel: ", 30.ZLevel
     let res30 = renders[30.ZLevel].toTree()
     echo "res30: ", res30.repr
 
-    check res30.name == "pseudoRoot"
     check res30.children.len() == 1
     check res30[0].children.len() == 2
-    check res30[0].name == "child1"
-    check res30[0][0].name == "child11"
-    check res30[0][1].name == "child12"
 
     # printRenders(renders[30.ZLevel], 0.NodeIdx)
     # printRenders(renders[-10.ZLevel], 0.NodeIdx)
