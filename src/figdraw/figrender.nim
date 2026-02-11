@@ -549,6 +549,8 @@ proc renderFrame*[BackendState](
     clearColor: Color = color(1.0, 1.0, 1.0, 1.0),
 ) =
   let frameSize = frameSize.scaled()
+  if frameSize.x <= 0 or frameSize.y <= 0:
+    return
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     try:
       renderer.ctx.beginFrame(

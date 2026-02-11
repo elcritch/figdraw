@@ -17,6 +17,10 @@ type SiwinMetalLayerHandle* = object
 
 proc setOpaque(layer: CAMetalLayer, opaque: bool) {.objc: "setOpaque:".}
 
+proc safeDrawableDimension(v: int32): float =
+  # CAMetalLayer rejects zero-sized drawables; clamp transient 0x0 resize states.
+  max(1'i32, v).float
+
 proc attachMetalLayerToWindowPtr*(
     windowPtr: pointer,
     backingWidth, backingHeight: int32,
@@ -31,7 +35,10 @@ proc attachMetalLayerToWindowPtr*(
   result.hostView.setLayer(result.layer)
   result.layer.setFrame(result.hostView.bounds())
   result.layer.setDrawableSize(
-    NSSize(width: backingWidth.float, height: backingHeight.float)
+    NSSize(
+      width: safeDrawableDimension(backingWidth),
+      height: safeDrawableDimension(backingHeight),
+    )
   )
 
 proc updateMetalLayer*(
@@ -39,7 +46,10 @@ proc updateMetalLayer*(
 ) =
   handle.layer.setFrame(handle.hostView.bounds())
   handle.layer.setDrawableSize(
-    NSSize(width: backingWidth.float, height: backingHeight.float)
+    NSSize(
+      width: safeDrawableDimension(backingWidth),
+      height: safeDrawableDimension(backingHeight),
+    )
   )
 
 proc setOpaque*(handle: SiwinMetalLayerHandle, opaque: bool) =
