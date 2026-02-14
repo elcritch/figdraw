@@ -31,9 +31,10 @@ else:
 
 type SdfMode* = figbackend.SdfMode
 
-type PresentTargetKind = enum
+type PresentTargetKind* = enum
   presentTargetNone
   presentTargetXlib
+  presentTargetWayland
   presentTargetWin32
   presentTargetMetal
 
@@ -105,6 +106,7 @@ type
     presentQueueFamily: uint32
 
     presentTargetKind: PresentTargetKind
+    instanceSurfaceHint: PresentTargetKind
     presentXlibDisplay: pointer
     presentXlibWindow: uint64
     presentWin32Hinstance: pointer
@@ -114,6 +116,7 @@ type
       linuxSurfaceKind: LinuxSurfaceKind
 
     surface: VkSurfaceKHR
+    surfaceOwnedByContext: bool
     swapchain: VkSwapchainKHR
     swapchainImages: seq[VkImage]
     swapchainViews: seq[VkImageView]
@@ -260,13 +263,12 @@ proc createPresentSurface(ctx: VulkanContext) =
         checkVkResult vkCreateXcbSurfaceKHRNative(
           ctx.instance, createInfo.addr, nil, ctx.surface.addr
         )
+        ctx.surfaceOwnedByContext = true
       of linuxSurfaceXlib:
-        let fnPtr =
-          vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXlibSurfaceKHR")
+        let fnPtr = vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXlibSurfaceKHR")
         if fnPtr.isNil:
           raise newException(ValueError, "vkCreateXlibSurfaceKHR unavailable")
-        let vkCreateXlibSurfaceKHRNative =
-          cast[VkCreateXlibSurfaceKHRNativeProc](fnPtr)
+        let vkCreateXlibSurfaceKHRNative = cast[VkCreateXlibSurfaceKHRNativeProc](fnPtr)
         var createInfo = VkXlibSurfaceCreateInfoKHRNative(
           sType: VkStructureType.XlibSurfaceCreateInfoKHR,
           pNext: nil,
@@ -280,8 +282,13 @@ proc createPresentSurface(ctx: VulkanContext) =
         checkVkResult vkCreateXlibSurfaceKHRNative(
           ctx.instance, createInfo.addr, nil, ctx.surface.addr
         )
+        ctx.surfaceOwnedByContext = true
     else:
       raise newException(ValueError, "Xlib Vulkan surface unsupported on this OS")
+  of presentTargetWayland:
+    raise newException(
+      ValueError, "Wayland Vulkan surface creation requires an external surface handle"
+    )
   of presentTargetWin32:
     when defined(windows):
       loadVK_KHR_win32_surface()
@@ -292,6 +299,7 @@ proc createPresentSurface(ctx: VulkanContext) =
       checkVkResult vkCreateWin32SurfaceKHR(
         ctx.instance, createInfo.addr, nil, ctx.surface.addr
       )
+      ctx.surfaceOwnedByContext = true
     else:
       raise newException(ValueError, "Win32 Vulkan surface unsupported on this OS")
   of presentTargetMetal:
@@ -303,6 +311,7 @@ proc createPresentSurface(ctx: VulkanContext) =
       checkVkResult vkCreateMetalSurfaceEXT(
         ctx.instance, createInfo.addr, nil, ctx.surface.addr
       )
+      ctx.surfaceOwnedByContext = true
     else:
       raise newException(ValueError, "Metal Vulkan surface unsupported on this OS")
   of presentTargetNone:
@@ -1118,9 +1127,14 @@ proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
   let availableLayers = queryInstanceLayerNames()
 
   var enabledExtNames: seq[string] = @[]
-  if ctx.hasPresentTarget():
+  let surfaceTargetKind =
+    if ctx.presentTargetKind != presentTargetNone:
+      ctx.presentTargetKind
+    else:
+      ctx.instanceSurfaceHint
+  if surfaceTargetKind != presentTargetNone:
     enabledExtNames.add(VkKhrSurfaceExtensionName)
-    case ctx.presentTargetKind
+    case surfaceTargetKind
     of presentTargetXlib:
       when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
         let hasXlib = VkKhrXlibSurfaceExtensionName in availableExts
@@ -1140,6 +1154,16 @@ proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
           warn "Neither VK_KHR_xlib_surface nor VK_KHR_xcb_surface reported as available"
       else:
         enabledExtNames.add(VkKhrXlibSurfaceExtensionName)
+    of presentTargetWayland:
+      when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+        if VkKhrWaylandSurfaceExtensionName in availableExts:
+          enabledExtNames.add(VkKhrWaylandSurfaceExtensionName)
+        else:
+          raise newException(
+            ValueError, "VK_KHR_wayland_surface extension is required but unavailable"
+          )
+      else:
+        raise newException(ValueError, "Wayland Vulkan surface unsupported on this OS")
     of presentTargetWin32:
       enabledExtNames.add(VkKhrWin32SurfaceExtensionName)
     of presentTargetMetal:
@@ -1157,7 +1181,7 @@ proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
     availableExtensions = availableExts,
     availableExtensionsCount = availableExts.len,
     availableLayers = availableLayers,
-    presentTarget = $ctx.presentTargetKind
+    presentTarget = $surfaceTargetKind
   when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
     debug "Selected Linux Vulkan surface extension mode",
       linuxSurfaceKind = $ctx.linuxSurfaceKind
@@ -1297,8 +1321,9 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     win32Hinstance = cast[uint64](ctx.presentWin32Hinstance),
     win32Hwnd = cast[uint64](ctx.presentWin32Hwnd)
 
-  ctx.instance = ctx.createInstanceWithFallback()
-  vkInit(ctx.instance, load1_2 = false, load1_3 = false)
+  if ctx.instance == vkNullInstance:
+    ctx.instance = ctx.createInstanceWithFallback()
+    vkInit(ctx.instance, load1_2 = false, load1_3 = false)
 
   if ctx.hasPresentTarget():
     loadVK_KHR_surface()
@@ -1564,6 +1589,9 @@ proc flush(ctx: VulkanContext) =
   if ctx.quadCount == 0:
     return
   if not ctx.commandRecording:
+    # No active command buffer (e.g. no present-capable swapchain this frame):
+    # drop queued quads so they don't accumulate into overflow asserts.
+    ctx.quadCount = 0
     return
   if ctx.atlasDirty:
     if ctx.renderPassBegun:
@@ -1657,7 +1685,11 @@ proc flush(ctx: VulkanContext) =
   ctx.quadCount = 0
 
 proc checkBatch(ctx: VulkanContext) =
-  if ctx.quadCount == ctx.maxQuads:
+  if not ctx.commandRecording:
+    # Keep CPU-side batch empty when Vulkan recording is unavailable.
+    ctx.quadCount = 0
+    return
+  if ctx.quadCount >= ctx.maxQuads:
     ctx.flush()
 
 proc setVert2(buf: var seq[float32], i: int, v: Vec2) =
@@ -1777,6 +1809,7 @@ proc drawQuad*(
     colors: array[4, ColorRGBA],
 ) =
   ctx.checkBatch()
+  assert ctx.quadCount < ctx.maxQuads
 
   let zero4 = vec4(0.0'f32)
   let offset = ctx.quadCount * 4
@@ -2519,8 +2552,10 @@ proc destroyGpu(ctx: VulkanContext) =
     ctx.device = vkNullDevice
 
   if ctx.surface != vkNullSurface:
-    vkDestroySurfaceKHR(ctx.instance, ctx.surface, nil)
+    if ctx.surfaceOwnedByContext:
+      vkDestroySurfaceKHR(ctx.instance, ctx.surface, nil)
     ctx.surface = vkNullSurface
+    ctx.surfaceOwnedByContext = false
 
   if ctx.instance != vkNullInstance:
     destroyInstance(ctx.instance)
@@ -2597,9 +2632,11 @@ proc newContext*(
   result.presentQueue = vkNullQueue
   result.presentQueueFamily = 0
   result.presentTargetKind = presentTargetNone
+  result.instanceSurfaceHint = presentTargetNone
   when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
     result.linuxSurfaceKind = linuxSurfaceXlib
   result.surface = vkNullSurface
+  result.surfaceOwnedByContext = false
   result.swapchain = vkNullSwapchain
   result.swapchainViews = @[]
   result.swapchainImages = @[]
@@ -2657,7 +2694,13 @@ proc toScreen*(ctx: VulkanContext, windowFrame: Vec2, v: Vec2): Vec2 =
 proc clearPresentTarget*(ctx: VulkanContext) =
   if ctx.gpuReady:
     ctx.destroyGpu()
+  elif ctx.surface != vkNullSurface:
+    if ctx.surfaceOwnedByContext and ctx.instance != vkNullInstance:
+      vkDestroySurfaceKHR(ctx.instance, ctx.surface, nil)
+    ctx.surface = vkNullSurface
+    ctx.surfaceOwnedByContext = false
   ctx.presentTargetKind = presentTargetNone
+  ctx.instanceSurfaceHint = presentTargetNone
   when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
     ctx.linuxSurfaceKind = linuxSurfaceXlib
   ctx.presentXlibDisplay = nil
@@ -2669,19 +2712,53 @@ proc clearPresentTarget*(ctx: VulkanContext) =
 method setPresentXlibTarget*(ctx: VulkanContext, display: pointer, window: uint64) =
   ctx.clearPresentTarget()
   ctx.presentTargetKind = presentTargetXlib
+  ctx.instanceSurfaceHint = presentTargetXlib
   ctx.presentXlibDisplay = display
   ctx.presentXlibWindow = window
 
 method setPresentWin32Target*(ctx: VulkanContext, hinstance: pointer, hwnd: pointer) =
   ctx.clearPresentTarget()
   ctx.presentTargetKind = presentTargetWin32
+  ctx.instanceSurfaceHint = presentTargetWin32
   ctx.presentWin32Hinstance = hinstance
   ctx.presentWin32Hwnd = hwnd
 
 proc setPresentMetalLayer*(ctx: VulkanContext, layer: pointer) =
   ctx.clearPresentTarget()
   ctx.presentTargetKind = presentTargetMetal
+  ctx.instanceSurfaceHint = presentTargetMetal
   ctx.presentMetalLayer = layer
+
+proc setInstanceSurfaceHint*(ctx: VulkanContext, target: PresentTargetKind) =
+  if ctx.gpuReady:
+    raise newException(
+      ValueError, "Cannot change Vulkan surface hint after GPU runtime init"
+    )
+  ctx.instanceSurfaceHint = target
+
+proc ensureInstance*(ctx: VulkanContext) =
+  if ctx.instance != vkNullInstance:
+    return
+  vkPreload()
+  ctx.instance = ctx.createInstanceWithFallback()
+  vkInit(ctx.instance, load1_2 = false, load1_3 = false)
+
+proc instanceHandle*(ctx: VulkanContext): pointer =
+  cast[pointer](ctx.instance)
+
+proc setExternalSurface*(
+    ctx: VulkanContext,
+    surface: pointer,
+    target: PresentTargetKind,
+    ownedByContext = false,
+) =
+  if surface.isNil:
+    raise newException(ValueError, "External Vulkan surface pointer is nil")
+  ctx.clearPresentTarget()
+  ctx.presentTargetKind = target
+  ctx.instanceSurfaceHint = ctx.presentTargetKind
+  ctx.surface = cast[VkSurfaceKHR](surface)
+  ctx.surfaceOwnedByContext = ownedByContext
 
 method readPixels*(
     ctx: VulkanContext, frame: Rect = rect(0, 0, 0, 0), readFront = true
@@ -2725,12 +2802,17 @@ method readPixels*(
     ctx.device, ctx.readbackMemory, 0.VkDeviceSize, ctx.readbackBytes,
     0.VkMemoryMapFlags,
   ))
+  if mapped.isNil:
+    raise newException(ValueError, "Failed to map Vulkan readback memory")
   defer:
     unmapMemory(ctx.device, ctx.readbackMemory)
 
   result = newImage(w, h)
   let stride = texW * 4
-  let bgrFormat = ctx.swapchainFormat == VK_FORMAT_B8G8R8A8_UNORM
+  let bgrFormat =
+    case ctx.swapchainFormat
+    of VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SRGB: true
+    else: false
 
   for row in 0 ..< h:
     let srcRow = y + row

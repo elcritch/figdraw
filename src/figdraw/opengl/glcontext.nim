@@ -125,17 +125,29 @@ proc addMaskTexture(ctx: OpenGlContext, frameSize = vec2(1, 1)) =
   maskTexture.width = frameSize.x.int32
   maskTexture.height = frameSize.y.int32
   maskTexture.componentType = GL_UNSIGNED_BYTE
-  maskTexture.format = GL_RGBA
   when defined(emscripten):
+    maskTexture.format = GL_RGBA
     maskTexture.internalFormat = GL_RGBA8
   else:
+    # Single-channel masks are enough for clip sampling in shaders (`.r`).
+    # Some Wayland/EGL drivers reject RGBA data format with GL_R8 internal format.
+    maskTexture.format = GL_RED
     maskTexture.internalFormat = GL_R8
   maskTexture.minFilter = minLinear
   if ctx.pixelate:
     maskTexture.magFilter = magNearest
   else:
     maskTexture.magFilter = magLinear
-  bindTextureData(maskTexture.addr, nil)
+  when defined(emscripten):
+    bindTextureData(maskTexture.addr, nil)
+  else:
+    try:
+      bindTextureData(maskTexture.addr, nil)
+    except GLerror:
+      # Compatibility fallback for contexts that do not accept GL_R8/GL_RED.
+      maskTexture.format = GL_RGBA
+      maskTexture.internalFormat = GL_RGBA8
+      bindTextureData(maskTexture.addr, nil)
   ctx.maskTextures.add(maskTexture)
 
 proc newContext*(
@@ -147,12 +159,12 @@ proc newContext*(
 ): OpenGlContext =
   ## Creates a new context.
   info "Starting OpenGL Context",
-       atlasSize = atlasSize,
-       atlasMargin = atlasMargin,
-       maxQuads = maxQuads,
-       quadLimit = quadLimit,
-       pixelate = pixelate,
-       pixelScale = pixelScale
+    atlasSize = atlasSize,
+    atlasMargin = atlasMargin,
+    maxQuads = maxQuads,
+    quadLimit = quadLimit,
+    pixelate = pixelate,
+    pixelScale = pixelScale
   if maxQuads > quadLimit:
     raise newException(ValueError, &"Quads cannot exceed {quadLimit}")
 
@@ -982,9 +994,7 @@ proc clearMask*(ctx: OpenGlContext) =
   glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
 method beginMask*(
-    ctx: OpenGlContext,
-    clipRect: Rect,
-    radii: array[DirectionCorners, float32]
+    ctx: OpenGlContext, clipRect: Rect, radii: array[DirectionCorners, float32]
 ) =
   ## Starts drawing into a mask.
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
@@ -1146,10 +1156,26 @@ method readPixels*(ctx: OpenGlContext, frame: Rect, readFront: bool): Image =
     w = viewportWidth
     h = viewportHeight
 
-  glReadBuffer(if readFront: GL_FRONT else: GL_BACK)
+  if w <= 0 or h <= 0:
+    return newImage(0, 0)
+
+  let wantBack = not readFront
+  var canSelectReadBuffer = true
+  try:
+    glReadBuffer(if wantBack: GL_BACK else: GL_FRONT)
+    if wantBack and glGetError() != GL_NO_ERROR:
+      # Wayland/EGL may expose a single-buffer drawable where GL_BACK is invalid.
+      glReadBuffer(GL_FRONT)
+  except GLerror:
+    # GLES/EGL paths can reject glReadBuffer; read from default color buffer.
+    canSelectReadBuffer = false
   result = newImage(w, h)
   glReadPixels(
     x.GLint, y.GLint, w.GLint, h.GLint, GL_RGBA, GL_UNSIGNED_BYTE, result.data[0].addr
   )
   result.flipVertical()
-  glReadBuffer(GL_BACK)
+  if canSelectReadBuffer:
+    try:
+      glReadBuffer(GL_BACK)
+    except GLerror:
+      discard

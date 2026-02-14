@@ -3,12 +3,11 @@ import std/unittest
 
 import pkg/chroma
 import pkg/pixie
-import figdraw/windyshim
 
 import figdraw/commons
 import figdraw/fignodes
 
-import ./opengl_test_utils
+import ./siwin_test_utils
 
 proc makeRenderTree(w, h: float32): Renders =
   var list = RenderList()
@@ -67,26 +66,25 @@ proc makeRenderTree(w, h: float32): Renders =
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
 
-proc maxChannelDelta(a: ColorRGBX, r, g, b: uint8): int =
-  result = max(abs(a.r.int - r.int), max(abs(a.g.int - g.int), abs(a.b.int - b.int)))
-
-suite "opengl rgb boxes render":
+suite "siwin rgb boxes render (sdf)":
   test "renderAndSwap + screenshot":
     let outDir = ensureTestOutputDir()
-    let outPath = outDir / "render_rgb_boxes.png"
-    removeFile(outPath)
+    let outPath = outDir / "render_rgb_boxes_sdf_siwin.png"
+    if fileExists(outPath):
+      removeFile(outPath)
     block renderOnce:
       var img: Image
       try:
         img = renderAndScreenshotOnce(
           makeRenders = makeRenderTree,
           outputPath = outPath,
-          title = "figdraw test: rgb boxes",
+          title = "figdraw test: rgb boxes (sdf, siwin)",
         )
-      except WindyError:
+      except ValueError:
         skip()
         break renderOnce
 
+      img.writeFile(outPath)
       check fileExists(outPath)
       check getFileSize(outPath) > 0
 
@@ -95,13 +93,7 @@ suite "opengl rgb boxes render":
       let expected = pixie.readImage(expectedPath)
       let (diffScore, diffImg) = expected.diff(img)
       echo "Got image difference of: ", diffScore
-      let diffThreshold = 100.0'f32
+      let diffThreshold = 100'f32
       if diffScore > diffThreshold:
-        diffImg.writeFile(joinPath(outDir, "render_rgb_boxes.diff.png"))
+        diffImg.writeFile(joinPath(outDir, "render_rgb_boxes_sdf_siwin.diff.png"))
       check diffScore <= diffThreshold
-
-      #let tol = 12
-      #check img[10, 10].maxChannelDelta(255, 255, 255) <= tol
-      #check img[120, 120].maxChannelDelta(220, 40, 40) <= tol
-      #check img[400, 180].maxChannelDelta(40, 180, 90) <= tol
-      #check img[260, 360].maxChannelDelta(60, 90, 220) <= tol

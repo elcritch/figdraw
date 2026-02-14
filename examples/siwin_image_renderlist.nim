@@ -4,10 +4,7 @@ else:
   import std/[os, times, strutils]
 import chroma
 
-when defined(useWindex):
-  import windex
-else:
-  import figdraw/windyshim
+import figdraw/windowing/siwinshim
 
 import figdraw/commons
 import figdraw/fignodes
@@ -64,40 +61,52 @@ when isMainModule:
 
   var app_running = true
 
-  let title = windyWindowTitle("Windy Image RenderList")
+  let title = siwinWindowTitle("Siwin Image RenderList")
   let size = ivec2(800, 600)
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
-  let window = newWindyWindow(size = size, fullscreen = false, title = title)
-
-  if getEnv("HDI") != "":
-    setFigUiScale getEnv("HDI").parseFloat()
+  when UseVulkanBackend:
+    let renderer =
+      glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+    let appWindow =
+      newSiwinWindow(renderer, size = size, fullscreen = false, title = title)
   else:
-    setFigUiScale window.contentScale()
-  if size != size.scaled():
-    window.size = size.scaled()
+    let appWindow = newSiwinWindow(size = size, fullscreen = false, title = title)
+    let renderer =
+      glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+  let useAutoScale = appWindow.configureUiScale()
 
-  let renderer =
-    glrenderer.newFigRenderer(atlasSize = 2048, backendState = WindyRenderBackend())
-  renderer.setupBackend(window)
+  renderer.setupBackend(appWindow)
+  appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin Image RenderList")
 
   proc redraw() =
     renderer.beginFrame()
-    let sz = window.logicalSize()
+    let sz = appWindow.logicalSize()
     var renders = makeRenderTree(sz.x, sz.y)
     renderer.renderFrame(renders, sz)
     renderer.endFrame()
 
-  window.onCloseRequest = proc() =
-    app_running = false
-  window.onResize = proc() =
-    redraw()
+  appWindow.eventsHandler = WindowEventsHandler(
+    onClose: proc(e: CloseEvent) =
+      app_running = false,
+    onResize: proc(e: ResizeEvent) =
+      appWindow.refreshUiScale(useAutoScale)
+      redraw(),
+    onKey: proc(e: KeyEvent) =
+      if e.pressed and e.key == Key.escape:
+        close(e.window)
+    ,
+    onRender: proc(e: RenderEvent) =
+      redraw(),
+  )
+  appWindow.firstStep()
+  appWindow.refreshUiScale(useAutoScale)
 
   try:
-    while app_running:
-      pollEvents()
-      redraw()
+    while app_running and appWindow.opened:
+      appWindow.redraw()
+      appWindow.step()
 
       inc frames
       inc fpsFrames
@@ -115,4 +124,4 @@ when isMainModule:
           sleep(16)
   finally:
     when not defined(emscripten):
-      window.close()
+      appWindow.close()

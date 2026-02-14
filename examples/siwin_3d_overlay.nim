@@ -4,18 +4,13 @@ else:
   import std/[os, times, math, strformat, strutils]
 import chroma
 
-when defined(useWindex):
-  import windex
-else:
-  import figdraw/windowing/windyshim
+import figdraw/windowing/siwinshim
 
 import figdraw/commons
 import figdraw/fignodes
 import figdraw/figrender as glrenderer
 import figdraw/utils/glutils
 import pkg/opengl
-when UseVulkanBackend:
-  import pkg/pixie
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
@@ -476,27 +471,25 @@ when isMainModule:
   let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
   let monoFont = monoTypeface.fontWithSize(14.0'f32)
 
-  let title = windyWindowTitle("3D + overlay")
+  let title = siwinWindowTitle("Siwin 3D + overlay")
   let size = ivec2(900, 640)
-
-  let window = newWindyWindow(size = size, fullscreen = false, title = title)
-
-  if getEnv("HDI") != "":
-    setFigUiScale getEnv("HDI").parseFloat()
+  when UseVulkanBackend:
+    let renderer =
+      glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+    let appWindow = newSiwinWindow(renderer, size = size, title = title, vsync = true)
   else:
-    setFigUiScale window.contentScale()
-  if size != size.scaled():
-    window.size = size.scaled()
-
-  let renderer =
-    glrenderer.newFigRenderer(atlasSize = 2048, backendState = WindyRenderBackend())
-  renderer.setupBackend(window)
+    let appWindow = newSiwinWindow(size = size, title = title, vsync = true)
+    let renderer =
+      glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+  let useAutoScale = appWindow.configureUiScale()
+  renderer.setupBackend(appWindow)
+  appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin 3D + overlay")
   when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:
       renderer.backendState.metalLayer.setOpaque(false)
 
   startOpenGL(openglVersion)
-  window.makeContextCurrent()
+  appWindow.makeCurrent()
 
   let pyramid = initPyramid()
 
@@ -504,31 +497,10 @@ when isMainModule:
   var lastFrameTime = startTime
   var fpsValue = 0.0
   let fpsAlpha = 0.005
-  when UseVulkanBackend:
-    var bgImageTargetW = 0
-    var bgImageTargetH = 0
-    var bgImageId = default(ImageId)
-
-  when UseVulkanBackend:
-    proc captureGlBackBuffer(frameSizePx: IVec2): Image =
-      let w = max(1, frameSizePx.x.int)
-      let h = max(1, frameSizePx.y.int)
-      glFinish()
-      glReadBuffer(GL_BACK)
-      result = newImage(w, h)
-      glReadPixels(
-        0.GLint,
-        0.GLint,
-        w.GLint,
-        h.GLint,
-        GL_RGBA,
-        GL_UNSIGNED_BYTE,
-        result.data[0].addr,
-      )
-      result.flipVertical()
 
   proc redraw() =
     renderer.beginFrame()
+    appWindow.makeCurrent()
 
     let now = epochTime()
     let dt = now - lastFrameTime
@@ -540,7 +512,7 @@ when isMainModule:
         fpsValue = fpsValue + (instFps - fpsValue) * fpsAlpha
     lastFrameTime = now
 
-    let sz = window.logicalSize()
+    let sz = appWindow.logicalSize()
     var rows = newSeq[string](0)
 
     let proj = projectionMatrix(sz)
@@ -563,62 +535,37 @@ when isMainModule:
 
     if renderer.backendKind() == rbMetal:
       var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
-      window.swapBuffers()
       renderer.renderFrame(
         renders, sz, clearMain = true, clearColor = rgba(0, 0, 0, 0).color
       )
-    elif renderer.backendKind() == rbVulkan:
-      when UseVulkanBackend:
-        let framePx = window.size()
-        let bgImage = captureGlBackBuffer(framePx)
-        if framePx.x > bgImageTargetW or framePx.y > bgImageTargetH or bgImageId.int == 0:
-          bgImageTargetW = max(bgImageTargetW, framePx.x)
-          bgImageTargetH = max(bgImageTargetH, framePx.y)
-          let key =
-            "windy_3d_overlay_glbg_target_" & $bgImageTargetW & "x" & $bgImageTargetH
-          bgImageId = imgId(key)
-          let bgUpload =
-            if bgImage.width != bgImageTargetW or bgImage.height != bgImageTargetH:
-              bgImage.resize(bgImageTargetW, bgImageTargetH)
-            else:
-              bgImage
-          renderer.ctx.putImage(bgImageId.Hash, bgUpload)
-        else:
-          let bgUpload =
-            if bgImage.width != bgImageTargetW or bgImage.height != bgImageTargetH:
-              bgImage.resize(bgImageTargetW, bgImageTargetH)
-            else:
-              bgImage
-          renderer.ctx.updateImage(bgImageId.Hash, bgUpload)
-        var renders = makeOverlay(
-          sz.x,
-          sz.y,
-          rows,
-          monoFont,
-          bg = rgba(0, 0, 0, 255).color,
-          bgImageId = bgImageId,
-        )
-        renderer.renderFrame(renders, sz, clearMain = true)
-      else:
-        var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
-        renderer.renderFrame(renders, sz, clearMain = false)
     else:
       var renders = makeOverlay(sz.x, sz.y, rows, monoFont)
       renderer.renderFrame(renders, sz, clearMain = false)
     renderer.endFrame()
 
-  window.onCloseRequest = proc() =
-    app_running = false
-  window.onResize = proc() =
-    discard
+  appWindow.eventsHandler = WindowEventsHandler(
+    onClose: proc(e: CloseEvent) =
+      app_running = false,
+    onResize: proc(e: ResizeEvent) =
+      appWindow.refreshUiScale(useAutoScale)
+      redraw(),
+    onKey: proc(e: KeyEvent) =
+      if e.pressed and e.key == Key.escape:
+        close(e.window)
+    ,
+    onRender: proc(e: RenderEvent) =
+      redraw(),
+  )
+  appWindow.firstStep()
+  appWindow.refreshUiScale(useAutoScale)
 
   try:
-    while app_running:
-      pollEvents()
-      redraw()
+    while app_running and appWindow.opened:
+      appWindow.redraw()
+      appWindow.step()
       if RunOnce:
         app_running = false
   finally:
     destroyPyramid(pyramid)
     when not defined(emscripten):
-      window.close()
+      appWindow.close()

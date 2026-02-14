@@ -409,8 +409,15 @@ proc bindAttrib*(shader: Shader, name: string, buffer: Buffer) =
 
   for attrib in shader.attribs:
     if name == attrib.name:
-      if buffer.componentType == cGL_FLOAT or buffer.normalized or
-          buffer.kind != bkSCALAR:
+      # Integer pointer mode is only required when the attribute is truly 32-bit
+      # integer data. Other scalar formats (e.g. u16 enum values) should flow
+      # through the float attribute path for GLSL ES compatibility.
+      let useIntegerPointer =
+        not buffer.normalized and
+        buffer.kind == bkSCALAR and
+        (buffer.componentType == cGL_INT or buffer.componentType == GL_UNSIGNED_INT)
+
+      if not useIntegerPointer:
         glVertexAttribPointer(
           attrib.location.GLuint,
           buffer.kind.componentCount().GLint,

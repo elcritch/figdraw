@@ -9,12 +9,9 @@ export uimaths, fonttypes, imgutils
 export options, chroma, stack_strings
 
 const
-  FigStringCap* {.intdefine.} = 48
   ShadowCount* {.intdefine.} = 4
-  FigDrawNames* {.booldefine: "figdraw.names".}: bool = false
 
 type
-  FigName* = StackString[FigStringCap]
   FigID* = int64
 
 type

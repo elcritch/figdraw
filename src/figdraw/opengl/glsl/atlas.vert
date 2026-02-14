@@ -5,7 +5,7 @@ in vec2 vertexUv;
 in vec4 vertexColor;
 in vec4 vertexSdfParams;
 in vec4 vertexSdfRadii;
-in uint vertexSdfMode;
+in float vertexSdfMode;
 in vec2 vertexSdfFactors;
 
 uniform mat4 proj;
@@ -24,7 +24,7 @@ void main() {
   color = vertexColor;
   sdfParams = vertexSdfParams;
   sdfRadii = vertexSdfRadii;
-  sdfMode = float(vertexSdfMode);
+  sdfMode = vertexSdfMode;
   sdfFactors = vertexSdfFactors;
   gl_Position = proj * vec4(vertexPos.x, vertexPos.y, 0.0, 1.0);
 }
