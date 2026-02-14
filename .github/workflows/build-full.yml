@@ -30,6 +30,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
           weston \
+          xwayland \
           wayland-protocols \
           libwayland-dev \
           libegl1-mesa-dev \
@@ -107,10 +108,10 @@ jobs:
         export XDG_RUNTIME_DIR="${RUNNER_TEMP}/xdg-runtime"
         mkdir -p "${XDG_RUNTIME_DIR}"
         chmod 700 "${XDG_RUNTIME_DIR}"
-        unset DISPLAY
 
         weston --backend=headless-backend.so \
                --renderer=pixman \
+               --xwayland \
                --socket="${WAYLAND_DISPLAY}" \
                --idle-time=0 \
                --log="${RUNNER_TEMP}/weston.log" &
