@@ -1,4 +1,4 @@
-import std/os
+import std/[os, times]
 import chroma
 
 import figdraw/windowing/siwinshim
@@ -8,6 +8,7 @@ import figdraw/fignodes
 import figdraw/figrender as glrenderer
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
+const LeftWindowDelaySec = 1.0
 
 type WindowPalette = object
   bg: Color
@@ -21,6 +22,13 @@ type DemoWindow = ref object
   lastSize: Vec2
   useAutoScale: bool
   palette: WindowPalette
+
+proc placeSideBySide(left, right: DemoWindow) =
+  let marginX = 80'i32
+  let topY = 90'i32
+  let gap = 40'i32
+  left.window.pos = ivec2(marginX, topY)
+  right.window.pos = ivec2(marginX + left.window.size.x + gap, topY)
 
 proc makeRenderTree(w, h: float32, palette: WindowPalette): Renders =
   result = Renders()
@@ -161,6 +169,7 @@ when isMainModule:
 
   left.installHandlers()
   right.installHandlers()
+  placeSideBySide(left, right)
   left.window.redraw()
   right.window.redraw()
 
@@ -168,34 +177,44 @@ when isMainModule:
   var frames = 0
 
   try:
-    if RunOnce:
+    let startupAt = epochTime()
+    var leftStarted = false
+
+    proc startLeftWindow() =
+      if leftStarted:
+        return
       left.window.firstStep()
-      right.window.firstStep()
       left.window.refreshUiScale(left.useAutoScale)
-      right.window.refreshUiScale(right.useAutoScale)
       left.window.redraw()
+      leftStarted = true
+
+    if RunOnce:
+      right.window.firstStep()
+      right.window.refreshUiScale(right.useAutoScale)
       right.window.redraw()
       while appRunning and (left.window.opened or right.window.opened):
-        if left.window.opened:
-          left.window.step()
+        if not leftStarted and epochTime() - startupAt >= LeftWindowDelaySec:
+          startLeftWindow()
         if right.window.opened:
           right.window.step()
+        if leftStarted and left.window.opened:
+          left.window.step()
         inc frames
         if frames >= 1:
           appRunning = false
     else:
-      runMultiple(
-        (
-          window: left.window,
-          eventsHandler: left.window.eventsHandler,
-          makeVisible: true,
-        ),
-        (
-          window: right.window,
-          eventsHandler: right.window.eventsHandler,
-          makeVisible: true,
-        ),
-      )
+      right.window.firstStep()
+      right.window.refreshUiScale(right.useAutoScale)
+      right.window.redraw()
+      while appRunning and (not leftStarted or left.window.opened or right.window.opened):
+        if not leftStarted and epochTime() - startupAt >= LeftWindowDelaySec:
+          startLeftWindow()
+        if right.window.opened:
+          right.window.step()
+        if leftStarted and left.window.opened:
+          left.window.step()
+        when not defined(emscripten):
+          sleep(16)
   finally:
     when not defined(emscripten):
       if left.window.opened:
