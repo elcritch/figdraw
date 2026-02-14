@@ -80,13 +80,13 @@ when isMainModule:
 
   let title = siwinWindowTitle("Siwin RenderList")
   let size = ivec2(800, 600)
-  let appWindow = newSiwinWindow(size = size, title = title, vsync = true)
+  let renderer =
+    glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
+  let appWindow = newSiwinWindow(renderer, size = size, title = title, vsync = true)
   let useAutoScale = appWindow.configureUiScale()
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
-  let renderer =
-    glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
   renderer.setupBackend(appWindow)
 
   info "Siwin renderlist startup",
@@ -118,18 +118,16 @@ when isMainModule:
   appWindow.eventsHandler = WindowEventsHandler(
     onClose: proc(e: CloseEvent) =
       info "Close requested"
-      app_running = false
-    ,
+      app_running = false,
     onResize: proc(e: ResizeEvent) =
       appWindow.refreshUiScale(useAutoScale)
-      redraw()
-    ,
+      redraw(),
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:
         close(e.window)
     ,
     onRender: proc(e: RenderEvent) =
-      redraw()
+      redraw(),
   )
   appWindow.firstStep()
   appWindow.refreshUiScale(useAutoScale)

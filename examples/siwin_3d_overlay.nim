@@ -473,10 +473,10 @@ when isMainModule:
 
   let title = siwinWindowTitle("Siwin 3D + overlay")
   let size = ivec2(900, 640)
-  let appWindow = newSiwinWindow(size = size, title = title, vsync = true)
-  let useAutoScale = appWindow.configureUiScale()
   let renderer =
     glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+  let appWindow = newSiwinWindow(renderer, size = size, title = title, vsync = true)
+  let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
   when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:
@@ -539,18 +539,16 @@ when isMainModule:
 
   appWindow.eventsHandler = WindowEventsHandler(
     onClose: proc(e: CloseEvent) =
-      app_running = false
-    ,
+      app_running = false,
     onResize: proc(e: ResizeEvent) =
       appWindow.refreshUiScale(useAutoScale)
-      redraw()
-    ,
+      redraw(),
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:
         close(e.window)
     ,
     onRender: proc(e: RenderEvent) =
-      redraw()
+      redraw(),
   )
   appWindow.firstStep()
   appWindow.refreshUiScale(useAutoScale)

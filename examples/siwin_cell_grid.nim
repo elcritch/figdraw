@@ -12,9 +12,9 @@ import figdraw/fignodes
 import figdraw/figrender
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
-const GridColumns  {.intdefine: "figdraw.cols".} = 24
-const GridRows  {.intdefine: "figdraw.rows".} = 32
-const GridGap  {.intdefine: "figdraw.gap".} = 6
+const GridColumns {.intdefine: "figdraw.cols".} = 24
+const GridRows {.intdefine: "figdraw.rows".} = 32
+const GridGap {.intdefine: "figdraw.gap".} = 6
 
 proc cellColor(cellId: int): Color =
   let palette = [
@@ -127,13 +127,12 @@ when isMainModule:
   let
     title = siwinWindowTitle("Siwin Cell Grid")
     baseSize = ivec2(1080, 720)
-    appWindow = newSiwinWindow(size = baseSize, fullscreen = false, title = title)
-  let useAutoScale = appWindow.configureUiScale()
-
-  let
     typefaceId = loadTypeface("Ubuntu.ttf")
     labelFont = FigFont(typefaceId: typefaceId, size: 8.0'f32)
     renderer = newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+    appWindow =
+      newSiwinWindow(renderer, size = baseSize, fullscreen = false, title = title)
+  let useAutoScale = appWindow.configureUiScale()
 
   renderer.setupBackend(appWindow)
 
@@ -151,18 +150,16 @@ when isMainModule:
 
   appWindow.eventsHandler = WindowEventsHandler(
     onClose: proc(e: CloseEvent) =
-      appRunning = false
-    ,
+      appRunning = false,
     onResize: proc(e: ResizeEvent) =
       appWindow.refreshUiScale(useAutoScale)
-      redraw()
-    ,
+      redraw(),
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:
         close(e.window)
     ,
     onRender: proc(e: RenderEvent) =
-      redraw()
+      redraw(),
   )
   appWindow.firstStep()
   appWindow.refreshUiScale(useAutoScale)

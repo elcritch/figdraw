@@ -14,8 +14,6 @@ import figdraw/windowing/siwinshim
 import figdraw/commons
 import figdraw/fignodes
 import figdraw/figrender as glrenderer
-when not UseMetalBackend:
-  import figdraw/utils/glutils
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
@@ -302,13 +300,14 @@ when isMainModule:
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
-  let appWindow = newSiwinWindow(size = size, fullscreen = false, title = title)
+  let renderer =
+    glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+  let appWindow =
+    newSiwinWindow(renderer, size = size, fullscreen = false, title = title)
   let useAutoScale = appWindow.configureUiScale()
 
   let animStart = epochTime()
 
-  let renderer =
-    glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
   renderer.setupBackend(appWindow)
 
   var makeRenderTreeMsSum = 0.0
@@ -381,18 +380,16 @@ when isMainModule:
 
   appWindow.eventsHandler = WindowEventsHandler(
     onClose: proc(e: CloseEvent) =
-      app_running = false
-    ,
+      app_running = false,
     onResize: proc(e: ResizeEvent) =
       appWindow.refreshUiScale(useAutoScale)
-      redraw()
-    ,
+      redraw(),
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:
         close(e.window)
     ,
     onRender: proc(e: RenderEvent) =
-      redraw()
+      redraw(),
   )
   appWindow.firstStep()
   appWindow.refreshUiScale(useAutoScale)

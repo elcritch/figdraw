@@ -27,12 +27,7 @@ proc makeRenderTree(w, h: float32, palette: WindowPalette): Renders =
 
   let root = result.addRoot(
     0.ZLevel,
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      screenBox: rect(0, 0, w, h),
-      fill: palette.bg,
-    ),
+    Fig(kind: nkRectangle, childCount: 0, screenBox: rect(0, 0, w, h), fill: palette.bg),
   )
 
   let panelW = min(420.0'f32, max(220.0'f32, w * 0.55'f32))
@@ -96,10 +91,12 @@ proc redraw(state: DemoWindow) =
   state.renderer.endFrame()
 
 proc newDemoWindow(size: IVec2, title: string, palette: WindowPalette): DemoWindow =
-  let window = newSiwinWindow(size = size, fullscreen = false, title = title, vsync = true)
-  let useAutoScale = window.configureUiScale()
   let renderer =
     glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
+  let window = newSiwinWindow(
+    renderer, size = size, fullscreen = false, title = title, vsync = true
+  )
+  let useAutoScale = window.configureUiScale()
   renderer.setupBackend(window)
   result = DemoWindow(
     window: window,
@@ -113,18 +110,16 @@ proc newDemoWindow(size: IVec2, title: string, palette: WindowPalette): DemoWind
 proc installHandlers(state: DemoWindow) =
   state.window.eventsHandler = WindowEventsHandler(
     onClose: proc(e: CloseEvent) =
-      discard
-    ,
+      discard,
     onResize: proc(e: ResizeEvent) =
       state.window.refreshUiScale(state.useAutoScale)
-      state.redraw()
-    ,
+      state.redraw(),
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:
         close(e.window)
     ,
     onRender: proc(e: RenderEvent) =
-      state.redraw()
+      state.redraw(),
   )
 
 when isMainModule:

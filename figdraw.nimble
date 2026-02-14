@@ -34,7 +34,7 @@ feature "windy":
 feature "surfer":
   requires "https://github.com/nim-windowing/surfer"
 feature "siwin":
-  requires "siwin >= 0.9.3"
+  requires "siwin#babe3e53"
 
 feature "vulkan":
   requires "https://github.com/planetis-m/vulkan#b223dc9"

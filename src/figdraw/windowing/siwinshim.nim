@@ -1,6 +1,11 @@
 import std/[os, strutils]
 import vmath
 
+import
+  siwin/
+    [window as siWindow, windowOpengl as siWindowOpengl, windowVulkan as siWindowVulkan]
+import siwin/platforms
+
 import ../commons
 import ../figrender
 
@@ -9,17 +14,19 @@ const NeedSiwinOpenGLContext = UseSiwinOpenGL or UseOpenGlFallback
 
 when defined(macosx):
   import darwin/app_kit/[nsview]
-  import siwin/platforms/any/window as siAnyWindow
   import siwin/platforms/cocoa/window as siCocoaWindow
   when UseMetalBackend:
     import ./siwinmetal as siwinmetal
-else:
-  {.error: "siwinshim: unsupported OS".}
+when UseVulkanBackend and (defined(linux) or defined(bsd)):
+  import siwin/platforms/x11/window as siX11Window
+  import ../vulkan/vulkan_context
 
-when NeedSiwinOpenGLContext:
+when NeedSiwinOpenGLContext and not UseVulkanBackend:
   import figdraw/utils/glutils
 
-export siAnyWindow, siCocoaWindow, vmath
+export siWindow, siWindowOpengl, vmath
+when defined(macosx):
+  export siCocoaWindow
 
 proc siwinBackendName*(): string =
   backendName(PreferredBackendKind)
@@ -35,32 +42,87 @@ proc newSiwinWindow*(
 ): Window =
   let window =
     when UseMetalBackend and not NeedSiwinOpenGLContext:
-      newMetalWindowCocoa(size = size, title = title)
+      when defined(macosx):
+        newMetalWindowCocoa(size = size, title = title)
+      else:
+        {.error: "siwinshim: Metal backend requires macOS".}
     else:
-      newOpenglWindowCocoa(size = size, title = title, vsync = vsync, msaa = msaa)
-  when NeedSiwinOpenGLContext:
+      when defined(macosx):
+        newOpenglWindowCocoa(size = size, title = title, vsync = vsync, msaa = msaa)
+      else:
+        when UseVulkanBackend and (defined(linux) or defined(bsd)):
+          # Use a non-GL window for Vulkan so siwin's GL swap path does not flicker.
+          newSoftwareRenderingWindow(
+            size = size, title = title, preferedPlatform = Platform.x11
+          )
+        else:
+          newOpenglWindow(size = size, title = title, vsync = vsync)
+  when NeedSiwinOpenGLContext and not UseVulkanBackend:
     startOpenGL(openglVersion)
     window.makeCurrent()
   if fullscreen:
     window.fullscreen = true
   result = window
 
+proc newSiwinWindow*(
+    renderer: FigRenderer,
+    size: IVec2,
+    fullscreen = false,
+    title = "FigDraw",
+    vsync = true,
+    msaa = 0'i32,
+): Window =
+  ## Preferred constructor for Vulkan: uses siwin native Vulkan windows/surfaces.
+  when UseVulkanBackend:
+    if renderer.backendKind() == rbVulkan:
+      let vkCtx = renderer.ctx.VulkanContext
+      when defined(linux) or defined(bsd):
+        vkCtx.setInstanceSurfaceHint(vstXlib)
+      elif defined(windows):
+        vkCtx.setInstanceSurfaceHint(vstWin32)
+      elif defined(macosx):
+        vkCtx.setInstanceSurfaceHint(vstMetal)
+      vkCtx.ensureInstance()
+      let window =
+        when defined(linux) or defined(bsd):
+          siWindowVulkan.newVulkanWindow(
+            vkCtx.instanceHandle(),
+            size = size,
+            title = title,
+            fullscreen = fullscreen,
+            preferedPlatform = Platform.x11,
+          )
+        else:
+          siWindowVulkan.newVulkanWindow(
+            vkCtx.instanceHandle(), size = size, title = title, fullscreen = fullscreen
+          )
+      return window
+  newSiwinWindow(
+    size = size, fullscreen = fullscreen, title = title, vsync = vsync, msaa = msaa
+  )
+
 proc backingSize*(window: Window): IVec2 =
-  let contentView = cast[NSView](WindowCocoa(window).nativeViewHandle())
-  let frame = contentView.frame
-  let backing = contentView.convertRectToBacking(frame)
-  ivec2(backing.size.width.int32, backing.size.height.int32)
+  when defined(macosx):
+    let contentView = cast[NSView](WindowCocoa(window).nativeViewHandle())
+    let frame = contentView.frame
+    let backing = contentView.convertRectToBacking(frame)
+    ivec2(backing.size.width.int32, backing.size.height.int32)
+  else:
+    window.size
 
 proc logicalSize*(window: Window): Vec2 =
   vec2(window.backingSize()).descaled()
 
 proc contentScale*(window: Window): float32 =
-  let contentView = cast[NSView](WindowCocoa(window).nativeViewHandle())
-  let frame = contentView.frame
-  if frame.size.width <= 0:
-    return 1.0
-  let backing = contentView.convertRectToBacking(frame)
-  (backing.size.width / frame.size.width).float32
+  when defined(macosx):
+    let contentView = cast[NSView](WindowCocoa(window).nativeViewHandle())
+    let frame = contentView.frame
+    if frame.size.width <= 0:
+      return 1.0
+    let backing = contentView.convertRectToBacking(frame)
+    (backing.size.width / frame.size.width).float32
+  else:
+    1.0
 
 proc configureUiScale*(window: Window, envVar = "HDI"): bool =
   ## Returns true when scale should track contentScale (auto mode).
@@ -76,10 +138,11 @@ proc refreshUiScale*(window: Window, autoScale: bool) =
     setFigUiScale window.contentScale()
 
 proc presentNow*(window: Window) =
-  if window of WindowCocoaOpengl:
-    WindowCocoaOpengl(window).swapBuffers()
+  when defined(macosx):
+    if window of WindowCocoaOpengl:
+      WindowCocoaOpengl(window).swapBuffers()
 
-when UseMetalBackend:
+when UseMetalBackend and defined(macosx):
   type MetalLayerHandle* = siwinmetal.SiwinMetalLayerHandle
 
   proc attachMetalLayer*(
@@ -105,13 +168,13 @@ when UseMetalBackend:
 type SiwinRenderBackend* = object
   ## Opaque per-window backend state used by siwin + FigDraw integration.
   window*: Window
-  when UseMetalBackend:
+  when UseMetalBackend and defined(macosx):
     metalLayer*: MetalLayerHandle
 
 proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a siwin window and FigDraw renderer.
   renderer.backendState.window = window
-  when UseMetalBackend:
+  when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:
       try:
         renderer.backendState.metalLayer =
@@ -122,10 +185,27 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
           renderer.useOpenGlFallback(exc.msg)
         else:
           raise exc
+  when UseVulkanBackend:
+    if renderer.backendKind() == rbVulkan:
+      let vkCtx = renderer.ctx.VulkanContext
+      let surface = window.vulkanSurface()
+      if not surface.isNil:
+        when defined(linux) or defined(bsd):
+          vkCtx.setExternalSurface(surface, vstXlib, ownedByContext = true)
+        elif defined(windows):
+          vkCtx.setExternalSurface(surface, vstWin32, ownedByContext = true)
+        elif defined(macosx):
+          vkCtx.setExternalSurface(surface, vstMetal, ownedByContext = true)
+      when defined(linux) or defined(bsd):
+        if surface.isNil and window of siX11Window.WindowX11:
+          let x11Window = siX11Window.WindowX11(window)
+          vkCtx.setPresentXlibTarget(
+            x11Window.nativeDisplayHandle(), x11Window.nativeWindowHandle()
+          )
 
 proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   ## Per-frame pre-render backend maintenance.
-  when UseMetalBackend:
+  when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:
       let window = renderer.backendState.window
       renderer.backendState.metalLayer.updateMetalLayer(window)

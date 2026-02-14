@@ -256,13 +256,12 @@ when isMainModule:
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
-  let appWindow = newSiwinWindow(
-    size = size, fullscreen = false, title = siwinWindowTitle("Siwin + Text")
-  )
-  let useAutoScale = appWindow.configureUiScale()
-
   let renderer =
     glrenderer.newFigRenderer(atlasSize = 4096, backendState = SiwinRenderBackend())
+  let appWindow = newSiwinWindow(
+    renderer, size = size, fullscreen = false, title = siwinWindowTitle("Siwin + Text")
+  )
+  let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
 
   proc redraw() =
@@ -278,18 +277,16 @@ when isMainModule:
 
   appWindow.eventsHandler = WindowEventsHandler(
     onClose: proc(e: CloseEvent) =
-      app_running = false
-    ,
+      app_running = false,
     onResize: proc(e: ResizeEvent) =
       appWindow.refreshUiScale(useAutoScale)
-      redraw()
-    ,
+      redraw(),
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:
         close(e.window)
     ,
     onRender: proc(e: RenderEvent) =
-      redraw()
+      redraw(),
   )
   appWindow.firstStep()
   appWindow.refreshUiScale(useAutoScale)
