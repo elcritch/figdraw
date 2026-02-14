@@ -130,7 +130,7 @@ proc installHandlers(state: DemoWindow) =
       discard,
     onResize: proc(e: ResizeEvent) =
       state.window.refreshUiScale(state.useAutoScale)
-      state.redraw(),
+      state.window.redraw(),
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:
         close(e.window)
@@ -161,6 +161,8 @@ when isMainModule:
 
   left.installHandlers()
   right.installHandlers()
+  left.window.redraw()
+  right.window.redraw()
 
   var appRunning = true
   var frames = 0
@@ -171,6 +173,8 @@ when isMainModule:
       right.window.firstStep()
       left.window.refreshUiScale(left.useAutoScale)
       right.window.refreshUiScale(right.useAutoScale)
+      left.window.redraw()
+      right.window.redraw()
       while appRunning and (left.window.opened or right.window.opened):
         if left.window.opened:
           left.window.step()
