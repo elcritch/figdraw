@@ -112,7 +112,7 @@ proc newSiwinWindow*(
   ## Compatibility overload. Prefer creating a window first, then renderer.
   let forceOpenGl = runtimeForceOpenGlRequested() or renderer.forceOpenGlByEnv()
   when UseVulkanBackend:
-    if renderer.backendKind() == rbVulkan and not forceOpenGl:
+    if not forceOpenGl and renderer.backendKind() == rbVulkan:
       let globals = sharedSiwinGlobals()
       let vkCtx = renderer.ctx.VulkanContext
       when defined(linux) or defined(bsd):
@@ -219,9 +219,17 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
   renderer.backendState.window = window
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     if renderer.forceOpenGlByEnv():
-      # Defer actual backend swap to beginFrame(). Wayland OpenGL contexts are only
-      # reliably ready after firstStep() and first render-cycle entry.
-      return
+      when NeedSiwinOpenGLContext:
+        window.makeCurrent()
+      try:
+        # Prefer switching immediately so setup-time backend queries/title reflect
+        # the forced backend. If context is not fully ready yet, beginFrame() will
+        # retry.
+        discard renderer.applyRuntimeBackendOverride()
+      except CatchableError:
+        # Defer actual backend swap to beginFrame(). Wayland OpenGL contexts can
+        # still require the first render-cycle entry.
+        return
   when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:
       try:

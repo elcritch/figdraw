@@ -61,11 +61,13 @@ proc backendName*[BackendState](renderer: FigRenderer[BackendState]): string =
 
 proc runtimeForceOpenGlRequested*(): bool =
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    let force = getEnv("FIGDRAW_FORCE_OPENGL").strip().toLowerAscii()
+    if force in ["1", "true", "yes", "on"]:
+      return true
     let backend = getEnv("FIGDRAW_BACKEND").strip().toLowerAscii()
     if backend.len > 0:
       return backend in ["opengl", "gl"]
-    let force = getEnv("FIGDRAW_FORCE_OPENGL").strip().toLowerAscii()
-    force in ["1", "true", "yes", "on"]
+    false
   else:
     false
 
