@@ -21,7 +21,6 @@ type DemoWindow = ref object
   lastSize: Vec2
   useAutoScale: bool
   palette: WindowPalette
-  isOpen: bool
 
 proc makeRenderTree(w, h: float32, palette: WindowPalette): Renders =
   result = Renders()
@@ -83,8 +82,6 @@ proc makeRenderTree(w, h: float32, palette: WindowPalette): Renders =
     )
 
 proc redraw(state: DemoWindow) =
-  if not state.isOpen:
-    return
   state.renderer.beginFrame()
   let sz = state.window.logicalSize()
   if sz != state.lastSize:
@@ -111,29 +108,21 @@ proc newDemoWindow(
     lastSize: vec2(0.0'f32, 0.0'f32),
     useAutoScale: useAutoScale,
     palette: palette,
-    isOpen: true,
   )
 
 proc installHandlers(state: DemoWindow) =
   state.window.eventsHandler = WindowEventsHandler(
     onClose: proc(e: CloseEvent) =
-      if state.isOpen:
-        state.isOpen = false
-    ,
+      discard,
     onResize: proc(e: ResizeEvent) =
-      if state.isOpen:
-        state.window.refreshUiScale(state.useAutoScale)
-        state.redraw()
-    ,
+      state.window.refreshUiScale(state.useAutoScale)
+      state.redraw(),
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:
-        if state.isOpen:
-          close(e.window)
+        close(e.window)
     ,
     onRender: proc(e: RenderEvent) =
-      if state.isOpen:
-        state.redraw()
-    ,
+      state.redraw(),
   )
 
 when isMainModule:
@@ -159,40 +148,39 @@ when isMainModule:
   left.installHandlers()
   right.installHandlers()
 
-  left.window.firstStep()
-  right.window.firstStep()
-  left.window.refreshUiScale(left.useAutoScale)
-  right.window.refreshUiScale(right.useAutoScale)
-
   var appRunning = true
   var frames = 0
 
   try:
-    while appRunning and (left.isOpen or right.isOpen):
-      left.redraw()
-      right.redraw()
-
-      if left.isOpen:
-        left.window.step()
-        if not left.window.opened:
-          left.isOpen = false
-      if right.isOpen:
-        right.window.step()
-        if not right.window.opened:
-          right.isOpen = false
-
-      inc frames
-      if RunOnce and frames >= 1:
-        appRunning = false
-      else:
-        appRunning = left.isOpen or right.isOpen
-        when not defined(emscripten):
-          sleep(16)
+    if RunOnce:
+      left.window.firstStep()
+      right.window.firstStep()
+      left.window.refreshUiScale(left.useAutoScale)
+      right.window.refreshUiScale(right.useAutoScale)
+      while appRunning and (left.window.opened or right.window.opened):
+        if left.window.opened:
+          left.window.step()
+        if right.window.opened:
+          right.window.step()
+        inc frames
+        if frames >= 1:
+          appRunning = false
+    else:
+      runMultiple(
+        (
+          window: left.window,
+          eventsHandler: left.window.eventsHandler,
+          makeVisible: true,
+        ),
+        (
+          window: right.window,
+          eventsHandler: right.window.eventsHandler,
+          makeVisible: true,
+        ),
+      )
   finally:
     when not defined(emscripten):
-      if left.isOpen:
-        left.isOpen = false
+      if left.window.opened:
         left.window.close()
-      if right.isOpen:
-        right.isOpen = false
+      if right.window.opened:
         right.window.close()
