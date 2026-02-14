@@ -80,22 +80,9 @@ jobs:
         key: ${{ runner.os }}-${{ hashFiles('figdraw.nimble') }}
 
     - name: Install Deps
-      if: runner.os == 'Linux'
       run: |
         # sync deps
-        atlas install --feature:windy --feature:sdl2
-
-    - name: Install Deps
-      if: runner.os == 'macOS'
-      run: |
-        # sync deps
-        atlas install --feature:windy --feature:sdl2
-
-    - name: Install Deps
-      if: runner.os == 'Windows'
-      run: |
-        # sync deps
-        atlas install --feature:windy --feature:sdl2
+        atlas install --feature:windy --feature:sdl2 --feature:siwin
 
     - name: Build Tests
       if: runner.os == 'Linux'
