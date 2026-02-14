@@ -34,17 +34,11 @@ proc siwinBackendName*(): string =
 proc siwinBackendName*[BackendState](renderer: FigRenderer[BackendState]): string =
   renderer.backendName()
 
-proc siwinPreferredPlatform*(): Platform =
-  when defined(linux) or defined(bsd):
-    Platform.x11
-  else:
-    defaultPreferedPlatform()
-
 var siwinGlobalsShared {.threadvar.}: SiwinGlobals
 
 proc sharedSiwinGlobals*(): SiwinGlobals =
   if siwinGlobalsShared.isNil:
-    siwinGlobalsShared = newSiwinGlobals(siwinPreferredPlatform())
+    siwinGlobalsShared = newSiwinGlobals()
   siwinGlobalsShared
 
 proc siwinWindowTitle*(suffix = "Siwin RenderList"): string =
