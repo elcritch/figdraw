@@ -22,7 +22,7 @@ when UseVulkanBackend:
   import siwin/windowVulkan as siWindowVulkan
   import ../vulkan/vulkan_context
 
-when NeedSiwinOpenGLContext and not UseVulkanBackend:
+when NeedSiwinOpenGLContext:
   import figdraw/utils/glutils
 
 export siWindow, siWindowOpengl, vmath
@@ -69,6 +69,7 @@ proc siwinWindowTitle*[BackendState](
 proc newSiwinWindow*(
     size: IVec2, fullscreen = false, title = "FigDraw", vsync = true, msaa = 0'i32
 ): Window =
+  let forceOpenGl = runtimeForceOpenGlRequested()
   let window =
     when UseMetalBackend and not NeedSiwinOpenGLContext:
       when defined(macosx):
@@ -81,13 +82,21 @@ proc newSiwinWindow*(
       else:
         let globals = sharedSiwinGlobals()
         when UseVulkanBackend:
-          # Use a non-GL window for Vulkan so siwin's GL swap path does not flicker.
-          newSoftwareRenderingWindow(globals, size = size, title = title)
+          if forceOpenGl:
+            newOpenglWindow(globals, size = size, title = title, vsync = vsync)
+          else:
+            # Use a non-GL window for Vulkan so siwin's GL swap path does not flicker.
+            newSoftwareRenderingWindow(globals, size = size, title = title)
         else:
           newOpenglWindow(globals, size = size, title = title, vsync = vsync)
-  when NeedSiwinOpenGLContext and not UseVulkanBackend:
-    startOpenGL(openglVersion)
-    window.makeCurrent()
+  when NeedSiwinOpenGLContext:
+    when UseVulkanBackend:
+      if forceOpenGl:
+        startOpenGL(openglVersion)
+        window.makeCurrent()
+    else:
+      startOpenGL(openglVersion)
+      window.makeCurrent()
   if fullscreen:
     window.fullscreen = true
   result = window
@@ -101,8 +110,9 @@ proc newSiwinWindow*(
     msaa = 0'i32,
 ): Window =
   ## Compatibility overload. Prefer creating a window first, then renderer.
+  let forceOpenGl = runtimeForceOpenGlRequested() or renderer.forceOpenGlByEnv()
   when UseVulkanBackend:
-    if renderer.backendKind() == rbVulkan:
+    if renderer.backendKind() == rbVulkan and not forceOpenGl:
       let globals = sharedSiwinGlobals()
       let vkCtx = renderer.ctx.VulkanContext
       when defined(linux) or defined(bsd):
@@ -207,6 +217,13 @@ type SiwinRenderBackend* = object
 proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a siwin window and FigDraw renderer.
   renderer.backendState.window = window
+  when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    if renderer.forceOpenGlByEnv():
+      when NeedSiwinOpenGLContext:
+        if renderer.backendKind() != rbOpenGL:
+          startOpenGL(openglVersion)
+        renderer.backendState.window.makeCurrent()
+      discard renderer.applyRuntimeBackendOverride()
   when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:
       try:

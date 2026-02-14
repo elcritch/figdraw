@@ -1,4 +1,4 @@
-import std/[hashes, math, tables, unicode]
+import std/[hashes, math, os, strutils, tables, unicode]
 export tables
 
 from pkg/pixie import Image
@@ -37,8 +37,7 @@ else:
 
 const FastShadows {.booldefine: "figuro.fastShadows".}: bool = false
 
-type
-  NoRendererBackendState* = object
+type NoRendererBackendState* = object
 
 type FigRenderer*[BackendState = NoRendererBackendState] = ref object
   ctx*: BackendContext
@@ -47,6 +46,7 @@ type FigRenderer*[BackendState = NoRendererBackendState] = ref object
     fallbackAtlasSize: int
     fallbackPixelate: bool
     fallbackPixelScale: float32
+    forceOpenGlByEnv: bool
 
 template entries*(ctx: BackendContext): untyped =
   ctx.entriesPtr()[]
@@ -59,6 +59,23 @@ proc backendKind*[BackendState](
 proc backendName*[BackendState](renderer: FigRenderer[BackendState]): string =
   backendName(renderer.backendKind())
 
+proc runtimeForceOpenGlRequested*(): bool =
+  when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    let backend = getEnv("FIGDRAW_BACKEND").strip().toLowerAscii()
+    if backend.len > 0:
+      return backend in ["opengl", "gl"]
+    let force = getEnv("FIGDRAW_FORCE_OPENGL").strip().toLowerAscii()
+    force in ["1", "true", "yes", "on"]
+  else:
+    false
+
+proc forceOpenGlByEnv*[BackendState](renderer: FigRenderer[BackendState]): bool =
+  when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    renderer.forceOpenGlByEnv
+  else:
+    discard renderer
+    false
+
 when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
   proc logOpenGlFallback(reason: string) =
     warn "Preferred backend failed, falling back to OpenGL at runtime",
@@ -68,8 +85,7 @@ when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
       renderer: FigRenderer[BackendState], reason: string
   ) =
     logOpenGlFallback(reason)
-    let alreadyOpenGl =
-      not renderer.ctx.isNil and renderer.ctx.kind() == rbOpenGL
+    let alreadyOpenGl = not renderer.ctx.isNil and renderer.ctx.kind() == rbOpenGL
     if alreadyOpenGl:
       return
     try:
@@ -84,6 +100,14 @@ when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
         "Preferred backend failed (" & reason &
           "), and OpenGL fallback could not initialize (" & glExc.msg & ")",
       )
+
+  proc applyRuntimeBackendOverride*[BackendState](
+      renderer: FigRenderer[BackendState]
+  ): bool =
+    if renderer.forceOpenGlByEnv and renderer.backendKind() != rbOpenGL:
+      renderer.useOpenGlFallback("forced by FIGDRAW_BACKEND/FIGDRAW_FORCE_OPENGL")
+      return true
+    false
 
 proc takeScreenshot*[BackendState](
     renderer: FigRenderer[BackendState],
@@ -106,6 +130,11 @@ proc initRendererContext[BackendState](
     renderer.fallbackAtlasSize = atlasSize
     renderer.fallbackPixelate = pixelate
     renderer.fallbackPixelScale = pixelScale
+    renderer.forceOpenGlByEnv = runtimeForceOpenGlRequested()
+    if renderer.forceOpenGlByEnv:
+      logBackend(
+        "Runtime OpenGL override requested; deferring backend swap to setupBackend"
+      )
     try:
       renderer.ctx = preferred_backend.newContext(
         atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale
@@ -530,7 +559,9 @@ proc render(
 
   postRender()
 
-proc renderRoot*(ctx: BackendContext, nodes: var Renders) {.forbids: [AppMainThreadEff].} =
+proc renderRoot*(
+    ctx: BackendContext, nodes: var Renders
+) {.forbids: [AppMainThreadEff].} =
   ## draw roots for each level
   var img: ImgObj
   while imageChan.tryRecv(img):

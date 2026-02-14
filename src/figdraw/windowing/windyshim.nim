@@ -151,6 +151,10 @@ type WindyRenderBackend* = object
 proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a Windy window and FigDraw renderer.
   renderer.backendState.window = window
+  when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    if renderer.forceOpenGlByEnv():
+      renderer.backendState.window.makeContextCurrent()
+      discard renderer.applyRuntimeBackendOverride()
   when UseMetalBackend:
     if renderer.backendKind() == rbMetal:
       try:
