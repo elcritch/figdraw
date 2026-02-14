@@ -147,12 +147,12 @@ proc newContext*(
 ): OpenGlContext =
   ## Creates a new context.
   info "Starting OpenGL Context",
-       atlasSize = atlasSize,
-       atlasMargin = atlasMargin,
-       maxQuads = maxQuads,
-       quadLimit = quadLimit,
-       pixelate = pixelate,
-       pixelScale = pixelScale
+    atlasSize = atlasSize,
+    atlasMargin = atlasMargin,
+    maxQuads = maxQuads,
+    quadLimit = quadLimit,
+    pixelate = pixelate,
+    pixelScale = pixelScale
   if maxQuads > quadLimit:
     raise newException(ValueError, &"Quads cannot exceed {quadLimit}")
 
@@ -982,9 +982,7 @@ proc clearMask*(ctx: OpenGlContext) =
   glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
 method beginMask*(
-    ctx: OpenGlContext,
-    clipRect: Rect,
-    radii: array[DirectionCorners, float32]
+    ctx: OpenGlContext, clipRect: Rect, radii: array[DirectionCorners, float32]
 ) =
   ## Starts drawing into a mask.
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
@@ -1146,7 +1144,14 @@ method readPixels*(ctx: OpenGlContext, frame: Rect, readFront: bool): Image =
     w = viewportWidth
     h = viewportHeight
 
-  glReadBuffer(if readFront: GL_FRONT else: GL_BACK)
+  if w <= 0 or h <= 0:
+    return newImage(0, 0)
+
+  let wantBack = not readFront
+  glReadBuffer(if wantBack: GL_BACK else: GL_FRONT)
+  if wantBack and glGetError() != GL_NO_ERROR:
+    # Wayland/EGL may expose a single-buffer drawable where GL_BACK is invalid.
+    glReadBuffer(GL_FRONT)
   result = newImage(w, h)
   glReadPixels(
     x.GLint, y.GLint, w.GLint, h.GLint, GL_RGBA, GL_UNSIGNED_BYTE, result.data[0].addr

@@ -37,6 +37,11 @@ proc renderAndScreenshotOnce*(
     except ValueError:
       raise newException(ValueError, "Metal device not available")
   elif UseVulkanBackend:
+    if getEnv("XDG_SESSION_TYPE").toLowerAscii() == "wayland" and
+        glrenderer.runtimeForceOpenGlRequested():
+      raise newException(
+        ValueError, "Wayland + runtime OpenGL screenshot path is unavailable"
+      )
     let renderer = glrenderer.newFigRenderer(
       atlasSize = atlasSize, backendState = SiwinRenderBackend()
     )
