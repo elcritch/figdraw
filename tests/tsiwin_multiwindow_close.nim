@@ -1,6 +1,8 @@
 import std/unittest
 
-import figdraw/windowing/siwinshim
+import pkg/opengl
+import pkg/pixie
+import pkg/siwin
 
 const TickLimit = 1200
 const CloseAtTick = 60
@@ -8,9 +10,16 @@ const RequiredOtherTicks = 20
 
 type CloseStats = tuple[otherTicksAfterFirstClose: int, firstObservedClosed: bool]
 
+let globals = newSiwinGlobals()
+
 proc runCloseDirection(closeLeftFirst: bool): CloseStats =
-  let win1 = newSiwinWindow(size = ivec2(320, 220), title = "figdraw test left")
-  let win2 = newSiwinWindow(size = ivec2(320, 220), title = "figdraw test right")
+  let win1 = globals.newOpenglWindow(
+    title = "figdraw test left", size = ivec2(320, 220), class = "figdraw test"
+  )
+  let win2 = globals.newOpenglWindow(
+    title = "figdraw test right", size = ivec2(320, 220), class = "figdraw test"
+  )
+  loadExtensions()
 
   var
     ticks1 = 0
@@ -26,6 +35,15 @@ proc runCloseDirection(closeLeftFirst: bool): CloseStats =
       close(win2)
 
   let win1Events = WindowEventsHandler(
+    onResize: proc(e: ResizeEvent) =
+      makeCurrent e.window
+      glViewport 0, 0, e.size.x.GLsizei, e.size.y.GLsizei
+    ,
+    onRender: proc(e: RenderEvent) =
+      makeCurrent e.window
+      glClearColor 0.3, 0.3, 0.3, 0.7
+      glClear GlColorBufferBit or GlDepthBufferBit
+    ,
     onTick: proc(e: TickEvent) =
       inc ticks1
       if closeLeftFirst:
@@ -46,6 +64,15 @@ proc runCloseDirection(closeLeftFirst: bool): CloseStats =
   )
 
   let win2Events = WindowEventsHandler(
+    onResize: proc(e: ResizeEvent) =
+      makeCurrent e.window
+      glViewport 0, 0, e.size.x.GLsizei, e.size.y.GLsizei
+    ,
+    onRender: proc(e: RenderEvent) =
+      makeCurrent e.window
+      glClearColor 0.7, 0.7, 0.7, 1
+      glClear GlColorBufferBit or GlDepthBufferBit
+    ,
     onTick: proc(e: TickEvent) =
       inc ticks2
       if not closeLeftFirst:

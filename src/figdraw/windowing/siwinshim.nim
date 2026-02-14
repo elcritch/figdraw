@@ -192,6 +192,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
   when UseVulkanBackend:
     if renderer.backendKind() == rbVulkan:
       let vkCtx = renderer.ctx.VulkanContext
+      var hasPresentTarget = false
       when defined(linux) or defined(bsd):
         if window of siX11Window.WindowX11SoftwareRendering:
           siX11Window.WindowX11SoftwareRendering(window).setSoftwarePresentEnabled(
@@ -200,17 +201,32 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
       let surface = window.vulkanSurface()
       if not surface.isNil:
         when defined(linux) or defined(bsd):
-          vkCtx.setExternalSurface(surface, presentTargetXlib, ownedByContext = true)
+          if window of siWaylandWindow.WindowWayland:
+            # Wayland surface support is not wired in figdraw Vulkan yet.
+            raise newException(
+              ValueError, "Wayland Vulkan surface target is not supported by FigDraw yet"
+            )
+          else:
+            vkCtx.setExternalSurface(surface, presentTargetXlib, ownedByContext = true)
+            hasPresentTarget = true
         elif defined(windows):
           vkCtx.setExternalSurface(surface, presentTargetWin32, ownedByContext = true)
+          hasPresentTarget = true
         elif defined(macosx):
           vkCtx.setExternalSurface(surface, presentTargetMetal, ownedByContext = true)
+          hasPresentTarget = true
       when defined(linux) or defined(bsd):
         if surface.isNil and window of siX11Window.WindowX11:
           let x11Window = siX11Window.WindowX11(window)
           vkCtx.setPresentXlibTarget(
             x11Window.nativeDisplayHandle(), x11Window.nativeWindowHandle()
           )
+          hasPresentTarget = true
+      if not hasPresentTarget:
+        raise newException(
+          ValueError,
+          "Vulkan present target unavailable for this siwin window (Wayland/X11 mismatch)",
+        )
 
 proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   ## Per-frame pre-render backend maintenance.

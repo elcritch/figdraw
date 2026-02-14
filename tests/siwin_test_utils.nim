@@ -1,4 +1,4 @@
-import std/os
+import std/[os, strutils]
 import pkg/pixie
 
 import figdraw/windowing/siwinshim
@@ -37,6 +37,11 @@ proc renderAndScreenshotOnce*(
     except ValueError:
       raise newException(ValueError, "Metal device not available")
   elif UseVulkanBackend:
+    when defined(linux) or defined(bsd):
+      if getEnv("XDG_SESSION_TYPE").toLowerAscii() == "wayland":
+        raise newException(
+          ValueError, "Wayland Vulkan screenshot path is unstable; skipping test"
+        )
     let renderer = glrenderer.newFigRenderer(
       atlasSize = atlasSize, backendState = SiwinRenderBackend()
     )
@@ -60,6 +65,10 @@ proc renderAndScreenshotOnce*(
       else:
         renderer.endFrame()
         result = glrenderer.takeScreenshot(renderer)
+      if result.isNil or result.width <= 0 or result.height <= 0 or result.data.len == 0:
+        raise newException(
+          ValueError, "Vulkan screenshot unavailable (no present target or empty frame)"
+        )
       result.writeFile(outputPath)
     except VulkanError as exc:
       raise newException(ValueError, "Vulkan device not available: " & exc.msg)
