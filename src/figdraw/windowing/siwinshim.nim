@@ -171,6 +171,11 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
   when UseVulkanBackend:
     if renderer.backendKind() == rbVulkan:
       let vkCtx = renderer.ctx.VulkanContext
+      when defined(linux) or defined(bsd):
+        if window of siX11Window.WindowX11SoftwareRendering:
+          siX11Window.WindowX11SoftwareRendering(window).setSoftwarePresentEnabled(
+            false
+          )
       let surface = window.vulkanSurface()
       if not surface.isNil:
         when defined(linux) or defined(bsd):
