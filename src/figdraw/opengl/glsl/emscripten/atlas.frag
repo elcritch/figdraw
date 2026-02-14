@@ -1,7 +1,7 @@
 #version 100
 
-precision highp float;
 #extension GL_OES_standard_derivatives : enable
+precision highp float;
 
 varying vec2 pos;
 varying vec2 uv;

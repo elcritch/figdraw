@@ -125,17 +125,29 @@ proc addMaskTexture(ctx: OpenGlContext, frameSize = vec2(1, 1)) =
   maskTexture.width = frameSize.x.int32
   maskTexture.height = frameSize.y.int32
   maskTexture.componentType = GL_UNSIGNED_BYTE
-  maskTexture.format = GL_RGBA
   when defined(emscripten):
+    maskTexture.format = GL_RGBA
     maskTexture.internalFormat = GL_RGBA8
   else:
+    # Single-channel masks are enough for clip sampling in shaders (`.r`).
+    # Some Wayland/EGL drivers reject RGBA data format with GL_R8 internal format.
+    maskTexture.format = GL_RED
     maskTexture.internalFormat = GL_R8
   maskTexture.minFilter = minLinear
   if ctx.pixelate:
     maskTexture.magFilter = magNearest
   else:
     maskTexture.magFilter = magLinear
-  bindTextureData(maskTexture.addr, nil)
+  when defined(emscripten):
+    bindTextureData(maskTexture.addr, nil)
+  else:
+    try:
+      bindTextureData(maskTexture.addr, nil)
+    except GLerror:
+      # Compatibility fallback for contexts that do not accept GL_R8/GL_RED.
+      maskTexture.format = GL_RGBA
+      maskTexture.internalFormat = GL_RGBA8
+      bindTextureData(maskTexture.addr, nil)
   ctx.maskTextures.add(maskTexture)
 
 proc newContext*(
@@ -1148,13 +1160,22 @@ method readPixels*(ctx: OpenGlContext, frame: Rect, readFront: bool): Image =
     return newImage(0, 0)
 
   let wantBack = not readFront
-  glReadBuffer(if wantBack: GL_BACK else: GL_FRONT)
-  if wantBack and glGetError() != GL_NO_ERROR:
-    # Wayland/EGL may expose a single-buffer drawable where GL_BACK is invalid.
-    glReadBuffer(GL_FRONT)
+  var canSelectReadBuffer = true
+  try:
+    glReadBuffer(if wantBack: GL_BACK else: GL_FRONT)
+    if wantBack and glGetError() != GL_NO_ERROR:
+      # Wayland/EGL may expose a single-buffer drawable where GL_BACK is invalid.
+      glReadBuffer(GL_FRONT)
+  except GLerror:
+    # GLES/EGL paths can reject glReadBuffer; read from default color buffer.
+    canSelectReadBuffer = false
   result = newImage(w, h)
   glReadPixels(
     x.GLint, y.GLint, w.GLint, h.GLint, GL_RGBA, GL_UNSIGNED_BYTE, result.data[0].addr
   )
   result.flipVertical()
-  glReadBuffer(GL_BACK)
+  if canSelectReadBuffer:
+    try:
+      glReadBuffer(GL_BACK)
+    except GLerror:
+      discard

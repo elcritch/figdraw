@@ -219,11 +219,9 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
   renderer.backendState.window = window
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     if renderer.forceOpenGlByEnv():
-      when NeedSiwinOpenGLContext:
-        if renderer.backendKind() != rbOpenGL:
-          startOpenGL(openglVersion)
-        renderer.backendState.window.makeCurrent()
-      discard renderer.applyRuntimeBackendOverride()
+      # Defer actual backend swap to beginFrame(). Wayland OpenGL contexts are only
+      # reliably ready after firstStep() and first render-cycle entry.
+      return
   when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:
       try:
@@ -276,6 +274,11 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
 
 proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   ## Per-frame pre-render backend maintenance.
+  when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    if renderer.forceOpenGlByEnv() and renderer.backendKind() != rbOpenGL:
+      when NeedSiwinOpenGLContext:
+        renderer.backendState.window.makeCurrent()
+      discard renderer.applyRuntimeBackendOverride()
   when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:
       let window = renderer.backendState.window
