@@ -42,6 +42,7 @@ when isMainModule:
   )
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
+  appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin RenderList")
 
   var makeRenderTreeMsSum = 0.0
   var renderFrameMsSum = 0.0

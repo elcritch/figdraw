@@ -478,6 +478,7 @@ when isMainModule:
     glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
+  appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin 3D + overlay")
   when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:
       renderer.backendState.metalLayer.setOpaque(false)

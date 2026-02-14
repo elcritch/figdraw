@@ -263,6 +263,7 @@ when isMainModule:
     glrenderer.newFigRenderer(atlasSize = 4096, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
+  appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin + Text")
 
   proc redraw() =
     renderer.beginFrame()

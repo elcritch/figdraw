@@ -88,6 +88,7 @@ when isMainModule:
   var fpsFrames = 0
   var fpsStart = epochTime()
   renderer.setupBackend(appWindow)
+  appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin RenderList")
 
   info "Siwin renderlist startup",
     backend = renderer.backendName().toLowerAscii(),

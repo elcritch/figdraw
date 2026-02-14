@@ -134,6 +134,7 @@ when isMainModule:
   let useAutoScale = appWindow.configureUiScale()
 
   renderer.setupBackend(appWindow)
+  appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin Cell Grid")
 
   var
     frames = 0

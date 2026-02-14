@@ -15,8 +15,10 @@ when defined(macosx):
   import siwin/platforms/cocoa/window as siCocoaWindow
   when UseMetalBackend:
     import ./siwinmetal as siwinmetal
-when UseVulkanBackend and (defined(linux) or defined(bsd)):
+when defined(linux) or defined(bsd):
   import siwin/platforms/x11/window as siX11Window
+  import siwin/platforms/wayland/window as siWaylandWindow
+when UseVulkanBackend:
   import ../vulkan/vulkan_context
 
 when NeedSiwinOpenGLContext and not UseVulkanBackend:
@@ -34,6 +36,27 @@ proc siwinBackendName*[BackendState](renderer: FigRenderer[BackendState]): strin
 
 proc siwinWindowTitle*(suffix = "Siwin RenderList"): string =
   "figdraw: " & siwinBackendName() & " + " & suffix
+
+proc siwinDisplayServerName*(window: Window): string =
+  when defined(linux) or defined(bsd):
+    if window of siX11Window.WindowX11:
+      "x11"
+    elif window of siWaylandWindow.WindowWayland:
+      "wayland"
+    else:
+      "unknown"
+  else:
+    ""
+
+proc siwinWindowTitle*[BackendState](
+    renderer: FigRenderer[BackendState], window: Window, suffix = "Siwin RenderList"
+): string =
+  let backend = renderer.backendName()
+  let display = window.siwinDisplayServerName()
+  when defined(linux) or defined(bsd):
+    "figdraw: " & backend & " + " & display & " + " & suffix
+  else:
+    "figdraw: " & backend & " + " & suffix
 
 proc newSiwinWindow*(
     size: IVec2, fullscreen = false, title = "FigDraw", vsync = true, msaa = 0'i32

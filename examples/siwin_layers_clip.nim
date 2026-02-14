@@ -168,6 +168,7 @@ when isMainModule:
   let useAutoScale = appWindow.configureUiScale()
 
   renderer.setupBackend(appWindow)
+  appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin Layers + Clip")
 
   var renders = makeRenderTree(0.0'f32, 0.0'f32)
   var lastSize = vec2(0.0'f32, 0.0'f32)

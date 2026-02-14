@@ -308,6 +308,7 @@ when isMainModule:
   let animStart = epochTime()
 
   renderer.setupBackend(appWindow)
+  appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin MSDF/MTSDF")
 
   var makeRenderTreeMsSum = 0.0
   var renderFrameMsSum = 0.0

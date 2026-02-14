@@ -72,6 +72,7 @@ when isMainModule:
   let useAutoScale = appWindow.configureUiScale()
 
   renderer.setupBackend(appWindow)
+  appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin Image RenderList")
 
   proc redraw() =
     renderer.beginFrame()

@@ -90,13 +90,18 @@ proc redraw(state: DemoWindow) =
   state.renderer.renderFrame(state.renders, sz)
   state.renderer.endFrame()
 
-proc newDemoWindow(size: IVec2, title: string, palette: WindowPalette): DemoWindow =
-  let window =
-    newSiwinWindow(size = size, fullscreen = false, title = title, vsync = true)
+proc newDemoWindow(size: IVec2, titleSuffix: string, palette: WindowPalette): DemoWindow =
+  let window = newSiwinWindow(
+    size = size,
+    fullscreen = false,
+    title = siwinWindowTitle(titleSuffix),
+    vsync = true,
+  )
   let renderer =
     glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
   let useAutoScale = window.configureUiScale()
   renderer.setupBackend(window)
+  window.title = siwinWindowTitle(renderer, window, titleSuffix)
   result = DemoWindow(
     window: window,
     renderer: renderer,
@@ -124,7 +129,7 @@ proc installHandlers(state: DemoWindow) =
 when isMainModule:
   let left = newDemoWindow(
     size = ivec2(700, 500),
-    title = siwinWindowTitle("Two Windows: Left"),
+    titleSuffix = "Two Windows: Left",
     palette = WindowPalette(
       bg: rgba(242, 246, 255, 255).color,
       card: rgba(214, 227, 252, 255).color,
@@ -133,7 +138,7 @@ when isMainModule:
   )
   let right = newDemoWindow(
     size = ivec2(700, 500),
-    title = siwinWindowTitle("Two Windows: Right"),
+    titleSuffix = "Two Windows: Right",
     palette = WindowPalette(
       bg: rgba(255, 245, 238, 255).color,
       card: rgba(255, 224, 201, 255).color,
