@@ -19,6 +19,7 @@ when defined(linux) or defined(bsd):
   import siwin/platforms/x11/window as siX11Window
   import siwin/platforms/wayland/window as siWaylandWindow
 when UseVulkanBackend:
+  import siwin/windowVulkan as siWindowVulkan
   import ../vulkan/vulkan_context
 
 when NeedSiwinOpenGLContext and not UseVulkanBackend:
@@ -100,8 +101,36 @@ proc newSiwinWindow*(
     msaa = 0'i32,
 ): Window =
   ## Compatibility overload. Prefer creating a window first, then renderer.
+  when UseVulkanBackend:
+    if renderer.backendKind() == rbVulkan:
+      let globals = sharedSiwinGlobals()
+      let vkCtx = renderer.ctx.VulkanContext
+      when defined(linux) or defined(bsd):
+        case defaultPreferedPlatform()
+        of Platform.wayland:
+          vkCtx.setInstanceSurfaceHint(presentTargetWayland)
+        of Platform.x11:
+          vkCtx.setInstanceSurfaceHint(presentTargetXlib)
+        else:
+          discard
+      elif defined(windows):
+        vkCtx.setInstanceSurfaceHint(presentTargetWin32)
+      elif defined(macosx):
+        vkCtx.setInstanceSurfaceHint(presentTargetMetal)
+      vkCtx.ensureInstance()
+      result = siWindowVulkan.newVulkanWindow(
+        globals,
+        vkCtx.instanceHandle(),
+        size = size,
+        title = title,
+        fullscreen = fullscreen,
+      )
+      if fullscreen:
+        result.fullscreen = true
+      return
+
   discard renderer
-  newSiwinWindow(
+  result = newSiwinWindow(
     size = size, fullscreen = fullscreen, title = title, vsync = vsync, msaa = msaa
   )
 
@@ -202,10 +231,10 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
       if not surface.isNil:
         when defined(linux) or defined(bsd):
           if window of siWaylandWindow.WindowWayland:
-            # Wayland surface support is not wired in figdraw Vulkan yet.
-            raise newException(
-              ValueError, "Wayland Vulkan surface target is not supported by FigDraw yet"
+            vkCtx.setExternalSurface(
+              surface, presentTargetWayland, ownedByContext = true
             )
+            hasPresentTarget = true
           else:
             vkCtx.setExternalSurface(surface, presentTargetXlib, ownedByContext = true)
             hasPresentTarget = true

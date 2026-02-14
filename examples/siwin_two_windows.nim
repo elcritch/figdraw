@@ -93,11 +93,25 @@ proc redraw(state: DemoWindow) =
 proc newDemoWindow(
     size: IVec2, titleSuffix: string, palette: WindowPalette
 ): DemoWindow =
-  let window = newSiwinWindow(
-    size = size, fullscreen = false, title = siwinWindowTitle(titleSuffix), vsync = true
-  )
-  let renderer =
-    glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
+  when UseVulkanBackend:
+    let renderer =
+      glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
+    let window = newSiwinWindow(
+      renderer,
+      size = size,
+      fullscreen = false,
+      title = siwinWindowTitle(titleSuffix),
+      vsync = true,
+    )
+  else:
+    let window = newSiwinWindow(
+      size = size,
+      fullscreen = false,
+      title = siwinWindowTitle(titleSuffix),
+      vsync = true,
+    )
+    let renderer =
+      glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
   let useAutoScale = window.configureUiScale()
   renderer.setupBackend(window)
   window.title = siwinWindowTitle(renderer, window, titleSuffix)

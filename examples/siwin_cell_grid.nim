@@ -129,8 +129,13 @@ when isMainModule:
     baseSize = ivec2(1080, 720)
     typefaceId = loadTypeface("Ubuntu.ttf")
     labelFont = FigFont(typefaceId: typefaceId, size: 8.0'f32)
-  let appWindow = newSiwinWindow(size = baseSize, fullscreen = false, title = title)
-  let renderer = newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+  when UseVulkanBackend:
+    let renderer = newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+    let appWindow =
+      newSiwinWindow(renderer, size = baseSize, fullscreen = false, title = title)
+  else:
+    let appWindow = newSiwinWindow(size = baseSize, fullscreen = false, title = title)
+    let renderer = newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
 
   renderer.setupBackend(appWindow)

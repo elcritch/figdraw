@@ -37,11 +37,6 @@ proc renderAndScreenshotOnce*(
     except ValueError:
       raise newException(ValueError, "Metal device not available")
   elif UseVulkanBackend:
-    when defined(linux) or defined(bsd):
-      if getEnv("XDG_SESSION_TYPE").toLowerAscii() == "wayland":
-        raise newException(
-          ValueError, "Wayland Vulkan screenshot path is unstable; skipping test"
-        )
     let renderer = glrenderer.newFigRenderer(
       atlasSize = atlasSize, backendState = SiwinRenderBackend()
     )

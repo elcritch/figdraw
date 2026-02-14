@@ -473,9 +473,14 @@ when isMainModule:
 
   let title = siwinWindowTitle("Siwin 3D + overlay")
   let size = ivec2(900, 640)
-  let appWindow = newSiwinWindow(size = size, title = title, vsync = true)
-  let renderer =
-    glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+  when UseVulkanBackend:
+    let renderer =
+      glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+    let appWindow = newSiwinWindow(renderer, size = size, title = title, vsync = true)
+  else:
+    let appWindow = newSiwinWindow(size = size, title = title, vsync = true)
+    let renderer =
+      glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
   appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin 3D + overlay")

@@ -34,6 +34,7 @@ type SdfMode* = figbackend.SdfMode
 type PresentTargetKind* = enum
   presentTargetNone
   presentTargetXlib
+  presentTargetWayland
   presentTargetWin32
   presentTargetMetal
 
@@ -284,6 +285,10 @@ proc createPresentSurface(ctx: VulkanContext) =
         ctx.surfaceOwnedByContext = true
     else:
       raise newException(ValueError, "Xlib Vulkan surface unsupported on this OS")
+  of presentTargetWayland:
+    raise newException(
+      ValueError, "Wayland Vulkan surface creation requires an external surface handle"
+    )
   of presentTargetWin32:
     when defined(windows):
       loadVK_KHR_win32_surface()
@@ -1149,6 +1154,16 @@ proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
           warn "Neither VK_KHR_xlib_surface nor VK_KHR_xcb_surface reported as available"
       else:
         enabledExtNames.add(VkKhrXlibSurfaceExtensionName)
+    of presentTargetWayland:
+      when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+        if VkKhrWaylandSurfaceExtensionName in availableExts:
+          enabledExtNames.add(VkKhrWaylandSurfaceExtensionName)
+        else:
+          raise newException(
+            ValueError, "VK_KHR_wayland_surface extension is required but unavailable"
+          )
+      else:
+        raise newException(ValueError, "Wayland Vulkan surface unsupported on this OS")
     of presentTargetWin32:
       enabledExtNames.add(VkKhrWin32SurfaceExtensionName)
     of presentTargetMetal:
@@ -2787,12 +2802,17 @@ method readPixels*(
     ctx.device, ctx.readbackMemory, 0.VkDeviceSize, ctx.readbackBytes,
     0.VkMemoryMapFlags,
   ))
+  if mapped.isNil:
+    raise newException(ValueError, "Failed to map Vulkan readback memory")
   defer:
     unmapMemory(ctx.device, ctx.readbackMemory)
 
   result = newImage(w, h)
   let stride = texW * 4
-  let bgrFormat = ctx.swapchainFormat == VK_FORMAT_B8G8R8A8_UNORM
+  let bgrFormat =
+    case ctx.swapchainFormat
+    of VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SRGB: true
+    else: false
 
   for row in 0 ..< h:
     let srcRow = y + row

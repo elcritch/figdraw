@@ -35,11 +35,19 @@ when isMainModule:
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
-  let appWindow = newSiwinWindow(size = size, fullscreen = false, title = title)
-  let renderer = newFigRenderer(
-    atlasSize = when not defined(useFigDrawTextures): 512 else: 2048,
-    backendState = SiwinRenderBackend(),
-  )
+  when UseVulkanBackend:
+    let renderer = newFigRenderer(
+      atlasSize = when not defined(useFigDrawTextures): 512 else: 2048,
+      backendState = SiwinRenderBackend(),
+    )
+    let appWindow =
+      newSiwinWindow(renderer, size = size, fullscreen = false, title = title)
+  else:
+    let appWindow = newSiwinWindow(size = size, fullscreen = false, title = title)
+    let renderer = newFigRenderer(
+      atlasSize = when not defined(useFigDrawTextures): 512 else: 2048,
+      backendState = SiwinRenderBackend(),
+    )
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
   appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin RenderList")
