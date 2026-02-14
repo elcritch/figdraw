@@ -1,9 +1,7 @@
 import std/[os, strutils]
 import vmath
 
-import
-  siwin/
-    [window as siWindow, windowOpengl as siWindowOpengl, windowVulkan as siWindowVulkan]
+import siwin/[window as siWindow, windowOpengl as siWindowOpengl]
 import siwin/platforms
 
 import ../commons
@@ -50,13 +48,21 @@ proc newSiwinWindow*(
       when defined(macosx):
         newOpenglWindowCocoa(size = size, title = title, vsync = vsync, msaa = msaa)
       else:
-        when UseVulkanBackend and (defined(linux) or defined(bsd)):
+        when UseVulkanBackend:
           # Use a non-GL window for Vulkan so siwin's GL swap path does not flicker.
-          newSoftwareRenderingWindow(
-            size = size, title = title, preferedPlatform = Platform.x11
-          )
+          when defined(linux) or defined(bsd):
+            newSoftwareRenderingWindow(
+              size = size, title = title, preferedPlatform = Platform.x11
+            )
+          else:
+            newSoftwareRenderingWindow(size = size, title = title)
         else:
-          newOpenglWindow(size = size, title = title, vsync = vsync)
+          when defined(linux) or defined(bsd):
+            newOpenglWindow(
+              size = size, title = title, vsync = vsync, preferedPlatform = Platform.x11
+            )
+          else:
+            newOpenglWindow(size = size, title = title, vsync = vsync)
   when NeedSiwinOpenGLContext and not UseVulkanBackend:
     startOpenGL(openglVersion)
     window.makeCurrent()
@@ -72,31 +78,8 @@ proc newSiwinWindow*(
     vsync = true,
     msaa = 0'i32,
 ): Window =
-  ## Preferred constructor for Vulkan: uses siwin native Vulkan windows/surfaces.
-  when UseVulkanBackend:
-    if renderer.backendKind() == rbVulkan:
-      let vkCtx = renderer.ctx.VulkanContext
-      when defined(linux) or defined(bsd):
-        vkCtx.setInstanceSurfaceHint(presentTargetXlib)
-      elif defined(windows):
-        vkCtx.setInstanceSurfaceHint(presentTargetWin32)
-      elif defined(macosx):
-        vkCtx.setInstanceSurfaceHint(presentTargetMetal)
-      vkCtx.ensureInstance()
-      let window =
-        when defined(linux) or defined(bsd):
-          siWindowVulkan.newVulkanWindow(
-            vkCtx.instanceHandle(),
-            size = size,
-            title = title,
-            fullscreen = fullscreen,
-            preferedPlatform = Platform.x11,
-          )
-        else:
-          siWindowVulkan.newVulkanWindow(
-            vkCtx.instanceHandle(), size = size, title = title, fullscreen = fullscreen
-          )
-      return window
+  ## Compatibility overload. Prefer creating a window first, then renderer.
+  discard renderer
   newSiwinWindow(
     size = size, fullscreen = fullscreen, title = title, vsync = vsync, msaa = msaa
   )

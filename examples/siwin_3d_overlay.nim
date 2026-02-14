@@ -473,9 +473,9 @@ when isMainModule:
 
   let title = siwinWindowTitle("Siwin 3D + overlay")
   let size = ivec2(900, 640)
+  let appWindow = newSiwinWindow(size = size, title = title, vsync = true)
   let renderer =
     glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
-  let appWindow = newSiwinWindow(renderer, size = size, title = title, vsync = true)
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
   when UseMetalBackend and defined(macosx):

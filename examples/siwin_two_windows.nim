@@ -91,11 +91,10 @@ proc redraw(state: DemoWindow) =
   state.renderer.endFrame()
 
 proc newDemoWindow(size: IVec2, title: string, palette: WindowPalette): DemoWindow =
+  let window =
+    newSiwinWindow(size = size, fullscreen = false, title = title, vsync = true)
   let renderer =
     glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
-  let window = newSiwinWindow(
-    renderer, size = size, fullscreen = false, title = title, vsync = true
-  )
   let useAutoScale = window.configureUiScale()
   renderer.setupBackend(window)
   result = DemoWindow(

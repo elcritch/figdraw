@@ -256,11 +256,11 @@ when isMainModule:
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
+  let appWindow = newSiwinWindow(
+    size = size, fullscreen = false, title = siwinWindowTitle("Siwin + Text")
+  )
   let renderer =
     glrenderer.newFigRenderer(atlasSize = 4096, backendState = SiwinRenderBackend())
-  let appWindow = newSiwinWindow(
-    renderer, size = size, fullscreen = false, title = siwinWindowTitle("Siwin + Text")
-  )
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
 

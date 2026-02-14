@@ -80,9 +80,9 @@ when isMainModule:
 
   let title = siwinWindowTitle("Siwin RenderList")
   let size = ivec2(800, 600)
+  let appWindow = newSiwinWindow(size = size, title = title, vsync = true)
   let renderer =
     glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
-  let appWindow = newSiwinWindow(renderer, size = size, title = title, vsync = true)
   let useAutoScale = appWindow.configureUiScale()
   var frames = 0
   var fpsFrames = 0

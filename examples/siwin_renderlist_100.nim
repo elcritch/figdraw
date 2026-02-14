@@ -35,12 +35,11 @@ when isMainModule:
   var frames = 0
   var fpsFrames = 0
   var fpsStart = epochTime()
+  let appWindow = newSiwinWindow(size = size, fullscreen = false, title = title)
   let renderer = newFigRenderer(
     atlasSize = when not defined(useFigDrawTextures): 512 else: 2048,
     backendState = SiwinRenderBackend(),
   )
-  let appWindow =
-    newSiwinWindow(renderer, size = size, fullscreen = false, title = title)
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
 
