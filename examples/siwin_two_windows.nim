@@ -8,7 +8,7 @@ import figdraw/fignodes
 import figdraw/figrender as glrenderer
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
-const LeftWindowDelaySec = 1.0
+const LeftWindowDelaySec = 0.2
 
 type WindowPalette = object
   bg: Color
