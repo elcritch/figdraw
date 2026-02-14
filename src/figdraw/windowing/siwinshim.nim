@@ -77,11 +77,11 @@ proc newSiwinWindow*(
     if renderer.backendKind() == rbVulkan:
       let vkCtx = renderer.ctx.VulkanContext
       when defined(linux) or defined(bsd):
-        vkCtx.setInstanceSurfaceHint(vstXlib)
+        vkCtx.setInstanceSurfaceHint(presentTargetXlib)
       elif defined(windows):
-        vkCtx.setInstanceSurfaceHint(vstWin32)
+        vkCtx.setInstanceSurfaceHint(presentTargetWin32)
       elif defined(macosx):
-        vkCtx.setInstanceSurfaceHint(vstMetal)
+        vkCtx.setInstanceSurfaceHint(presentTargetMetal)
       vkCtx.ensureInstance()
       let window =
         when defined(linux) or defined(bsd):
@@ -191,11 +191,11 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
       let surface = window.vulkanSurface()
       if not surface.isNil:
         when defined(linux) or defined(bsd):
-          vkCtx.setExternalSurface(surface, vstXlib, ownedByContext = true)
+          vkCtx.setExternalSurface(surface, presentTargetXlib, ownedByContext = true)
         elif defined(windows):
-          vkCtx.setExternalSurface(surface, vstWin32, ownedByContext = true)
+          vkCtx.setExternalSurface(surface, presentTargetWin32, ownedByContext = true)
         elif defined(macosx):
-          vkCtx.setExternalSurface(surface, vstMetal, ownedByContext = true)
+          vkCtx.setExternalSurface(surface, presentTargetMetal, ownedByContext = true)
       when defined(linux) or defined(bsd):
         if surface.isNil and window of siX11Window.WindowX11:
           let x11Window = siX11Window.WindowX11(window)

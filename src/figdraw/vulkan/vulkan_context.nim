@@ -31,17 +31,11 @@ else:
 
 type SdfMode* = figbackend.SdfMode
 
-type PresentTargetKind = enum
+type PresentTargetKind* = enum
   presentTargetNone
   presentTargetXlib
   presentTargetWin32
   presentTargetMetal
-
-type VulkanSurfaceTargetKind* = enum
-  vstNone
-  vstXlib
-  vstWin32
-  vstMetal
 
 when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
   type LinuxSurfaceKind = enum
@@ -205,13 +199,6 @@ const
   vkNullCommandBuffer = VkCommandBuffer(0)
   vkNullSemaphore = VkSemaphore(0)
   vkNullFence = VkFence(0)
-
-func toPresentTargetKind(kind: VulkanSurfaceTargetKind): PresentTargetKind =
-  case kind
-  of vstNone: presentTargetNone
-  of vstXlib: presentTargetXlib
-  of vstWin32: presentTargetWin32
-  of vstMetal: presentTargetMetal
 
 proc hasPresentTarget(ctx: VulkanContext): bool =
   ctx.presentTargetKind != presentTargetNone
@@ -2727,12 +2714,12 @@ proc setPresentMetalLayer*(ctx: VulkanContext, layer: pointer) =
   ctx.instanceSurfaceHint = presentTargetMetal
   ctx.presentMetalLayer = layer
 
-proc setInstanceSurfaceHint*(ctx: VulkanContext, target: VulkanSurfaceTargetKind) =
+proc setInstanceSurfaceHint*(ctx: VulkanContext, target: PresentTargetKind) =
   if ctx.gpuReady:
     raise newException(
       ValueError, "Cannot change Vulkan surface hint after GPU runtime init"
     )
-  ctx.instanceSurfaceHint = toPresentTargetKind(target)
+  ctx.instanceSurfaceHint = target
 
 proc ensureInstance*(ctx: VulkanContext) =
   if ctx.instance != vkNullInstance:
@@ -2747,13 +2734,13 @@ proc instanceHandle*(ctx: VulkanContext): pointer =
 proc setExternalSurface*(
     ctx: VulkanContext,
     surface: pointer,
-    target: VulkanSurfaceTargetKind,
+    target: PresentTargetKind,
     ownedByContext = false,
 ) =
   if surface.isNil:
     raise newException(ValueError, "External Vulkan surface pointer is nil")
   ctx.clearPresentTarget()
-  ctx.presentTargetKind = toPresentTargetKind(target)
+  ctx.presentTargetKind = target
   ctx.instanceSurfaceHint = ctx.presentTargetKind
   ctx.surface = cast[VkSurfaceKHR](surface)
   ctx.surfaceOwnedByContext = ownedByContext
