@@ -21,6 +21,7 @@ type DemoWindow = ref object
   lastSize: Vec2
   useAutoScale: bool
   palette: WindowPalette
+  isOpen: bool
 
 proc makeRenderTree(w, h: float32, palette: WindowPalette): Renders =
   result = Renders()
@@ -82,6 +83,8 @@ proc makeRenderTree(w, h: float32, palette: WindowPalette): Renders =
     )
 
 proc redraw(state: DemoWindow) =
+  if not state.isOpen:
+    return
   state.renderer.beginFrame()
   let sz = state.window.logicalSize()
   if sz != state.lastSize:
@@ -90,12 +93,11 @@ proc redraw(state: DemoWindow) =
   state.renderer.renderFrame(state.renders, sz)
   state.renderer.endFrame()
 
-proc newDemoWindow(size: IVec2, titleSuffix: string, palette: WindowPalette): DemoWindow =
+proc newDemoWindow(
+    size: IVec2, titleSuffix: string, palette: WindowPalette
+): DemoWindow =
   let window = newSiwinWindow(
-    size = size,
-    fullscreen = false,
-    title = siwinWindowTitle(titleSuffix),
-    vsync = true,
+    size = size, fullscreen = false, title = siwinWindowTitle(titleSuffix), vsync = true
   )
   let renderer =
     glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
@@ -109,21 +111,29 @@ proc newDemoWindow(size: IVec2, titleSuffix: string, palette: WindowPalette): De
     lastSize: vec2(0.0'f32, 0.0'f32),
     useAutoScale: useAutoScale,
     palette: palette,
+    isOpen: true,
   )
 
 proc installHandlers(state: DemoWindow) =
   state.window.eventsHandler = WindowEventsHandler(
     onClose: proc(e: CloseEvent) =
-      discard,
+      if state.isOpen:
+        state.isOpen = false
+    ,
     onResize: proc(e: ResizeEvent) =
-      state.window.refreshUiScale(state.useAutoScale)
-      state.redraw(),
+      if state.isOpen:
+        state.window.refreshUiScale(state.useAutoScale)
+        state.redraw()
+    ,
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:
-        close(e.window)
+        if state.isOpen:
+          close(e.window)
     ,
     onRender: proc(e: RenderEvent) =
-      state.redraw(),
+      if state.isOpen:
+        state.redraw()
+    ,
   )
 
 when isMainModule:
@@ -158,27 +168,31 @@ when isMainModule:
   var frames = 0
 
   try:
-    while appRunning and (left.window.opened or right.window.opened):
-      if left.window.opened:
-        left.window.redraw()
-      if right.window.opened:
-        right.window.redraw()
+    while appRunning and (left.isOpen or right.isOpen):
+      left.redraw()
+      right.redraw()
 
-      if left.window.opened:
+      if left.isOpen:
         left.window.step()
-      if right.window.opened:
+        if not left.window.opened:
+          left.isOpen = false
+      if right.isOpen:
         right.window.step()
+        if not right.window.opened:
+          right.isOpen = false
 
       inc frames
       if RunOnce and frames >= 1:
         appRunning = false
       else:
-        appRunning = left.window.opened or right.window.opened
+        appRunning = left.isOpen or right.isOpen
         when not defined(emscripten):
           sleep(16)
   finally:
     when not defined(emscripten):
-      if left.window.opened:
+      if left.isOpen:
+        left.isOpen = false
         left.window.close()
-      if right.window.opened:
+      if right.isOpen:
+        right.isOpen = false
         right.window.close()

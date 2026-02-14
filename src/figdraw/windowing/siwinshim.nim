@@ -34,6 +34,19 @@ proc siwinBackendName*(): string =
 proc siwinBackendName*[BackendState](renderer: FigRenderer[BackendState]): string =
   renderer.backendName()
 
+proc siwinPreferredPlatform*(): Platform =
+  when defined(linux) or defined(bsd):
+    Platform.x11
+  else:
+    defaultPreferedPlatform()
+
+var siwinGlobalsShared {.threadvar.}: SiwinGlobals
+
+proc sharedSiwinGlobals*(): SiwinGlobals =
+  if siwinGlobalsShared.isNil:
+    siwinGlobalsShared = newSiwinGlobals(siwinPreferredPlatform())
+  siwinGlobalsShared
+
 proc siwinWindowTitle*(suffix = "Siwin RenderList"): string =
   "figdraw: " & siwinBackendName() & " + " & suffix
 
@@ -71,21 +84,12 @@ proc newSiwinWindow*(
       when defined(macosx):
         newOpenglWindowCocoa(size = size, title = title, vsync = vsync, msaa = msaa)
       else:
+        let globals = sharedSiwinGlobals()
         when UseVulkanBackend:
           # Use a non-GL window for Vulkan so siwin's GL swap path does not flicker.
-          when defined(linux) or defined(bsd):
-            newSoftwareRenderingWindow(
-              size = size, title = title, preferedPlatform = Platform.x11
-            )
-          else:
-            newSoftwareRenderingWindow(size = size, title = title)
+          newSoftwareRenderingWindow(globals, size = size, title = title)
         else:
-          when defined(linux) or defined(bsd):
-            newOpenglWindow(
-              size = size, title = title, vsync = vsync, preferedPlatform = Platform.x11
-            )
-          else:
-            newOpenglWindow(size = size, title = title, vsync = vsync)
+          newOpenglWindow(globals, size = size, title = title, vsync = vsync)
   when NeedSiwinOpenGLContext and not UseVulkanBackend:
     startOpenGL(openglVersion)
     window.makeCurrent()
