@@ -24,13 +24,17 @@ jobs:
     steps:
     - uses: actions/checkout@v1
 
-    - name: Setup software OpenGL/Vulkan (Mesa) + Xvfb
+    - name: Setup software OpenGL/Vulkan (Mesa) + Weston (Wayland)
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
-          xvfb \
-          xauth \
+          weston \
+          wayland-protocols \
+          libwayland-client0 \
+          libwayland-cursor0 \
+          libwayland-egl1 \
+          libxkbcommon0 \
           libxrender1 \
           libxrender-dev \
           mesa-utils \
@@ -89,7 +93,8 @@ jobs:
     - name: Build Tests
       if: runner.os == 'Linux'
       env:
-        SDL_VIDEODRIVER: "x11"
+        XDG_SESSION_TYPE: "wayland"
+        WAYLAND_DISPLAY: "wayland-1"
         GALLIUM_DRIVER: "llvmpipe"
         LIBGL_ALWAYS_SOFTWARE: "1"
         MESA_GL_VERSION_OVERRIDE: "3.3"
@@ -97,7 +102,29 @@ jobs:
         VK_ICD_FILENAMES: "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
         VK_DRIVER_FILES: "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
       run: |
-        xvfb-run -a -s "-screen 0 1280x1024x24" nim test
+        export XDG_RUNTIME_DIR="${RUNNER_TEMP}/xdg-runtime"
+        mkdir -p "${XDG_RUNTIME_DIR}"
+        chmod 700 "${XDG_RUNTIME_DIR}"
+        unset DISPLAY
+
+        weston --backend=headless-backend.so \
+               --renderer=pixman \
+               --socket="${WAYLAND_DISPLAY}" \
+               --idle-time=0 \
+               --log="${RUNNER_TEMP}/weston.log" &
+        WESTON_PID=$!
+        trap 'kill ${WESTON_PID} || true; wait ${WESTON_PID} || true' EXIT
+
+        for _ in $(seq 1 50); do
+          if [[ -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ]]; then
+            break
+          fi
+          sleep 0.1
+        done
+        [[ -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ]] || (cat "${RUNNER_TEMP}/weston.log" && exit 1)
+
+        vulkaninfo --summary || true
+        nim test
 
     - name: Build Tests (Vulkan Compile Check)
       if: runner.os == 'Linux'
@@ -137,5 +164,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: tests-output-${{ runner.os }}-nim${{ matrix.nimversion }}
-        path: tests/output/
+        path: |
+          tests/output/
+          ${{ runner.temp }}/weston.log
         if-no-files-found: ignore
