@@ -1,4 +1,4 @@
-version       = "0.19.1"
+version       = "0.19.2"
 author        = "Jaremy Creechley"
 description   = "UI Engine for Nim"
 license       = "MIT"
@@ -18,6 +18,7 @@ requires "variant"
 requires "patty"
 requires "supersnappy"
 requires "opengl"
+requires "vmath"
 
 when defined(macosx):
   requires "https://github.com/elcritch/metalx >= 0.4.2 "
