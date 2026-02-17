@@ -1,4 +1,4 @@
-version       = "0.19.3"
+version       = "0.19.4"
 author        = "Jaremy Creechley"
 description   = "UI Engine for Nim"
 license       = "MIT"
@@ -36,7 +36,7 @@ feature "windy":
 feature "surfer":
   requires "https://github.com/nim-windowing/surfer"
 feature "siwin":
-  requires "siwin#master"
+  requires "siwin >= 0.9.3"
 
 feature "vulkan":
   requires "https://github.com/planetis-m/vulkan#b223dc9"
