@@ -1,4 +1,4 @@
-version       = "0.19.2"
+version       = "0.19.3"
 author        = "Jaremy Creechley"
 description   = "UI Engine for Nim"
 license       = "MIT"
@@ -23,7 +23,7 @@ requires "vmath"
 when defined(macosx):
   requires "https://github.com/elcritch/metalx >= 0.4.2 "
 when defined(linux) or defined(bsd) or defined(windows):
-  requires "https://github.com/planetis-m/vulkan#master"
+  requires "https://github.com/planetis-m/vulkan#b223dc9"
 
 feature "lottie":
   requires "jsony"
