@@ -23,7 +23,6 @@ const uint sdfModeAtlas = 0u;
 const uint sdfModeDropShadow = 7u;
 const uint sdfModeDropShadowAA = 8u;
 const uint sdfModeInsetShadow = 9u;
-const uint sdfModeInsetShadowAnnular = 10u;
 const uint sdfModeAnnular = 11u;
 const uint sdfModeAnnularAA = 12u;
 const uint sdfModeMsdf = 13u;
@@ -53,14 +52,18 @@ float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
   return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - rr;
 }
 
-float gaussian(float x, float s) {
-  return 1.0 / (s * sqrt(6.283185307179586)) *
-    exp(-1.0 * (x * x) / (2.0 * s * s));
+float shadowProfile(float sd, float blurRadius) {
+  // CSS-like calibration: sigma ~= blurRadius / 2
+  float sigma = max(0.5 * blurRadius, 0.5);
+  float z = sd / sigma;
+  return exp(-0.5 * z * z);
 }
 
 void main() {
+  uint sdfModeInt = vSdfMode;
   vec2 quadHalfExtents = vSdfParams.xy;
-  vec2 shapeHalfExtents = vSdfParams.zw;
+  bool insetMode = (sdfModeInt == sdfModeInsetShadow);
+  vec2 shapeHalfExtents = insetMode ? quadHalfExtents : vSdfParams.zw;
 
   vec2 p = vec2(
     (vUv.x - 0.5) * 2.0 * quadHalfExtents.x,
@@ -70,7 +73,6 @@ void main() {
 
   float sdfFactor = vSdfFactors.x;
   float sdfSpread = vSdfFactors.y;
-  uint sdfModeInt = vSdfMode;
   float alpha = 0.0;
 
   if (sdfModeInt == sdfModeAtlas) {
@@ -100,7 +102,6 @@ void main() {
     }
     fragColor = vec4(vColor.rgb, vColor.a * alpha);
   } else {
-    float stdDevFactor = 1.0 / 2.2;
     switch (sdfModeInt) {
       case sdfModeAnnular: {
         float f = sdfFactor * 0.5;
@@ -116,33 +117,30 @@ void main() {
         break;
       }
       case sdfModeDropShadow: {
-        float sd = dist - sdfSpread + 1.0;
-        float x = sd / (sdfFactor + 0.5);
-        float a = 1.1 * gaussian(x, stdDevFactor);
+        float sd = dist - sdfSpread;
+        float a = shadowProfile(sd, sdfFactor);
         alpha = (sd > 0.0) ? min(a, 1.0) : 1.0;
         break;
       }
       case sdfModeDropShadowAA: {
         float cl = clamp(uFS.aaFactor * dist + 0.5, 0.0, 1.0);
         float insideAlpha = 1.0 - cl;
-        float sd = dist - sdfSpread + 1.0;
-        float x = sd / (sdfFactor + 0.5);
-        float a = 1.1 * gaussian(x, stdDevFactor);
+        float sd = dist - sdfSpread;
+        float a = shadowProfile(sd, sdfFactor);
         alpha = (sd >= 0.0) ? min(a, 1.0) : insideAlpha;
         break;
       }
       case sdfModeInsetShadow: {
-        float sd = dist + sdfSpread + 1.0;
-        float x = sd / (sdfFactor + 0.5);
-        float a = 1.1 * gaussian(x, stdDevFactor);
-        alpha = (sd < 0.0) ? min(a, 1.0) : 1.0;
-        break;
-      }
-      case sdfModeInsetShadowAnnular: {
-        float sd = dist + sdfSpread + 1.0;
-        float x = sd / (sdfFactor + 0.5);
-        float a = 1.1 * gaussian(x, stdDevFactor);
-        alpha = (sd < 0.0) ? min(a, 1.0) : 0.0;
+        vec2 qClip = vec2(p.x, -p.y);
+        vec2 shadowOffset = vec2(vSdfParams.z, -vSdfParams.w);
+        vec2 qShadow = qClip - shadowOffset;
+        float clipDist = sdRoundedBox(qClip, quadHalfExtents, vSdfRadii);
+        float clipAlpha = 1.0 - clamp(uFS.aaFactor * clipDist + 0.5, 0.0, 1.0);
+        float shadowDist = sdRoundedBox(qShadow, quadHalfExtents, vSdfRadii);
+        float sd = shadowDist + sdfSpread;
+        float a = shadowProfile(sd, sdfFactor);
+        float insetAlpha = (sd < 0.0) ? min(a, 1.0) : 1.0;
+        alpha = clipAlpha * insetAlpha;
         break;
       }
       default: {
