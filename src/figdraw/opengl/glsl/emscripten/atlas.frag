@@ -60,9 +60,11 @@ float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
   return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - rr;
 }
 
-float gaussian(float x, float s) {
-  return 1.0 / (s * sqrt(6.283185307179586)) *
-    exp(-1.0 * (x * x) / (2.0 * s * s));
+float shadowProfile(float sd, float blurRadius) {
+  // CSS-like calibration: sigma ~= blurRadius / 2
+  float sigma = max(0.5 * blurRadius, 0.5);
+  float z = sd / sigma;
+  return exp(-0.5 * z * z);
 }
 
 void main() {
@@ -115,7 +117,6 @@ void main() {
     }
     fragColor = vec4(color.rgb, color.a * alpha);
   } else {
-    float stdDevFactor = 1.0 / 2.2;
     if (sdfModeInt == sdfModeAnnular) {
       float f = sdfFactor * 0.5;
       float sd = abs(dist + f) - f;
@@ -126,16 +127,14 @@ void main() {
       float cl = clamp(aaFactor * sd + 0.5, 0.0, 1.0);
       alpha = 1.0 - cl;
     } else if (sdfModeInt == sdfModeDropShadow) {
-      float sd = dist - sdfSpread + 1.0;
-      float x = sd / (sdfFactor + 0.5);
-      float a = 1.1 * gaussian(x, stdDevFactor);
+      float sd = dist - sdfSpread;
+      float a = shadowProfile(sd, sdfFactor);
       alpha = (sd > 0.0) ? min(a, 1.0) : 1.0;
     } else if (sdfModeInt == sdfModeDropShadowAA) {
       float cl = clamp(aaFactor * dist + 0.5, 0.0, 1.0);
       float insideAlpha = 1.0 - cl;
-      float sd = dist - sdfSpread + 1.0;
-      float x = sd / (sdfFactor + 0.5);
-      float a = 1.1 * gaussian(x, stdDevFactor);
+      float sd = dist - sdfSpread;
+      float a = shadowProfile(sd, sdfFactor);
       alpha = (sd >= 0.0) ? min(a, 1.0) : insideAlpha;
     } else if (sdfModeInt == sdfModeInsetShadow) {
       vec2 qClip = vec2(p.x, -p.y);
@@ -144,9 +143,8 @@ void main() {
       float clipDist = sdRoundedBox(qClip, quadHalfExtents, sdfRadii);
       float clipAlpha = 1.0 - clamp(aaFactor * clipDist + 0.5, 0.0, 1.0);
       float shadowDist = sdRoundedBox(qShadow, quadHalfExtents, sdfRadii);
-      float sd = shadowDist + sdfSpread + 1.0;
-      float x = sd / (sdfFactor + 0.5);
-      float a = 1.1 * gaussian(x, stdDevFactor);
+      float sd = shadowDist + sdfSpread;
+      float a = shadowProfile(sd, sdfFactor);
       float insetAlpha = (sd < 0.0) ? min(a, 1.0) : 1.0;
       alpha = clipAlpha * insetAlpha;
     } else {
