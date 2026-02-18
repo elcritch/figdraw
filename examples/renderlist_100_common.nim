@@ -89,6 +89,12 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
       6.0'f32 + 10.0'f32 * sin((t * 0.9'f32 + i.float32 * 0.03'f32).float64).float32
     let shadowY =
       6.0'f32 + 10.0'f32 * cos((t * 0.9'f32 + i.float32 * 0.03'f32).float64).float32
+    let insetPulse =
+      0.5'f32 + 0.5'f32 * sin((t * 1.05'f32 + i.float32 * 0.06'f32).float64).float32
+    let insetBlur = max(0.0'f32, 8.0'f32 + 10.0'f32 * insetPulse)
+    let insetSpread = max(0.0'f32, 2.0'f32 + 10.0'f32 * (1.0'f32 - insetPulse))
+    let insetX = 6.0'f32 * sin((t * 0.85'f32 + i.float32 * 0.04'f32).float64).float32
+    let insetY = 6.0'f32 * cos((t * 0.8'f32 + i.float32 * 0.04'f32).float64).float32
 
     discard list.addRoot(
       Fig(
@@ -133,6 +139,20 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
         zlevel: 0.ZLevel,
         screenBox: rect(blueStartX + offsetX, blueStartY + offsetY, blueW, blueH),
         fill: rgba(60, 90, 220, 155).color,
+        stroke: RenderStroke(weight: 4.0, color: rgba(255, 255, 255, 210).color),
+        shadows: [
+          RenderShadow(
+            style: InnerShadow,
+            blur: insetBlur,
+            spread: insetSpread,
+            x: insetX,
+            y: insetY,
+            color: rgba(40, 40, 60, 150).color,
+          ),
+          RenderShadow(),
+          RenderShadow(),
+          RenderShadow(),
+        ],
       )
     )
 
