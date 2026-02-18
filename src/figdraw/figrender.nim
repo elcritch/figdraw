@@ -334,17 +334,36 @@ proc renderInnerShadows(ctx: BackendContext, node: Fig) =
       continue
 
     when not defined(useFigDrawTextures):
-      let shadowRect =
-        node.screenBox.scaled() + rect(shadow.x.scaled(), shadow.y.scaled(), 0, 0)
-      ctx.drawRoundedRectSdf(
-        rect = shadowRect,
-        shapeSize = shadowRect.wh,
-        color = shadow.color,
-        radii = node.corners.scaledCorners(),
-        mode = figbackend.SdfMode.sdfModeInsetShadowAnnular,
-        factor = shadow.blur.scaled(),
-        spread = shadow.spread.scaled(),
-      )
+      let
+        box = node.screenBox.scaled()
+        shadowOffset = vec2(shadow.x.scaled(), shadow.y.scaled())
+        shadowBlur = shadow.blur.scaled()
+        shadowSpread = shadow.spread.scaled()
+      if ctx.kind() == figbackend.RendererBackendKind.rbOpenGL:
+        # OpenGL inset shadows use a single mode with dual SDF evaluation in shader:
+        # clip distance from the node shape + shadow distance from an offset shape.
+        # shapeSize is repurposed here to carry shadow offset (x, y).
+        ctx.drawRoundedRectSdf(
+          rect = box,
+          shapeSize = shadowOffset,
+          color = shadow.color,
+          radii = node.corners.scaledCorners(),
+          mode = figbackend.SdfMode.sdfModeInsetShadow,
+          factor = shadowBlur,
+          spread = shadowSpread,
+        )
+      else:
+        # Metal/Vulkan keep existing annular mode for now.
+        let shadowRect = box + rect(shadowOffset.x, shadowOffset.y, 0, 0)
+        ctx.drawRoundedRectSdf(
+          rect = shadowRect,
+          shapeSize = shadowRect.wh,
+          color = shadow.color,
+          radii = node.corners.scaledCorners(),
+          mode = figbackend.SdfMode.sdfModeInsetShadowAnnular,
+          factor = shadowBlur,
+          spread = shadowSpread,
+        )
     elif FastShadows:
       ## this is even more incorrect than drop shadows, but it's something
       ## and I don't actually want to think today ;)
