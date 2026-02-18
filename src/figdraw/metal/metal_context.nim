@@ -834,11 +834,22 @@ method drawRoundedRectSdf*(
 
   let
     quadHalfExtents = rect.wh * 0.5'f32
+    insetMode = mode == sdfModeInsetShadow
     resolvedShapeSize =
       (if shapeSize.x > 0.0'f32 and shapeSize.y > 0.0'f32: shapeSize else: rect.wh)
-    shapeHalfExtents = resolvedShapeSize * 0.5'f32
+    shapeHalfExtents =
+      if insetMode:
+        quadHalfExtents
+      else:
+        resolvedShapeSize * 0.5'f32
     params =
-      vec4(quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x, shapeHalfExtents.y)
+      if insetMode:
+        # In inset mode, params.zw carry shadow offset (x, y) in screen space.
+        vec4(quadHalfExtents.x, quadHalfExtents.y, shapeSize.x, shapeSize.y)
+      else:
+        vec4(
+          quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x, shapeHalfExtents.y
+        )
     maxRadius = min(shapeHalfExtents.x, shapeHalfExtents.y)
     radiiClamped = [
       dcTopLeft: (
@@ -956,9 +967,7 @@ proc linePolygon*(ctx: MetalContext, poly: seq[Vec2], weight: float32, color: Co
     ctx.line(poly[i], poly[(i + 1) mod poly.len], weight, color)
 
 method beginMask*(
-    ctx: MetalContext,
-    clipRect: Rect,
-    radii: array[DirectionCorners, float32]
+    ctx: MetalContext, clipRect: Rect, radii: array[DirectionCorners, float32]
 ) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginMask has already been called."
@@ -1095,7 +1104,10 @@ proc beginFrame*(
   ctx.ensureMainPass(clear = clearMain, clearColor = clearMtl)
 
 method beginFrame*(
-    ctx: MetalContext, frameSize: Vec2, clearMain = false, clearMainColor: Color = whiteColor
+    ctx: MetalContext,
+    frameSize: Vec2,
+    clearMain = false,
+    clearMainColor: Color = whiteColor,
 ) =
   beginFrame(
     ctx,
@@ -1216,7 +1228,10 @@ proc readPixels*(ctx: MetalContext, frame: Rect = rect(0, 0, 0, 0)): Image =
     result.data[i] = rgbx(tmp[bi + 2], tmp[bi + 1], tmp[bi + 0], tmp[bi + 3])
 
 proc ensureFlushBufferCapacity(
-    ctx: MetalContext, buffer: var ObjcOwned[MTLBuffer], capacity: var int, neededBytes: int
+    ctx: MetalContext,
+    buffer: var ObjcOwned[MTLBuffer],
+    capacity: var int,
+    neededBytes: int,
 ) =
   if neededBytes <= 0:
     return
@@ -1360,12 +1375,12 @@ proc newContext*(
     pixelScale = 1.0,
 ): MetalContext =
   info "Starting Metal Context",
-       atlasSize = atlasSize,
-       atlasMargin = atlasMargin,
-       maxQuads = maxQuads,
-       quadLimit = quadLimit,
-       pixelate = pixelate,
-       pixelScale = pixelScale
+    atlasSize = atlasSize,
+    atlasMargin = atlasMargin,
+    maxQuads = maxQuads,
+    quadLimit = quadLimit,
+    pixelate = pixelate,
+    pixelScale = pixelScale
   if maxQuads > quadLimit:
     raise newException(ValueError, &"Quads cannot exceed {quadLimit}")
 

@@ -2158,11 +2158,22 @@ method drawRoundedRectSdf*(
 
   let
     quadHalfExtents = rect.wh * 0.5'f32
+    insetMode = mode == sdfModeInsetShadow
     resolvedShapeSize =
       (if shapeSize.x > 0.0'f32 and shapeSize.y > 0.0'f32: shapeSize else: rect.wh)
-    shapeHalfExtents = resolvedShapeSize * 0.5'f32
+    shapeHalfExtents =
+      if insetMode:
+        quadHalfExtents
+      else:
+        resolvedShapeSize * 0.5'f32
     params =
-      vec4(quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x, shapeHalfExtents.y)
+      if insetMode:
+        # In inset mode, params.zw carry shadow offset (x, y) in screen space.
+        vec4(quadHalfExtents.x, quadHalfExtents.y, shapeSize.x, shapeSize.y)
+      else:
+        vec4(
+          quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x, shapeHalfExtents.y
+        )
     maxRadius = min(shapeHalfExtents.x, shapeHalfExtents.y)
     radiiClamped = [
       dcTopLeft: (

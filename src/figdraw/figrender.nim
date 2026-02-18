@@ -334,16 +334,22 @@ proc renderInnerShadows(ctx: BackendContext, node: Fig) =
       continue
 
     when not defined(useFigDrawTextures):
-      let shadowRect =
-        node.screenBox.scaled() + rect(shadow.x.scaled(), shadow.y.scaled(), 0, 0)
+      let
+        box = node.screenBox.scaled()
+        shadowOffset = vec2(shadow.x.scaled(), shadow.y.scaled())
+        shadowBlur = shadow.blur.scaled()
+        shadowSpread = shadow.spread.scaled()
+      # For inset mode, shapeSize carries shadow offset (x, y).
+      # Backend shader evaluates clip distance from the node shape and shadow
+      # distance from an offset shape in a single pass.
       ctx.drawRoundedRectSdf(
-        rect = shadowRect,
-        shapeSize = shadowRect.wh,
+        rect = box,
+        shapeSize = shadowOffset,
         color = shadow.color,
         radii = node.corners.scaledCorners(),
-        mode = figbackend.SdfMode.sdfModeInsetShadowAnnular,
-        factor = shadow.blur.scaled(),
-        spread = shadow.spread.scaled(),
+        mode = figbackend.SdfMode.sdfModeInsetShadow,
+        factor = shadowBlur,
+        spread = shadowSpread,
       )
     elif FastShadows:
       ## this is even more incorrect than drop shadows, but it's something
