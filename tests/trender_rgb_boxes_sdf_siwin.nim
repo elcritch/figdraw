@@ -60,6 +60,26 @@ proc makeRenderTree(w, h: float32): Renders =
       zlevel: 0.ZLevel,
       screenBox: rect(180, 300, 220, 140),
       fill: rgba(60, 90, 220, 255).color,
+      shadows: [
+        RenderShadow(
+          style: InnerShadow,
+          blur: 14,
+          spread: 6,
+          x: 0,
+          y: 6,
+          color: rgba(0, 0, 0, 95).color,
+        ),
+        RenderShadow(
+          style: InnerShadow,
+          blur: 3,
+          spread: 0,
+          x: -2,
+          y: -2,
+          color: rgba(255, 255, 255, 75).color,
+        ),
+        RenderShadow(),
+        RenderShadow(),
+      ],
     ),
   )
 
