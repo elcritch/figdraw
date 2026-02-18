@@ -72,7 +72,6 @@ proc makeRenderTree*(w, h: float32): Renders =
       childCount: 0,
       screenBox: rect(180, 300, 220, 140),
       fill: rgba(60, 90, 220, 255).color,
-      stroke: RenderStroke(weight: 7.0, color: rgba(255, 255, 255, 255).color),
       shadows: [
         RenderShadow(
           style: InnerShadow,
