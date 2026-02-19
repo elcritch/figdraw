@@ -25,7 +25,7 @@ type
     rotation*: float32
     fill*: ColorRGBA
     fillGradient*: FillGradient
-    corners*: array[DirectionCorners, int8]
+    corners*: array[DirectionCorners, uint16]
 
     case kind*: FigKind
     of nkRectangle:
