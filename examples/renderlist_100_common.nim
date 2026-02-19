@@ -95,6 +95,8 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
     let insetSpread = max(0.0'f32, 2.0'f32 + 10.0'f32 * (1.0'f32 - insetPulse))
     let insetX = 6.0'f32 * sin((t * 0.85'f32 + i.float32 * 0.04'f32).float64).float32
     let insetY = 6.0'f32 * cos((t * 0.8'f32 + i.float32 * 0.04'f32).float64).float32
+    let useGreenGradient = (i mod 2) == 0
+    let useBlueGradient = (i mod 3) == 0
 
     discard list.addRoot(
       Fig(
@@ -115,7 +117,26 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
         zlevel: 0.ZLevel,
         screenBox: rect(greenStartX + offsetX, greenStartY + offsetY, greenW, greenH),
         corners: [g0, g1, g2, g3],
-        fill: rgba(40, 180, 90, 155).color,
+        fill:
+          if useGreenGradient:
+            rgba(255, 255, 255, 155).color
+          else:
+            rgba(40, 180, 90, 155).color,
+        fillGradient:
+          if useGreenGradient:
+            FillGradient(
+              mode: fgmLinear,
+              axis: if (i mod 4) < 2: fgaX else: fgaDiagTLBR,
+              stopCount: 3'u8,
+              midPos: 128'u8,
+              colors: [
+                rgba(18, 112, 64, 255),
+                rgba(40, 180, 90, 255),
+                rgba(78, 224, 188, 255),
+              ],
+            )
+          else:
+            FillGradient(),
         shadows: [
           RenderShadow(
             style: DropShadow,
@@ -137,8 +158,32 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
         kind: nkRectangle,
         childCount: 0,
         zlevel: 0.ZLevel,
+        flags:
+          if useBlueGradient:
+            {NfGradientInsetShadow}
+          else:
+            {},
         screenBox: rect(blueStartX + offsetX, blueStartY + offsetY, blueW, blueH),
-        fill: rgba(60, 90, 220, 155).color,
+        fill:
+          if useBlueGradient:
+            rgba(255, 255, 255, 155).color
+          else:
+            rgba(60, 90, 220, 155).color,
+        fillGradient:
+          if useBlueGradient:
+            FillGradient(
+              mode: fgmLinear,
+              axis: if (i mod 2) == 0: fgaY else: fgaDiagBLTR,
+              stopCount: 3'u8,
+              midPos: 132'u8,
+              colors: [
+                rgba(44, 72, 186, 255),
+                rgba(60, 90, 220, 255),
+                rgba(118, 168, 255, 255),
+              ],
+            )
+          else:
+            FillGradient(),
         stroke: RenderStroke(weight: 4.0, color: rgba(255, 255, 255, 210).color),
         shadows: [
           RenderShadow(
