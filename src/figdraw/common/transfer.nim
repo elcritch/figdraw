@@ -105,7 +105,7 @@ proc convert*[N](
       renders.layers[zlvl].addChild(parentIdx, render)
 
   for child in current.children:
-    if NfInactive in child.flags or NfDead in child.flags:
+    if NfInactive in child.flags:
       continue
 
     let childParentIdx =

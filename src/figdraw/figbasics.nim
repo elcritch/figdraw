@@ -41,14 +41,7 @@ type
   FigFlags* = enum
     NfClipContent
     NfDisableRender
-    NfScrollPanel
-    NfDead
-    NfPreDrawReady
-    NfPostDrawReady
-    NfContentsDrawReady
     NfRootWindow
-    NfInitialized
-    NfSkipLayout
     NfInactive
     NfSelectText
     NfGradientInsetShadow
