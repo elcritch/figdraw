@@ -21,7 +21,7 @@ proc addRect(
     list: var RenderList,
     parentIdx: FigIdx,
     rectBox: Rect,
-    color: Color,
+    color: ColorRGBA,
     z: ZLevel,
     clip: bool = false,
 ) =
@@ -33,7 +33,7 @@ proc addRect(
       zlevel: z,
       screenBox: rectBox,
       fill: color,
-      corners: [10.0'f32, 10.0, 10.0, 10.0],
+      corners: [10'u16, 10'u16, 10'u16, 10'u16],
       flags:
         if clip:
           {NfClipContent}
@@ -43,7 +43,7 @@ proc addRect(
   )
 
 proc addRootRect(
-    list: var RenderList, rectBox: Rect, color: Color, z: ZLevel, clip: bool = false
+    list: var RenderList, rectBox: Rect, color: ColorRGBA, z: ZLevel, clip: bool = false
 ): FigIdx =
   list.addRoot(
     Fig(
@@ -52,7 +52,7 @@ proc addRootRect(
       zlevel: z,
       screenBox: rectBox,
       fill: color,
-      corners: [10.0'f32, 10.0, 10.0, 10.0],
+      corners: [10'u16, 10'u16, 10'u16, 10'u16],
       flags:
         if clip:
           {NfClipContent}
@@ -62,9 +62,9 @@ proc addRootRect(
   )
 
 proc makeRenderTree(w, h: float32): Renders =
-  let bgColor = rgba(255, 255, 255, 255).color
-  let containerColor = rgba(208, 208, 208, 255).color
-  let buttonColor = rgba(43, 159, 234, 255).color
+  let bgColor = rgba(255, 255, 255, 255)
+  let containerColor = rgba(208, 208, 208, 255)
+  let buttonColor = rgba(43, 159, 234, 255)
 
   let containerW = w * 0.30'f32
   let containerH = w * 0.40'f32

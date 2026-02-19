@@ -1,9 +1,22 @@
-import std/sequtils
+import std/[math, sequtils]
 import ../fignodes
 
 type RenderTree* = ref object
   id*: int
   children*: seq[RenderTree]
+
+proc cornerToU16(v: uint16): uint16 {.inline.} =
+  v
+
+proc cornerToU16(v: SomeInteger): uint16 {.inline.} =
+  if v <= 0:
+    return 0'u16
+  min(v.int, high(uint16).int).uint16
+
+proc cornerToU16(v: SomeFloat): uint16 {.inline.} =
+  if v <= 0.0:
+    return 0'u16
+  min(v.round().int, high(uint16).int).uint16
 
 func `[]`*(a: RenderTree, idx: int): RenderTree =
   if a.children.len() == 0:
@@ -36,7 +49,12 @@ proc toRenderFig*[N](current: N): Fig =
 
   result.zlevel = current.zlevel
   result.rotation = current.rotation
-  result.fill = current.fill
+  when compiles(current.fill.rgba()):
+    result.fill = current.fill.rgba()
+  else:
+    result.fill = current.fill
+  when compiles(current.fillGradient):
+    result.fillGradient = current.fillGradient
 
   case current.kind
   of nkRectangle:
@@ -54,7 +72,7 @@ proc toRenderFig*[N](current: N): Fig =
       result.shadows[i] = shadow
 
     for corner in DirectionCorners:
-      result.corners[corner] = current.corners[corner]
+      result.corners[corner] = cornerToU16(current.corners[corner])
   of nkImage:
     result.image = current.image
   of nkMsdfImage:

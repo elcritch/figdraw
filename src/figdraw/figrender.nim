@@ -184,11 +184,11 @@ proc renderDrawable*(ctx: BackendContext, node: Fig) =
     let
       pos = point.scaled()
       bx = box.atXY(pos.x, pos.y)
-    ctx.drawRect(bx, node.fill)
+    ctx.drawRect(bx, node.fill.color)
 
 proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
-  if NfSelectText in node.flags and node.fill.a > 0:
+  if NfSelectText in node.flags and node.fill.a > 0'u8:
     let rects = node.textLayout.selectionRects
     if rects.len > 0 and node.selectionRange.a <= node.selectionRange.b:
       let startIdx = max(node.selectionRange.a, 0)
@@ -196,7 +196,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       for idx in startIdx .. endIdx:
         let rect = rects[idx].scaled()
         if rect.w > 0 and rect.h > 0:
-          ctx.drawRect(rect, node.fill)
+          ctx.drawRect(rect, node.fill.color)
 
   for glyph in node.textLayout.glyphs():
     if unicode.isWhiteSpace(glyph.rune):
@@ -254,10 +254,69 @@ macro postRender() =
     result.add postRenderImpl.pop()
 
 proc scaledCorners(
-    corners: array[DirectionCorners, float32]
+    corners: array[DirectionCorners, uint16]
 ): array[DirectionCorners, float32] =
   for corner in DirectionCorners:
-    result[corner] = corners[corner].scaled()
+    result[corner] = corners[corner].float32.scaled()
+
+func withAlpha(color: ColorRGBA, alpha: uint8): ColorRGBA =
+  ## Applies global fill alpha to gradient stops while preserving RGB channels.
+  if alpha == 255'u8:
+    return color
+  result = color
+  result.a = ((color.a.uint16 * alpha.uint16 + 127'u16) div 255'u16).uint8
+
+func lerpColor(a, b: ColorRGBA, t: float32): ColorRGBA =
+  let
+    clampedT = clamp(t, 0.0'f32, 1.0'f32)
+    invT = 1.0'f32 - clampedT
+  result.r = (a.r.float32 * invT + b.r.float32 * clampedT).round().uint8
+  result.g = (a.g.float32 * invT + b.g.float32 * clampedT).round().uint8
+  result.b = (a.b.float32 * invT + b.b.float32 * clampedT).round().uint8
+  result.a = (a.a.float32 * invT + b.a.float32 * clampedT).round().uint8
+
+func gradientMidPos01(grad: FillGradient): float32 =
+  clamp(grad.midPos.float32 / 255.0'f32, 0.01'f32, 0.99'f32)
+
+func sampleGradientColor(
+    grad: FillGradient, stop0, stop1, stop2: ColorRGBA, t: float32
+): ColorRGBA =
+  if grad.stopCount < 3'u8:
+    return lerpColor(stop0, stop1, t)
+
+  let
+    clampedT = clamp(t, 0.0'f32, 1.0'f32)
+    mid = gradientMidPos01(grad)
+  if clampedT <= mid:
+    lerpColor(stop0, stop1, clampedT / mid)
+  else:
+    lerpColor(stop1, stop2, (clampedT - mid) / (1.0'f32 - mid))
+
+func gradientColorsForAxis(
+    grad: FillGradient, stop0, stop1, stop2: ColorRGBA
+): array[4, ColorRGBA] =
+  ## Vertex order: 0=BL, 1=BR, 2=TR, 3=TL
+  case grad.axis
+  of fgaX:
+    result[0] = sampleGradientColor(grad, stop0, stop1, stop2, 0.0'f32)
+    result[1] = sampleGradientColor(grad, stop0, stop1, stop2, 1.0'f32)
+    result[2] = sampleGradientColor(grad, stop0, stop1, stop2, 1.0'f32)
+    result[3] = sampleGradientColor(grad, stop0, stop1, stop2, 0.0'f32)
+  of fgaY:
+    result[0] = sampleGradientColor(grad, stop0, stop1, stop2, 1.0'f32)
+    result[1] = sampleGradientColor(grad, stop0, stop1, stop2, 1.0'f32)
+    result[2] = sampleGradientColor(grad, stop0, stop1, stop2, 0.0'f32)
+    result[3] = sampleGradientColor(grad, stop0, stop1, stop2, 0.0'f32)
+  of fgaDiagTLBR:
+    result[0] = sampleGradientColor(grad, stop0, stop1, stop2, 0.5'f32)
+    result[1] = sampleGradientColor(grad, stop0, stop1, stop2, 1.0'f32)
+    result[2] = sampleGradientColor(grad, stop0, stop1, stop2, 0.5'f32)
+    result[3] = sampleGradientColor(grad, stop0, stop1, stop2, 0.0'f32)
+  of fgaDiagBLTR:
+    result[0] = sampleGradientColor(grad, stop0, stop1, stop2, 0.0'f32)
+    result[1] = sampleGradientColor(grad, stop0, stop1, stop2, 0.5'f32)
+    result[2] = sampleGradientColor(grad, stop0, stop1, stop2, 1.0'f32)
+    result[3] = sampleGradientColor(grad, stop0, stop1, stop2, 0.5'f32)
 
 #proc drawMasks(ctx: BackendContext, node: Fig) =
 #  ctx.setMaskRect(node.screenBox.scaled(), node.corners.scaledCorners())
@@ -406,12 +465,127 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
   let
     box = node.screenBox.scaled()
     corners = node.corners.scaledCorners()
+    hasGradient =
+      node.fillGradient.mode == fgmLinear and
+      node.fillGradient.stopCount >= 2'u8 and
+      node.fill.a > 0'u8
 
-  if node.fill.a > 0'f32:
+  if hasGradient:
+    when not defined(useFigDrawTextures):
+      let
+        stop0 = node.fillGradient.colors[0].withAlpha(node.fill.a)
+        stop1 = node.fillGradient.colors[1].withAlpha(node.fill.a)
+        stop2 = node.fillGradient.colors[2].withAlpha(node.fill.a)
+      if node.fillGradient.stopCount >= 3'u8 and
+          (node.fillGradient.axis == fgaX or node.fillGradient.axis == fgaY):
+        let midPos = node.fillGradient.gradientMidPos01()
+        if node.fillGradient.axis == fgaX:
+          let
+            split = box.x + box.w * midPos
+            leftW = max(0.0'f32, split - box.x)
+            rightW = max(0.0'f32, box.x + box.w - split)
+          if leftW > 0.0'f32:
+            let leftRect = rect(box.x, box.y, leftW, box.h)
+            let leftRadii = [
+              dcTopLeft: corners[dcTopLeft],
+              dcTopRight: 0.0'f32,
+              dcBottomLeft: corners[dcBottomLeft],
+              dcBottomRight: 0.0'f32,
+            ]
+            let leftGrad = FillGradient(mode: fgmLinear, axis: fgaX, stopCount: 2)
+            let leftColors = gradientColorsForAxis(leftGrad, stop0, stop1, stop1)
+            ctx.drawRoundedRectSdf(
+              rect = leftRect,
+              colors = leftColors,
+              radii = leftRadii,
+              mode = figbackend.SdfMode.sdfModeClipAA,
+              factor = 4.0'f32,
+              spread = 0.0'f32,
+              shapeSize = vec2(0.0'f32, 0.0'f32),
+            )
+          if rightW > 0.0'f32:
+            let rightRect = rect(split, box.y, rightW, box.h)
+            let rightRadii = [
+              dcTopLeft: 0.0'f32,
+              dcTopRight: corners[dcTopRight],
+              dcBottomLeft: 0.0'f32,
+              dcBottomRight: corners[dcBottomRight],
+            ]
+            let rightGrad = FillGradient(mode: fgmLinear, axis: fgaX, stopCount: 2)
+            let rightColors = gradientColorsForAxis(rightGrad, stop1, stop2, stop2)
+            ctx.drawRoundedRectSdf(
+              rect = rightRect,
+              colors = rightColors,
+              radii = rightRadii,
+              mode = figbackend.SdfMode.sdfModeClipAA,
+              factor = 4.0'f32,
+              spread = 0.0'f32,
+              shapeSize = vec2(0.0'f32, 0.0'f32),
+            )
+        else:
+          let
+            split = box.y + box.h * midPos
+            topH = max(0.0'f32, split - box.y)
+            bottomH = max(0.0'f32, box.y + box.h - split)
+          if topH > 0.0'f32:
+            let topRect = rect(box.x, box.y, box.w, topH)
+            let topRadii = [
+              dcTopLeft: corners[dcTopLeft],
+              dcTopRight: corners[dcTopRight],
+              dcBottomLeft: 0.0'f32,
+              dcBottomRight: 0.0'f32,
+            ]
+            let topGrad = FillGradient(mode: fgmLinear, axis: fgaY, stopCount: 2)
+            let topColors = gradientColorsForAxis(topGrad, stop0, stop1, stop1)
+            ctx.drawRoundedRectSdf(
+              rect = topRect,
+              colors = topColors,
+              radii = topRadii,
+              mode = figbackend.SdfMode.sdfModeClipAA,
+              factor = 4.0'f32,
+              spread = 0.0'f32,
+              shapeSize = vec2(0.0'f32, 0.0'f32),
+            )
+          if bottomH > 0.0'f32:
+            let bottomRect = rect(box.x, split, box.w, bottomH)
+            let bottomRadii = [
+              dcTopLeft: 0.0'f32,
+              dcTopRight: 0.0'f32,
+              dcBottomLeft: corners[dcBottomLeft],
+              dcBottomRight: corners[dcBottomRight],
+            ]
+            let bottomGrad = FillGradient(mode: fgmLinear, axis: fgaY, stopCount: 2)
+            let bottomColors = gradientColorsForAxis(bottomGrad, stop1, stop2, stop2)
+            ctx.drawRoundedRectSdf(
+              rect = bottomRect,
+              colors = bottomColors,
+              radii = bottomRadii,
+              mode = figbackend.SdfMode.sdfModeClipAA,
+              factor = 4.0'f32,
+              spread = 0.0'f32,
+              shapeSize = vec2(0.0'f32, 0.0'f32),
+            )
+      else:
+        let gradColors = gradientColorsForAxis(node.fillGradient, stop0, stop1, stop2)
+        ctx.drawRoundedRectSdf(
+          rect = box,
+          colors = gradColors,
+          radii = corners,
+          mode = figbackend.SdfMode.sdfModeClipAA,
+          factor = 4.0'f32,
+          spread = 0.0'f32,
+          shapeSize = vec2(0.0'f32, 0.0'f32),
+        )
+    else:
+      if node.corners != [0'u16, 0'u16, 0'u16, 0'u16]:
+        ctx.drawRoundedRect(rect = box, color = node.fill.color, radii = corners)
+      else:
+        ctx.drawRect(box, node.fill.color)
+  elif node.fill.a > 0'u8:
     when not defined(useFigDrawTextures):
       ctx.drawRoundedRectSdf(
         rect = box,
-        color = node.fill,
+        color = node.fill.color,
         radii = corners,
         mode = figbackend.SdfMode.sdfModeClipAA,
         factor = 4.0'f32,
@@ -419,10 +593,10 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
         shapeSize = vec2(0.0'f32, 0.0'f32),
       )
     else:
-      if node.corners != [0'f32, 0'f32, 0'f32, 0'f32]:
-        ctx.drawRoundedRect(rect = box, color = node.fill, radii = corners)
+      if node.corners != [0'u16, 0'u16, 0'u16, 0'u16]:
+        ctx.drawRoundedRect(rect = box, color = node.fill.color, radii = corners)
       else:
-        ctx.drawRect(box, node.fill)
+        ctx.drawRect(box, node.fill.color)
 
   if node.stroke.color.a > 0 and node.stroke.weight > 0:
     when not defined(useFigDrawTextures):

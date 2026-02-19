@@ -267,7 +267,7 @@ proc makeOverlay(w, h: float32): Renders =
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: rect(0, 0, w, h),
-      fill: rgba(0, 0, 0, 0).color,
+      fill: rgba(0, 0, 0, 0),
     )
   )
 
@@ -285,9 +285,9 @@ proc makeOverlay(w, h: float32): Renders =
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: panelRect,
-      fill: rgba(20, 22, 32, 220).color,
+      fill: rgba(20, 22, 32, 220),
       stroke: RenderStroke(weight: 1.5, color: rgba(255, 255, 255, 40).color),
-      corners: [12.0'f32, 12.0, 12.0, 12.0],
+      corners: [12'u16, 12'u16, 12'u16, 12'u16],
       shadows: [panelShadow, RenderShadow(), RenderShadow(), RenderShadow()],
     ),
   )
@@ -305,8 +305,8 @@ proc makeOverlay(w, h: float32): Renders =
         childCount: 0,
         zlevel: 0.ZLevel,
         screenBox: btnRect,
-        fill: rgba(uint8(40 + i * 8), 90'u8, 160'u8, 200'u8).color,
-        corners: [8.0'f32, 8.0, 8.0, 8.0],
+        fill: rgba(uint8(40 + i * 8), 90'u8, 160'u8, 200'u8),
+        corners: [8'u16, 8'u16, 8'u16, 8'u16],
       ),
     )
     buttonY += 46'f32

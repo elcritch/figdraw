@@ -1,4 +1,4 @@
-import std/[options, hashes]
+import std/[options, hashes, math]
 import chroma, stack_strings
 
 import common/uimaths
@@ -102,3 +102,30 @@ type
     midPos*: uint8         # 0..255 (only used when stopCount == 3), default 128
     colors*: array[3, ColorRGBA]  # packed RGBA8
 
+converter toColorRGBA*(c: Color): ColorRGBA {.inline.} =
+  ## Backward compatibility for callers still producing float colors.
+  rgba(c)
+
+proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
+  when v is SomeFloat:
+    if v <= 0:
+      return 0'u16
+    if v >= high(uint16).float:
+      return high(uint16)
+    round(v).uint16
+  else:
+    if v <= 0:
+      return 0'u16
+    if v >= high(uint16):
+      return high(uint16)
+    v.uint16
+
+converter toCornerRadii*[T: SomeNumber](a: array[4, T]): array[DirectionCorners, uint16] =
+  for i in 0 ..< 4:
+    result[DirectionCorners(i)] = cornerToU16(a[i])
+
+converter toCornerRadii*[T: SomeNumber](
+    a: array[DirectionCorners, T]
+): array[DirectionCorners, uint16] =
+  for c in DirectionCorners:
+    result[c] = cornerToU16(a[c])

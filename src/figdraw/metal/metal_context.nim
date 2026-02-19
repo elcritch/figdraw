@@ -827,6 +827,27 @@ method drawRoundedRectSdf*(
     spread: float32 = 0.0,
     shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
 ) =
+  let rgba = color.rgba()
+  ctx.drawRoundedRectSdf(
+    rect = rect,
+    colors = [rgba, rgba, rgba, rgba],
+    radii = radii,
+    mode = mode,
+    factor = factor,
+    spread = spread,
+    shapeSize = shapeSize,
+  )
+
+method drawRoundedRectSdf*(
+    ctx: MetalContext,
+    rect: Rect,
+    colors: array[4, ColorRGBA],
+    radii: array[DirectionCorners, float32],
+    mode: SdfMode = sdfModeClipAA,
+    factor: float32 = 4.0,
+    spread: float32 = 0.0,
+    shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+) =
   if rect.w <= 0 or rect.h <= 0:
     return
 
@@ -908,11 +929,10 @@ method drawRoundedRectSdf*(
   ctx.uvs.data.setVert2(offset + 2, uvQuad[2])
   ctx.uvs.data.setVert2(offset + 3, uvQuad[3])
 
-  let rgba = color.rgba()
-  ctx.colors.data.setVertColor(offset + 0, rgba)
-  ctx.colors.data.setVertColor(offset + 1, rgba)
-  ctx.colors.data.setVertColor(offset + 2, rgba)
-  ctx.colors.data.setVertColor(offset + 3, rgba)
+  ctx.colors.data.setVertColor(offset + 0, colors[0])
+  ctx.colors.data.setVertColor(offset + 1, colors[1])
+  ctx.colors.data.setVertColor(offset + 2, colors[2])
+  ctx.colors.data.setVertColor(offset + 3, colors[3])
 
   ctx.sdfParams.data.setVert4(offset + 0, params)
   ctx.sdfParams.data.setVert4(offset + 1, params)

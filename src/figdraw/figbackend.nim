@@ -88,7 +88,7 @@ method drawRect*(impl: BackendContext, rect: Rect, color: Color) {.base.} =
 method drawRoundedRectSdf*(
     impl: BackendContext,
     rect: Rect,
-    color: Color,
+    colors: array[4, ColorRGBA],
     radii: array[DirectionCorners, float32],
     mode: SdfMode,
     factor: float32,
@@ -96,6 +96,27 @@ method drawRoundedRectSdf*(
     shapeSize: Vec2,
 ) {.base.} =
   raise newException(ValueError, "Backend drawRoundedRectSdf unavailable")
+
+method drawRoundedRectSdf*(
+    impl: BackendContext,
+    rect: Rect,
+    color: Color,
+    radii: array[DirectionCorners, float32],
+    mode: SdfMode,
+    factor: float32,
+    spread: float32,
+    shapeSize: Vec2,
+) {.base.} =
+  let solid = color.rgba()
+  impl.drawRoundedRectSdf(
+    rect = rect,
+    colors = [solid, solid, solid, solid],
+    radii = radii,
+    mode = mode,
+    factor = factor,
+    spread = spread,
+    shapeSize = shapeSize,
+  )
 
 method drawMsdfImage*(
     impl: BackendContext,

@@ -19,7 +19,7 @@ proc makeRenderTree(w, h: float32): Renders =
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: rect(0, 0, w, h),
-      fill: rgba(160, 160, 160, 255).color,
+      fill: rgba(160, 160, 160, 255),
     )
   )
 
