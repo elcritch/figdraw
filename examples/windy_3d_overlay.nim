@@ -489,7 +489,7 @@ when isMainModule:
     window.size = size.scaled()
 
   let renderer =
-    glrenderer.newFigRenderer(atlasSize = 2048, backendState = WindyRenderBackend())
+    glrenderer.newFigRenderer(atlasSize = 4096, backendState = WindyRenderBackend())
   renderer.setupBackend(window)
   when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:

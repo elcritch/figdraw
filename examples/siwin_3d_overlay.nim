@@ -208,6 +208,20 @@ proc compileShader(shaderType: GLenum, source, label: string): GLuint =
 
   result = shader
 
+proc glString(which: GLenum): string =
+  let raw = cast[cstring](glGetString(which))
+  if raw.isNil:
+    return ""
+  $raw
+
+proc useGlslEsShaders(): bool =
+  when defined(emscripten):
+    true
+  else:
+    let version = glString(GL_VERSION).toLowerAscii()
+    let shadingVersion = glString(GL_SHADING_LANGUAGE_VERSION).toLowerAscii()
+    version.contains("opengl es") or shadingVersion.contains(" es")
+
 proc buildProgram(vertexSrc, fragmentSrc: string): GLuint =
   let vertexShader = compileShader(GL_VERTEX_SHADER, vertexSrc, "pyramid.vert")
   let fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSrc, "pyramid.frag")
@@ -236,9 +250,8 @@ proc buildProgram(vertexSrc, fragmentSrc: string): GLuint =
   glDeleteShader(fragmentShader)
 
 proc initPyramid(): PyramidGl =
-  let vertexSrc =
-    when defined(emscripten):
-      """
+  let vertexSrcEs =
+    """
 #version 300 es
 precision highp float;
 
@@ -253,8 +266,8 @@ void main() {
   gl_Position = uMvp * vec4(aPos, 1.0);
 }
 """
-    else:
-      """
+  let vertexSrcCore =
+    """
 #version 330 core
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aColor;
@@ -268,9 +281,8 @@ void main() {
 }
 """
 
-  let fragmentSrc =
-    when defined(emscripten):
-      """
+  let fragmentSrcEs =
+    """
 #version 300 es
 precision highp float;
 
@@ -281,8 +293,8 @@ void main() {
   fragColor = vec4(vColor, 1.0);
 }
 """
-    else:
-      """
+  let fragmentSrcCore =
+    """
 #version 330 core
 in vec3 vColor;
 out vec4 FragColor;
@@ -292,6 +304,9 @@ void main() {
 }
 """
 
+  let useEs = useGlslEsShaders()
+  let vertexSrc = if useEs: vertexSrcEs else: vertexSrcCore
+  let fragmentSrc = if useEs: fragmentSrcEs else: fragmentSrcCore
   result.program = buildProgram(vertexSrc, fragmentSrc)
   result.mvpLoc = glGetUniformLocation(result.program, "uMvp")
 
@@ -470,6 +485,12 @@ when isMainModule:
   var app_running = true
   let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
   let monoFont = monoTypeface.fontWithSize(14.0'f32)
+
+  when UseVulkanBackend:
+    if getEnv("FIGDRAW_FORCE_OPENGL").len == 0 and getEnv("FIGDRAW_BACKEND").len == 0:
+      # This sample renders raw OpenGL geometry and overlays FigDraw on top.
+      # On Vulkan-default builds, force OpenGL so siwin creates a GL window.
+      putEnv("FIGDRAW_FORCE_OPENGL", "1")
 
   let title = siwinWindowTitle("Siwin 3D + overlay")
   let size = ivec2(900, 640)
