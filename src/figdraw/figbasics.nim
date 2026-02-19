@@ -84,3 +84,21 @@ type
     ## If > 0, render as an outline (annular band) with this stroke width.
     ## Units are the same as other FigDraw weights and get UI-scaled at render time.
     strokeWeight*: float32
+
+  FillGradientMode* = enum
+    fgmNone
+    fgmLinear
+
+  FillGradientAxis* = enum
+    fgaX
+    fgaY
+    fgaDiagTLBR
+    fgaDiagBLTR
+
+  FillGradient* = object
+    mode*: FillGradientMode
+    axis*: FillGradientAxis
+    stopCount*: uint8      # 0, 2, or 3
+    midPos*: uint8         # 0..255 (only used when stopCount == 3), default 128
+    colors*: array[3, ColorRGBA]  # packed RGBA8
+

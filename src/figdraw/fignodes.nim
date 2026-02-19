@@ -23,8 +23,9 @@ type
     screenBox*: Rect
 
     rotation*: float32
-    fill*: Color
-    corners*: array[DirectionCorners, float32]
+    fill*: ColorRGBA
+    fillGradient*: FillGradient
+    corners*: array[DirectionCorners, int8]
 
     case kind*: FigKind
     of nkRectangle:
@@ -45,6 +46,7 @@ type
       discard
 
 static:
+  echo "FigNode size: ", sizeof(Fig)
   doAssert sizeof(Fig) < 256, "FigNode SIZE: should be smaller than 256! Got: " & $sizeof(Fig)
 
 proc `$`*(id: FigIdx): string =
