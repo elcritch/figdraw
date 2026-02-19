@@ -51,6 +51,7 @@ type
     NfSkipLayout
     NfInactive
     NfSelectText
+    NfGradientInsetShadow
 
   ShadowStyle* = enum
     ## Supports drop and inner shadows.

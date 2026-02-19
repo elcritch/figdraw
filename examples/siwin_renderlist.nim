@@ -48,7 +48,18 @@ proc makeRenderTree*(w, h: float32): Renders =
       kind: nkRectangle,
       childCount: 0,
       screenBox: rect(320, 120, 220, 140),
-      fill: rgba(40, 180, 90, 255).color,
+      fill: rgba(255, 255, 255, 255).color,
+      fillGradient: FillGradient(
+        mode: fgmLinear,
+        axis: fgaX,
+        stopCount: 3'u8,
+        midPos: 140'u8,
+        colors: [
+          rgba(24, 128, 72, 255),
+          rgba(40, 180, 90, 255),
+          rgba(54, 206, 170, 255),
+        ],
+      ),
       shadows: [
         RenderShadow(
           style: DropShadow,
@@ -70,6 +81,7 @@ proc makeRenderTree*(w, h: float32): Renders =
     Fig(
       kind: nkRectangle,
       childCount: 0,
+      flags: {NfGradientInsetShadow},
       screenBox: rect(180, 300, 220, 140),
       fill: rgba(60, 90, 220, 255).color,
       shadows: [

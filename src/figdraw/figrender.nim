@@ -318,6 +318,34 @@ func gradientColorsForAxis(
     result[2] = sampleGradientColor(grad, stop0, stop1, stop2, 1.0'f32)
     result[3] = sampleGradientColor(grad, stop0, stop1, stop2, 0.5'f32)
 
+func insetShadowGradientColors(color: Color, shadowOffset: Vec2): array[4, ColorRGBA] =
+  ## Vertex order: 0=BL, 1=BR, 2=TR, 3=TL
+  let base = color.rgba()
+  result = [base, base, base, base]
+  if base.a == 0'u8:
+    return
+
+  let mag2 = shadowOffset.x * shadowOffset.x + shadowOffset.y * shadowOffset.y
+  if mag2 <= 0.0001'f32:
+    return
+
+  let
+    invLen = 1.0'f32 / sqrt(mag2)
+    dirX = shadowOffset.x * invLen
+    dirY = shadowOffset.y * invLen
+    corners = [
+      vec2(-1.0'f32, -1.0'f32),
+      vec2(1.0'f32, -1.0'f32),
+      vec2(1.0'f32, 1.0'f32),
+      vec2(-1.0'f32, 1.0'f32),
+    ]
+
+  for i in 0 ..< 4:
+    let dotVal = corners[i].x * dirX + corners[i].y * dirY
+    let w = clamp((dotVal + 1.0'f32) * 0.5'f32, 0.0'f32, 1.0'f32)
+    let alphaScale = 0.25'f32 + 0.75'f32 * w
+    result[i].a = (base.a.float32 * alphaScale).round().uint8
+
 #proc drawMasks(ctx: BackendContext, node: Fig) =
 #  ctx.setMaskRect(node.screenBox.scaled(), node.corners.scaledCorners())
 
@@ -401,15 +429,27 @@ proc renderInnerShadows(ctx: BackendContext, node: Fig) =
       # For inset mode, shapeSize carries shadow offset (x, y).
       # Backend shader evaluates clip distance from the node shape and shadow
       # distance from an offset shape in a single pass.
-      ctx.drawRoundedRectSdf(
-        rect = box,
-        shapeSize = shadowOffset,
-        color = shadow.color,
-        radii = node.corners.scaledCorners(),
-        mode = figbackend.SdfMode.sdfModeInsetShadow,
-        factor = shadowBlur,
-        spread = shadowSpread,
-      )
+      if NfGradientInsetShadow in node.flags:
+        let colors = insetShadowGradientColors(shadow.color, shadowOffset)
+        ctx.drawRoundedRectSdf(
+          rect = box,
+          shapeSize = shadowOffset,
+          colors = colors,
+          radii = node.corners.scaledCorners(),
+          mode = figbackend.SdfMode.sdfModeInsetShadow,
+          factor = shadowBlur,
+          spread = shadowSpread,
+        )
+      else:
+        ctx.drawRoundedRectSdf(
+          rect = box,
+          shapeSize = shadowOffset,
+          color = shadow.color,
+          radii = node.corners.scaledCorners(),
+          mode = figbackend.SdfMode.sdfModeInsetShadow,
+          factor = shadowBlur,
+          spread = shadowSpread,
+        )
     elif FastShadows:
       ## this is even more incorrect than drop shadows, but it's something
       ## and I don't actually want to think today ;)
