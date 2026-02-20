@@ -52,6 +52,10 @@ requires "https://github.com/elcritch/figdraw[windy]"
 
 Alternatively, you can just `atlas use windy`.
 
+## Programs Built with FigDraw
+
+- [Neonim](https://github.com/elcritch/neonim) - cross platform GUI backend for Neovim.
+
 ## What's It Look Like?
 
 Here's the primary rounded rect primitive with corners, borders, and shadows:
