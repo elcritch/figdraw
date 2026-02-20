@@ -124,13 +124,17 @@ proc fillLinear*(
 ): Fill =
   Fill(kind: flLinear3, lin3: Linear3(start: start, mid: mid, stop: stop, midPos: midPos))
 
-converter toColorRGBA*(c: Color): ColorRGBA {.inline.} =
-  ## Backward compatibility for callers still producing float colors.
-  rgba(c)
-
-#converter toFill*(c: Color): Fill {.inline.} =
+#converter toColorRGBA*(c: Color): ColorRGBA {.inline.} =
 #  ## Backward compatibility for callers still producing float colors.
 #  rgba(c)
+
+converter toFill*(c: ColorRGBA): Fill {.inline.} =
+  ## Backward compatibility for callers still producing float colors.
+  fill(c)
+
+converter toFill*(c: Color): Fill {.inline.} =
+  ## Backward compatibility for callers still producing float colors.
+  fill(rgba(c))
 
 proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
   when v is SomeFloat:
