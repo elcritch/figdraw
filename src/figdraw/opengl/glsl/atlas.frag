@@ -67,32 +67,6 @@ float shadowProfile(float sd, float blurRadius) {
   return exp(-0.5 * z * z);
 }
 
-vec4 sampleBackdropBlur(vec2 normalizedPos, float blurRadius) {
-  float radius = clamp(blurRadius, 0.0, 64.0);
-  if (radius <= 0.5) {
-    return texture(backdropTex, normalizedPos);
-  }
-
-  const int kernel = 4;
-  float sigma = max(0.5 * radius, 0.5);
-  float stepPx = max(radius / float(kernel), 1.0);
-  vec2 texel = vec2(1.0 / windowFrame.x, 1.0 / windowFrame.y);
-
-  vec4 acc = vec4(0.0);
-  float weightSum = 0.0;
-  for (int y = -kernel; y <= kernel; y++) {
-    for (int x = -kernel; x <= kernel; x++) {
-      vec2 dPx = vec2(float(x), float(y)) * stepPx;
-      float d2 = dot(dPx, dPx);
-      float w = exp(-0.5 * d2 / (sigma * sigma));
-      acc += texture(backdropTex, normalizedPos + dPx * texel) * w;
-      weightSum += w;
-    }
-  }
-
-  return acc / max(weightSum, 1e-5);
-}
-
 void main() {
   int sdfModeInt = int(sdfMode);
   vec2 quadHalfExtents = sdfParams.xy;
@@ -187,7 +161,7 @@ void main() {
         float cl = clamp(aaFactor * dist + 0.5, 0.0, 1.0);
         alpha = 1.0 - cl;
         vec2 normalizedPos = vec2(pos.x / windowFrame.x, 1.0 - pos.y / windowFrame.y);
-        vec4 blur = sampleBackdropBlur(normalizedPos, sdfFactor);
+        vec4 blur = texture(backdropTex, normalizedPos);
         fragColor = vec4(blur.rgb, blur.a * alpha);
         break;
       }

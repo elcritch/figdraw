@@ -62,35 +62,6 @@ float shadowProfile(float sd, float blurRadius) {
   return exp(-0.5 * z * z);
 }
 
-float4 sampleBackdropBlur(
-    texture2d<float> backdropTex,
-    float2 normalizedPos,
-    float2 windowFrame,
-    float blurRadius) {
-  float radius = clamp(blurRadius, 0.0, 64.0);
-  if (radius <= 0.5) {
-    return backdropTex.sample(s, normalizedPos);
-  }
-
-  const int tapRadius = 4;
-  float sigma = max(0.5 * radius, 0.5);
-  float stepPx = max(radius / float(tapRadius), 1.0);
-  float2 texel = float2(1.0 / windowFrame.x, 1.0 / windowFrame.y);
-
-  float4 acc = float4(0.0);
-  float weightSum = 0.0;
-  for (int y = -tapRadius; y <= tapRadius; ++y) {
-    for (int x = -tapRadius; x <= tapRadius; ++x) {
-      float2 dPx = float2(float(x), float(y)) * stepPx;
-      float d2 = dot(dPx, dPx);
-      float w = exp(-0.5 * d2 / (sigma * sigma));
-      acc += backdropTex.sample(s, normalizedPos + dPx * texel) * w;
-      weightSum += w;
-    }
-  }
-  return acc / max(weightSum, 1e-5);
-}
-
 vertex VSOut vs_main(
     uint vid [[vertex_id]],
     const device float2* positions [[buffer(0)]],
@@ -229,7 +200,7 @@ fragment float4 fs_main(
         float cl = clamp(u.aaFactor * dist + 0.5, 0.0, 1.0);
         alpha = 1.0 - cl;
         float2 normalizedPos = float2(in.pos.x / u.windowFrame.x, in.pos.y / u.windowFrame.y);
-        float4 blur = sampleBackdropBlur(backdropTex, normalizedPos, u.windowFrame, sdfFactor);
+        float4 blur = backdropTex.sample(s, normalizedPos);
         fragColor = float4(blur.xyz, blur.w * alpha);
         break;
       }
@@ -289,6 +260,12 @@ struct BlitVSOut {
   float2 uv;
 };
 
+struct BlurUniforms {
+  float2 texelStep;
+  float blurRadius;
+  float pad0;
+};
+
 vertex BlitVSOut vs_blit(uint vid [[vertex_id]]) {
   // Fullscreen triangle.
   float2 pos;
@@ -306,4 +283,28 @@ fragment float4 fs_blit(
     BlitVSOut in [[stage_in]],
     texture2d<float> src [[texture(0)]]) {
   return src.sample(s, in.uv);
+}
+
+fragment float4 fs_blur(
+    BlitVSOut in [[stage_in]],
+    constant BlurUniforms& u [[buffer(0)]],
+    texture2d<float> src [[texture(0)]]) {
+  float radius = clamp(u.blurRadius, 0.0, 64.0);
+  if (radius <= 0.5) {
+    return src.sample(s, in.uv);
+  }
+
+  const int tapRadius = 8;
+  float sigma = max(0.5 * radius, 0.5);
+  float stepPx = max(radius / float(tapRadius), 1.0);
+
+  float4 acc = float4(0.0);
+  float weightSum = 0.0;
+  for (int i = -tapRadius; i <= tapRadius; ++i) {
+    float x = float(i) * stepPx;
+    float w = exp(-0.5 * (x * x) / (sigma * sigma));
+    acc += src.sample(s, in.uv + u.texelStep * x) * w;
+    weightSum += w;
+  }
+  return acc / max(weightSum, 1e-5);
 }

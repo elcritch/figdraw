@@ -100,6 +100,18 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
 
     discard list.addRoot(
       Fig(
+        kind: nkBackdropBlur,
+        childCount: 0,
+        zlevel: 0.ZLevel,
+        corners: [c0, c1, c2, c3],
+        screenBox: rect(redStartX + offsetX, redStartY + offsetY, redW, redH),
+        fill: rgba(0, 0, 0, 0).color,
+        backdropBlur: BackdropBlurStyle(blur: 12.0'f32),
+      )
+    )
+
+    discard list.addRoot(
+      Fig(
         kind: nkRectangle,
         childCount: 0,
         zlevel: 0.ZLevel,
@@ -171,9 +183,7 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
             y: insetY,
             fill:
               if useBlueGradient:
-                linear(
-                  rgba(25, 25, 40, 100), rgba(65, 65, 95, 180), axis = fgaDiagBLTR
-                )
+                linear(rgba(25, 25, 40, 100), rgba(65, 65, 95, 180), axis = fgaDiagBLTR)
               else:
                 rgba(40, 40, 60, 150),
           ),
