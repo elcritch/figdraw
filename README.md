@@ -109,24 +109,21 @@ import figdraw/fignodes
 import chroma
 
 proc makeRenders(w, h: float32): Renders =
-  var list = RenderList()
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
 
-  let rootIdx = list.addRoot(Fig(
+  let rootIdx = result.addRoot(0.ZLevel, Fig(
     kind: nkRectangle,
     screenBox: rect(0, 0, w, h),
     fill: rgba(255, 255, 255, 255),
   ))
 
-  list.addChild(rootIdx, Fig(
+  discard result.addChild(0.ZLevel, rootIdx, Fig(
     kind: nkRectangle,
     screenBox: rect(80, 60, 240, 140),
     fill: rgba(220, 40, 40, 255),
     corners: [12.0'f32, 12.0, 12.0, 12.0],
     stroke: RenderStroke(weight: 3.0, fill: rgba(0, 0, 0, 255)),
   ))
-
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
-  result.layers[0.ZLevel] = list
 ```
 
 Feed the resulting `Renders` into the OpenGL backend; see the examples below for a full render loop.
@@ -162,7 +159,7 @@ import figdraw/fignodes
 import chroma
 
 proc makeGradientDemo(w, h: float32, uiFont: FigFont): Renders =
-  var list = RenderList()
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
 
   let panelFill = linear(
     rgba(255, 236, 168, 255),
@@ -182,13 +179,13 @@ proc makeGradientDemo(w, h: float32, uiFont: FigFont): Renders =
     midPos = 96'u8,
   )
 
-  let root = list.addRoot(Fig(
+  let root = result.addRoot(0.ZLevel, Fig(
     kind: nkRectangle,
     screenBox: rect(0, 0, w, h),
     fill: rgba(245, 245, 245, 255),
   ))
 
-  discard list.addChild(root, Fig(
+  discard result.addChild(0.ZLevel, root, Fig(
     kind: nkRectangle,
     screenBox: rect(40, 40, 360, 180),
     fill: panelFill,
@@ -205,16 +202,13 @@ proc makeGradientDemo(w, h: float32, uiFont: FigFont): Renders =
     wrap = false,
   )
 
-  discard list.addChild(root, Fig(
+  discard result.addChild(0.ZLevel, root, Fig(
     kind: nkText,
     screenBox: rect(60, 70, 320, 50),
     textLayout: titleLayout,
     # For nkText: glyph colors come from span fills. `fill` is used for selection highlight.
     fill: rgba(255, 235, 170, 255),
   ))
-
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
-  result.layers[0.ZLevel] = list
 ```
 
 ## Layers and ZLevel
@@ -230,15 +224,15 @@ import figdraw/fignodes
 import chroma
 
 proc makeRenders(w, h: float32): Renders =
-  var bg = RenderList()
-  discard bg.addRoot(Fig(
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+  discard result.addRoot(0.ZLevel, Fig(
     kind: nkRectangle,
     screenBox: rect(0, 0, w, h),
     fill: rgba(245, 245, 245, 255),
   ))
 
-  var overlay = RenderList()
-  discard overlay.addRoot(Fig(
+  discard result.addRoot(10.ZLevel, Fig(
     kind: nkRectangle,
     zlevel: 10.ZLevel,
     screenBox: rect(40, 40, 220, 120),
@@ -246,9 +240,6 @@ proc makeRenders(w, h: float32): Renders =
     corners: [10.0'f32, 10.0, 10.0, 10.0],
   ))
 
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
-  result.layers[0.ZLevel] = bg
-  result.layers[10.ZLevel] = overlay
   result.layers.sort(proc(x, y: auto): int = cmp(x[0], y[0]))
 ```
 
