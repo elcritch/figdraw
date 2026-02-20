@@ -41,12 +41,15 @@ type
       msdfImage*: MsdfImageStyle
     of nkMtsdfImage:
       mtsdfImage*: MsdfImageStyle
+    of nkBackdropBlur:
+      backdropBlur*: BackdropBlurStyle
     else:
       discard
 
 static:
   {.warning: "Fig node size: " & $sizeof(Fig).}
-  doAssert sizeof(Fig) < 256, "FigNode SIZE: should be smaller than 256! Got: " & $sizeof(Fig)
+  doAssert sizeof(Fig) < 256,
+    "FigNode SIZE: should be smaller than 256! Got: " & $sizeof(Fig)
 
 proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"

@@ -38,6 +38,7 @@ type
     nkImage
     nkMsdfImage
     nkMtsdfImage
+    nkBackdropBlur
 
   FigFlags* = enum
     NfClipContent
@@ -76,6 +77,9 @@ type
     ## If > 0, render as an outline (annular band) with this stroke width.
     ## Units are the same as other FigDraw weights and get UI-scaled at render time.
     strokeWeight*: float32
+
+  BackdropBlurStyle* = object ## Gaussian blur radius in UI units.
+    blur*: float32
 
 proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
   when v is SomeFloat:

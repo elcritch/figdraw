@@ -113,3 +113,14 @@ suite "test layers":
     # print 20.Zlevel, lispRepr(renders[20.ZLevel])
     # print 30.Zlevel, lispRepr(renders[30.ZLevel])
     # # check uids1.repr == "@[8]"
+
+  test "transfer keeps nkBackdropBlur style":
+    var blurNode = Fig(kind: nkBackdropBlur)
+    blurNode.backdropBlur.blur = 14.0'f32
+    blurNode.fill = fill(rgba(255, 255, 255, 64))
+    blurNode.corners = [12'u16, 12'u16, 12'u16, 12'u16]
+
+    let converted = blurNode.toRenderFig()
+    check converted.kind == nkBackdropBlur
+    check converted.backdropBlur.blur == 14.0'f32
+    check converted.corners == blurNode.corners

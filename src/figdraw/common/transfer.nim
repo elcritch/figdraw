@@ -53,6 +53,9 @@ proc toRenderFig*[N](current: N): Fig =
     result.fill = current.fill.rgba()
   else:
     result.fill = current.fill
+  when compiles(current.corners):
+    for corner in DirectionCorners:
+      result.corners[corner] = cornerToU16(current.corners[corner])
 
   case current.kind
   of nkRectangle:
@@ -86,9 +89,6 @@ proc toRenderFig*[N](current: N): Fig =
       else:
         shadow.fill = fill(rgba(0, 0, 0, 0))
       result.shadows[i] = shadow
-
-    for corner in DirectionCorners:
-      result.corners[corner] = cornerToU16(current.corners[corner])
   of nkImage:
     result.image.id = current.image.id
     when compiles(current.image.fill):
@@ -119,6 +119,13 @@ proc toRenderFig*[N](current: N): Fig =
           result.mtsdfImage.fill = current.mtsdfImage.color
         else:
           result.mtsdfImage.fill = fill(rgba(255, 255, 255, 255))
+  of nkBackdropBlur:
+    when compiles(current.backdropBlur):
+      result.backdropBlur = current.backdropBlur
+    elif compiles(current.blur):
+      result.backdropBlur.blur = current.blur
+    else:
+      result.backdropBlur.blur = 0.0'f32
   of nkText:
     result.textLayout = current.textLayout
     result.selectionRange = current.selectionRange
