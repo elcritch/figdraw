@@ -111,10 +111,10 @@ type
 proc fill*(color: ColorRGBA): Fill =
   Fill(kind: flColor, color: color)
 
-proc fillLinear*(start, stop: ColorRGBA, axis: FillGradientAxis): Fill =
+proc linear*(start, stop: ColorRGBA, axis: FillGradientAxis): Fill =
   Fill(kind: flLinear2, lin2: Linear2(axis: axis, start: start, stop: stop))
 
-proc fillLinear*(
+proc linear*(
     start, mid, stop: ColorRGBA, axis: FillGradientAxis, midPos = 128'u8
 ): Fill =
   Fill(

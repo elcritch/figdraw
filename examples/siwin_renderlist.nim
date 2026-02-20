@@ -48,7 +48,7 @@ proc makeRenderTree*(w, h: float32): Renders =
       kind: nkRectangle,
       childCount: 0,
       screenBox: rect(320, 120, 220, 140),
-      fill: fillLinear(
+      fill: linear(
         rgba(24, 128, 72, 255),
         rgba(40, 180, 90, 255),
         rgba(54, 206, 170, 255),
@@ -86,7 +86,7 @@ proc makeRenderTree*(w, h: float32): Renders =
           x: -6,
           y: -6,
           fill:
-            fillLinear(rgba(25, 25, 25, 90), rgba(65, 65, 65, 175), axis = fgaDiagTLBR),
+            linear(rgba(25, 25, 25, 90), rgba(65, 65, 65, 175), axis = fgaDiagTLBR),
         ),
         RenderShadow(
           style: InnerShadow,
@@ -94,7 +94,7 @@ proc makeRenderTree*(w, h: float32): Renders =
           spread: 0,
           x: 6,
           y: 6,
-          fill: fillLinear(
+          fill: linear(
             rgba(255, 255, 255, 255), rgba(205, 205, 205, 115), axis = fgaDiagTLBR
           ),
         ),

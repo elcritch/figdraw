@@ -528,11 +528,10 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
               dcBottomLeft: corners[dcBottomLeft],
               dcBottomRight: 0.0'f32,
             ]
-            let leftFill = Fill(
-              kind: flLinear2,
-              lin2: Linear2(
-                axis: fgaX, start: node.fill.lin3.start, stop: node.fill.lin3.mid
-              ),
+            let leftFill = linear(
+              start = node.fill.lin3.start,
+              stop = node.fill.lin3.mid,
+              axis = fgaX,
             )
             ctx.drawRoundedRectSdf(
               rect = leftRect,
@@ -551,11 +550,10 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
               dcBottomLeft: 0.0'f32,
               dcBottomRight: corners[dcBottomRight],
             ]
-            let rightFill = Fill(
-              kind: flLinear2,
-              lin2: Linear2(
-                axis: fgaX, start: node.fill.lin3.mid, stop: node.fill.lin3.stop
-              ),
+            let rightFill = linear(
+              start = node.fill.lin3.mid,
+              stop = node.fill.lin3.stop,
+              axis = fgaX,
             )
             ctx.drawRoundedRectSdf(
               rect = rightRect,
