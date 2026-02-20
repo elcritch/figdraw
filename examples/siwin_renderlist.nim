@@ -29,7 +29,7 @@ proc makeRenderTree*(w, h: float32): Renders =
     ),
   )
 
-  discard result.addChild(
+  result.addChild(
     0.ZLevel,
     rootIdx,
     Fig(
@@ -38,10 +38,10 @@ proc makeRenderTree*(w, h: float32): Renders =
       corners: [10.0'f32, 20.0, 30.0, 40.0],
       screenBox: rect(60, 60, 220, 140),
       fill: rgba(220, 40, 40, 255),
-      stroke: RenderStroke(weight: 5.0, fill: rgba(0, 0, 0, 255).color),
+      stroke: RenderStroke(weight: 5.0, fill: rgba(0, 0, 0, 255)),
     ),
   )
-  discard result.addChild(
+  result.addChild(
     0.ZLevel,
     rootIdx,
     Fig(
@@ -70,7 +70,7 @@ proc makeRenderTree*(w, h: float32): Renders =
       ],
     ),
   )
-  discard result.addChild(
+  result.addChild(
     0.ZLevel,
     rootIdx,
     Fig(
@@ -98,7 +98,6 @@ proc makeRenderTree*(w, h: float32): Renders =
             rgba(255, 255, 255, 255), rgba(205, 205, 205, 115), axis = fgaDiagTLBR
           ),
         ),
-        #RenderShadow(),
         RenderShadow(),
         RenderShadow(),
       ],
