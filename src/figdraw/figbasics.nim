@@ -95,12 +95,12 @@ type
     of flColor:
       color: ColorRGBA
     of flLinear2:
-      l2axis*: FillGradientAxis
-      l2colors*: array[2, ColorRGBA]  # packed RGBA8
+      axis2*: FillGradientAxis
+      colors2*: array[2, ColorRGBA]  # packed RGBA8
     of flLinear3:
-      l3axis*: FillGradientAxis
-      l3midPos*: uint8 = 128        # 0..255
-      l3colors*: array[3, ColorRGBA]  # packed RGBA8
+      axis3*: FillGradientAxis
+      midPos3*: uint8 = 128        # 0..255
+      colors3*: array[3, ColorRGBA]  # packed RGBA8
 
 
 converter toColorRGBA*(c: Color): ColorRGBA {.inline.} =
