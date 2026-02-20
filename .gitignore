@@ -7,8 +7,6 @@ nim.cfg
 vendor/*/
 nimcache
 *.out
-*.spv
-
 
 .tool-versions
 *.dSYM/
