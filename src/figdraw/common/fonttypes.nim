@@ -1,7 +1,9 @@
 import std/[hashes, unicode]
 import uimaths
+import filltypes
 
 export uimaths
+export filltypes
 
 import pkg/chroma
 export chroma
@@ -51,14 +53,14 @@ type
 
   FontStyle* = object
     font*: FigFont
-    color*: Color
+    color*: Fill
 
   GlyphArrangement* = object
     contentHash*: Hash
     lines*: seq[Slice[int]] ## The (start, stop) of the lines of text.
     spans*: seq[Slice[int]] ## The (start, stop) of the spans in the text.
     fonts*: seq[GlyphFont] ## The font for each span.
-    spanColors*: seq[Color] ## The color for each span.
+    spanColors*: seq[Fill] ## The fill for each span.
     runes*: seq[Rune] ## The runes of the text.
     positions*: seq[Vec2] ## The positions of the glyphs for each rune.
     selectionRects*: seq[Rect] ## The selection rects for each glyph.
@@ -79,15 +81,15 @@ proc hash*(style: FontStyle): Hash =
   h = h !& hash(style.color)
   result = !$h
 
-proc fs*(font: FigFont, color: Color = color(0, 0, 0, 1)): FontStyle =
+proc fs*(font: FigFont, color: Fill = fill(rgba(0, 0, 0, 255))): FontStyle =
   ## helper for making font style objects
   FontStyle(font: font, color: color)
 
-proc fsp*(font: FigFont, color: Color, text: string): (FontStyle, string) =
+proc fsp*(font: FigFont, color: Fill, text: string): (FontStyle, string) =
   ## helper for making font span objects
   (FontStyle(font: font, color: color), text)
 
-proc span*(font: FigFont, color: Color, text: string): (FontStyle, string) =
+proc span*(font: FigFont, color: Fill, text: string): (FontStyle, string) =
   ## helper for making font span objects
   (FontStyle(font: font, color: color), text)
 

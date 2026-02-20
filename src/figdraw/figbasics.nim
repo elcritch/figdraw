@@ -1,11 +1,12 @@
-import std/[options, hashes, math]
+import std/[options, math]
 import chroma, stack_strings
 
 import common/uimaths
 import common/fonttypes
 import common/imgutils
+import common/filltypes
 
-export uimaths, fonttypes, imgutils
+export uimaths, fonttypes, imgutils, filltypes
 export options, chroma, stack_strings
 
 const ShadowCount* {.intdefine.} = 4
@@ -51,38 +52,6 @@ type
     DropShadow
     InnerShadow
 
-  FillGradientAxis* = enum
-    fgaX
-    fgaY
-    fgaDiagTLBR
-    fgaDiagBLTR
-
-  FillKind* = enum
-    flColor
-    flLinear2
-    flLinear3
-
-  Linear2* = object
-    axis*: FillGradientAxis
-    start*: ColorRGBA # packed RGBA8
-    stop*: ColorRGBA # packed RGBA8
-
-  Linear3* = object
-    axis*: FillGradientAxis
-    start*: ColorRGBA # packed RGBA8
-    mid*: ColorRGBA # packed RGBA8
-    stop*: ColorRGBA # packed RGBA8
-    midPos*: uint8 # 0..255
-
-  Fill* = object
-    case kind*: FillKind
-    of flColor:
-      color*: ColorRGBA
-    of flLinear2:
-      lin2*: Linear2
-    of flLinear3:
-      lin3*: Linear3
-
   RenderShadow* = object
     style*: ShadowStyle
     fill*: Fill
@@ -107,32 +76,6 @@ type
     ## If > 0, render as an outline (annular band) with this stroke width.
     ## Units are the same as other FigDraw weights and get UI-scaled at render time.
     strokeWeight*: float32
-
-proc fill*(color: ColorRGBA): Fill =
-  Fill(kind: flColor, color: color)
-
-proc linear*(start, stop: ColorRGBA, axis: FillGradientAxis): Fill =
-  Fill(kind: flLinear2, lin2: Linear2(axis: axis, start: start, stop: stop))
-
-proc linear*(
-    start, mid, stop: ColorRGBA, axis: FillGradientAxis, midPos = 128'u8
-): Fill =
-  Fill(
-    kind: flLinear3,
-    lin3: Linear3(axis: axis, start: start, mid: mid, stop: stop, midPos: midPos),
-  )
-
-#converter toColorRGBA*(c: Color): ColorRGBA {.inline.} =
-#  ## Backward compatibility for callers still producing float colors.
-#  rgba(c)
-
-converter toFill*(c: ColorRGBA): Fill {.inline.} =
-  ## Backward compatibility for callers still producing float colors.
-  fill(c)
-
-converter toFill*(c: Color): Fill {.inline.} =
-  ## Backward compatibility for callers still producing float colors.
-  fill(rgba(c))
 
 proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
   when v is SomeFloat:

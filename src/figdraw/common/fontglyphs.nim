@@ -20,7 +20,7 @@ type GlyphPosition* = ref object ## Represents a glyph position after typesettin
   rect*: Rect
   descent*: float32
   lineHeight*: float32
-  color*: Color
+  fill*: Fill
 
 proc hash*(glyph: GlyphPosition): Hash {.inline.} =
   #result = hash((2344, glyph.fontId, glyph.rune, app.uiScale))
@@ -76,7 +76,7 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
         if i < arrangement.spanColors.len:
           arrangement.spanColors[i]
         else:
-          blackColor
+          fill(rgba(0, 0, 0, 255))
       while idx < arrangement.runes.len():
         let
           pos = arrangement.positions[idx]
@@ -93,7 +93,7 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
           rect: selection,
           descent: descent,
           lineHeight: gfont.lineHeight,
-          color: spanColor,
+          fill: spanColor,
         )
 
         idx.inc()
@@ -132,9 +132,8 @@ proc convertArrangement*(
   for i, span in arrangement.spans:
     # hmmm, really should figure this out based on the font coordinate inversion
     # or whatever causes this...
-    for j in span[0]..span[1]:
+    for j in span[0] .. span[1]:
       selectionRects[j].y -= gfonts[i].lineHeight / 6
-
 
   result = GlyphArrangement(
     contentHash: block:
