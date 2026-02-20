@@ -19,7 +19,7 @@ proc makeRenderTree(w, h: float32): Renders =
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: rect(0, 0, w, h),
-      fill: rgba(160, 160, 160, 255).color,
+      fill: rgba(160, 160, 160, 255),
     )
   )
 
@@ -31,7 +31,7 @@ proc makeRenderTree(w, h: float32): Renders =
       zlevel: 0.ZLevel,
       screenBox: rect(60, 60, 160, 160),
       image:
-        ImageStyle(color: rgba(255, 255, 255, 255).color, id: hash("img1.png").ImageId),
+        ImageStyle(fill: rgba(255, 255, 255, 255).color, id: hash("img1.png").ImageId),
     ),
   )
 

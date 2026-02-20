@@ -385,7 +385,7 @@ proc makeOverlay*(
         childCount: 0,
         zlevel: 0.ZLevel,
         screenBox: rect(0, 0, w, h),
-        image: ImageStyle(color: whiteColor, id: bgImageId),
+        image: ImageStyle(fill: whiteColor, id: bgImageId),
       ),
     )
 
@@ -394,7 +394,7 @@ proc makeOverlay*(
   let panelW = max(panelWBase, monoFont.size * 18.0'f32) * 1.2'f32
   let panelRect = rect(w - panelW - pad, pad, panelW, h - pad * 2)
   let panelShadow = RenderShadow(
-    style: DropShadow, blur: 18, spread: 0, x: 0, y: 10, color: rgba(0, 0, 0, 60).color
+    style: DropShadow, blur: 18, spread: 0, x: 0, y: 10, fill: rgba(0, 0, 0, 60).color
   )
 
   let panelIdx = list.addChild(
@@ -404,8 +404,8 @@ proc makeOverlay*(
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: panelRect,
-      fill: rgba(20, 22, 32, 220).color,
-      stroke: RenderStroke(weight: 1.5, color: rgba(255, 255, 255, 40).color),
+      fill: rgba(20, 22, 32, 220),
+      stroke: RenderStroke(weight: 1.5, fill: rgba(255, 255, 255, 40).color),
       corners: [12.0'f32, 12.0, 12.0, 12.0],
       shadows: [panelShadow, RenderShadow(), RenderShadow(), RenderShadow()],
     ),
@@ -427,7 +427,7 @@ proc makeOverlay*(
       spread: 0,
       x: 0,
       y: 1,
-      color: rgba(255, 255, 255, 36).color,
+      fill: rgba(255, 255, 255, 36).color,
     )
     discard list.addChild(
       panelIdx,
@@ -436,7 +436,7 @@ proc makeOverlay*(
         childCount: 0,
         zlevel: 0.ZLevel,
         screenBox: btnRect,
-        fill: rgba(uint8(40 + i * 8), 90'u8, 160'u8, 200'u8).color,
+        fill: rgba(uint8(40 + i * 8), 90'u8, 160'u8, 200'u8),
         corners: [8.0'f32, 8.0, 8.0, 8.0],
         shadows: [rowShadow, RenderShadow(), RenderShadow(), RenderShadow()],
       ),

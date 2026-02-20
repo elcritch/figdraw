@@ -1,9 +1,22 @@
-import std/sequtils
+import std/[math, sequtils]
 import ../fignodes
 
 type RenderTree* = ref object
   id*: int
   children*: seq[RenderTree]
+
+proc cornerToU16(v: uint16): uint16 {.inline.} =
+  v
+
+proc cornerToU16(v: SomeInteger): uint16 {.inline.} =
+  if v <= 0:
+    return 0'u16
+  min(v.int, high(uint16).int).uint16
+
+proc cornerToU16(v: SomeFloat): uint16 {.inline.} =
+  if v <= 0.0:
+    return 0'u16
+  min(v.round().int, high(uint16).int).uint16
 
 func `[]`*(a: RenderTree, idx: int): RenderTree =
   if a.children.len() == 0:
@@ -36,33 +49,76 @@ proc toRenderFig*[N](current: N): Fig =
 
   result.zlevel = current.zlevel
   result.rotation = current.rotation
-  result.fill = current.fill
+  when compiles(current.fill.rgba()):
+    result.fill = current.fill.rgba()
+  else:
+    result.fill = current.fill
 
   case current.kind
   of nkRectangle:
     result.stroke.weight = current.stroke.weight
-    result.stroke.color = current.stroke.color
+    when compiles(current.stroke.fill):
+      result.stroke.fill = current.stroke.fill
+    elif compiles(current.stroke.color.rgba()):
+      result.stroke.fill = current.stroke.color.rgba()
+    elif compiles(current.stroke.color):
+      result.stroke.fill = current.stroke.color
+    else:
+      result.stroke.fill = fill(rgba(0, 0, 0, 0))
 
     for i in 0 ..< min(result.shadows.len(), current.shadows.len()):
       var shadow: RenderShadow
       let orig = current.shadows[i]
+      when compiles(orig.style):
+        shadow.style = orig.style
+      else:
+        shadow.style = NoShadow
       shadow.blur = orig.blur
       shadow.x = orig.x
       shadow.y = orig.y
-      shadow.color = orig.color
       shadow.spread = orig.spread
+      when compiles(orig.fill):
+        shadow.fill = orig.fill
+      elif compiles(orig.color.rgba()):
+        shadow.fill = orig.color.rgba()
+      elif compiles(orig.color):
+        shadow.fill = orig.color
+      else:
+        shadow.fill = fill(rgba(0, 0, 0, 0))
       result.shadows[i] = shadow
 
     for corner in DirectionCorners:
-      result.corners[corner] = current.corners[corner]
+      result.corners[corner] = cornerToU16(current.corners[corner])
   of nkImage:
-    result.image = current.image
+    result.image.id = current.image.id
+    when compiles(current.image.fill):
+      result.image.fill = current.image.fill
+    elif compiles(current.image.color.rgba()):
+      result.image.fill = current.image.color.rgba()
+    elif compiles(current.image.color):
+      result.image.fill = current.image.color
+    else:
+      result.image.fill = fill(rgba(255, 255, 255, 255))
   of nkMsdfImage:
     when compiles(current.msdfImage):
       result.msdfImage = current.msdfImage
+      when not compiles(current.msdfImage.fill):
+        when compiles(current.msdfImage.color.rgba()):
+          result.msdfImage.fill = current.msdfImage.color.rgba()
+        elif compiles(current.msdfImage.color):
+          result.msdfImage.fill = current.msdfImage.color
+        else:
+          result.msdfImage.fill = fill(rgba(255, 255, 255, 255))
   of nkMtsdfImage:
     when compiles(current.mtsdfImage):
       result.mtsdfImage = current.mtsdfImage
+      when not compiles(current.mtsdfImage.fill):
+        when compiles(current.mtsdfImage.color.rgba()):
+          result.mtsdfImage.fill = current.mtsdfImage.color.rgba()
+        elif compiles(current.mtsdfImage.color):
+          result.mtsdfImage.fill = current.mtsdfImage.color
+        else:
+          result.mtsdfImage.fill = fill(rgba(255, 255, 255, 255))
   of nkText:
     result.textLayout = current.textLayout
     result.selectionRange = current.selectionRange
@@ -87,7 +143,7 @@ proc convert*[N](
       renders.layers[zlvl].addChild(parentIdx, render)
 
   for child in current.children:
-    if NfInactive in child.flags or NfDead in child.flags:
+    if NfInactive in child.flags:
       continue
 
     let childParentIdx =

@@ -63,7 +63,7 @@ proc makeRenderTree(w, h: float32, palette: WindowPalette): Renders =
           spread: 3,
           x: 0,
           y: 12,
-          color: rgba(0, 0, 0, 55).color,
+          fill: rgba(0, 0, 0, 55).color,
         ),
         RenderShadow(),
         RenderShadow(),
@@ -206,7 +206,10 @@ when isMainModule:
       right.window.firstStep()
       right.window.refreshUiScale(right.useAutoScale)
       right.window.redraw()
-      while appRunning and (not leftStarted or left.window.opened or right.window.opened):
+      while appRunning and (
+        not leftStarted or left.window.opened or right.window.opened
+      )
+      :
         if not leftStarted and epochTime() - startupAt >= LeftWindowDelaySec:
           startLeftWindow()
         if right.window.opened:

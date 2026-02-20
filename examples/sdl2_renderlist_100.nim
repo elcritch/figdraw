@@ -139,7 +139,7 @@ when isMainModule:
         childCount: 0,
         zlevel: 0.ZLevel,
         screenBox: hudRect,
-        fill: rgba(0, 0, 0, 155).color,
+        fill: rgba(0, 0, 0, 155),
         corners: [8.0'f32, 8.0, 8.0, 8.0],
       )
     )

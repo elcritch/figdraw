@@ -33,12 +33,7 @@ proc makeRenderTree(w, h: float32, palette: WindowPalette): Renders =
 
   let root = result.addRoot(
     0.ZLevel,
-    Fig(
-      kind: nkRectangle,
-      childCount: 0,
-      screenBox: rect(0, 0, w, h),
-      fill: palette.bg,
-    ),
+    Fig(kind: nkRectangle, childCount: 0, screenBox: rect(0, 0, w, h), fill: palette.bg),
   )
 
   let panelW = min(420.0'f32, max(220.0'f32, w * 0.55'f32))
@@ -66,7 +61,7 @@ proc makeRenderTree(w, h: float32, palette: WindowPalette): Renders =
           spread: 3,
           x: 0,
           y: 12,
-          color: rgba(0, 0, 0, 55).color,
+          fill: rgba(0, 0, 0, 55).color,
         ),
         RenderShadow(),
         RenderShadow(),

@@ -177,18 +177,26 @@ proc newFigRenderer*[BackendState](
   ## Uses a caller-created backend context with custom backend state payload.
   result = FigRenderer[BackendState](ctx: ctx, backendState: backendState)
 
+func fillAlphaMax(fill: Fill): uint8
+func gradientMidPos01(fill: Fill): float32
+func fillCenterColor(fill: Fill): Color
+func fillCenterColors(fill: Fill): array[4, ColorRGBA]
+func gradientColors(fill: Fill): array[4, ColorRGBA]
+
 proc renderDrawable*(ctx: BackendContext, node: Fig) =
   ## TODO: draw non-node stuff?
   let box = node.screenBox.scaled()
+  let color = fillCenterColor(node.fill)
   for point in node.points:
     let
       pos = point.scaled()
       bx = box.atXY(pos.x, pos.y)
-    ctx.drawRect(bx, node.fill)
+    ctx.drawRect(bx, color)
 
 proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
-  if NfSelectText in node.flags and node.fill.a > 0:
+  let fillColor = fillCenterColor(node.fill)
+  if NfSelectText in node.flags and fillAlphaMax(node.fill) > 0'u8:
     let rects = node.textLayout.selectionRects
     if rects.len > 0 and node.selectionRange.a <= node.selectionRange.b:
       let startIdx = max(node.selectionRange.a, 0)
@@ -196,7 +204,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       for idx in startIdx .. endIdx:
         let rect = rects[idx].scaled()
         if rect.w > 0 and rect.h > 0:
-          ctx.drawRect(rect, node.fill)
+          ctx.drawRect(rect, fillColor)
 
   for glyph in node.textLayout.glyphs():
     if unicode.isWhiteSpace(glyph.rune):
@@ -254,10 +262,98 @@ macro postRender() =
     result.add postRenderImpl.pop()
 
 proc scaledCorners(
-    corners: array[DirectionCorners, float32]
+    corners: array[DirectionCorners, uint16]
 ): array[DirectionCorners, float32] =
   for corner in DirectionCorners:
-    result[corner] = corners[corner].scaled()
+    result[corner] = corners[corner].float32.scaled()
+
+func lerpColor(a, b: ColorRGBA, t: float32): ColorRGBA =
+  let
+    clampedT = clamp(t, 0.0'f32, 1.0'f32)
+    invT = 1.0'f32 - clampedT
+  result.r = (a.r.float32 * invT + b.r.float32 * clampedT).round().uint8
+  result.g = (a.g.float32 * invT + b.g.float32 * clampedT).round().uint8
+  result.b = (a.b.float32 * invT + b.b.float32 * clampedT).round().uint8
+  result.a = (a.a.float32 * invT + b.a.float32 * clampedT).round().uint8
+
+func fillAlphaMax(fill: Fill): uint8 =
+  case fill.kind
+  of flColor:
+    fill.color.a
+  of flLinear2:
+    max(fill.lin2.start.a, fill.lin2.stop.a)
+  of flLinear3:
+    max(fill.lin3.start.a, max(fill.lin3.mid.a, fill.lin3.stop.a))
+
+func gradientMidPos01(fill: Fill): float32 =
+  case fill.kind
+  of flLinear3:
+    clamp(fill.lin3.midPos.float32 / 255.0'f32, 0.01'f32, 0.99'f32)
+  else:
+    0.5'f32
+
+func sampleGradientColor(fill: Fill, t: float32): ColorRGBA =
+  case fill.kind
+  of flColor:
+    fill.color
+  of flLinear2:
+    lerpColor(fill.lin2.start, fill.lin2.stop, t)
+  of flLinear3:
+    let
+      clampedT = clamp(t, 0.0'f32, 1.0'f32)
+      mid = gradientMidPos01(fill)
+    if clampedT <= mid:
+      lerpColor(fill.lin3.start, fill.lin3.mid, clampedT / mid)
+    else:
+      lerpColor(fill.lin3.mid, fill.lin3.stop, (clampedT - mid) / (1.0'f32 - mid))
+
+func fillCenterColorRgba(fill: Fill): ColorRGBA =
+  case fill.kind
+  of flColor:
+    fill.color
+  else:
+    fill.sampleGradientColor(0.5'f32)
+
+func fillCenterColor(fill: Fill): Color =
+  fill.fillCenterColorRgba().color
+
+func fillCenterColors(fill: Fill): array[4, ColorRGBA] =
+  let c = fill.fillCenterColorRgba()
+  [c, c, c, c]
+
+func fillGradientAxis(fill: Fill): FillGradientAxis =
+  case fill.kind
+  of flLinear2: fill.lin2.axis
+  of flLinear3: fill.lin3.axis
+  of flColor: fgaX
+
+func gradientColors(fill: Fill): array[4, ColorRGBA] =
+  ## Vertex order: 0=BL, 1=BR, 2=TR, 3=TL
+  case fill.kind
+  of flColor:
+    result = fill.fillCenterColors()
+  else:
+    case fill.fillGradientAxis()
+    of fgaX:
+      result[0] = fill.sampleGradientColor(0.0'f32)
+      result[1] = fill.sampleGradientColor(1.0'f32)
+      result[2] = fill.sampleGradientColor(1.0'f32)
+      result[3] = fill.sampleGradientColor(0.0'f32)
+    of fgaY:
+      result[0] = fill.sampleGradientColor(1.0'f32)
+      result[1] = fill.sampleGradientColor(1.0'f32)
+      result[2] = fill.sampleGradientColor(0.0'f32)
+      result[3] = fill.sampleGradientColor(0.0'f32)
+    of fgaDiagTLBR:
+      result[0] = fill.sampleGradientColor(0.5'f32)
+      result[1] = fill.sampleGradientColor(1.0'f32)
+      result[2] = fill.sampleGradientColor(0.5'f32)
+      result[3] = fill.sampleGradientColor(0.0'f32)
+    of fgaDiagBLTR:
+      result[0] = fill.sampleGradientColor(0.0'f32)
+      result[1] = fill.sampleGradientColor(0.5'f32)
+      result[2] = fill.sampleGradientColor(1.0'f32)
+      result[3] = fill.sampleGradientColor(0.5'f32)
 
 #proc drawMasks(ctx: BackendContext, node: Fig) =
 #  ctx.setMaskRect(node.screenBox.scaled(), node.corners.scaledCorners())
@@ -268,6 +364,9 @@ proc renderDropShadows(ctx: BackendContext, node: Fig) =
     if shadow.style != DropShadow:
       continue
     if shadow.blur <= 0.0 and shadow.spread <= 0.0:
+      continue
+    let shadowColor = fillCenterColor(shadow.fill)
+    if fillAlphaMax(shadow.fill) == 0'u8:
       continue
 
     when not defined(useFigDrawTextures):
@@ -289,7 +388,7 @@ proc renderDropShadows(ctx: BackendContext, node: Fig) =
       ctx.drawRoundedRectSdf(
         rect = quadRect,
         shapeSize = shadowRect.wh,
-        color = shadow.color,
+        colors = gradientColors(shadow.fill),
         radii = node.corners.scaledCorners(),
         mode = figbackend.SdfMode.sdfModeDropShadow,
         factor = shadowBlur,
@@ -297,7 +396,7 @@ proc renderDropShadows(ctx: BackendContext, node: Fig) =
       )
     elif FastShadows:
       ## should add a primitive to opengl.context to
-      var color = shadow.color
+      var color = shadowColor
       const N = 3
       color.a = color.a * 1.0 / (N * N * N)
       let blurAmt = shadow.blur.scaled() * shadow.spread.scaled() / (12 * N * N)
@@ -319,7 +418,7 @@ proc renderDropShadows(ctx: BackendContext, node: Fig) =
         shadowY = shadow.y.scaled(),
         shadowBlur = shadow.blur.scaled(),
         shadowSpread = shadow.spread.scaled(),
-        shadowColor = shadow.color,
+        shadowColor = shadowColor,
         innerShadow = false,
       )
 
@@ -330,8 +429,9 @@ proc renderInnerShadows(ctx: BackendContext, node: Fig) =
       continue
     if shadow.blur <= 0.0 and shadow.spread <= 0.0:
       continue
-    if shadow.color.a <= 0.0:
+    if fillAlphaMax(shadow.fill) == 0'u8:
       continue
+    let shadowColor = fillCenterColor(shadow.fill)
 
     when not defined(useFigDrawTextures):
       let
@@ -345,7 +445,7 @@ proc renderInnerShadows(ctx: BackendContext, node: Fig) =
       ctx.drawRoundedRectSdf(
         rect = box,
         shapeSize = shadowOffset,
-        color = shadow.color,
+        colors = shadow.fill.gradientColors(),
         radii = node.corners.scaledCorners(),
         mode = figbackend.SdfMode.sdfModeInsetShadow,
         factor = shadowBlur,
@@ -355,7 +455,7 @@ proc renderInnerShadows(ctx: BackendContext, node: Fig) =
       ## this is even more incorrect than drop shadows, but it's something
       ## and I don't actually want to think today ;)
       let n = shadow.blur.scaled().toInt
-      var color = shadow.color
+      var color = shadowColor
       color.a = 2 * color.a / n.toFloat
       let blurAmt = shadow.blur.scaled() / n.toFloat
       for i in 0 .. n:
@@ -383,7 +483,7 @@ proc renderInnerShadows(ctx: BackendContext, node: Fig) =
         shadowY = shadow.y.scaled(),
         shadowBlur = shadow.blur.scaled(),
         shadowSpread = shadow.spread.scaled(),
-        shadowColor = shadow.color,
+        shadowColor = shadowColor,
         innerShadow = true,
       )
 
@@ -395,7 +495,7 @@ proc hasActiveInnerShadow(node: Fig): bool =
       continue
     if shadow.blur <= 0.0 and shadow.spread <= 0.0:
       continue
-    if shadow.color.a <= 0.0:
+    if fillAlphaMax(shadow.fill) == 0'u8:
       continue
     return true
   return false
@@ -406,12 +506,132 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
   let
     box = node.screenBox.scaled()
     corners = node.corners.scaledCorners()
+    hasGradient =
+      node.fill.kind in {flLinear2, flLinear3} and fillAlphaMax(node.fill) > 0'u8
 
-  if node.fill.a > 0'f32:
+  if hasGradient:
+    when not defined(useFigDrawTextures):
+      if node.fill.kind == flLinear3 and
+          (node.fill.lin3.axis == fgaX or node.fill.lin3.axis == fgaY):
+        let midPos = gradientMidPos01(node.fill)
+        if node.fill.lin3.axis == fgaX:
+          let
+            split = box.x + box.w * midPos
+            leftW = max(0.0'f32, split - box.x)
+            rightW = max(0.0'f32, box.x + box.w - split)
+          if leftW > 0.0'f32:
+            let leftRect = rect(box.x, box.y, leftW, box.h)
+            let leftRadii = [
+              dcTopLeft: corners[dcTopLeft],
+              dcTopRight: 0.0'f32,
+              dcBottomLeft: corners[dcBottomLeft],
+              dcBottomRight: 0.0'f32,
+            ]
+            let leftFill = linear(
+              start = node.fill.lin3.start, stop = node.fill.lin3.mid, axis = fgaX
+            )
+            ctx.drawRoundedRectSdf(
+              rect = leftRect,
+              colors = leftFill.gradientColors(),
+              radii = leftRadii,
+              mode = figbackend.SdfMode.sdfModeClipAA,
+              factor = 4.0'f32,
+              spread = 0.0'f32,
+              shapeSize = vec2(0.0'f32, 0.0'f32),
+            )
+          if rightW > 0.0'f32:
+            let rightRect = rect(split, box.y, rightW, box.h)
+            let rightRadii = [
+              dcTopLeft: 0.0'f32,
+              dcTopRight: corners[dcTopRight],
+              dcBottomLeft: 0.0'f32,
+              dcBottomRight: corners[dcBottomRight],
+            ]
+            let rightFill = linear(
+              start = node.fill.lin3.mid, stop = node.fill.lin3.stop, axis = fgaX
+            )
+            ctx.drawRoundedRectSdf(
+              rect = rightRect,
+              colors = rightFill.gradientColors(),
+              radii = rightRadii,
+              mode = figbackend.SdfMode.sdfModeClipAA,
+              factor = 4.0'f32,
+              spread = 0.0'f32,
+              shapeSize = vec2(0.0'f32, 0.0'f32),
+            )
+        else:
+          let
+            split = box.y + box.h * midPos
+            topH = max(0.0'f32, split - box.y)
+            bottomH = max(0.0'f32, box.y + box.h - split)
+          if topH > 0.0'f32:
+            let topRect = rect(box.x, box.y, box.w, topH)
+            let topRadii = [
+              dcTopLeft: corners[dcTopLeft],
+              dcTopRight: corners[dcTopRight],
+              dcBottomLeft: 0.0'f32,
+              dcBottomRight: 0.0'f32,
+            ]
+            let topFill = Fill(
+              kind: flLinear2,
+              lin2: Linear2(
+                axis: fgaY, start: node.fill.lin3.start, stop: node.fill.lin3.mid
+              ),
+            )
+            ctx.drawRoundedRectSdf(
+              rect = topRect,
+              colors = topFill.gradientColors(),
+              radii = topRadii,
+              mode = figbackend.SdfMode.sdfModeClipAA,
+              factor = 4.0'f32,
+              spread = 0.0'f32,
+              shapeSize = vec2(0.0'f32, 0.0'f32),
+            )
+          if bottomH > 0.0'f32:
+            let bottomRect = rect(box.x, split, box.w, bottomH)
+            let bottomRadii = [
+              dcTopLeft: 0.0'f32,
+              dcTopRight: 0.0'f32,
+              dcBottomLeft: corners[dcBottomLeft],
+              dcBottomRight: corners[dcBottomRight],
+            ]
+            let bottomFill = Fill(
+              kind: flLinear2,
+              lin2: Linear2(
+                axis: fgaY, start: node.fill.lin3.mid, stop: node.fill.lin3.stop
+              ),
+            )
+            ctx.drawRoundedRectSdf(
+              rect = bottomRect,
+              colors = bottomFill.gradientColors(),
+              radii = bottomRadii,
+              mode = figbackend.SdfMode.sdfModeClipAA,
+              factor = 4.0'f32,
+              spread = 0.0'f32,
+              shapeSize = vec2(0.0'f32, 0.0'f32),
+            )
+      else:
+        ctx.drawRoundedRectSdf(
+          rect = box,
+          colors = node.fill.gradientColors(),
+          radii = corners,
+          mode = figbackend.SdfMode.sdfModeClipAA,
+          factor = 4.0'f32,
+          spread = 0.0'f32,
+          shapeSize = vec2(0.0'f32, 0.0'f32),
+        )
+    else:
+      let fillColor = fillCenterColor(node.fill)
+      if node.corners != [0'u16, 0'u16, 0'u16, 0'u16]:
+        ctx.drawRoundedRect(rect = box, color = fillColor, radii = corners)
+      else:
+        ctx.drawRect(box, fillColor)
+  elif fillAlphaMax(node.fill) > 0'u8:
+    let fillColor = fillCenterColor(node.fill)
     when not defined(useFigDrawTextures):
       ctx.drawRoundedRectSdf(
         rect = box,
-        color = node.fill,
+        color = fillColor,
         radii = corners,
         mode = figbackend.SdfMode.sdfModeClipAA,
         factor = 4.0'f32,
@@ -419,16 +639,16 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
         shapeSize = vec2(0.0'f32, 0.0'f32),
       )
     else:
-      if node.corners != [0'f32, 0'f32, 0'f32, 0'f32]:
-        ctx.drawRoundedRect(rect = box, color = node.fill, radii = corners)
+      if node.corners != [0'u16, 0'u16, 0'u16, 0'u16]:
+        ctx.drawRoundedRect(rect = box, color = fillColor, radii = corners)
       else:
-        ctx.drawRect(box, node.fill)
+        ctx.drawRect(box, fillColor)
 
-  if node.stroke.color.a > 0 and node.stroke.weight > 0:
+  if fillAlphaMax(node.stroke.fill) > 0'u8 and node.stroke.weight > 0:
     when not defined(useFigDrawTextures):
       ctx.drawRoundedRectSdf(
         rect = box,
-        color = node.stroke.color,
+        colors = node.stroke.fill.gradientColors(),
         radii = corners,
         mode = figbackend.SdfMode.sdfModeAnnularAA,
         factor = node.stroke.weight.scaled(),
@@ -438,7 +658,7 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
     else:
       ctx.drawRoundedRect(
         rect = box,
-        color = node.stroke.color,
+        color = fillCenterColor(node.stroke.fill),
         radii = corners,
         weight = node.stroke.weight.scaled(),
         doStroke = true,
@@ -449,7 +669,12 @@ proc renderImage(ctx: BackendContext, node: Fig) =
     return
   let box = node.screenBox.scaled()
   let size = vec2(box.w, box.h)
-  ctx.drawImage(node.image.id.Hash, pos = box.xy, color = node.image.color, size = size)
+  ctx.drawImage(
+    node.image.id.Hash,
+    pos = box.xy,
+    color = fillCenterColor(node.image.fill),
+    size = size,
+  )
 
 proc renderMsdfImage(ctx: BackendContext, node: Fig) =
   if node.msdfImage.id.int == 0:
@@ -467,7 +692,7 @@ proc renderMsdfImage(ctx: BackendContext, node: Fig) =
   ctx.drawMsdfImage(
     node.msdfImage.id.Hash,
     pos = box.xy,
-    color = node.msdfImage.color,
+    color = fillCenterColor(node.msdfImage.fill),
     size = size,
     pxRange = pxRange,
     sdThreshold = sdThreshold,
@@ -490,7 +715,7 @@ proc renderMtsdfImage(ctx: BackendContext, node: Fig) =
   ctx.drawMtsdfImage(
     node.mtsdfImage.id.Hash,
     pos = box.xy,
-    color = node.mtsdfImage.color,
+    color = fillCenterColor(node.mtsdfImage.fill),
     size = size,
     pxRange = pxRange,
     sdThreshold = sdThreshold,
