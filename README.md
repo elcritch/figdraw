@@ -60,6 +60,9 @@ Alternatively, you can just `atlas use windy`.
 
 Here's the primary rounded rect primitive with corners, borders, and shadows:
 
+<img width="715" height="652" alt="Screenshot 2026-02-19 at 1 18 45 PM" src="https://github.com/user-attachments/assets/032bf60c-ff75-4165-a153-04d6eccec1cf" />
+
+
 <img width="800" height="600" alt="render_rgb_boxes_sdf" src="https://github.com/user-attachments/assets/6a7ef1f5-92de-4c0b-a1f5-29d8500afdd4" />
 
 Here's it running as an overlay on top of a 3D scene:
