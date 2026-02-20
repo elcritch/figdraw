@@ -79,22 +79,29 @@ type
     ## Units are the same as other FigDraw weights and get UI-scaled at render time.
     strokeWeight*: float32
 
-  FillGradientMode* = enum
-    fgmNone
-    fgmLinear
-
   FillGradientAxis* = enum
     fgaX
     fgaY
     fgaDiagTLBR
     fgaDiagBLTR
 
-  FillGradient* = object
-    mode*: FillGradientMode
-    axis*: FillGradientAxis
-    stopCount*: uint8      # 0, 2, or 3
-    midPos*: uint8         # 0..255 (only used when stopCount == 3), default 128
-    colors*: array[3, ColorRGBA]  # packed RGBA8
+  FillKind* = enum
+    flColor
+    flLinear2
+    flLinear3
+
+  Fill* = object
+    case kind*: FillKind
+    of flColor:
+      color: ColorRGBA
+    of flLinear2:
+      l2axis*: FillGradientAxis
+      l2colors*: array[2, ColorRGBA]  # packed RGBA8
+    of flLinear3:
+      l3axis*: FillGradientAxis
+      l3midPos*: uint8 = 128        # 0..255
+      l3colors*: array[3, ColorRGBA]  # packed RGBA8
+
 
 converter toColorRGBA*(c: Color): ColorRGBA {.inline.} =
   ## Backward compatibility for callers still producing float colors.

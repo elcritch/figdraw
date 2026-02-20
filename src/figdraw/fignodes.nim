@@ -23,8 +23,7 @@ type
     screenBox*: Rect
 
     rotation*: float32
-    fill*: ColorRGBA
-    fillGradient*: FillGradient
+    fill*: Fill
     corners*: array[DirectionCorners, uint16]
 
     case kind*: FigKind
@@ -47,6 +46,7 @@ type
 
 static:
   echo "Fig size: ", sizeof(Fig)
+  echo "FillGradient size: ", sizeof(Fill)
   doAssert sizeof(Fig) < 256, "FigNode SIZE: should be smaller than 256! Got: " & $sizeof(Fig)
 
 proc `$`*(id: FigIdx): string =
