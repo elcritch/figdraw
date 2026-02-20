@@ -161,6 +161,17 @@ proc chooseSwapPresentMode*(
       return mode
   VK_PRESENT_MODE_FIFO_KHR
 
+proc chooseSwapCompositeAlpha*(
+    supportedCompositeAlpha: VkCompositeAlphaFlagsKHR
+): VkCompositeAlphaFlagBitsKHR =
+  for alphaMode in [
+    VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+    VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+  ]:
+    if supportedCompositeAlpha.contains(alphaMode):
+      return alphaMode
+  VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
+
 proc chooseSwapExtent*(
     capabilities: VkSurfaceCapabilitiesKHR, width, height: int32
 ): VkExtent2D =

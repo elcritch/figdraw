@@ -293,8 +293,8 @@ proc createPresentSurface(ctx: VulkanContext) =
     when defined(windows):
       loadVK_KHR_win32_surface()
       let createInfo = newVkWin32SurfaceCreateInfoKHR(
-        hinstance = cast[HINSTANCE](ctx.presentWin32Hinstance),
-        hwnd = cast[HWND](ctx.presentWin32Hwnd),
+        hinstance = cast[HINSTANCE](cast[uint](ctx.presentWin32Hinstance)),
+        hwnd = cast[HWND](cast[uint](ctx.presentWin32Hwnd)),
       )
       checkVkResult vkCreateWin32SurfaceKHR(
         ctx.instance, createInfo.addr, nil, ctx.surface.addr
@@ -728,6 +728,13 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
     surfaceFormat = chooseSwapSurfaceFormat(support.formats)
     presentMode = chooseSwapPresentMode(support.presentModes)
     extent = chooseSwapExtent(support.capabilities, width, height)
+    compositeAlpha =
+      chooseSwapCompositeAlpha(support.capabilities.supportedCompositeAlpha)
+
+  if ColorAttachmentBit notin support.capabilities.supportedUsageFlags:
+    raise newException(
+      ValueError, "Vulkan swapchain images do not support color attachment usage"
+    )
 
   var imageCount = support.capabilities.minImageCount + 1
   if support.capabilities.maxImageCount > 0 and
@@ -764,7 +771,7 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
         VK_SHARING_MODE_EXCLUSIVE,
     queueFamilyIndices = queueFamilyIndices,
     preTransform = support.capabilities.currentTransform,
-    compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+    compositeAlpha = compositeAlpha,
     presentMode = presentMode,
     clipped = VkBool32(VkTrue),
     oldSwapchain = ctx.swapchain,
