@@ -3027,8 +3027,11 @@ method endFrame*(ctx: VulkanContext) =
   if ctx.renderPassBegun:
     vkCmdEndRenderPass(ctx.commandBuffer)
     ctx.renderPassBegun = false
-  ctx.readbackReady = false
-  ctx.recordSwapchainReadback()
+  when UseVulkanReadback:
+    ctx.readbackReady = false
+    ctx.recordSwapchainReadback()
+  else:
+    ctx.readbackReady = false
   checkVkResult vkEndCommandBuffer(ctx.commandBuffer)
 
   let waitSemaphores = [ctx.imageAvailableSemaphore]
@@ -3465,71 +3468,78 @@ proc setExternalSurface*(
 method readPixels*(
     ctx: VulkanContext, frame: Rect = rect(0, 0, 0, 0), readFront = true
 ): Image =
-  discard readFront
-  if not ctx.gpuReady:
-    raise newException(ValueError, "Vulkan context is not initialized")
-  if ctx.readbackBuffer == vkNullBuffer or ctx.readbackMemory == vkNullMemory or
-      not ctx.readbackReady:
-    raise newException(ValueError, "No Vulkan frame has been rendered yet")
-  if ctx.readbackWidth <= 0 or ctx.readbackHeight <= 0:
-    raise newException(ValueError, "Vulkan readback dimensions are invalid")
+  when not UseVulkanReadback:
+    discard readFront
+    raise newException(
+      ValueError,
+      "Vulkan readPixels is disabled; build with -d:figdraw.vulkanReadback=on",
+    )
+  else:
+    discard readFront
+    if not ctx.gpuReady:
+      raise newException(ValueError, "Vulkan context is not initialized")
+    if ctx.readbackBuffer == vkNullBuffer or ctx.readbackMemory == vkNullMemory or
+        not ctx.readbackReady:
+      raise newException(ValueError, "No Vulkan frame has been rendered yet")
+    if ctx.readbackWidth <= 0 or ctx.readbackHeight <= 0:
+      raise newException(ValueError, "Vulkan readback dimensions are invalid")
 
-  checkVkResult vkWaitForFences(
-    ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
-  )
+    checkVkResult vkWaitForFences(
+      ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
+    )
 
-  let texW = ctx.readbackWidth.int
-  let texH = ctx.readbackHeight.int
+    let texW = ctx.readbackWidth.int
+    let texH = ctx.readbackHeight.int
 
-  var x = frame.x.int
-  var y = frame.y.int
-  var w = frame.w.int
-  var h = frame.h.int
-  if w <= 0 or h <= 0:
-    x = 0
-    y = 0
-    w = texW
-    h = texH
+    var x = frame.x.int
+    var y = frame.y.int
+    var w = frame.w.int
+    var h = frame.h.int
+    if w <= 0 or h <= 0:
+      x = 0
+      y = 0
+      w = texW
+      h = texH
 
-  x = clamp(x, 0, texW)
-  y = clamp(y, 0, texH)
-  w = clamp(w, 0, texW - x)
-  h = clamp(h, 0, texH - y)
+    x = clamp(x, 0, texW)
+    y = clamp(y, 0, texH)
+    w = clamp(w, 0, texW - x)
+    h = clamp(h, 0, texH - y)
 
-  if w <= 0 or h <= 0:
-    result = newImage(1, 1)
-    return
+    if w <= 0 or h <= 0:
+      result = newImage(1, 1)
+      return
 
-  let mapped = cast[ptr UncheckedArray[uint8]](mapMemory(
-    ctx.device, ctx.readbackMemory, 0.VkDeviceSize, ctx.readbackBytes,
-    0.VkMemoryMapFlags,
-  ))
-  if mapped.isNil:
-    raise newException(ValueError, "Failed to map Vulkan readback memory")
-  defer:
-    unmapMemory(ctx.device, ctx.readbackMemory)
+    let mapped = cast[ptr UncheckedArray[uint8]](mapMemory(
+      ctx.device, ctx.readbackMemory, 0.VkDeviceSize, ctx.readbackBytes,
+      0.VkMemoryMapFlags,
+    ))
+    if mapped.isNil:
+      raise newException(ValueError, "Failed to map Vulkan readback memory")
+    defer:
+      unmapMemory(ctx.device, ctx.readbackMemory)
 
-  result = newImage(w, h)
-  let stride = texW * 4
-  let bgrFormat =
-    case ctx.swapchainFormat
-    of VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SRGB: true
-    else: false
+    result = newImage(w, h)
+    let stride = texW * 4
+    let bgrFormat =
+      case ctx.swapchainFormat
+      of VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SRGB: true
+      else: false
 
-  for row in 0 ..< h:
-    let srcRow = y + row
-    var src = srcRow * stride + x * 4
-    for col in 0 ..< w:
-      let dst = row * w + col
-      let b = mapped[src + 0]
-      let g = mapped[src + 1]
-      let r = mapped[src + 2]
-      let a = mapped[src + 3]
-      if bgrFormat:
-        result.data[dst] = rgbx(r, g, b, a)
-      else:
-        result.data[dst] = rgbx(b, g, r, a)
-      src += 4
+    for row in 0 ..< h:
+      let srcRow = y + row
+      var src = srcRow * stride + x * 4
+      for col in 0 ..< w:
+        let dst = row * w + col
+        let b = mapped[src + 0]
+        let g = mapped[src + 1]
+        let r = mapped[src + 2]
+        let a = mapped[src + 3]
+        if bgrFormat:
+          result.data[dst] = rgbx(r, g, b, a)
+        else:
+          result.data[dst] = rgbx(b, g, r, a)
+        src += 4
 
 method kind*(ctx: VulkanContext): figbackend.RendererBackendKind =
   figbackend.RendererBackendKind.rbVulkan
