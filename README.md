@@ -60,7 +60,8 @@ Here's it running as an overlay on top of a 3D scene:
 
 Here's text rendering curtesy of Pixie. Note that Pixie's layout can be used or custom layout, e.g. for monospaced renderers:
 
-![Text Rendering](data/Text-Example.png)
+<img width="1012" height="740" alt="Screenshot 2026-02-20 at 12 58 46 AM" src="https://github.com/user-attachments/assets/10de11d1-c528-4c25-9afd-38d282ecd800" />
+
 
 Here's a video example (unfortunately capped at 30fps) of real time shadows, borders, and corners chaning fluidly at 120 FPS:
 
