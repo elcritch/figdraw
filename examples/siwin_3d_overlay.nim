@@ -511,7 +511,7 @@ when isMainModule:
   let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
   let monoFont = monoTypeface.fontWithSize(14.0'f32)
 
-  when not defined(emscripten):
+  when not defined(emscripten) and defined(macosx):
     # This sample draws the 3D scene with raw OpenGL and applies backdrop blur over it.
     # Force FigDraw to OpenGL so both scene + overlay share the same framebuffer.
     putEnv("FIGDRAW_FORCE_OPENGL", "1")
