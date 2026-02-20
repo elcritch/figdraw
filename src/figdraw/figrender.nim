@@ -329,10 +329,9 @@ func fillGradientAxis(fill: Fill): FillGradientAxis =
 
 func gradientColors(fill: Fill): array[4, ColorRGBA] =
   ## Vertex order: 0=BL, 1=BR, 2=TR, 3=TL
-  case fill.kind:
+  case fill.kind
   of flColor:
     result = fill.fillCenterColors()
-
   else:
     case fill.fillGradientAxis()
     of fgaX:
@@ -529,9 +528,7 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
               dcBottomRight: 0.0'f32,
             ]
             let leftFill = linear(
-              start = node.fill.lin3.start,
-              stop = node.fill.lin3.mid,
-              axis = fgaX,
+              start = node.fill.lin3.start, stop = node.fill.lin3.mid, axis = fgaX
             )
             ctx.drawRoundedRectSdf(
               rect = leftRect,
@@ -551,9 +548,7 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
               dcBottomRight: corners[dcBottomRight],
             ]
             let rightFill = linear(
-              start = node.fill.lin3.mid,
-              stop = node.fill.lin3.stop,
-              axis = fgaX,
+              start = node.fill.lin3.mid, stop = node.fill.lin3.stop, axis = fgaX
             )
             ctx.drawRoundedRectSdf(
               rect = rightRect,
