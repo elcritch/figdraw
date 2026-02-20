@@ -88,33 +88,39 @@ type
 
   RenderShadow* = object
     style*: ShadowStyle
+    fill*: Fill
     blur*: float32
     spread*: float32
     x*: float32
     y*: float32
-    fill*: Fill
 
   RenderStroke* = object
     weight*: float32
     fill*: Fill
 
   ImageStyle* = object
-    fill*: Fill
     id*: ImageId
+    fill*: Fill
 
   MsdfImageStyle* = object
-    color*: ColorRGBA
     id*: ImageId
+    fill*: Fill
     pxRange*: float32
     sdThreshold*: float32
     ## If > 0, render as an outline (annular band) with this stroke width.
     ## Units are the same as other FigDraw weights and get UI-scaled at render time.
     strokeWeight*: float32
 
+proc fill*(color: ColorRGBA): Fill {.inline.} =
+  Fill(kind: flColor, color: color)
 
 converter toColorRGBA*(c: Color): ColorRGBA {.inline.} =
   ## Backward compatibility for callers still producing float colors.
   rgba(c)
+
+#converter toFill*(c: Color): Fill {.inline.} =
+#  ## Backward compatibility for callers still producing float colors.
+#  rgba(c)
 
 proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
   when v is SomeFloat:
