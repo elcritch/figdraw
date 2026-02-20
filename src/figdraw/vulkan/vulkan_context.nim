@@ -179,13 +179,13 @@ type
     blurRenderPass: VkRenderPass
     blurDescriptorSetLayout: VkDescriptorSetLayout
     blurDescriptorPool: VkDescriptorPool
-    blurDescriptorSet: VkDescriptorSet
+    blurDescriptorSets: array[2, VkDescriptorSet]
     blurPipelineLayout: VkPipelineLayout
     blurPipeline: VkPipeline
     blurVertShader: VkShaderModule
     blurFragShader: VkShaderModule
-    blurUniformBuffer: VkBuffer
-    blurUniformMemory: VkDeviceMemory
+    blurUniformBuffers: array[2, VkBuffer]
+    blurUniformMemories: array[2, VkDeviceMemory]
     atlasSampler: VkSampler
     atlasUploadBuffer: VkBuffer
     atlasUploadMemory: VkDeviceMemory
@@ -239,7 +239,13 @@ method hasImage*(ctx: VulkanContext, key: Hash): bool =
 
 proc tryGetImageRect(ctx: VulkanContext, imageId: Hash, rect: var Rect): bool
 proc updateDescriptorSet(ctx: VulkanContext)
-proc updateBlurDescriptorSet(ctx: VulkanContext, srcView: VkImageView)
+proc updateBlurDescriptorSet(
+    ctx: VulkanContext,
+    descriptorSet: VkDescriptorSet,
+    srcView: VkImageView,
+    uniformBuffer: VkBuffer,
+)
+proc updateBlurDescriptorSets(ctx: VulkanContext)
 proc recreateBlurFramebuffers(ctx: VulkanContext)
 
 proc createBuffer(
@@ -515,8 +521,7 @@ proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
   ctx.recreateBlurFramebuffers()
   if ctx.descriptorSet != vkNullDescriptorSet:
     ctx.updateDescriptorSet()
-  if ctx.blurDescriptorSet != vkNullDescriptorSet:
-    ctx.updateBlurDescriptorSet(ctx.backdropView)
+  ctx.updateBlurDescriptorSets()
 
 proc fullFrameRect(ctx: VulkanContext): Rect =
   rect(0.0'f32, 0.0'f32, ctx.frameSize.x, ctx.frameSize.y)
@@ -642,8 +647,14 @@ proc updateDescriptorSet(ctx: VulkanContext) =
   ]
   updateDescriptorSets(ctx.device, writes, [])
 
-proc updateBlurDescriptorSet(ctx: VulkanContext, srcView: VkImageView) =
-  if srcView == vkNullImageView or ctx.blurDescriptorSet == vkNullDescriptorSet:
+proc updateBlurDescriptorSet(
+    ctx: VulkanContext,
+    descriptorSet: VkDescriptorSet,
+    srcView: VkImageView,
+    uniformBuffer: VkBuffer,
+) =
+  if srcView == vkNullImageView or descriptorSet == vkNullDescriptorSet or
+      uniformBuffer == vkNullBuffer:
     return
 
   var srcInfo = newVkDescriptorImageInfo(
@@ -652,14 +663,14 @@ proc updateBlurDescriptorSet(ctx: VulkanContext, srcView: VkImageView) =
     imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
   )
   var blurInfo = newVkDescriptorBufferInfo(
-    buffer = ctx.blurUniformBuffer,
+    buffer = uniformBuffer,
     offset = 0.VkDeviceSize,
     range = VkDeviceSize(sizeof(BlurUniforms)),
   )
 
   let writes = [
     newVkWriteDescriptorSet(
-      dstSet = ctx.blurDescriptorSet,
+      dstSet = descriptorSet,
       dstBinding = 0,
       dstArrayElement = 0,
       descriptorCount = 1,
@@ -669,7 +680,7 @@ proc updateBlurDescriptorSet(ctx: VulkanContext, srcView: VkImageView) =
       pTexelBufferView = nil,
     ),
     newVkWriteDescriptorSet(
-      dstSet = ctx.blurDescriptorSet,
+      dstSet = descriptorSet,
       dstBinding = 1,
       dstArrayElement = 0,
       descriptorCount = 1,
@@ -681,17 +692,48 @@ proc updateBlurDescriptorSet(ctx: VulkanContext, srcView: VkImageView) =
   ]
   updateDescriptorSets(ctx.device, writes, [])
 
-proc writeBlurUniforms(ctx: VulkanContext, texelStep: Vec2, blurRadius: float32) =
+proc updateBlurDescriptorSets(ctx: VulkanContext) =
+  if ctx.blurDescriptorSets[0] == vkNullDescriptorSet or
+      ctx.blurDescriptorSets[1] == vkNullDescriptorSet:
+    return
+  if ctx.blurUniformBuffers[0] == vkNullBuffer or
+      ctx.blurUniformBuffers[1] == vkNullBuffer:
+    return
+  let src0 = (if ctx.backdropView != vkNullImageView: ctx.backdropView else: ctx.atlasView)
+  let src1 =
+    if ctx.backdropBlurTempView != vkNullImageView:
+      ctx.backdropBlurTempView
+    else:
+      src0
+  ctx.updateBlurDescriptorSet(
+    descriptorSet = ctx.blurDescriptorSets[0],
+    srcView = src0,
+    uniformBuffer = ctx.blurUniformBuffers[0],
+  )
+  ctx.updateBlurDescriptorSet(
+    descriptorSet = ctx.blurDescriptorSets[1],
+    srcView = src1,
+    uniformBuffer = ctx.blurUniformBuffers[1],
+  )
+
+proc writeBlurUniforms(
+    ctx: VulkanContext,
+    uniformMemory: VkDeviceMemory,
+    texelStep: Vec2,
+    blurRadius: float32,
+) =
+  if uniformMemory == vkNullMemory:
+    return
   var blurU = BlurUniforms(texelStep: texelStep, blurRadius: blurRadius, pad0: 0.0'f32)
   let mapped = cast[ptr uint8](mapMemory(
     ctx.device,
-    ctx.blurUniformMemory,
+    uniformMemory,
     0.VkDeviceSize,
     VkDeviceSize(sizeof(BlurUniforms)),
     0.VkMemoryMapFlags,
   ))
   copyMem(mapped, blurU.addr, sizeof(BlurUniforms))
-  unmapMemory(ctx.device, ctx.blurUniformMemory)
+  unmapMemory(ctx.device, uniformMemory)
 
 proc createBlurPipeline(ctx: VulkanContext) =
   if ctx.swapchainFormat == VK_FORMAT_UNDEFINED:
@@ -1973,16 +2015,23 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
 
   let blurPoolSizes = [
     newVkDescriptorPoolSize(
-      `type` = VkDescriptorType.CombinedImageSampler, descriptorCount = 1
+      `type` = VkDescriptorType.CombinedImageSampler, descriptorCount = 2
     ),
     newVkDescriptorPoolSize(
-      `type` = VkDescriptorType.UniformBuffer, descriptorCount = 1
+      `type` = VkDescriptorType.UniformBuffer, descriptorCount = 2
     ),
   ]
   ctx.blurDescriptorPool = createDescriptorPool(
-    ctx.device, newVkDescriptorPoolCreateInfo(maxSets = 1, poolSizes = blurPoolSizes)
+    ctx.device, newVkDescriptorPoolCreateInfo(maxSets = 2, poolSizes = blurPoolSizes)
   )
-  ctx.blurDescriptorSet = allocateDescriptorSets(
+  ctx.blurDescriptorSets[0] = allocateDescriptorSets(
+    ctx.device,
+    newVkDescriptorSetAllocateInfo(
+      descriptorPool = ctx.blurDescriptorPool,
+      setLayouts = [ctx.blurDescriptorSetLayout],
+    ),
+  )
+  ctx.blurDescriptorSets[1] = allocateDescriptorSets(
     ctx.device,
     newVkDescriptorSetAllocateInfo(
       descriptorPool = ctx.blurDescriptorPool,
@@ -2032,13 +2081,20 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   ctx.fsUniformBuffer = fsAlloc.buffer
   ctx.fsUniformMemory = fsAlloc.memory
 
-  let blurAlloc = ctx.createBuffer(
+  let blurAlloc0 = ctx.createBuffer(
     size = VkDeviceSize(sizeof(BlurUniforms)),
     usage = VkBufferUsageFlags{UniformBufferBit},
     properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
   )
-  ctx.blurUniformBuffer = blurAlloc.buffer
-  ctx.blurUniformMemory = blurAlloc.memory
+  ctx.blurUniformBuffers[0] = blurAlloc0.buffer
+  ctx.blurUniformMemories[0] = blurAlloc0.memory
+  let blurAlloc1 = ctx.createBuffer(
+    size = VkDeviceSize(sizeof(BlurUniforms)),
+    usage = VkBufferUsageFlags{UniformBufferBit},
+    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
+  )
+  ctx.blurUniformBuffers[1] = blurAlloc1.buffer
+  ctx.blurUniformMemories[1] = blurAlloc1.memory
 
   let samplerInfo = newVkSamplerCreateInfo(
     magFilter = VK_FILTER_LINEAR,
@@ -2063,7 +2119,7 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
 
   ctx.recreateAtlasGpu()
   ctx.updateDescriptorSet()
-  ctx.updateBlurDescriptorSet(ctx.atlasView)
+  ctx.updateBlurDescriptorSets()
 
   let initialW = max(1, ctx.frameSize.x.int32)
   let initialH = max(1, ctx.frameSize.y.int32)
@@ -2878,8 +2934,12 @@ proc runBackdropSeparableBlur(ctx: VulkanContext, blurRadius: float32) =
   if ctx.blurRenderPass == vkNullRenderPass or ctx.blurPipeline == vkNullPipeline or
       ctx.blurPipelineLayout == vkNullPipelineLayout:
     return
-  if ctx.blurDescriptorSet == vkNullDescriptorSet or
-      ctx.blurUniformBuffer == vkNullBuffer or ctx.blurUniformMemory == vkNullMemory:
+  if ctx.blurDescriptorSets[0] == vkNullDescriptorSet or
+      ctx.blurDescriptorSets[1] == vkNullDescriptorSet or
+      ctx.blurUniformBuffers[0] == vkNullBuffer or
+      ctx.blurUniformBuffers[1] == vkNullBuffer or
+      ctx.blurUniformMemories[0] == vkNullMemory or
+      ctx.blurUniformMemories[1] == vkNullMemory:
     return
   if ctx.backdropView == vkNullImageView or ctx.backdropBlurTempView == vkNullImageView or
       ctx.backdropBlurFramebuffer == vkNullFramebuffer or
@@ -2945,8 +3005,11 @@ proc runBackdropSeparableBlur(ctx: VulkanContext, blurRadius: float32) =
     tempToColor.addr,
   )
 
-  ctx.writeBlurUniforms(vec2(1.0'f32 / w, 0.0'f32), blurRadius)
-  ctx.updateBlurDescriptorSet(ctx.backdropView)
+  ctx.writeBlurUniforms(
+    uniformMemory = ctx.blurUniformMemories[0],
+    texelStep = vec2(1.0'f32 / w, 0.0'f32),
+    blurRadius = blurRadius,
+  )
 
   let tempPassInfo = VkRenderPassBeginInfo(
     sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
@@ -2965,7 +3028,7 @@ proc runBackdropSeparableBlur(ctx: VulkanContext, blurRadius: float32) =
   vkCmdSetScissor(ctx.commandBuffer, 0, 1, scissor.addr)
   vkCmdBindDescriptorSets(
     ctx.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.blurPipelineLayout, 0, 1,
-    ctx.blurDescriptorSet.addr, 0, nil,
+    ctx.blurDescriptorSets[0].addr, 0, nil,
   )
   vkCmdDraw(ctx.commandBuffer, 3, 1, 0, 0)
   vkCmdEndRenderPass(ctx.commandBuffer)
@@ -3002,8 +3065,11 @@ proc runBackdropSeparableBlur(ctx: VulkanContext, blurRadius: float32) =
     backdropToColor.addr,
   )
 
-  ctx.writeBlurUniforms(vec2(0.0'f32, 1.0'f32 / h), blurRadius)
-  ctx.updateBlurDescriptorSet(ctx.backdropBlurTempView)
+  ctx.writeBlurUniforms(
+    uniformMemory = ctx.blurUniformMemories[1],
+    texelStep = vec2(0.0'f32, 1.0'f32 / h),
+    blurRadius = blurRadius,
+  )
 
   let backdropPassInfo = VkRenderPassBeginInfo(
     sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
@@ -3024,7 +3090,7 @@ proc runBackdropSeparableBlur(ctx: VulkanContext, blurRadius: float32) =
   vkCmdSetScissor(ctx.commandBuffer, 0, 1, scissor.addr)
   vkCmdBindDescriptorSets(
     ctx.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.blurPipelineLayout, 0, 1,
-    ctx.blurDescriptorSet.addr, 0, nil,
+    ctx.blurDescriptorSets[1].addr, 0, nil,
   )
   vkCmdDraw(ctx.commandBuffer, 3, 1, 0, 0)
   vkCmdEndRenderPass(ctx.commandBuffer)
@@ -3551,12 +3617,13 @@ proc destroyGpu(ctx: VulkanContext) =
   if ctx.fsUniformMemory != vkNullMemory:
     freeMemory(ctx.device, ctx.fsUniformMemory)
     ctx.fsUniformMemory = vkNullMemory
-  if ctx.blurUniformBuffer != vkNullBuffer:
-    destroyBuffer(ctx.device, ctx.blurUniformBuffer)
-    ctx.blurUniformBuffer = vkNullBuffer
-  if ctx.blurUniformMemory != vkNullMemory:
-    freeMemory(ctx.device, ctx.blurUniformMemory)
-    ctx.blurUniformMemory = vkNullMemory
+  for i in 0 ..< ctx.blurUniformBuffers.len:
+    if ctx.blurUniformBuffers[i] != vkNullBuffer:
+      destroyBuffer(ctx.device, ctx.blurUniformBuffers[i])
+      ctx.blurUniformBuffers[i] = vkNullBuffer
+    if ctx.blurUniformMemories[i] != vkNullMemory:
+      freeMemory(ctx.device, ctx.blurUniformMemories[i])
+      ctx.blurUniformMemories[i] = vkNullMemory
 
   if ctx.readbackBuffer != vkNullBuffer:
     destroyBuffer(ctx.device, ctx.readbackBuffer)
@@ -3694,13 +3761,13 @@ proc newContext*(
   result.blurRenderPass = vkNullRenderPass
   result.blurDescriptorSetLayout = vkNullDescriptorSetLayout
   result.blurDescriptorPool = vkNullDescriptorPool
-  result.blurDescriptorSet = vkNullDescriptorSet
+  result.blurDescriptorSets = [vkNullDescriptorSet, vkNullDescriptorSet]
   result.blurPipelineLayout = vkNullPipelineLayout
   result.blurPipeline = vkNullPipeline
   result.blurVertShader = vkNullShaderModule
   result.blurFragShader = vkNullShaderModule
-  result.blurUniformBuffer = vkNullBuffer
-  result.blurUniformMemory = vkNullMemory
+  result.blurUniformBuffers = [vkNullBuffer, vkNullBuffer]
+  result.blurUniformMemories = [vkNullMemory, vkNullMemory]
   result.atlasSampler = vkNullSampler
   result.atlasUploadBuffer = vkNullBuffer
   result.atlasUploadMemory = vkNullMemory
