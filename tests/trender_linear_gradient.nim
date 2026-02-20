@@ -31,7 +31,7 @@ proc makeRenderTree(w, h: float32): Renders =
       zlevel: 0.ZLevel,
       screenBox: rect(80, 80, 440, 120),
       corners: [12'u16, 12'u16, 12'u16, 12'u16],
-      fill: fillLinear(
+      fill: linear(
         rgba(220, 40, 40, 255),
         rgba(40, 200, 90, 255),
         rgba(50, 90, 225, 255),
@@ -49,7 +49,7 @@ proc makeRenderTree(w, h: float32): Renders =
       zlevel: 0.ZLevel,
       screenBox: rect(80, 240, 220, 220),
       corners: [10'u16, 10'u16, 10'u16, 10'u16],
-      fill: fillLinear(rgba(240, 210, 40, 255), rgba(110, 60, 210, 255), axis = fgaY),
+      fill: linear(rgba(240, 210, 40, 255), rgba(110, 60, 210, 255), axis = fgaY),
     ),
   )
 

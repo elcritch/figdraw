@@ -119,7 +119,7 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
         corners: [g0, g1, g2, g3],
         fill:
           if useGreenGradient:
-            fillLinear(
+            linear(
               rgba(18, 112, 64, 255),
               rgba(40, 180, 90, 255),
               rgba(78, 224, 188, 255),
@@ -152,7 +152,7 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
         screenBox: rect(blueStartX + offsetX, blueStartY + offsetY, blueW, blueH),
         fill:
           if useBlueGradient:
-            fillLinear(
+            linear(
               rgba(44, 72, 186, 255),
               rgba(60, 90, 220, 255),
               rgba(118, 168, 255, 255),
@@ -171,7 +171,7 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
             y: insetY,
             fill:
               if useBlueGradient:
-                fillLinear(
+                linear(
                   rgba(25, 25, 40, 100), rgba(65, 65, 95, 180), axis = fgaDiagBLTR
                 )
               else:
