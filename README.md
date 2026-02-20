@@ -103,15 +103,15 @@ proc makeRenders(w, h: float32): Renders =
   let rootIdx = list.addRoot(Fig(
     kind: nkRectangle,
     screenBox: rect(0, 0, w, h),
-    fill: rgba(255, 255, 255, 255).color,
+    fill: rgba(255, 255, 255, 255),
   ))
 
   list.addChild(rootIdx, Fig(
     kind: nkRectangle,
     screenBox: rect(80, 60, 240, 140),
-    fill: rgba(220, 40, 40, 255).color,
+    fill: rgba(220, 40, 40, 255),
     corners: [12.0'f32, 12.0, 12.0, 12.0],
-    stroke: RenderStroke(weight: 3.0, color: rgba(0, 0, 0, 255).color),
+    stroke: RenderStroke(weight: 3.0, color: rgba(0, 0, 0, 255)),
   ))
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
@@ -142,7 +142,7 @@ proc makeRenders(w, h: float32): Renders =
   discard bg.addRoot(Fig(
     kind: nkRectangle,
     screenBox: rect(0, 0, w, h),
-    fill: rgba(245, 245, 245, 255).color,
+    fill: rgba(245, 245, 245, 255),
   ))
 
   var overlay = RenderList()
@@ -150,7 +150,7 @@ proc makeRenders(w, h: float32): Renders =
     kind: nkRectangle,
     zlevel: 10.ZLevel,
     screenBox: rect(40, 40, 220, 120),
-    fill: rgba(43, 159, 234, 255).color,
+    fill: rgba(43, 159, 234, 255),
     corners: [10.0'f32, 10.0, 10.0, 10.0],
   ))
 
