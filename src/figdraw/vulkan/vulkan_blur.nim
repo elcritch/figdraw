@@ -312,7 +312,7 @@ template vulkanBlurCreatePipeline*(ctx: untyped) =
 
   ctx.recreateBlurFramebuffers()
 
-template vulkanBlurRunSeparable*(ctx, blurRadius: untyped) =
+template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
   if blurRadius <= 0.5'f32:
     return
   if not ctx.commandRecording:
@@ -337,12 +337,38 @@ template vulkanBlurRunSeparable*(ctx, blurRadius: untyped) =
   let
     w = max(1.0'f32, ctx.backdropWidth.float32)
     h = max(1.0'f32, ctx.backdropHeight.float32)
-    extent = newVkExtent2D(
-      width = ctx.backdropWidth.uint32, height = ctx.backdropHeight.uint32
-    )
     viewport =
       newVkViewport(x = 0, y = 0, width = w, height = h, minDepth = 0, maxDepth = 1)
-  var scissor = newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = extent)
+
+  var drawRect = blurRect
+  if drawRect.offset.x < 0:
+    let shift = -drawRect.offset.x
+    drawRect.offset.x = 0
+    if shift.int32 >= drawRect.extent.width.int32:
+      return
+    drawRect.extent.width = (drawRect.extent.width.int32 - shift).uint32
+  if drawRect.offset.y < 0:
+    let shift = -drawRect.offset.y
+    drawRect.offset.y = 0
+    if shift.int32 >= drawRect.extent.height.int32:
+      return
+    drawRect.extent.height = (drawRect.extent.height.int32 - shift).uint32
+
+  let maxRight = ctx.backdropWidth
+  let maxBottom = ctx.backdropHeight
+  let rectRight = drawRect.offset.x + drawRect.extent.width.int32
+  let rectBottom = drawRect.offset.y + drawRect.extent.height.int32
+  if rectRight <= 0 or rectBottom <= 0 or drawRect.offset.x >= maxRight or
+      drawRect.offset.y >= maxBottom:
+    return
+  if rectRight > maxRight:
+    drawRect.extent.width = (maxRight - drawRect.offset.x).uint32
+  if rectBottom > maxBottom:
+    drawRect.extent.height = (maxBottom - drawRect.offset.y).uint32
+  if drawRect.extent.width == 0 or drawRect.extent.height == 0:
+    return
+
+  let scissor = drawRect
 
   let tempOldLayout =
     if ctx.backdropBlurTempLayoutReady:
@@ -402,7 +428,7 @@ template vulkanBlurRunSeparable*(ctx, blurRadius: untyped) =
     pNext: nil,
     renderPass: ctx.blurRenderPass,
     framebuffer: ctx.backdropBlurTempFramebuffer,
-    renderArea: newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = extent),
+    renderArea: drawRect,
     clearValueCount: 0,
     pClearValues: nil,
   )
@@ -468,7 +494,7 @@ template vulkanBlurRunSeparable*(ctx, blurRadius: untyped) =
     pNext: nil,
     renderPass: ctx.blurRenderPass,
     framebuffer: ctx.backdropBlurFramebuffer,
-    renderArea: newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = extent),
+    renderArea: drawRect,
     clearValueCount: 0,
     pClearValues: nil,
   )

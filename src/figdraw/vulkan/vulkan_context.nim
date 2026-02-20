@@ -2634,8 +2634,10 @@ method drawRoundedRectSdf*(
 
   inc ctx.quadCount
 
-proc runBackdropSeparableBlur(ctx: VulkanContext, blurRadius: float32) =
-  vulkanBlurRunSeparable(ctx, blurRadius)
+proc runBackdropSeparableBlur(
+    ctx: VulkanContext, blurRadius: float32, blurRect: VkRect2D
+) =
+  vulkanBlurRunSeparable(ctx, blurRadius, blurRect)
 
 method drawBackdropBlur*(
     ctx: VulkanContext,
@@ -2660,6 +2662,19 @@ method drawBackdropBlur*(
   let height = max(1'i32, ctx.swapchainExtent.height.int32)
   if width <= 0 or height <= 0:
     return
+
+  let blurPad = max(1'i32, int32(ceil(max(blurRadius, 1.0'f32) + 2.0'f32)))
+  let x0 = max(0'i32, int32(floor(rect.x - blurPad.float32)))
+  let y0 = max(0'i32, int32(floor(rect.y - blurPad.float32)))
+  let x1 = min(width, int32(ceil(rect.x + rect.w + blurPad.float32)))
+  let y1 = min(height, int32(ceil(rect.y + rect.h + blurPad.float32)))
+  if x1 <= x0 or y1 <= y0:
+    return
+  let blurRect = newVkRect2D(
+    offset = newVkOffset2D(x = x0, y = y0),
+    extent = newVkExtent2D(width = (x1 - x0).uint32, height = (y1 - y0).uint32),
+  )
+
   ctx.ensureBackdropImage(width, height)
   if ctx.backdropImage == vkNullImage or ctx.backdropView == vkNullImageView:
     return
@@ -2750,16 +2765,16 @@ method drawBackdropBlur*(
       baseArrayLayer = 0,
       layerCount = 1,
     ),
-    srcOffset: newVkOffset3D(x = 0, y = 0, z = 0),
+    srcOffset: newVkOffset3D(x = blurRect.offset.x, y = blurRect.offset.y, z = 0),
     dstSubresource: newVkImageSubresourceLayers(
       aspectMask = VkImageAspectFlags{ColorBit},
       mipLevel = 0,
       baseArrayLayer = 0,
       layerCount = 1,
     ),
-    dstOffset: newVkOffset3D(x = 0, y = 0, z = 0),
+    dstOffset: newVkOffset3D(x = blurRect.offset.x, y = blurRect.offset.y, z = 0),
     extent: newVkExtent3D(
-      width = ctx.swapchainExtent.width, height = ctx.swapchainExtent.height, depth = 1
+      width = blurRect.extent.width, height = blurRect.extent.height, depth = 1
     ),
   )
   vkCmdCopyImage(
@@ -2829,7 +2844,7 @@ method drawBackdropBlur*(
     swapchainToPresent.addr,
   )
   ctx.backdropLayoutReady = true
-  ctx.runBackdropSeparableBlur(blurRadius)
+  ctx.runBackdropSeparableBlur(blurRadius, blurRect)
 
   ctx.drawRoundedRectSdf(
     rect = rect,
