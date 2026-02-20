@@ -13,8 +13,10 @@ const
 
 type
   FigID* = int64
+  ZLevel* = int8
 
 type
+
   Directions* = enum
     dTop
     dRight
@@ -52,33 +54,6 @@ type
     DropShadow
     InnerShadow
 
-  ZLevel* = int8
-
-  RenderShadow* = object
-    style*: ShadowStyle
-    blur*: float32
-    spread*: float32
-    x*: float32
-    y*: float32
-    color*: Color
-
-  RenderStroke* = object
-    weight*: float32
-    color*: Color
-
-  ImageStyle* = object
-    color*: Color
-    id*: ImageId
-
-  MsdfImageStyle* = object
-    color*: Color
-    id*: ImageId
-    pxRange*: float32
-    sdThreshold*: float32
-    ## If > 0, render as an outline (annular band) with this stroke width.
-    ## Units are the same as other FigDraw weights and get UI-scaled at render time.
-    strokeWeight*: float32
-
   FillGradientAxis* = enum
     fgaX
     fgaY
@@ -98,22 +73,43 @@ type
   Linear3* = object
     axis*: FillGradientAxis
     start*: ColorRGBA  # packed RGBA8
-    middle*: ColorRGBA  # packed RGBA8
+    mid*: ColorRGBA  # packed RGBA8
     stop*: ColorRGBA  # packed RGBA8
+    midPos*: uint8 = 128        # 0..255
 
   Fill* = object
     case kind*: FillKind
     of flColor:
       color: ColorRGBA
     of flLinear2:
-      #axis2*: FillGradientAxis
-      #colors2*: array[2, ColorRGBA]  # packed RGBA8
       linear2*: Linear2
     of flLinear3:
       linear3*: Linear2
-      #axis3*: FillGradientAxis
-      #midPos3*: uint8 = 128        # 0..255
-      #colors3*: array[3, ColorRGBA]  # packed RGBA8
+
+  RenderShadow* = object
+    style*: ShadowStyle
+    blur*: float32
+    spread*: float32
+    x*: float32
+    y*: float32
+    fill*: Fill
+
+  RenderStroke* = object
+    weight*: float32
+    fill*: Fill
+
+  ImageStyle* = object
+    fill*: Fill
+    id*: ImageId
+
+  MsdfImageStyle* = object
+    color*: ColorRGBA
+    id*: ImageId
+    pxRange*: float32
+    sdThreshold*: float32
+    ## If > 0, render as an outline (annular band) with this stroke width.
+    ## Units are the same as other FigDraw weights and get UI-scaled at render time.
+    strokeWeight*: float32
 
 
 converter toColorRGBA*(c: Color): ColorRGBA {.inline.} =
