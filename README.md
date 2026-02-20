@@ -51,11 +51,12 @@ Alternatively, you can just `atlas use windy`.
 
 Here's the primary rounded rect primitive with corners, borders, and shadows:
 
-![RGB boxes render](tests/expected/render_rgb_boxes_sdf.png)
+<img width="800" height="600" alt="render_rgb_boxes_sdf" src="https://github.com/user-attachments/assets/6a7ef1f5-92de-4c0b-a1f5-29d8500afdd4" />
 
 Here's it running as an overlay on top of a 3D scene:
 
-<img width="800" height="600" alt="render_rgb_boxes_sdf" src="https://github.com/user-attachments/assets/6a7ef1f5-92de-4c0b-a1f5-29d8500afdd4" />
+<img width="1012" height="781" alt="Screenshot 2026-02-20 at 12 56 09 AM" src="https://github.com/user-attachments/assets/73a0eb3d-23f0-471c-bf61-1f35fa0946ed" />
+
 
 Here's text rendering curtesy of Pixie. Note that Pixie's layout can be used or custom layout, e.g. for monospaced renderers:
 
