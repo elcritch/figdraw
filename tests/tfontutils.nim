@@ -87,6 +87,27 @@ suite "fontutils":
         break
     check foundNonWhitespace
 
+  test "typeset preserves gradient span fills":
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+    let box = rect(0, 0, 240, 60)
+    let spans = [
+      (
+        fs(uiFont, linear(rgba(220, 40, 40, 255), rgba(40, 90, 220, 255), axis = fgaX)),
+        "Gradient text",
+      )
+    ]
+
+    let arrangement =
+      typeset(box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false)
+
+    check arrangement.spanColors.len == 1
+    check arrangement.spanColors[0].kind == flLinear2
+    check arrangement.spanColors[0].lin2.axis == fgaX
+    check arrangement.spanColors[0].lin2.start == rgba(220, 40, 40, 255)
+    check arrangement.spanColors[0].lin2.stop == rgba(40, 90, 220, 255)
+
   test "placeGlyphs respects positions and caches glyphs":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)

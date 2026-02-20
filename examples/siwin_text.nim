@@ -47,11 +47,24 @@ This example uses `src/figdraw/common/fontutils.nim` typesetting + glyph caching
 then renders glyph atlas sprites via the OpenGL renderer.
 """
   let highlightRange = findPhraseRange(text, "renders glyph atlas sprites")
-
-  let bodyColor = rgba(20, 20, 20, 255).color
+  let bodyFill = rgba(20, 20, 20, 255)
+  let openGlFill = linear(rgba(255, 120, 66, 255), rgba(72, 197, 255, 255), axis = fgaX)
+  let openGlToken = "OpenGL"
+  let openGlIdx = text.find(openGlToken)
+  var spans: seq[(FontStyle, string)]
+  if openGlIdx >= 0:
+    let prefix = text[0 ..< openGlIdx]
+    let suffix = text[openGlIdx + openGlToken.len .. ^1]
+    if prefix.len > 0:
+      spans.add(span(uiFont, bodyFill, prefix))
+    spans.add(span(uiFont, openGlFill, openGlToken))
+    if suffix.len > 0:
+      spans.add(span(uiFont, bodyFill, suffix))
+  else:
+    spans = @[span(uiFont, bodyFill, text)]
   result.layout = typeset(
     rect(0, 0, textRect.w, textRect.h),
-    [span(uiFont, bodyColor, text)],
+    spans,
     hAlign = Left,
     vAlign = Top,
     minContent = false,
@@ -60,7 +73,7 @@ then renders glyph atlas sprites via the OpenGL renderer.
   result.highlightRange = highlightRange
 
 proc buildMonoWordLayouts*(
-    monoFont: FigFont, monoText: string, pad: float32, colors: openArray[Color]
+    monoFont: FigFont, monoText: string, pad: float32, colors: openArray[Fill]
 ): seq[GlyphArrangement] =
   let (_, monoPx) = monoFont.convertFont()
   let monoLineHeight =
@@ -78,7 +91,7 @@ proc buildMonoWordLayouts*(
       glyphs: var seq[(Rune, Vec2)],
       layouts: var seq[GlyphArrangement],
       monoFont: FigFont,
-      colors: seq[Color],
+      colors: seq[Fill],
       wordIdx: var int,
   ) =
     if glyphs.len == 0:
@@ -87,7 +100,7 @@ proc buildMonoWordLayouts*(
       if colors.len > 0:
         colors[wordIdx mod colors.len]
       else:
-        blackColor
+        fill(rgba(0, 0, 0, 255))
     layouts.add(placeGlyphs(fs(monoFont, wordColor), glyphs, origin = GlyphTopLeft))
     wordIdx.inc
     glyphs.setLen(0)
@@ -188,7 +201,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
       zlevel: z,
       screenBox: textRect,
       selectionRange: highlightRange,
-      fill: rgba(255, 232, 140, 255),
+      fill: linear(rgba(255, 242, 170, 255), rgba(255, 192, 128, 255), axis = fgaX),
       flags:
         if highlightRange.a <= highlightRange.b:
           {NfSelectText}
@@ -212,11 +225,11 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
     ),
   )
   let monoColors = [
-    rgba(236, 238, 245, 255).color,
-    rgba(255, 210, 160, 255).color,
-    rgba(166, 223, 255, 255).color,
-    rgba(196, 255, 198, 255).color,
-    rgba(255, 187, 229, 255).color,
+    linear(rgba(236, 238, 245, 255), rgba(182, 214, 255, 255), axis = fgaX),
+    rgba(255, 210, 160, 255),
+    linear(rgba(166, 223, 255, 255), rgba(196, 255, 198, 255), axis = fgaDiagTLBR),
+    rgba(196, 255, 198, 255),
+    linear(rgba(255, 187, 229, 255), rgba(255, 214, 152, 255), axis = fgaX),
   ]
   let monoLayouts = buildMonoWordLayouts(monoFont, monoText, monoPad, monoColors)
   for monoLayout in monoLayouts:

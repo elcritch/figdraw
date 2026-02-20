@@ -73,7 +73,17 @@ method drawImage*(impl: BackendContext, path: Hash, pos: Vec2, color: Color) {.b
   raise newException(ValueError, "Backend drawImage unavailable")
 
 method drawImage*(
+    impl: BackendContext, path: Hash, pos: Vec2, colors: array[4, ColorRGBA]
+) {.base.} =
+  raise newException(ValueError, "Backend drawImage unavailable")
+
+method drawImage*(
     impl: BackendContext, path: Hash, pos: Vec2, color: Color, size: Vec2
+) {.base.} =
+  raise newException(ValueError, "Backend drawImage unavailable")
+
+method drawImage*(
+    impl: BackendContext, path: Hash, pos: Vec2, colors: array[4, ColorRGBA], size: Vec2
 ) {.base.} =
   raise newException(ValueError, "Backend drawImage unavailable")
 
@@ -143,9 +153,7 @@ method drawMtsdfImage*(
   raise newException(ValueError, "Backend drawMtsdfImage unavailable")
 
 method beginMask*(
-    impl: BackendContext,
-    clipRect: Rect,
-    radii: array[DirectionCorners, float32]
+    impl: BackendContext, clipRect: Rect, radii: array[DirectionCorners, float32]
 ) {.base.} =
   raise newException(ValueError, "Backend beginMask unavailable")
 

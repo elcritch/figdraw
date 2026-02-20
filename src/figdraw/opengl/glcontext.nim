@@ -736,8 +736,77 @@ proc drawUvRect(ctx: OpenGlContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color
 
   inc ctx.quadCount
 
+proc drawUvRect(
+    ctx: OpenGlContext, at, to: Vec2, uvAt, uvTo: Vec2, colors: array[4, ColorRGBA]
+) =
+  ## Adds an image rect with explicit per-vertex colors.
+  ctx.checkBatch()
+
+  assert ctx.quadCount < ctx.maxQuads
+
+  let
+    posQuad = [
+      ceil(ctx.mat * vec2(at.x, to.y)),
+      ceil(ctx.mat * vec2(to.x, to.y)),
+      ceil(ctx.mat * vec2(to.x, at.y)),
+      ceil(ctx.mat * vec2(at.x, at.y)),
+    ]
+    uvQuad = [
+      vec2(uvAt.x, uvTo.y),
+      vec2(uvTo.x, uvTo.y),
+      vec2(uvTo.x, uvAt.y),
+      vec2(uvAt.x, uvAt.y),
+    ]
+
+  let offset = ctx.quadCount * 4
+  ctx.positions.data.setVert2(offset + 0, posQuad[0])
+  ctx.positions.data.setVert2(offset + 1, posQuad[1])
+  ctx.positions.data.setVert2(offset + 2, posQuad[2])
+  ctx.positions.data.setVert2(offset + 3, posQuad[3])
+
+  ctx.uvs.data.setVert2(offset + 0, uvQuad[0])
+  ctx.uvs.data.setVert2(offset + 1, uvQuad[1])
+  ctx.uvs.data.setVert2(offset + 2, uvQuad[2])
+  ctx.uvs.data.setVert2(offset + 3, uvQuad[3])
+
+  ctx.colors.data.setVertColor(offset + 0, colors[0])
+  ctx.colors.data.setVertColor(offset + 1, colors[1])
+  ctx.colors.data.setVertColor(offset + 2, colors[2])
+  ctx.colors.data.setVertColor(offset + 3, colors[3])
+
+  let zero4 = vec4(0.0'f32)
+  ctx.sdfParams.data.setVert4(offset + 0, zero4)
+  ctx.sdfParams.data.setVert4(offset + 1, zero4)
+  ctx.sdfParams.data.setVert4(offset + 2, zero4)
+  ctx.sdfParams.data.setVert4(offset + 3, zero4)
+
+  ctx.sdfRadii.data.setVert4(offset + 0, zero4)
+  ctx.sdfRadii.data.setVert4(offset + 1, zero4)
+  ctx.sdfRadii.data.setVert4(offset + 2, zero4)
+  ctx.sdfRadii.data.setVert4(offset + 3, zero4)
+
+  let defaultFactors = vec2(0.0'f32, 0.0'f32)
+  ctx.sdfFactors.data.setVert2(offset + 0, defaultFactors)
+  ctx.sdfFactors.data.setVert2(offset + 1, defaultFactors)
+  ctx.sdfFactors.data.setVert2(offset + 2, defaultFactors)
+  ctx.sdfFactors.data.setVert2(offset + 3, defaultFactors)
+
+  when defined(emscripten):
+    let modeVal = 0.0'f32
+  else:
+    let modeVal = 0'u16
+  ctx.sdfModeAttr.data[offset + 0] = modeVal
+  ctx.sdfModeAttr.data[offset + 1] = modeVal
+  ctx.sdfModeAttr.data[offset + 2] = modeVal
+  ctx.sdfModeAttr.data[offset + 3] = modeVal
+
+  inc ctx.quadCount
+
 proc drawUvRect(ctx: OpenGlContext, rect, uvRect: Rect, color: Color) =
   ctx.drawUvRect(rect.xy, rect.xy + rect.wh, uvRect.xy, uvRect.xy + uvRect.wh, color)
+
+proc drawUvRect(ctx: OpenGlContext, rect, uvRect: Rect, colors: array[4, ColorRGBA]) =
+  ctx.drawUvRect(rect.xy, rect.xy + rect.wh, uvRect.xy, uvRect.xy + uvRect.wh, colors)
 
 proc tryGetImageRect(ctx: OpenGlContext, imageId: Hash, rect: var Rect): bool =
   if imageId notin ctx.entries:
@@ -763,6 +832,25 @@ proc drawImage*(
 method drawImage*(ctx: OpenGlContext, imageId: Hash, pos: Vec2, color: Color) =
   drawImage(ctx, imageId, pos, color, 1.0'f32)
 
+proc drawImage*(
+    ctx: OpenGlContext,
+    imageId: Hash,
+    pos: Vec2 = vec2(0, 0),
+    colors: array[4, ColorRGBA],
+    scale: float32,
+) =
+  ## Draws image the UI way - pos at top-left with per-vertex colors.
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
+  let wh = rect.wh * ctx.atlasSize.float32 * scale
+  ctx.drawUvRect(pos, pos + wh, rect.xy, rect.xy + rect.wh, colors)
+
+method drawImage*(
+    ctx: OpenGlContext, imageId: Hash, pos: Vec2, colors: array[4, ColorRGBA]
+) =
+  drawImage(ctx, imageId, pos, colors, 1.0'f32)
+
 method drawImage*(
     ctx: OpenGlContext,
     imageId: Hash,
@@ -775,6 +863,19 @@ method drawImage*(
   if not ctx.tryGetImageRect(imageId, rect):
     return
   ctx.drawUvRect(pos, pos + size, rect.xy, rect.xy + rect.wh, color)
+
+method drawImage*(
+    ctx: OpenGlContext,
+    imageId: Hash,
+    pos: Vec2 = vec2(0, 0),
+    colors: array[4, ColorRGBA],
+    size: Vec2,
+) =
+  ## Draws image the UI way - pos at top-left with per-vertex colors.
+  var rect: Rect
+  if not ctx.tryGetImageRect(imageId, rect):
+    return
+  ctx.drawUvRect(pos, pos + size, rect.xy, rect.xy + rect.wh, colors)
 
 method drawImageAdj*(
     ctx: OpenGlContext,

@@ -195,16 +195,29 @@ proc renderDrawable*(ctx: BackendContext, node: Fig) =
 
 proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
-  let fillColor = fillCenterColor(node.fill)
   if NfSelectText in node.flags and fillAlphaMax(node.fill) > 0'u8:
     let rects = node.textLayout.selectionRects
     if rects.len > 0 and node.selectionRange.a <= node.selectionRange.b:
       let startIdx = max(node.selectionRange.a, 0)
       let endIdx = min(node.selectionRange.b, rects.len - 1)
+      let selectionGradient = node.fill.gradientColors()
+      let zeroRadii = [0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32]
+      let selectionColor = fillCenterColor(node.fill)
       for idx in startIdx .. endIdx:
         let rect = rects[idx].scaled()
         if rect.w > 0 and rect.h > 0:
-          ctx.drawRect(rect, fillColor)
+          if node.fill.kind == flColor:
+            ctx.drawRect(rect, selectionColor)
+          else:
+            ctx.drawRoundedRectSdf(
+              rect = rect,
+              colors = selectionGradient,
+              radii = zeroRadii,
+              mode = figbackend.SdfMode.sdfModeClipAA,
+              factor = 4.0'f32,
+              spread = 0.0'f32,
+              shapeSize = vec2(0.0'f32, 0.0'f32),
+            )
 
   for glyph in node.textLayout.glyphs():
     if unicode.isWhiteSpace(glyph.rune):
@@ -219,7 +232,10 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       warn "missing glyph image in context",
         glyphId = glyphId, glyphRune = $glyph.rune, glyphRuneRepr = repr(glyph.rune)
       continue
-    ctx.drawImage(glyphId, charPos, glyph.color)
+    if glyph.fill.kind == flColor:
+      ctx.drawImage(glyphId, charPos, fillCenterColor(glyph.fill))
+    else:
+      ctx.drawImage(glyphId, charPos, glyph.fill.gradientColors())
 
 import macros except `$`
 
