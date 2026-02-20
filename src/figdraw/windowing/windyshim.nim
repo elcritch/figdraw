@@ -137,6 +137,10 @@ when UseVulkanBackend and defined(windows):
 
   privateAccess(Window)
 
+  # VulkanContext is defined in the shared vulkan_context module,
+  # just like we import above for the X11 code path.
+  import ../vulkan/vulkan_context
+
   proc attachVulkanSurface*(window: Window, ctx: VulkanContext) =
     let hinstance = cast[pointer](GetModuleHandleW(nil))
     let hwnd = cast[pointer](window.hWnd)
