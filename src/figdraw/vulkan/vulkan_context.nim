@@ -293,8 +293,8 @@ proc createPresentSurface(ctx: VulkanContext) =
     when defined(windows):
       loadVK_KHR_win32_surface()
       let createInfo = newVkWin32SurfaceCreateInfoKHR(
-        hinstance = cast[HINSTANCE](ctx.presentWin32Hinstance),
-        hwnd = cast[HWND](ctx.presentWin32Hwnd),
+        hinstance = cast[HINSTANCE](cast[uint](ctx.presentWin32Hinstance)),
+        hwnd = cast[HWND](cast[uint](ctx.presentWin32Hwnd)),
       )
       checkVkResult vkCreateWin32SurfaceKHR(
         ctx.instance, createInfo.addr, nil, ctx.surface.addr
