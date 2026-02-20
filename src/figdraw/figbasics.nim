@@ -72,19 +72,19 @@ type
 
   Linear3* = object
     axis*: FillGradientAxis
-    start*: ColorRGBA  # packed RGBA8
-    mid*: ColorRGBA  # packed RGBA8
+    start*: ColorRGBA # packed RGBA8
+    mid*: ColorRGBA   # packed RGBA8
     stop*: ColorRGBA  # packed RGBA8
-    midPos*: uint8 = 128        # 0..255
+    midPos*: uint8    # 0..255
 
   Fill* = object
     case kind*: FillKind
     of flColor:
       color: ColorRGBA
     of flLinear2:
-      linear2*: Linear2
+      lin2*: Linear2
     of flLinear3:
-      linear3*: Linear2
+      lin3*: Linear2
 
   RenderShadow* = object
     style*: ShadowStyle
@@ -111,8 +111,14 @@ type
     ## Units are the same as other FigDraw weights and get UI-scaled at render time.
     strokeWeight*: float32
 
-proc fill*(color: ColorRGBA): Fill {.inline.} =
+proc fill*(color: ColorRGBA): Fill =
   Fill(kind: flColor, color: color)
+
+proc fillLinear*(start, stop: ColorRGBA, axis: FillGradientAxis): Fill =
+  Fill(kind: flLinear2, lin2: Linear2(start: start, stop: stop))
+
+proc fillLinear*(start, mid, stop: ColorRGBA, axis: FillGradientAxis, midPos = 128'u8): Fill =
+  Fill(kind: flLinear3, lin3: Linear3(start: start, mid: mid, stop: stop, midPos: midPos))
 
 converter toColorRGBA*(c: Color): ColorRGBA {.inline.} =
   ## Backward compatibility for callers still producing float colors.
