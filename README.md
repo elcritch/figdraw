@@ -3,17 +3,17 @@
 `figdraw` is a pure Nim rendering library for building and rendering 2D scene graphs
 (`Fig` nodes) with a focus on:
 
+- A GPU accelerated backend usingj SDF (signed-distance-field) primitives for crisp rounded-rect rendering and gaussian based shadows.
+- Lightweight, multiplatform, and high performance by design! Low allocations for each frame.
 - A thread-safe renderer pipeline (render tree construction and preparation can be done off the main thread; OpenGL submission stays on the GL thread).
-- An OpenGL backend with SDF (signed-distance-field) primitives for crisp rounded-rect rendering and gaussian based shadows.
 - Modern and fast text rendering and layout using [Pixie](https://github.com/treeform/pixie/) with a thread-safe API.
-- Image rendering using an GPU texture atlas.
-- Rendering with OpenGL / Metal - (Vulkan coming soon!)
+- Image rendering using a GPU texture atlas.
+- Rendering with OpenGL / Metal / Vulkan!
 - Supports layering and multiple "roots" per layer - great for menus, overlays, etc.
-- Lightweight and high performance by design! Low allocations for each frame.
 
 ## Quick Start
 
-This part assumes a recent Atlas (>= 0.9.6) version:
+This part works best with a recent Atlas (>= 0.9.6) version:
 
 ```sh
 # Try the repo:
