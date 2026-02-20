@@ -148,7 +148,7 @@ void main() {
       case sdfModeBackdropBlur: {
         float cl = clamp(uFS.aaFactor * dist + 0.5, 0.0, 1.0);
         alpha = 1.0 - cl;
-        vec2 normalizedPos = vec2(vPos.x / uFS.windowFrame.x, 1.0 - vPos.y / uFS.windowFrame.y);
+        vec2 normalizedPos = vec2(vPos.x / uFS.windowFrame.x, vPos.y / uFS.windowFrame.y);
         vec4 blur = texture(backdropTex, normalizedPos);
         fragColor = vec4(blur.rgb, blur.a * alpha);
         break;

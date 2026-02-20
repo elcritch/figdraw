@@ -2663,7 +2663,8 @@ method drawBackdropBlur*(
   if width <= 0 or height <= 0:
     return
 
-  let blurPad = max(1'i32, int32(ceil(max(blurRadius, 1.0'f32) + 2.0'f32)))
+  let blurKernelReach = max(blurRadius, 8.0'f32)
+  let blurPad = max(1'i32, int32(ceil(blurKernelReach + 2.0'f32)))
   let x0 = max(0'i32, int32(floor(rect.x - blurPad.float32)))
   let y0 = max(0'i32, int32(floor(rect.y - blurPad.float32)))
   let x1 = min(width, int32(ceil(rect.x + rect.w + blurPad.float32)))
