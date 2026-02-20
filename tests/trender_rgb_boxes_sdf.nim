@@ -42,7 +42,13 @@ proc makeRenderTree(w, h: float32): Renders =
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: rect(320, 120, 220, 140),
-      fill: rgba(40, 180, 90, 255),
+      fill: linear(
+        rgba(24, 128, 72, 255),
+        rgba(40, 180, 90, 255),
+        rgba(54, 206, 170, 255),
+        axis = fgaX,
+        midPos = 140'u8,
+      ),
       shadows: [
         RenderShadow(
           style: DropShadow,
@@ -73,7 +79,7 @@ proc makeRenderTree(w, h: float32): Renders =
           spread: 0,
           x: -6,
           y: -6,
-          fill: rgba(55, 55, 55, 155).color,
+          fill: linear(rgba(25, 25, 25, 90), rgba(65, 65, 65, 175), axis = fgaDiagTLBR),
         ),
         RenderShadow(
           style: InnerShadow,
@@ -81,7 +87,9 @@ proc makeRenderTree(w, h: float32): Renders =
           spread: 0,
           x: 6,
           y: 6,
-          fill: rgba(255, 255, 255, 255).color,
+          fill: linear(
+            rgba(255, 255, 255, 255), rgba(205, 205, 205, 115), axis = fgaDiagTLBR
+          ),
         ),
         RenderShadow(),
         RenderShadow(),
@@ -116,7 +124,7 @@ suite "opengl rgb boxes render (sdf)":
       check fileExists(outPath)
       check getFileSize(outPath) > 0
 
-      let expectedPath = "tests" / "expected" / "render_rgb_boxes.png"
+      let expectedPath = "tests" / "expected" / "render_rgb_boxes_sdf.png"
       check fileExists(expectedPath)
       let expected = pixie.readImage(expectedPath)
       let (diffScore, diffImg) = expected.diff(img)
