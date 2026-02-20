@@ -738,6 +738,25 @@ proc renderMtsdfImage(ctx: BackendContext, node: Fig) =
     strokeWeight = strokeWeight,
   )
 
+proc renderBackdropBlur(ctx: BackendContext, node: Fig) =
+  let box = node.screenBox.scaled()
+  if node.backdropBlur.blur > 0.0'f32:
+    ctx.drawBackdropBlur(
+      rect = box,
+      radii = node.corners.scaledCorners(),
+      blurRadius = node.backdropBlur.blur.scaled(),
+    )
+
+  if fillAlphaMax(node.fill) == 0'u8:
+    return
+
+  var overlay = Fig(kind: nkRectangle)
+  overlay.screenBox = node.screenBox
+  overlay.fill = node.fill
+  overlay.corners = node.corners
+  overlay.stroke = RenderStroke(weight: 0.0'f32, fill: fill(rgba(0, 0, 0, 0)))
+  ctx.renderBoxes(overlay)
+
 proc render(
     ctx: BackendContext, nodes: seq[Fig], nodeIdx, parentIdx: FigIdx
 ) {.forbids: [AppMainThreadEff].} =
@@ -788,6 +807,8 @@ proc render(
       ctx.renderMsdfImage(node)
     elif node.kind == nkMtsdfImage:
       ctx.renderMtsdfImage(node)
+    elif node.kind == nkBackdropBlur:
+      ctx.renderBackdropBlur(node)
 
   ifrender node.kind == nkRectangle:
     when not defined(useFigDrawTextures):

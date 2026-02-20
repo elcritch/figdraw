@@ -12,6 +12,7 @@ import ../figbackend as figbackend
 import ../common/formatflippy
 import ../fignodes
 import ../utils/drawextras
+import ./vulkan_blur
 import ./vulkan_utils
 
 export drawextras
@@ -23,6 +24,8 @@ const
   quadLimit = 10_921
   sdfVertSpv = staticRead("shaders/sdf.vert.spv")
   sdfFragSpv = staticRead("shaders/sdf.frag.spv")
+  blurVertSpv = staticRead("shaders/blur.vert.spv")
+  blurFragSpv = staticRead("shaders/blur.frag.spv")
 
 when defined(emscripten):
   type SdfModeData = float32
@@ -51,6 +54,11 @@ type
     windowFrame: Vec2
     aaFactor: float32
     maskTexEnabled: uint32
+
+  BlurUniforms = object
+    texelStep: Vec2
+    blurRadius: float32
+    pad0: float32
 
   Vertex = object
     pos: array[2, float32]
@@ -156,6 +164,29 @@ type
     atlasImage: VkImage
     atlasImageMemory: VkDeviceMemory
     atlasView: VkImageView
+    backdropImage: VkImage
+    backdropImageMemory: VkDeviceMemory
+    backdropView: VkImageView
+    backdropBlurTempImage: VkImage
+    backdropBlurTempImageMemory: VkDeviceMemory
+    backdropBlurTempView: VkImageView
+    backdropLayoutReady: bool
+    backdropBlurTempLayoutReady: bool
+    backdropWidth: int32
+    backdropHeight: int32
+    backdropFormat: VkFormat
+    backdropBlurFramebuffer: VkFramebuffer
+    backdropBlurTempFramebuffer: VkFramebuffer
+    blurRenderPass: VkRenderPass
+    blurDescriptorSetLayout: VkDescriptorSetLayout
+    blurDescriptorPool: VkDescriptorPool
+    blurDescriptorSets: array[2, VkDescriptorSet]
+    blurPipelineLayout: VkPipelineLayout
+    blurPipeline: VkPipeline
+    blurVertShader: VkShaderModule
+    blurFragShader: VkShaderModule
+    blurUniformBuffers: array[2, VkBuffer]
+    blurUniformMemories: array[2, VkDeviceMemory]
     atlasSampler: VkSampler
     atlasUploadBuffer: VkBuffer
     atlasUploadMemory: VkDeviceMemory
@@ -208,6 +239,16 @@ method hasImage*(ctx: VulkanContext, key: Hash): bool =
   key in ctx.entries
 
 proc tryGetImageRect(ctx: VulkanContext, imageId: Hash, rect: var Rect): bool
+proc updateDescriptorSet(ctx: VulkanContext)
+proc updateBlurDescriptorSet(
+  ctx: VulkanContext,
+  descriptorSet: VkDescriptorSet,
+  srcView: VkImageView,
+  uniformBuffer: VkBuffer,
+)
+
+proc updateBlurDescriptorSets(ctx: VulkanContext)
+proc recreateBlurFramebuffers(ctx: VulkanContext)
 
 proc createBuffer(
     ctx: VulkanContext,
@@ -372,6 +413,85 @@ proc createImageView(
   )
   checkVkResult vkCreateImageView(ctx.device, info.addr, nil, result.addr)
 
+proc recreateBlurFramebuffers(ctx: VulkanContext) =
+  vulkanBlurRecreateFramebuffers(ctx)
+
+proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
+  let w = max(1'i32, width)
+  let h = max(1'i32, height)
+  let backdropFormat =
+    if ctx.swapchainFormat != VK_FORMAT_UNDEFINED:
+      ctx.swapchainFormat
+    else:
+      VK_FORMAT_B8G8R8A8_UNORM
+  if ctx.backdropImage != vkNullImage and ctx.backdropView != vkNullImageView and
+      ctx.backdropBlurTempImage != vkNullImage and
+      ctx.backdropBlurTempView != vkNullImageView and ctx.backdropWidth == w and
+      ctx.backdropHeight == h and ctx.backdropFormat == backdropFormat:
+    return
+
+  if ctx.backdropBlurFramebuffer != vkNullFramebuffer:
+    vkDestroyFramebuffer(ctx.device, ctx.backdropBlurFramebuffer, nil)
+    ctx.backdropBlurFramebuffer = vkNullFramebuffer
+  if ctx.backdropBlurTempFramebuffer != vkNullFramebuffer:
+    vkDestroyFramebuffer(ctx.device, ctx.backdropBlurTempFramebuffer, nil)
+    ctx.backdropBlurTempFramebuffer = vkNullFramebuffer
+
+  if ctx.backdropBlurTempView != vkNullImageView:
+    vkDestroyImageView(ctx.device, ctx.backdropBlurTempView, nil)
+    ctx.backdropBlurTempView = vkNullImageView
+  if ctx.backdropBlurTempImage != vkNullImage:
+    vkDestroyImage(ctx.device, ctx.backdropBlurTempImage, nil)
+    ctx.backdropBlurTempImage = vkNullImage
+  if ctx.backdropBlurTempImageMemory != vkNullMemory:
+    vkFreeMemory(ctx.device, ctx.backdropBlurTempImageMemory, nil)
+    ctx.backdropBlurTempImageMemory = vkNullMemory
+
+  if ctx.backdropView != vkNullImageView:
+    vkDestroyImageView(ctx.device, ctx.backdropView, nil)
+    ctx.backdropView = vkNullImageView
+  if ctx.backdropImage != vkNullImage:
+    vkDestroyImage(ctx.device, ctx.backdropImage, nil)
+    ctx.backdropImage = vkNullImage
+  if ctx.backdropImageMemory != vkNullMemory:
+    vkFreeMemory(ctx.device, ctx.backdropImageMemory, nil)
+    ctx.backdropImageMemory = vkNullMemory
+
+  let backdropAlloc = ctx.createImage(
+    width = w.uint32,
+    height = h.uint32,
+    format = backdropFormat,
+    tiling = VK_IMAGE_TILING_OPTIMAL,
+    usage = VkImageUsageFlags{SampledBit, TransferDstBit, ColorAttachmentBit},
+    properties = VkMemoryPropertyFlags{DeviceLocalBit},
+  )
+  let backdropTempAlloc = ctx.createImage(
+    width = w.uint32,
+    height = h.uint32,
+    format = backdropFormat,
+    tiling = VK_IMAGE_TILING_OPTIMAL,
+    usage = VkImageUsageFlags{SampledBit, ColorAttachmentBit},
+    properties = VkMemoryPropertyFlags{DeviceLocalBit},
+  )
+  ctx.backdropImage = backdropAlloc.image
+  ctx.backdropImageMemory = backdropAlloc.memory
+  ctx.backdropView =
+    ctx.createImageView(ctx.backdropImage, backdropFormat, VkImageAspectFlags{ColorBit})
+  ctx.backdropBlurTempImage = backdropTempAlloc.image
+  ctx.backdropBlurTempImageMemory = backdropTempAlloc.memory
+  ctx.backdropBlurTempView = ctx.createImageView(
+    ctx.backdropBlurTempImage, backdropFormat, VkImageAspectFlags{ColorBit}
+  )
+  ctx.backdropLayoutReady = false
+  ctx.backdropBlurTempLayoutReady = false
+  ctx.backdropWidth = w
+  ctx.backdropHeight = h
+  ctx.backdropFormat = backdropFormat
+  ctx.recreateBlurFramebuffers()
+  if ctx.descriptorSet != vkNullDescriptorSet:
+    ctx.updateDescriptorSet()
+  ctx.updateBlurDescriptorSets()
+
 proc fullFrameRect(ctx: VulkanContext): Rect =
   rect(0.0'f32, 0.0'f32, ctx.frameSize.x, ctx.frameSize.y)
 
@@ -392,6 +512,23 @@ proc destroySwapchain(ctx: VulkanContext) =
     ctx.swapchain = vkNullSwapchain
 
 proc destroyPipelineObjects(ctx: VulkanContext) =
+  if ctx.backdropBlurFramebuffer != vkNullFramebuffer:
+    vkDestroyFramebuffer(ctx.device, ctx.backdropBlurFramebuffer, nil)
+    ctx.backdropBlurFramebuffer = vkNullFramebuffer
+  if ctx.backdropBlurTempFramebuffer != vkNullFramebuffer:
+    vkDestroyFramebuffer(ctx.device, ctx.backdropBlurTempFramebuffer, nil)
+    ctx.backdropBlurTempFramebuffer = vkNullFramebuffer
+
+  if ctx.blurPipeline != vkNullPipeline:
+    vkDestroyPipeline(ctx.device, ctx.blurPipeline, nil)
+    ctx.blurPipeline = vkNullPipeline
+  if ctx.blurPipelineLayout != vkNullPipelineLayout:
+    vkDestroyPipelineLayout(ctx.device, ctx.blurPipelineLayout, nil)
+    ctx.blurPipelineLayout = vkNullPipelineLayout
+  if ctx.blurRenderPass != vkNullRenderPass:
+    vkDestroyRenderPass(ctx.device, ctx.blurRenderPass, nil)
+    ctx.blurRenderPass = vkNullRenderPass
+
   if ctx.pipeline != vkNullPipeline:
     vkDestroyPipeline(ctx.device, ctx.pipeline, nil)
     ctx.pipeline = vkNullPipeline
@@ -416,6 +553,12 @@ proc updateDescriptorSet(ctx: VulkanContext) =
   var atlasImageInfo = newVkDescriptorImageInfo(
     sampler = ctx.atlasSampler,
     imageView = ctx.atlasView,
+    imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+  )
+  var backdropImageInfo = newVkDescriptorImageInfo(
+    sampler = ctx.atlasSampler,
+    imageView =
+      (if ctx.backdropView != vkNullImageView: ctx.backdropView else: ctx.atlasView),
     imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
   )
 
@@ -460,8 +603,40 @@ proc updateDescriptorSet(ctx: VulkanContext) =
       pBufferInfo = nil,
       pTexelBufferView = nil,
     ),
+    newVkWriteDescriptorSet(
+      dstSet = ctx.descriptorSet,
+      dstBinding = 4,
+      dstArrayElement = 0,
+      descriptorCount = 1,
+      descriptorType = VkDescriptorType.CombinedImageSampler,
+      pImageInfo = backdropImageInfo.addr,
+      pBufferInfo = nil,
+      pTexelBufferView = nil,
+    ),
   ]
   updateDescriptorSets(ctx.device, writes, [])
+
+proc updateBlurDescriptorSet(
+    ctx: VulkanContext,
+    descriptorSet: VkDescriptorSet,
+    srcView: VkImageView,
+    uniformBuffer: VkBuffer,
+) =
+  vulkanBlurUpdateDescriptorSet(ctx, descriptorSet, srcView, uniformBuffer)
+
+proc updateBlurDescriptorSets(ctx: VulkanContext) =
+  vulkanBlurUpdateDescriptorSets(ctx)
+
+proc writeBlurUniforms(
+    ctx: VulkanContext,
+    uniformMemory: VkDeviceMemory,
+    texelStep: Vec2,
+    blurRadius: float32,
+) =
+  vulkanBlurWriteUniforms(ctx, uniformMemory, texelStep, blurRadius)
+
+proc createBlurPipeline(ctx: VulkanContext) =
+  vulkanBlurCreatePipeline(ctx)
 
 proc recreateAtlasGpu(ctx: VulkanContext) =
   if ctx.atlasView != vkNullImageView:
@@ -503,7 +678,7 @@ proc createPipeline(ctx: VulkanContext) =
     storeOp: VK_ATTACHMENT_STORE_OP_STORE,
     stencilLoadOp: VK_ATTACHMENT_LOAD_OP_DONT_CARE,
     stencilStoreOp: VK_ATTACHMENT_STORE_OP_DONT_CARE,
-    initialLayout: VK_IMAGE_LAYOUT_UNDEFINED,
+    initialLayout: VkImageLayout.PresentSrcKhr,
     finalLayout: VkImageLayout.PresentSrcKhr,
   )
   var colorAttachmentRef = VkAttachmentReference(
@@ -804,6 +979,7 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
   ctx.swapchainOutOfDate = false
 
   ctx.createPipeline()
+  ctx.createBlurPipeline()
 
   ctx.swapchainFramebuffers.setLen(ctx.swapchainViews.len)
   for i in 0 ..< ctx.swapchainViews.len:
@@ -1495,6 +1671,13 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
       stageFlags = VkShaderStageFlags{FragmentBit},
       pImmutableSamplers = nil,
     ),
+    newVkDescriptorSetLayoutBinding(
+      binding = 4,
+      descriptorType = VkDescriptorType.CombinedImageSampler,
+      descriptorCount = 1,
+      stageFlags = VkShaderStageFlags{FragmentBit},
+      pImmutableSamplers = nil,
+    ),
   ]
   ctx.descriptorSetLayout = createDescriptorSetLayout(
     ctx.device, newVkDescriptorSetLayoutCreateInfo(bindings = setBindings)
@@ -1505,7 +1688,7 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
       `type` = VkDescriptorType.UniformBuffer, descriptorCount = 2
     ),
     newVkDescriptorPoolSize(
-      `type` = VkDescriptorType.CombinedImageSampler, descriptorCount = 2
+      `type` = VkDescriptorType.CombinedImageSampler, descriptorCount = 3
     ),
   ]
   ctx.descriptorPool = createDescriptorPool(
@@ -1515,6 +1698,52 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     ctx.device,
     newVkDescriptorSetAllocateInfo(
       descriptorPool = ctx.descriptorPool, setLayouts = [ctx.descriptorSetLayout]
+    ),
+  )
+
+  let blurSetBindings = [
+    newVkDescriptorSetLayoutBinding(
+      binding = 0,
+      descriptorType = VkDescriptorType.CombinedImageSampler,
+      descriptorCount = 1,
+      stageFlags = VkShaderStageFlags{FragmentBit},
+      pImmutableSamplers = nil,
+    ),
+    newVkDescriptorSetLayoutBinding(
+      binding = 1,
+      descriptorType = VkDescriptorType.UniformBuffer,
+      descriptorCount = 1,
+      stageFlags = VkShaderStageFlags{FragmentBit},
+      pImmutableSamplers = nil,
+    ),
+  ]
+  ctx.blurDescriptorSetLayout = createDescriptorSetLayout(
+    ctx.device, newVkDescriptorSetLayoutCreateInfo(bindings = blurSetBindings)
+  )
+
+  let blurPoolSizes = [
+    newVkDescriptorPoolSize(
+      `type` = VkDescriptorType.CombinedImageSampler, descriptorCount = 2
+    ),
+    newVkDescriptorPoolSize(
+      `type` = VkDescriptorType.UniformBuffer, descriptorCount = 2
+    ),
+  ]
+  ctx.blurDescriptorPool = createDescriptorPool(
+    ctx.device, newVkDescriptorPoolCreateInfo(maxSets = 2, poolSizes = blurPoolSizes)
+  )
+  ctx.blurDescriptorSets[0] = allocateDescriptorSets(
+    ctx.device,
+    newVkDescriptorSetAllocateInfo(
+      descriptorPool = ctx.blurDescriptorPool,
+      setLayouts = [ctx.blurDescriptorSetLayout],
+    ),
+  )
+  ctx.blurDescriptorSets[1] = allocateDescriptorSets(
+    ctx.device,
+    newVkDescriptorSetAllocateInfo(
+      descriptorPool = ctx.blurDescriptorPool,
+      setLayouts = [ctx.blurDescriptorSetLayout],
     ),
   )
 
@@ -1560,6 +1789,21 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   ctx.fsUniformBuffer = fsAlloc.buffer
   ctx.fsUniformMemory = fsAlloc.memory
 
+  let blurAlloc0 = ctx.createBuffer(
+    size = VkDeviceSize(sizeof(BlurUniforms)),
+    usage = VkBufferUsageFlags{UniformBufferBit},
+    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
+  )
+  ctx.blurUniformBuffers[0] = blurAlloc0.buffer
+  ctx.blurUniformMemories[0] = blurAlloc0.memory
+  let blurAlloc1 = ctx.createBuffer(
+    size = VkDeviceSize(sizeof(BlurUniforms)),
+    usage = VkBufferUsageFlags{UniformBufferBit},
+    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
+  )
+  ctx.blurUniformBuffers[1] = blurAlloc1.buffer
+  ctx.blurUniformMemories[1] = blurAlloc1.memory
+
   let samplerInfo = newVkSamplerCreateInfo(
     magFilter = VK_FILTER_LINEAR,
     minFilter = VK_FILTER_LINEAR,
@@ -1583,6 +1827,7 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
 
   ctx.recreateAtlasGpu()
   ctx.updateDescriptorSet()
+  ctx.updateBlurDescriptorSets()
 
   let initialW = max(1, ctx.frameSize.x.int32)
   let initialH = max(1, ctx.frameSize.y.int32)
@@ -2389,6 +2634,229 @@ method drawRoundedRectSdf*(
 
   inc ctx.quadCount
 
+proc runBackdropSeparableBlur(
+    ctx: VulkanContext, blurRadius: float32, blurRect: VkRect2D
+) =
+  vulkanBlurRunSeparable(ctx, blurRadius, blurRect)
+
+method drawBackdropBlur*(
+    ctx: VulkanContext,
+    rect: Rect,
+    radii: array[DirectionCorners, float32],
+    blurRadius: float32,
+) =
+  if blurRadius <= 0.0'f32 or rect.w <= 0.0'f32 or rect.h <= 0.0'f32:
+    return
+  if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain:
+    return
+  if ctx.acquiredImageIndex.int >= ctx.swapchainImages.len:
+    return
+
+  ctx.flush()
+  ctx.beginRenderPassIfNeeded()
+  if ctx.renderPassBegun:
+    vkCmdEndRenderPass(ctx.commandBuffer)
+    ctx.renderPassBegun = false
+
+  let width = max(1'i32, ctx.swapchainExtent.width.int32)
+  let height = max(1'i32, ctx.swapchainExtent.height.int32)
+  if width <= 0 or height <= 0:
+    return
+
+  let blurKernelReach = max(blurRadius, 8.0'f32)
+  let blurPad = max(1'i32, int32(ceil(blurKernelReach + 2.0'f32)))
+  let x0 = max(0'i32, int32(floor(rect.x - blurPad.float32)))
+  let y0 = max(0'i32, int32(floor(rect.y - blurPad.float32)))
+  let x1 = min(width, int32(ceil(rect.x + rect.w + blurPad.float32)))
+  let y1 = min(height, int32(ceil(rect.y + rect.h + blurPad.float32)))
+  if x1 <= x0 or y1 <= y0:
+    return
+  let blurRect = newVkRect2D(
+    offset = newVkOffset2D(x = x0, y = y0),
+    extent = newVkExtent2D(width = (x1 - x0).uint32, height = (y1 - y0).uint32),
+  )
+
+  ctx.ensureBackdropImage(width, height)
+  if ctx.backdropImage == vkNullImage or ctx.backdropView == vkNullImageView:
+    return
+
+  let backdropOldLayout =
+    if ctx.backdropLayoutReady:
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    else:
+      VK_IMAGE_LAYOUT_UNDEFINED
+  let backdropSrcAccess =
+    if ctx.backdropLayoutReady:
+      VkAccessFlags{ShaderReadBit}
+    else:
+      0.VkAccessFlags
+  let backdropSrcStage =
+    if ctx.backdropLayoutReady:
+      VkPipelineStageFlags{FragmentShaderBit}
+    else:
+      VkPipelineStageFlags{TopOfPipeBit}
+
+  var backdropToTransfer = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    pNext: nil,
+    srcAccessMask: backdropSrcAccess,
+    dstAccessMask: VkAccessFlags{TransferWriteBit},
+    oldLayout: backdropOldLayout,
+    newLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: ctx.backdropImage,
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  vkCmdPipelineBarrier(
+    ctx.commandBuffer,
+    backdropSrcStage,
+    VkPipelineStageFlags{TransferBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    backdropToTransfer.addr,
+  )
+
+  let swapchainImage = ctx.swapchainImages[ctx.acquiredImageIndex.int]
+  var swapchainToTransfer = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    pNext: nil,
+    srcAccessMask: 0.VkAccessFlags,
+    dstAccessMask: VkAccessFlags{TransferReadBit},
+    oldLayout: VkImageLayout.PresentSrcKhr,
+    newLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: swapchainImage,
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  vkCmdPipelineBarrier(
+    ctx.commandBuffer,
+    VkPipelineStageFlags{BottomOfPipeBit},
+    VkPipelineStageFlags{TransferBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    swapchainToTransfer.addr,
+  )
+
+  var copyRegion = VkImageCopy(
+    srcSubresource: newVkImageSubresourceLayers(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      mipLevel = 0,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+    srcOffset: newVkOffset3D(x = blurRect.offset.x, y = blurRect.offset.y, z = 0),
+    dstSubresource: newVkImageSubresourceLayers(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      mipLevel = 0,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+    dstOffset: newVkOffset3D(x = blurRect.offset.x, y = blurRect.offset.y, z = 0),
+    extent: newVkExtent3D(
+      width = blurRect.extent.width, height = blurRect.extent.height, depth = 1
+    ),
+  )
+  vkCmdCopyImage(
+    ctx.commandBuffer, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    ctx.backdropImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, copyRegion.addr,
+  )
+
+  var backdropToRead = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    pNext: nil,
+    srcAccessMask: VkAccessFlags{TransferWriteBit},
+    dstAccessMask: VkAccessFlags{ShaderReadBit},
+    oldLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    newLayout: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: ctx.backdropImage,
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  vkCmdPipelineBarrier(
+    ctx.commandBuffer,
+    VkPipelineStageFlags{TransferBit},
+    VkPipelineStageFlags{FragmentShaderBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    backdropToRead.addr,
+  )
+
+  var swapchainToPresent = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    pNext: nil,
+    srcAccessMask: VkAccessFlags{TransferReadBit},
+    dstAccessMask: 0.VkAccessFlags,
+    oldLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    newLayout: VkImageLayout.PresentSrcKhr,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: swapchainImage,
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  vkCmdPipelineBarrier(
+    ctx.commandBuffer,
+    VkPipelineStageFlags{TransferBit},
+    VkPipelineStageFlags{BottomOfPipeBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    swapchainToPresent.addr,
+  )
+  ctx.backdropLayoutReady = true
+  ctx.runBackdropSeparableBlur(blurRadius, blurRect)
+
+  ctx.drawRoundedRectSdf(
+    rect = rect,
+    color = whiteColor,
+    radii = radii,
+    mode = figbackend.SdfMode.sdfModeBackdropBlur,
+    factor = blurRadius,
+    spread = 0.0'f32,
+    shapeSize = vec2(0.0'f32, 0.0'f32),
+  )
+
 proc line*(ctx: VulkanContext, a: Vec2, b: Vec2, weight: float32, color: Color) =
   let hash = hash((2345, a, b, (weight * 100).int, hash(color)))
 
@@ -2502,6 +2970,7 @@ proc beginFrame*(
   ctx.ensureSwapchain(width, height)
   if ctx.swapchain == vkNullSwapchain:
     return
+  ctx.ensureBackdropImage(width, height)
 
   checkVkResult vkWaitForFences(
     ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
@@ -2558,8 +3027,11 @@ method endFrame*(ctx: VulkanContext) =
   if ctx.renderPassBegun:
     vkCmdEndRenderPass(ctx.commandBuffer)
     ctx.renderPassBegun = false
-  ctx.readbackReady = false
-  ctx.recordSwapchainReadback()
+  when UseVulkanReadback:
+    ctx.readbackReady = false
+    ctx.recordSwapchainReadback()
+  else:
+    ctx.readbackReady = false
   checkVkResult vkEndCommandBuffer(ctx.commandBuffer)
 
   let waitSemaphores = [ctx.imageAvailableSemaphore]
@@ -2619,6 +3091,12 @@ proc destroyGpu(ctx: VulkanContext) =
   if ctx.fragShader != vkNullShaderModule:
     destroyShaderModule(ctx.device, ctx.fragShader)
     ctx.fragShader = vkNullShaderModule
+  if ctx.blurVertShader != vkNullShaderModule:
+    destroyShaderModule(ctx.device, ctx.blurVertShader)
+    ctx.blurVertShader = vkNullShaderModule
+  if ctx.blurFragShader != vkNullShaderModule:
+    destroyShaderModule(ctx.device, ctx.blurFragShader)
+    ctx.blurFragShader = vkNullShaderModule
 
   if ctx.descriptorPool != vkNullDescriptorPool:
     destroyDescriptorPool(ctx.device, ctx.descriptorPool)
@@ -2626,6 +3104,12 @@ proc destroyGpu(ctx: VulkanContext) =
   if ctx.descriptorSetLayout != vkNullDescriptorSetLayout:
     destroyDescriptorSetLayout(ctx.device, ctx.descriptorSetLayout)
     ctx.descriptorSetLayout = vkNullDescriptorSetLayout
+  if ctx.blurDescriptorPool != vkNullDescriptorPool:
+    destroyDescriptorPool(ctx.device, ctx.blurDescriptorPool)
+    ctx.blurDescriptorPool = vkNullDescriptorPool
+  if ctx.blurDescriptorSetLayout != vkNullDescriptorSetLayout:
+    destroyDescriptorSetLayout(ctx.device, ctx.blurDescriptorSetLayout)
+    ctx.blurDescriptorSetLayout = vkNullDescriptorSetLayout
 
   if ctx.atlasSampler != vkNullSampler:
     vkDestroySampler(ctx.device, ctx.atlasSampler, nil)
@@ -2639,6 +3123,25 @@ proc destroyGpu(ctx: VulkanContext) =
   if ctx.atlasImageMemory != vkNullMemory:
     vkFreeMemory(ctx.device, ctx.atlasImageMemory, nil)
     ctx.atlasImageMemory = vkNullMemory
+
+  if ctx.backdropView != vkNullImageView:
+    vkDestroyImageView(ctx.device, ctx.backdropView, nil)
+    ctx.backdropView = vkNullImageView
+  if ctx.backdropImage != vkNullImage:
+    vkDestroyImage(ctx.device, ctx.backdropImage, nil)
+    ctx.backdropImage = vkNullImage
+  if ctx.backdropImageMemory != vkNullMemory:
+    vkFreeMemory(ctx.device, ctx.backdropImageMemory, nil)
+    ctx.backdropImageMemory = vkNullMemory
+  if ctx.backdropBlurTempView != vkNullImageView:
+    vkDestroyImageView(ctx.device, ctx.backdropBlurTempView, nil)
+    ctx.backdropBlurTempView = vkNullImageView
+  if ctx.backdropBlurTempImage != vkNullImage:
+    vkDestroyImage(ctx.device, ctx.backdropBlurTempImage, nil)
+    ctx.backdropBlurTempImage = vkNullImage
+  if ctx.backdropBlurTempImageMemory != vkNullMemory:
+    vkFreeMemory(ctx.device, ctx.backdropBlurTempImageMemory, nil)
+    ctx.backdropBlurTempImageMemory = vkNullMemory
 
   if ctx.atlasUploadBuffer != vkNullBuffer:
     destroyBuffer(ctx.device, ctx.atlasUploadBuffer)
@@ -2674,6 +3177,13 @@ proc destroyGpu(ctx: VulkanContext) =
   if ctx.fsUniformMemory != vkNullMemory:
     freeMemory(ctx.device, ctx.fsUniformMemory)
     ctx.fsUniformMemory = vkNullMemory
+  for i in 0 ..< ctx.blurUniformBuffers.len:
+    if ctx.blurUniformBuffers[i] != vkNullBuffer:
+      destroyBuffer(ctx.device, ctx.blurUniformBuffers[i])
+      ctx.blurUniformBuffers[i] = vkNullBuffer
+    if ctx.blurUniformMemories[i] != vkNullMemory:
+      freeMemory(ctx.device, ctx.blurUniformMemories[i])
+      ctx.blurUniformMemories[i] = vkNullMemory
 
   if ctx.readbackBuffer != vkNullBuffer:
     destroyBuffer(ctx.device, ctx.readbackBuffer)
@@ -2704,6 +3214,11 @@ proc destroyGpu(ctx: VulkanContext) =
   ctx.swapchainOutOfDate = false
   ctx.swapchainTransferSrcSupported = false
   ctx.atlasLayoutReady = false
+  ctx.backdropLayoutReady = false
+  ctx.backdropBlurTempLayoutReady = false
+  ctx.backdropWidth = 0
+  ctx.backdropHeight = 0
+  ctx.backdropFormat = VK_FORMAT_UNDEFINED
   ctx.readbackReady = false
 
 proc newContext*(
@@ -2787,6 +3302,61 @@ proc newContext*(
   result.readbackWidth = 0
   result.readbackHeight = 0
   result.readbackReady = false
+  result.atlasImage = vkNullImage
+  result.atlasImageMemory = vkNullMemory
+  result.atlasView = vkNullImageView
+  result.backdropImage = vkNullImage
+  result.backdropImageMemory = vkNullMemory
+  result.backdropView = vkNullImageView
+  result.backdropBlurTempImage = vkNullImage
+  result.backdropBlurTempImageMemory = vkNullMemory
+  result.backdropBlurTempView = vkNullImageView
+  result.backdropLayoutReady = false
+  result.backdropBlurTempLayoutReady = false
+  result.backdropWidth = 0
+  result.backdropHeight = 0
+  result.backdropFormat = VK_FORMAT_UNDEFINED
+  result.backdropBlurFramebuffer = vkNullFramebuffer
+  result.backdropBlurTempFramebuffer = vkNullFramebuffer
+  result.blurRenderPass = vkNullRenderPass
+  result.blurDescriptorSetLayout = vkNullDescriptorSetLayout
+  result.blurDescriptorPool = vkNullDescriptorPool
+  result.blurDescriptorSets = [vkNullDescriptorSet, vkNullDescriptorSet]
+  result.blurPipelineLayout = vkNullPipelineLayout
+  result.blurPipeline = vkNullPipeline
+  result.blurVertShader = vkNullShaderModule
+  result.blurFragShader = vkNullShaderModule
+  result.blurUniformBuffers = [vkNullBuffer, vkNullBuffer]
+  result.blurUniformMemories = [vkNullMemory, vkNullMemory]
+  result.atlasSampler = vkNullSampler
+  result.atlasUploadBuffer = vkNullBuffer
+  result.atlasUploadMemory = vkNullMemory
+  result.atlasUploadBytes = 0.VkDeviceSize
+  result.vertexBuffer = vkNullBuffer
+  result.vertexMemory = vkNullMemory
+  result.vertexBufferBytes = 0.VkDeviceSize
+  result.indexBuffer = vkNullBuffer
+  result.indexMemory = vkNullMemory
+  result.indexBufferBytes = 0.VkDeviceSize
+  result.vsUniformBuffer = vkNullBuffer
+  result.vsUniformMemory = vkNullMemory
+  result.fsUniformBuffer = vkNullBuffer
+  result.fsUniformMemory = vkNullMemory
+  result.commandPool = vkNullCommandPool
+  result.commandBuffer = vkNullCommandBuffer
+  result.imageAvailableSemaphore = vkNullSemaphore
+  result.renderFinishedSemaphore = vkNullSemaphore
+  result.inFlightFence = vkNullFence
+  result.descriptorSetLayout = vkNullDescriptorSetLayout
+  result.descriptorPool = vkNullDescriptorPool
+  result.descriptorSet = vkNullDescriptorSet
+  result.pipelineLayout = vkNullPipelineLayout
+  result.pipeline = vkNullPipeline
+  result.renderPass = vkNullRenderPass
+  result.vertShader = vkNullShaderModule
+  result.fragShader = vkNullShaderModule
+  result.frameSize = vec2(1.0'f32, 1.0'f32)
+  result.proj = mat4()
   result.pendingMaskRect = rect(0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32)
   result.pendingMaskValid = false
   result.clipRects = @[]
@@ -2898,71 +3468,78 @@ proc setExternalSurface*(
 method readPixels*(
     ctx: VulkanContext, frame: Rect = rect(0, 0, 0, 0), readFront = true
 ): Image =
-  discard readFront
-  if not ctx.gpuReady:
-    raise newException(ValueError, "Vulkan context is not initialized")
-  if ctx.readbackBuffer == vkNullBuffer or ctx.readbackMemory == vkNullMemory or
-      not ctx.readbackReady:
-    raise newException(ValueError, "No Vulkan frame has been rendered yet")
-  if ctx.readbackWidth <= 0 or ctx.readbackHeight <= 0:
-    raise newException(ValueError, "Vulkan readback dimensions are invalid")
+  when not UseVulkanReadback:
+    discard readFront
+    raise newException(
+      ValueError,
+      "Vulkan readPixels is disabled; build with -d:figdraw.vulkanReadback=on",
+    )
+  else:
+    discard readFront
+    if not ctx.gpuReady:
+      raise newException(ValueError, "Vulkan context is not initialized")
+    if ctx.readbackBuffer == vkNullBuffer or ctx.readbackMemory == vkNullMemory or
+        not ctx.readbackReady:
+      raise newException(ValueError, "No Vulkan frame has been rendered yet")
+    if ctx.readbackWidth <= 0 or ctx.readbackHeight <= 0:
+      raise newException(ValueError, "Vulkan readback dimensions are invalid")
 
-  checkVkResult vkWaitForFences(
-    ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
-  )
+    checkVkResult vkWaitForFences(
+      ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
+    )
 
-  let texW = ctx.readbackWidth.int
-  let texH = ctx.readbackHeight.int
+    let texW = ctx.readbackWidth.int
+    let texH = ctx.readbackHeight.int
 
-  var x = frame.x.int
-  var y = frame.y.int
-  var w = frame.w.int
-  var h = frame.h.int
-  if w <= 0 or h <= 0:
-    x = 0
-    y = 0
-    w = texW
-    h = texH
+    var x = frame.x.int
+    var y = frame.y.int
+    var w = frame.w.int
+    var h = frame.h.int
+    if w <= 0 or h <= 0:
+      x = 0
+      y = 0
+      w = texW
+      h = texH
 
-  x = clamp(x, 0, texW)
-  y = clamp(y, 0, texH)
-  w = clamp(w, 0, texW - x)
-  h = clamp(h, 0, texH - y)
+    x = clamp(x, 0, texW)
+    y = clamp(y, 0, texH)
+    w = clamp(w, 0, texW - x)
+    h = clamp(h, 0, texH - y)
 
-  if w <= 0 or h <= 0:
-    result = newImage(1, 1)
-    return
+    if w <= 0 or h <= 0:
+      result = newImage(1, 1)
+      return
 
-  let mapped = cast[ptr UncheckedArray[uint8]](mapMemory(
-    ctx.device, ctx.readbackMemory, 0.VkDeviceSize, ctx.readbackBytes,
-    0.VkMemoryMapFlags,
-  ))
-  if mapped.isNil:
-    raise newException(ValueError, "Failed to map Vulkan readback memory")
-  defer:
-    unmapMemory(ctx.device, ctx.readbackMemory)
+    let mapped = cast[ptr UncheckedArray[uint8]](mapMemory(
+      ctx.device, ctx.readbackMemory, 0.VkDeviceSize, ctx.readbackBytes,
+      0.VkMemoryMapFlags,
+    ))
+    if mapped.isNil:
+      raise newException(ValueError, "Failed to map Vulkan readback memory")
+    defer:
+      unmapMemory(ctx.device, ctx.readbackMemory)
 
-  result = newImage(w, h)
-  let stride = texW * 4
-  let bgrFormat =
-    case ctx.swapchainFormat
-    of VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SRGB: true
-    else: false
+    result = newImage(w, h)
+    let stride = texW * 4
+    let bgrFormat =
+      case ctx.swapchainFormat
+      of VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SRGB: true
+      else: false
 
-  for row in 0 ..< h:
-    let srcRow = y + row
-    var src = srcRow * stride + x * 4
-    for col in 0 ..< w:
-      let dst = row * w + col
-      let b = mapped[src + 0]
-      let g = mapped[src + 1]
-      let r = mapped[src + 2]
-      let a = mapped[src + 3]
-      if bgrFormat:
-        result.data[dst] = rgbx(r, g, b, a)
-      else:
-        result.data[dst] = rgbx(b, g, r, a)
-      src += 4
+    for row in 0 ..< h:
+      let srcRow = y + row
+      var src = srcRow * stride + x * 4
+      for col in 0 ..< w:
+        let dst = row * w + col
+        let b = mapped[src + 0]
+        let g = mapped[src + 1]
+        let r = mapped[src + 2]
+        let a = mapped[src + 3]
+        if bgrFormat:
+          result.data[dst] = rgbx(r, g, b, a)
+        else:
+          result.data[dst] = rgbx(b, g, r, a)
+        src += 4
 
 method kind*(ctx: VulkanContext): figbackend.RendererBackendKind =
   figbackend.RendererBackendKind.rbVulkan

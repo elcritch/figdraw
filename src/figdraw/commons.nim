@@ -6,6 +6,7 @@ import common/imgutils
 
 const WantVulkanBackend {.booldefine: "figdraw.vulkan".} =
   defined(bsd) or defined(linux) or defined(windows)
+const UseVulkanReadback* {.booldefine: "figdraw.vulkanReadback".} = false
 const WantMetalBackend {.booldefine: "figdraw.metal".} = defined(macosx)
 const UseOpenGlBackend* {.booldefine: "figdraw.opengl".} =
   not (WantMetalBackend or WantVulkanBackend)

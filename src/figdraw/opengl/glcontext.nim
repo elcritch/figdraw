@@ -32,8 +32,10 @@ else:
   type SdfModeData = uint16
 
 type OpenGlContext* = ref object of figbackend.BackendContext
-  mainShader, maskShader, activeShader: Shader
+  mainShader, maskShader, blurShader, activeShader: Shader
   atlasTexture: Texture
+  backdropTexture: Texture
+  backdropBlurTempTexture: Texture
   maskTextureWrite: int ## Index into max textures for writing.
   maskTextures: seq[Texture] ## Masks array for pushing and popping.
   atlasSize: int ## Size x size dimensions of the atlas
@@ -46,7 +48,7 @@ type OpenGlContext* = ref object of figbackend.BackendContext
   heights: seq[uint16] ## Height map of the free space in the atlas
   proj*: Mat4
   frameSize: Vec2 ## Dimensions of the window frame
-  vertexArrayId, maskFramebufferId: GLuint
+  vertexArrayId, blurVertexArrayId, maskFramebufferId, blurFramebufferId: GLuint
   frameBegun, maskBegun: bool
   pixelate*: bool ## Makes texture look pixelated, like a pixel game.
   pixelScale*: float32 ## Multiple scaling factor.
@@ -65,6 +67,10 @@ type OpenGlContext* = ref object of figbackend.BackendContext
 
   # SDF shader uniforms (global)
   aaFactor: float32
+
+  # Fullscreen blur pass buffers.
+  blurPositions: Buffer
+  blurUvs: Buffer
 
 proc flush(ctx: OpenGlContext, maskTextureRead: int = ctx.maskTextureWrite)
 
@@ -150,6 +156,40 @@ proc addMaskTexture(ctx: OpenGlContext, frameSize = vec2(1, 1)) =
       bindTextureData(maskTexture.addr, nil)
   ctx.maskTextures.add(maskTexture)
 
+proc createBackdropTexture(ctx: OpenGlContext, width, height: int): Texture =
+  result.width = width.int32
+  result.height = height.int32
+  result.componentType = GL_UNSIGNED_BYTE
+  result.format = GL_RGBA
+  result.internalFormat = GL_RGBA8
+  result.minFilter = minLinear
+  if ctx.pixelate:
+    result.magFilter = magNearest
+  else:
+    result.magFilter = magLinear
+  result.wrapS = wClampToEdge
+  result.wrapT = wClampToEdge
+  bindTextureData(result.addr, nil)
+
+proc ensureBackdropTexture(ctx: OpenGlContext, frameSize: Vec2) =
+  let
+    w = max(1, frameSize.x.int)
+    h = max(1, frameSize.y.int)
+  if ctx.backdropTexture.textureId != 0 and ctx.backdropTexture.width.int == w and
+      ctx.backdropTexture.height.int == h:
+    return
+  ctx.backdropTexture = ctx.createBackdropTexture(w, h)
+
+proc ensureBackdropBlurTempTexture(ctx: OpenGlContext, frameSize: Vec2) =
+  let
+    w = max(1, frameSize.x.int)
+    h = max(1, frameSize.y.int)
+  if ctx.backdropBlurTempTexture.textureId != 0 and
+      ctx.backdropBlurTempTexture.width.int == w and
+      ctx.backdropBlurTempTexture.height.int == h:
+    return
+  ctx.backdropBlurTempTexture = ctx.createBackdropTexture(w, h)
+
 proc newContext*(
     atlasSize = 1024,
     atlasMargin = 4,
@@ -188,16 +228,21 @@ proc newContext*(
       newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
     result.mainShader =
       newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/atlas.frag")
+    result.blurShader =
+      newShaderStatic("glsl/emscripten/blur.vert", "glsl/emscripten/blur.frag")
   else:
     try:
       result.maskShader = newShaderStatic("glsl/atlas.vert", "glsl/mask.frag")
       result.mainShader = newShaderStatic("glsl/atlas.vert", "glsl/atlas.frag")
+      result.blurShader = newShaderStatic("glsl/blur.vert", "glsl/blur.frag")
     except ShaderCompilationError:
       info "OpenGL 3.30 failed, trying GLSL ES fallback"
       result.maskShader =
         newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
       result.mainShader =
         newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/atlas.frag")
+      result.blurShader =
+        newShaderStatic("glsl/emscripten/blur.vert", "glsl/emscripten/blur.frag")
 
   result.positions.buffer.componentType = cGL_FLOAT
   result.positions.buffer.kind = bkVEC2
@@ -298,6 +343,32 @@ proc newContext*(
   result.maskShader.bindAttrib("vertexSdfRadii", result.sdfRadii.buffer)
   result.maskShader.bindAttrib("vertexSdfMode", result.sdfModeAttr.buffer)
 
+  # Fullscreen triangle buffers for blur passes.
+  result.blurPositions.componentType = cGL_FLOAT
+  result.blurPositions.kind = bkVEC2
+  result.blurPositions.target = GL_ARRAY_BUFFER
+  result.blurPositions.usage = GL_STATIC_DRAW
+  result.blurPositions.count = 3
+
+  result.blurUvs.componentType = cGL_FLOAT
+  result.blurUvs.kind = bkVEC2
+  result.blurUvs.target = GL_ARRAY_BUFFER
+  result.blurUvs.usage = GL_STATIC_DRAW
+  result.blurUvs.count = 3
+
+  let blurPosData: array[6, float32] =
+    [-1.0'f32, -1.0'f32, 3.0'f32, -1.0'f32, -1.0'f32, 3.0'f32]
+  let blurUvData: array[6, float32] =
+    [0.0'f32, 0.0'f32, 2.0'f32, 0.0'f32, 0.0'f32, 2.0'f32]
+  bindBufferData(result.blurPositions.addr, unsafeAddr blurPosData[0])
+  bindBufferData(result.blurUvs.addr, unsafeAddr blurUvData[0])
+
+  glGenVertexArrays(1, result.blurVertexArrayId.addr)
+  glBindVertexArray(result.blurVertexArrayId)
+  result.blurShader.bindAttrib("vertexPos", result.blurPositions)
+  result.blurShader.bindAttrib("vertexUv", result.blurUvs)
+  glBindVertexArray(result.vertexArrayId)
+
   # Create mask framebuffer
   glGenFramebuffers(1, result.maskFramebufferId.addr)
   result.setUpMaskFramebuffer()
@@ -305,6 +376,8 @@ proc newContext*(
   let status = glCheckFramebufferStatus(GL_FRAMEBUFFER)
   if status != GL_FRAMEBUFFER_COMPLETE:
     quit(&"Something wrong with mask framebuffer: {toHex(status.int32, 4)}")
+
+  glGenFramebuffers(1, result.blurFramebufferId.addr)
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
@@ -447,6 +520,11 @@ proc flush(ctx: OpenGlContext, maskTextureRead: int = ctx.maskTextureWrite) =
       glActiveTexture(GL_TEXTURE1)
       glBindTexture(GL_TEXTURE_2D, ctx.maskTextures[maskTextureRead].textureId)
       ctx.activeShader.setUniform("maskTex", 1)
+
+  if ctx.activeShader.hasUniform("backdropTex"):
+    glActiveTexture(GL_TEXTURE2)
+    glBindTexture(GL_TEXTURE_2D, ctx.backdropTexture.textureId)
+    ctx.activeShader.setUniform("backdropTex", 2)
 
   ctx.activeShader.bindUniforms()
 
@@ -1082,6 +1160,109 @@ method drawRoundedRectSdf*(
 
   inc ctx.quadCount
 
+proc runBackdropSeparableBlur(ctx: OpenGlContext, blurRadius: float32) =
+  if blurRadius <= 0.5'f32:
+    return
+
+  ctx.ensureBackdropBlurTempTexture(ctx.frameSize)
+
+  let w = max(1.0'f32, ctx.frameSize.x)
+  let h = max(1.0'f32, ctx.frameSize.y)
+  let wasBlendEnabled = glIsEnabled(GL_BLEND) == GL_TRUE
+  if wasBlendEnabled:
+    glDisable(GL_BLEND)
+
+  glUseProgram(ctx.blurShader.programId)
+  glBindVertexArray(ctx.blurVertexArrayId)
+  ctx.blurShader.setUniform("srcTex", 0)
+  ctx.blurShader.setUniform("blurRadius", blurRadius)
+
+  glBindFramebuffer(GL_FRAMEBUFFER, ctx.blurFramebufferId)
+  glViewport(0, 0, ctx.frameSize.x.GLint, ctx.frameSize.y.GLint)
+
+  glActiveTexture(GL_TEXTURE0)
+  glBindTexture(GL_TEXTURE_2D, ctx.backdropTexture.textureId)
+  glFramebufferTexture2D(
+    GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+    ctx.backdropBlurTempTexture.textureId, 0,
+  )
+  ctx.blurShader.setUniform("texelStep", 1.0'f32 / w, 0.0'f32)
+  ctx.blurShader.bindUniforms()
+  glDrawArrays(GL_TRIANGLES, 0, 3)
+
+  glBindTexture(GL_TEXTURE_2D, ctx.backdropBlurTempTexture.textureId)
+  glFramebufferTexture2D(
+    GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ctx.backdropTexture.textureId,
+    0,
+  )
+  ctx.blurShader.setUniform("texelStep", 0.0'f32, 1.0'f32 / h)
+  ctx.blurShader.bindUniforms()
+  glDrawArrays(GL_TRIANGLES, 0, 3)
+
+  glBindFramebuffer(GL_FRAMEBUFFER, 0)
+  glBindVertexArray(ctx.vertexArrayId)
+
+  if wasBlendEnabled:
+    glEnable(GL_BLEND)
+
+method drawBackdropBlur*(
+    ctx: OpenGlContext,
+    rect: Rect,
+    radii: array[DirectionCorners, float32],
+    blurRadius: float32,
+) =
+  if blurRadius <= 0.0'f32 or rect.w <= 0.0'f32 or rect.h <= 0.0'f32:
+    return
+
+  if ctx.maskBegun:
+    ctx.flush(ctx.maskTextureWrite - 1)
+  else:
+    ctx.flush()
+
+  ctx.ensureBackdropTexture(ctx.frameSize)
+
+  glActiveTexture(GL_TEXTURE2)
+  glBindTexture(GL_TEXTURE_2D, ctx.backdropTexture.textureId)
+
+  var canSelectReadBuffer = true
+  try:
+    glReadBuffer(GL_BACK)
+    if glGetError() != GL_NO_ERROR:
+      # Wayland/EGL may expose a single-buffer drawable where GL_BACK is invalid.
+      glReadBuffer(GL_FRONT)
+  except GLerror:
+    # GLES/EGL paths can reject glReadBuffer; default framebuffer read buffer is used.
+    canSelectReadBuffer = false
+
+  glCopyTexSubImage2D(
+    GL_TEXTURE_2D,
+    0,
+    0,
+    0,
+    0,
+    0,
+    max(1, ctx.frameSize.x.int).GLsizei,
+    max(1, ctx.frameSize.y.int).GLsizei,
+  )
+
+  if canSelectReadBuffer:
+    try:
+      glReadBuffer(GL_BACK)
+    except GLerror:
+      discard
+
+  ctx.runBackdropSeparableBlur(blurRadius)
+
+  ctx.drawRoundedRectSdf(
+    rect = rect,
+    color = whiteColor,
+    radii = radii,
+    mode = figbackend.SdfMode.sdfModeBackdropBlur,
+    factor = blurRadius,
+    spread = 0.0'f32,
+    shapeSize = vec2(0.0'f32, 0.0'f32),
+  )
+
 proc line*(ctx: OpenGlContext, a: Vec2, b: Vec2, weight: float32, color: Color) =
   let hash = hash((2345, a, b, (weight * 100).int, hash(color)))
 
@@ -1179,17 +1360,19 @@ proc beginFrameProj(ctx: OpenGlContext, frameSize: Vec2, proj: Mat4) =
   ctx.frameBegun = true
 
   ctx.proj = proj
+  ctx.frameSize = frameSize
 
   if ctx.maskTextures[0].width != frameSize.x.int32 or
       ctx.maskTextures[0].height != frameSize.y.int32:
     # Resize all of the masks.
-    ctx.frameSize = frameSize
     for i in 0 ..< ctx.maskTextures.len:
       ctx.maskTextures[i].width = frameSize.x.int32
       ctx.maskTextures[i].height = frameSize.y.int32
       if i > 0:
         # Never resize the 0th mask because its just white.
         bindTextureData(ctx.maskTextures[i].addr, nil)
+
+  ctx.ensureBackdropTexture(frameSize)
 
   glViewport(0, 0, ctx.frameSize.x.GLint, ctx.frameSize.y.GLint)
 

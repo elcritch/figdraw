@@ -171,9 +171,7 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
             y: insetY,
             fill:
               if useBlueGradient:
-                linear(
-                  rgba(25, 25, 40, 100), rgba(65, 65, 95, 180), axis = fgaDiagBLTR
-                )
+                linear(rgba(25, 25, 40, 100), rgba(65, 65, 95, 180), axis = fgaDiagBLTR)
               else:
                 rgba(40, 40, 60, 150),
           ),
@@ -183,6 +181,44 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
         ],
       )
     )
+
+  let yellowW = 360.0'f32
+  let yellowH = 240.0'f32
+  let yellowMargin = 20.0'f32
+  let yellowTravelX = max(0.0'f32, w - yellowW - yellowMargin * 2.0'f32)
+  let yellowTravelY = max(0.0'f32, h - yellowH - yellowMargin * 2.0'f32)
+  let yellowX =
+    yellowMargin +
+    yellowTravelX * (0.5'f32 + 0.5'f32 * sin((t * 0.33'f32).float64).float32)
+  let yellowY =
+    yellowMargin +
+    yellowTravelY * (0.5'f32 + 0.5'f32 * cos((t * 0.41'f32).float64).float32)
+  let yellowCorner =
+    20.0'f32 + 12.0'f32 * (0.5'f32 + 0.5'f32 * sin((t * 0.7'f32).float64).float32)
+
+  discard list.addRoot(
+    Fig(
+      kind: nkBackdropBlur,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      corners: [yellowCorner, yellowCorner, yellowCorner, yellowCorner],
+      screenBox: rect(yellowX, yellowY, yellowW, yellowH),
+      fill: rgba(0, 0, 0, 0).color,
+      backdropBlur: BackdropBlurStyle(blur: 18.0'f32),
+    )
+  )
+
+  discard list.addRoot(
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      corners: [yellowCorner, yellowCorner, yellowCorner, yellowCorner],
+      screenBox: rect(yellowX, yellowY, yellowW, yellowH),
+      fill: rgba(255, 225, 55, 120),
+      stroke: RenderStroke(weight: 6.0, fill: rgba(95, 72, 0, 185).color),
+    )
+  )
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list

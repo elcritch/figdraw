@@ -42,6 +42,7 @@ type SdfMode* {.pure.} = enum
   sdfModeMtsdf = 14
   sdfModeMsdfAnnular = 15
   sdfModeMtsdfAnnular = 16
+  sdfModeBackdropBlur = 17
 
 type BackendContext* = ref object of RootObj
 
@@ -151,6 +152,14 @@ method drawMtsdfImage*(
     strokeWeight: float32,
 ) {.base.} =
   raise newException(ValueError, "Backend drawMtsdfImage unavailable")
+
+method drawBackdropBlur*(
+    impl: BackendContext,
+    rect: Rect,
+    radii: array[DirectionCorners, float32],
+    blurRadius: float32,
+) {.base.} =
+  raise newException(ValueError, "Backend drawBackdropBlur unavailable")
 
 method beginMask*(
     impl: BackendContext, clipRect: Rect, radii: array[DirectionCorners, float32]

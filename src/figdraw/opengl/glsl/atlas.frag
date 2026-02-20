@@ -11,6 +11,7 @@ in vec2 sdfFactors;
 uniform vec2 windowFrame;
 uniform sampler2D atlasTex;
 uniform sampler2D maskTex;
+uniform sampler2D backdropTex;
 uniform float aaFactor;
 uniform bool maskTexEnabled;
 
@@ -27,6 +28,7 @@ const int sdfModeMsdf = 13;
 const int sdfModeMtsdf = 14;
 const int sdfModeMsdfAnnular = 15;
 const int sdfModeMtsdfAnnular = 16;
+const int sdfModeBackdropBlur = 17;
 
 float median(float a, float b, float c) {
   return max(min(a, b), min(max(a, b), c));
@@ -155,6 +157,14 @@ void main() {
         alpha = clipAlpha * insetAlpha;
         break;
       }
+      case sdfModeBackdropBlur: {
+        float cl = clamp(aaFactor * dist + 0.5, 0.0, 1.0);
+        alpha = 1.0 - cl;
+        vec2 normalizedPos = vec2(pos.x / windowFrame.x, 1.0 - pos.y / windowFrame.y);
+        vec4 blur = texture(backdropTex, normalizedPos);
+        fragColor = vec4(blur.rgb, blur.a * alpha);
+        break;
+      }
       default: {
         float cl = clamp(aaFactor * dist + 0.5, 0.0, 1.0);
         alpha = 1.0 - cl;
@@ -162,7 +172,9 @@ void main() {
       }
     }
 
-    fragColor = vec4(color.x, color.y, color.z, color.w * alpha);
+    if (sdfModeInt != sdfModeBackdropBlur) {
+      fragColor = vec4(color.x, color.y, color.z, color.w * alpha);
+    }
   }
 
   vec2 normalizedPos = vec2(pos.x / windowFrame.x, 1.0 - pos.y / windowFrame.y);

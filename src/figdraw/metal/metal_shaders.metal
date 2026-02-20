@@ -89,7 +89,8 @@ fragment float4 fs_main(
     VSOut in [[stage_in]],
     constant FSUniforms& u [[buffer(0)]],
     texture2d<float> atlasTex [[texture(0)]],
-    texture2d<float> maskTex [[texture(1)]]) {
+    texture2d<float> maskTex [[texture(1)]],
+    texture2d<float> backdropTex [[texture(2)]]) {
   const int sdfModeAtlas = 0;
   const int sdfModeClipAA = 3;
   const int sdfModeDropShadow = 7;
@@ -101,6 +102,7 @@ fragment float4 fs_main(
   const int sdfModeMtsdf = 14;
   const int sdfModeMsdfAnnular = 15;
   const int sdfModeMtsdfAnnular = 16;
+  const int sdfModeBackdropBlur = 17;
 
   int sdfModeInt = int(in.sdfMode);
   float2 quadHalfExtents = in.sdfParams.xy;
@@ -194,6 +196,14 @@ fragment float4 fs_main(
         alpha = clipAlpha * insetAlpha;
         break;
       }
+      case sdfModeBackdropBlur: {
+        float cl = clamp(u.aaFactor * dist + 0.5, 0.0, 1.0);
+        alpha = 1.0 - cl;
+        float2 normalizedPos = float2(in.pos.x / u.windowFrame.x, in.pos.y / u.windowFrame.y);
+        float4 blur = backdropTex.sample(s, normalizedPos);
+        fragColor = float4(blur.xyz, blur.w * alpha);
+        break;
+      }
       default: {
         float cl = clamp(u.aaFactor * dist + 0.5, 0.0, 1.0);
         alpha = 1.0 - cl;
@@ -201,7 +211,9 @@ fragment float4 fs_main(
       }
     }
 
-    fragColor = float4(in.color.x, in.color.y, in.color.z, in.color.w * alpha);
+    if (sdfModeInt != sdfModeBackdropBlur) {
+      fragColor = float4(in.color.x, in.color.y, in.color.z, in.color.w * alpha);
+    }
   }
 
   float2 normalizedPos =
@@ -248,6 +260,12 @@ struct BlitVSOut {
   float2 uv;
 };
 
+struct BlurUniforms {
+  float2 texelStep;
+  float blurRadius;
+  float pad0;
+};
+
 vertex BlitVSOut vs_blit(uint vid [[vertex_id]]) {
   // Fullscreen triangle.
   float2 pos;
@@ -265,4 +283,28 @@ fragment float4 fs_blit(
     BlitVSOut in [[stage_in]],
     texture2d<float> src [[texture(0)]]) {
   return src.sample(s, in.uv);
+}
+
+fragment float4 fs_blur(
+    BlitVSOut in [[stage_in]],
+    constant BlurUniforms& u [[buffer(0)]],
+    texture2d<float> src [[texture(0)]]) {
+  float radius = clamp(u.blurRadius, 0.0, 64.0);
+  if (radius <= 0.5) {
+    return src.sample(s, in.uv);
+  }
+
+  const int tapRadius = 8;
+  float sigma = max(0.5 * radius, 0.5);
+  float stepPx = max(radius / float(tapRadius), 1.0);
+
+  float4 acc = float4(0.0);
+  float weightSum = 0.0;
+  for (int i = -tapRadius; i <= tapRadius; ++i) {
+    float x = float(i) * stepPx;
+    float w = exp(-0.5 * (x * x) / (sigma * sigma));
+    acc += src.sample(s, in.uv + u.texelStep * x) * w;
+    weightSum += w;
+  }
+  return acc / max(weightSum, 1e-5);
 }

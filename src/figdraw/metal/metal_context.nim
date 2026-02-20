@@ -71,6 +71,7 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   pipelineMain: ObjcOwned[MTLRenderPipelineState]
   pipelineMask: ObjcOwned[MTLRenderPipelineState]
   pipelineBlit: ObjcOwned[MTLRenderPipelineState]
+  pipelineBlur: ObjcOwned[MTLRenderPipelineState]
 
   # Optional presentation target.
   # Windowing code owns attaching/sizing this layer.
@@ -78,6 +79,8 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
 
   # Render targets
   offscreenTexture: ObjcOwned[MTLTexture]
+  backdropTexture: ObjcOwned[MTLTexture]
+  backdropBlurTempTexture: ObjcOwned[MTLTexture]
   atlasTexture: ObjcOwned[MTLTexture]
   maskTextures: seq[ObjcOwned[MTLTexture]]
   maskTextureWrite: int ## Index of active mask stack (0 means no mask).
@@ -123,6 +126,13 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
 proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite)
 
 proc ensureDeviceAndPipelines(ctx: MetalContext)
+proc beginPass(
+  ctx: MetalContext,
+  kind: PassKind,
+  target: MTLTexture,
+  clear: bool,
+  clearColor: MTLClearColor,
+)
 
 method metalDevice*(ctx: MetalContext): MTLDevice =
   ## Exposes the MTLDevice for windowing code that needs to create a CAMetalLayer.
@@ -210,6 +220,106 @@ proc ensureOffscreen(ctx: MetalContext, frameSize: Vec2) =
     )
   )
 
+proc ensureBackdropTexture(ctx: MetalContext, frameSize: Vec2) =
+  let w = max(1, frameSize.x.int)
+  let h = max(1, frameSize.y.int)
+  if not ctx.backdropTexture.isNil:
+    if ctx.backdropTexture.borrow.width.int == w and
+        ctx.backdropTexture.borrow.height.int == h:
+      return
+  ctx.backdropTexture.resetRetained(
+    ctx.newTexture2D(
+      pixelFormat = MTLPixelFormatBGRA8Unorm,
+      width = w,
+      height = h,
+      usage = MTLTextureUsage(
+        cast[NSUInteger](MTLTextureUsageShaderRead) or
+          cast[NSUInteger](MTLTextureUsageRenderTarget)
+      ),
+    )
+  )
+
+proc ensureBackdropBlurTempTexture(ctx: MetalContext, frameSize: Vec2) =
+  let w = max(1, frameSize.x.int)
+  let h = max(1, frameSize.y.int)
+  if not ctx.backdropBlurTempTexture.isNil:
+    if ctx.backdropBlurTempTexture.borrow.width.int == w and
+        ctx.backdropBlurTempTexture.borrow.height.int == h:
+      return
+  ctx.backdropBlurTempTexture.resetRetained(
+    ctx.newTexture2D(
+      pixelFormat = MTLPixelFormatBGRA8Unorm,
+      width = w,
+      height = h,
+      usage = MTLTextureUsage(
+        cast[NSUInteger](MTLTextureUsageShaderRead) or
+          cast[NSUInteger](MTLTextureUsageRenderTarget)
+      ),
+    )
+  )
+
+proc blitToTexture(ctx: MetalContext, src: MTLTexture, dst: MTLTexture) =
+  if src.isNil or dst.isNil:
+    return
+  ctx.beginPass(
+    pkBlit,
+    dst,
+    clear = false,
+    clearColor = MTLClearColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0),
+  )
+  let enc = ctx.encoder
+  if enc.isNil:
+    return
+  setRenderPipelineState(enc, ctx.pipelineBlit.borrow)
+  setFragmentTexture(enc, src, 0)
+  drawPrimitives(enc, MTLPrimitiveTypeTriangle, 0, 3)
+
+proc runBackdropSeparableBlur(ctx: MetalContext, blurRadius: float32) =
+  if blurRadius <= 0.5'f32:
+    return
+  if ctx.backdropTexture.isNil:
+    return
+
+  ctx.ensureBackdropBlurTempTexture(ctx.frameSize)
+
+  type BlurUniforms = object
+    texelStep: Vec2
+    blurRadius: float32
+    pad0: float32
+
+  let
+    w = max(1.0'f32, ctx.frameSize.x)
+    h = max(1.0'f32, ctx.frameSize.y)
+    clearColor = MTLClearColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0)
+
+  # Horizontal pass.
+  ctx.beginPass(
+    pkBlit, ctx.backdropBlurTempTexture.borrow, clear = false, clearColor = clearColor
+  )
+  var enc = ctx.encoder
+  if enc.isNil:
+    return
+  setRenderPipelineState(enc, ctx.pipelineBlur.borrow)
+  setFragmentTexture(enc, ctx.backdropTexture.borrow, 0)
+  var blurU = BlurUniforms(
+    texelStep: vec2(1.0'f32 / w, 0.0'f32), blurRadius: blurRadius, pad0: 0.0'f32
+  )
+  setFragmentBytes(enc, addr blurU, NSUInteger(sizeof(BlurUniforms)), 0)
+  drawPrimitives(enc, MTLPrimitiveTypeTriangle, 0, 3)
+
+  # Vertical pass.
+  ctx.beginPass(
+    pkBlit, ctx.backdropTexture.borrow, clear = false, clearColor = clearColor
+  )
+  enc = ctx.encoder
+  if enc.isNil:
+    return
+  setRenderPipelineState(enc, ctx.pipelineBlur.borrow)
+  setFragmentTexture(enc, ctx.backdropBlurTempTexture.borrow, 0)
+  blurU.texelStep = vec2(0.0'f32, 1.0'f32 / h)
+  setFragmentBytes(enc, addr blurU, NSUInteger(sizeof(BlurUniforms)), 0)
+  drawPrimitives(enc, MTLPrimitiveTypeTriangle, 0, 3)
+
 proc endEncoder(ctx: MetalContext) =
   if not ctx.encoder.isNil:
     endEncoding(ctx.encoder)
@@ -250,7 +360,8 @@ proc ensureMaskPass(ctx: MetalContext, clear: bool, clearColor: MTLClearColor) =
 
 proc ensureDeviceAndPipelines(ctx: MetalContext) =
   if not ctx.device.isNil and not ctx.queue.isNil and not ctx.pipelineMain.isNil and
-      not ctx.pipelineMask.isNil and not ctx.pipelineBlit.isNil:
+      not ctx.pipelineMask.isNil and not ctx.pipelineBlit.isNil and
+      not ctx.pipelineBlur.isNil:
     return
 
   withAutoreleasePool:
@@ -295,7 +406,11 @@ proc ensureDeviceAndPipelines(ctx: MetalContext) =
     let fsBlit = fromRetained(
       newFunctionWithName(library.borrow, NSString.withUTF8String(cstring("fs_blit")))
     )
-    if vsMain.isNil or fsMain.isNil or fsMask.isNil or vsBlit.isNil or fsBlit.isNil:
+    let fsBlur = fromRetained(
+      newFunctionWithName(library.borrow, NSString.withUTF8String(cstring("fs_blur")))
+    )
+    if vsMain.isNil or fsMain.isNil or fsMask.isNil or vsBlit.isNil or fsBlit.isNil or
+        fsBlur.isNil:
       raise newException(ValueError, "Failed to find Metal shader functions")
 
     proc configureBlend(att: MTLRenderPipelineColorAttachmentDescriptor) =
@@ -353,6 +468,21 @@ proc ensureDeviceAndPipelines(ctx: MetalContext) =
         if not err.isNil:
           error "Failed to create Metal blit pipeline", error = $err
         raise newException(ValueError, "Failed to create Metal blit pipeline")
+
+    # Blur pipeline (BGRA8, no blending).
+    block:
+      let pd = fromRetained(MTLRenderPipelineDescriptor.alloc().init())
+      setVertexFunction(pd.borrow, vsBlit.borrow)
+      setFragmentFunction(pd.borrow, fsBlur.borrow)
+      let ca0 = objectAtIndexedSubscript(colorAttachments(pd.borrow), 0)
+      setPixelFormat(ca0, MTLPixelFormatBGRA8Unorm)
+      ctx.pipelineBlur.resetRetained(
+        newRenderPipelineStateWithDescriptor(ctx.device.borrow, pd.borrow, addr err)
+      )
+      if ctx.pipelineBlur.isNil:
+        if not err.isNil:
+          error "Failed to create Metal blur pipeline", error = $err
+        raise newException(ValueError, "Failed to create Metal blur pipeline")
 
 proc upload(ctx: MetalContext) =
   let vertexCount = ctx.quadCount * 4
@@ -1052,6 +1182,33 @@ method drawRoundedRectSdf*(
 
   inc ctx.quadCount
 
+method drawBackdropBlur*(
+    ctx: MetalContext,
+    rect: Rect,
+    radii: array[DirectionCorners, float32],
+    blurRadius: float32,
+) =
+  if blurRadius <= 0.0'f32 or rect.w <= 0.0'f32 or rect.h <= 0.0'f32:
+    return
+
+  ctx.flush()
+  if ctx.commandBuffer.isNil or ctx.offscreenTexture.isNil:
+    return
+
+  ctx.ensureBackdropTexture(ctx.frameSize)
+  ctx.blitToTexture(ctx.offscreenTexture.borrow, ctx.backdropTexture.borrow)
+  ctx.runBackdropSeparableBlur(blurRadius)
+
+  ctx.drawRoundedRectSdf(
+    rect = rect,
+    color = whiteColor,
+    radii = radii,
+    mode = figbackend.SdfMode.sdfModeBackdropBlur,
+    factor = blurRadius,
+    spread = 0.0'f32,
+    shapeSize = vec2(0.0'f32, 0.0'f32),
+  )
+
 proc line*(ctx: MetalContext, a: Vec2, b: Vec2, weight: float32, color: Color) =
   let hash = hash((2345, a, b, (weight * 100).int, hash(color)))
 
@@ -1194,6 +1351,7 @@ proc beginFrame*(
   ctx.frameSize = frameSize
 
   ctx.ensureOffscreen(frameSize)
+  ctx.ensureBackdropTexture(frameSize)
   # Resize any existing mask textures > 0.
   for i in 1 ..< ctx.maskTextures.len:
     let cur = ctx.maskTextures[i]
@@ -1469,6 +1627,7 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   setFragmentTexture(enc, ctx.atlasTexture.borrow, 0)
   let maskIndex = clamp(maskTextureRead, 0, ctx.maskTextures.high)
   setFragmentTexture(enc, ctx.maskTextures[maskIndex].borrow, 1)
+  setFragmentTexture(enc, ctx.backdropTexture.borrow, 2)
 
   drawIndexedPrimitives(
     enc,
