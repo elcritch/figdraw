@@ -84,7 +84,7 @@ type
     of flLinear2:
       lin2*: Linear2
     of flLinear3:
-      lin3*: Linear2
+      lin3*: Linear3
 
   RenderShadow* = object
     style*: ShadowStyle
@@ -117,7 +117,11 @@ proc fill*(color: ColorRGBA): Fill =
 proc fillLinear*(start, stop: ColorRGBA, axis: FillGradientAxis): Fill =
   Fill(kind: flLinear2, lin2: Linear2(start: start, stop: stop))
 
-proc fillLinear*(start, mid, stop: ColorRGBA, axis: FillGradientAxis, midPos = 128'u8): Fill =
+proc fillLinear*(
+    start, mid, stop: ColorRGBA,
+    axis: FillGradientAxis,
+    midPos = 128'u8
+): Fill =
   Fill(kind: flLinear3, lin3: Linear3(start: start, mid: mid, stop: stop, midPos: midPos))
 
 converter toColorRGBA*(c: Color): ColorRGBA {.inline.} =
