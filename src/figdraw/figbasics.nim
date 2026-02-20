@@ -90,17 +90,30 @@ type
     flLinear2
     flLinear3
 
+  Linear2* = object
+    axis*: FillGradientAxis
+    start*: ColorRGBA  # packed RGBA8
+    stop*: ColorRGBA  # packed RGBA8
+
+  Linear3* = object
+    axis*: FillGradientAxis
+    start*: ColorRGBA  # packed RGBA8
+    middle*: ColorRGBA  # packed RGBA8
+    stop*: ColorRGBA  # packed RGBA8
+
   Fill* = object
     case kind*: FillKind
     of flColor:
       color: ColorRGBA
     of flLinear2:
-      axis2*: FillGradientAxis
-      colors2*: array[2, ColorRGBA]  # packed RGBA8
+      #axis2*: FillGradientAxis
+      #colors2*: array[2, ColorRGBA]  # packed RGBA8
+      linear2*: Linear2
     of flLinear3:
-      axis3*: FillGradientAxis
-      midPos3*: uint8 = 128        # 0..255
-      colors3*: array[3, ColorRGBA]  # packed RGBA8
+      linear3*: Linear2
+      #axis3*: FillGradientAxis
+      #midPos3*: uint8 = 128        # 0..255
+      #colors3*: array[3, ColorRGBA]  # packed RGBA8
 
 
 converter toColorRGBA*(c: Color): ColorRGBA {.inline.} =
