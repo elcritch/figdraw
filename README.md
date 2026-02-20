@@ -1,6 +1,8 @@
 # FigDraw
 
-`figdraw` is a *pure* Nim rendering library for building and rendering 2D scene graphs (`Fig` nodes) with a focus on:
+`figdraw` is a *pure* Nim rendering library for building and rendering 2D scene graphs (`Fig` nodes) with a focus on being small and easy to use.
+
+Features:
 
 - GPU Rendering with OpenGL / Metal / Vulkan!
 - Rects & shadows default to SDF (signed-distance-field) primitives for crisp, dynamic, and low memory UI primitives
