@@ -1,4 +1,4 @@
-# FigDraw
+<img width="1600" height="480" alt="figdraw-banner" src="https://github.com/user-attachments/assets/6f6931e1-205b-47ec-b392-bc20850ae146" />
 
 `figdraw` is a *pure* Nim rendering library for building and rendering 2D scene graphs (`Fig` nodes) with a focus on being small and easy to use.
 
