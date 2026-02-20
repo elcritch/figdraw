@@ -152,7 +152,7 @@ proc makeRenderTree*(
       screenBox: centeredRect(bigCenter + shadowOffset, bigSize),
       rotation: bigRotation,
       mtsdfImage: MsdfImageStyle(
-        color: rgba(0, 0, 0, 140).color,
+        fill: rgba(0, 0, 0, 140).color,
         id: imgId("star-mtsdf"),
         pxRange: pxRange,
         sdThreshold: 0.5'f32,
@@ -168,7 +168,7 @@ proc makeRenderTree*(
       screenBox: centeredRect(bigCenter, bigSize),
       rotation: bigRotation,
       msdfImage: MsdfImageStyle(
-        color: rgba(255, 215, 0, 255).color,
+        fill: rgba(255, 215, 0, 255).color,
         id: imgId("star-msdf"),
         pxRange: pxRange,
         sdThreshold: 0.5'f32,
@@ -187,7 +187,7 @@ proc makeRenderTree*(
       screenBox: msdfRect,
       rotation: smallRotationA,
       msdfImage: MsdfImageStyle(
-        color: rgba(255, 215, 0, 255).color,
+        fill: rgba(255, 215, 0, 255).color,
         id: imgId("star-msdf"),
         pxRange: pxRange,
         sdThreshold: 0.5'f32,
@@ -206,7 +206,7 @@ proc makeRenderTree*(
       screenBox: mtsdfRect,
       rotation: smallRotationB,
       mtsdfImage: MsdfImageStyle(
-        color: rgba(255, 215, 0, 255).color,
+        fill: rgba(255, 215, 0, 255).color,
         id: imgId("star-mtsdf"),
         pxRange: pxRange,
         sdThreshold: 0.5'f32,
@@ -231,7 +231,7 @@ proc makeRenderTree*(
       screenBox: strokeRect,
       rotation: strokeRotation,
       mtsdfImage: MsdfImageStyle(
-        color: rgba(90, 220, 255, 255).color,
+        fill: rgba(90, 220, 255, 255).color,
         id: imgId("star-mtsdf"),
         pxRange: pxRange,
         sdThreshold: 0.5'f32,
@@ -253,7 +253,7 @@ proc makeRenderTree*(
       zlevel: 0.ZLevel,
       screenBox: bitmapRect,
       rotation: smallRotationC,
-      image: ImageStyle(color: rgba(255, 215, 0, 255).color, id: imgId("star-bitmap")),
+      image: ImageStyle(fill: rgba(255, 215, 0, 255).color, id: imgId("star-bitmap")),
     ),
   )
   list.addLabel(rootIdx, labelFont, w, bitmapRect, "Bitmap (renderMsdf 32x32)")

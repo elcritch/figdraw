@@ -31,7 +31,7 @@ proc makeRenderTree(w, h: float32): Renders =
       corners: [10'u16, 20'u16, 30'u16, 40'u16],
       screenBox: rect(60, 60, 220, 140),
       fill: rgba(220, 40, 40, 255),
-      stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 255).color),
+      stroke: RenderStroke(weight: 5.0, fill: rgba(0, 0, 0, 255).color),
     ),
   )
   list.addChild(
@@ -49,7 +49,7 @@ proc makeRenderTree(w, h: float32): Renders =
           spread: 10,
           x: 10,
           y: 10,
-          color: rgba(0, 0, 0, 55).color,
+          fill: rgba(0, 0, 0, 55).color,
         ),
         RenderShadow(),
         RenderShadow(),
@@ -72,7 +72,7 @@ proc makeRenderTree(w, h: float32): Renders =
           spread: 0,
           x: -6,
           y: -6,
-          color: rgba(55, 55, 55, 155).color,
+          fill: rgba(55, 55, 55, 155).color,
         ),
         RenderShadow(
           style: InnerShadow,
@@ -80,7 +80,7 @@ proc makeRenderTree(w, h: float32): Renders =
           spread: 0,
           x: 6,
           y: 6,
-          color: rgba(255, 255, 255, 255).color,
+          fill: rgba(255, 255, 255, 255).color,
         ),
         RenderShadow(),
         RenderShadow(),

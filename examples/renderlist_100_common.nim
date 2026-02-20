@@ -106,7 +106,7 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
         corners: [c0, c1, c2, c3],
         screenBox: rect(redStartX + offsetX, redStartY + offsetY, redW, redH),
         fill: rgba(220, 40, 40, 155),
-        stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 155).color),
+        stroke: RenderStroke(weight: 5.0, fill: rgba(0, 0, 0, 155).color),
       )
     )
 
@@ -119,24 +119,15 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
         corners: [g0, g1, g2, g3],
         fill:
           if useGreenGradient:
-            rgba(255, 255, 255, 155).color
-          else:
-            rgba(40, 180, 90, 155).color,
-        fillGradient:
-          if useGreenGradient:
-            FillGradient(
-              mode: fgmLinear,
-              axis: if (i mod 4) < 2: fgaX else: fgaDiagTLBR,
-              stopCount: 3'u8,
-              midPos: 128'u8,
-              colors: [
-                rgba(18, 112, 64, 255),
-                rgba(40, 180, 90, 255),
-                rgba(78, 224, 188, 255),
-              ],
+            fillLinear(
+              rgba(18, 112, 64, 255),
+              rgba(40, 180, 90, 255),
+              rgba(78, 224, 188, 255),
+              axis = if (i mod 4) < 2: fgaX else: fgaDiagTLBR,
+              midPos = 128'u8,
             )
           else:
-            FillGradient(),
+            rgba(40, 180, 90, 155),
         shadows: [
           RenderShadow(
             style: DropShadow,
@@ -144,7 +135,7 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
             spread: shadowSpread,
             x: shadowX,
             y: shadowY,
-            color: rgba(0, 0, 0, 155).color,
+            fill: rgba(0, 0, 0, 155).color,
           ),
           RenderShadow(),
           RenderShadow(),
@@ -158,33 +149,19 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
         kind: nkRectangle,
         childCount: 0,
         zlevel: 0.ZLevel,
-        flags:
-          if useBlueGradient:
-            {NfGradientInsetShadow}
-          else:
-            {},
         screenBox: rect(blueStartX + offsetX, blueStartY + offsetY, blueW, blueH),
         fill:
           if useBlueGradient:
-            rgba(255, 255, 255, 155).color
-          else:
-            rgba(60, 90, 220, 155).color,
-        fillGradient:
-          if useBlueGradient:
-            FillGradient(
-              mode: fgmLinear,
-              axis: if (i mod 2) == 0: fgaY else: fgaDiagBLTR,
-              stopCount: 3'u8,
-              midPos: 132'u8,
-              colors: [
-                rgba(44, 72, 186, 255),
-                rgba(60, 90, 220, 255),
-                rgba(118, 168, 255, 255),
-              ],
+            fillLinear(
+              rgba(44, 72, 186, 255),
+              rgba(60, 90, 220, 255),
+              rgba(118, 168, 255, 255),
+              axis = if (i mod 2) == 0: fgaY else: fgaDiagBLTR,
+              midPos = 132'u8,
             )
           else:
-            FillGradient(),
-        stroke: RenderStroke(weight: 4.0, color: rgba(255, 255, 255, 210).color),
+            rgba(60, 90, 220, 155),
+        stroke: RenderStroke(weight: 4.0, fill: rgba(255, 255, 255, 210).color),
         shadows: [
           RenderShadow(
             style: InnerShadow,
@@ -192,7 +169,13 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
             spread: insetSpread,
             x: insetX,
             y: insetY,
-            color: rgba(40, 40, 60, 150).color,
+            fill:
+              if useBlueGradient:
+                fillLinear(
+                  rgba(25, 25, 40, 100), rgba(65, 65, 95, 180), axis = fgaDiagBLTR
+                )
+              else:
+                rgba(40, 40, 60, 150),
           ),
           RenderShadow(),
           RenderShadow(),

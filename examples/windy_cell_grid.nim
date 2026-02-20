@@ -15,9 +15,9 @@ import figdraw/fignodes
 import figdraw/figrender
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
-const GridColumns  {.intdefine: "figdraw.cols".} = 24
-const GridRows  {.intdefine: "figdraw.rows".} = 32
-const GridGap  {.intdefine: "figdraw.gap".} = 6
+const GridColumns {.intdefine: "figdraw.cols".} = 24
+const GridRows {.intdefine: "figdraw.rows".} = 32
+const GridGap {.intdefine: "figdraw.gap".} = 6
 
 proc cellColor(cellId: int): Color =
   let palette = [
@@ -71,7 +71,7 @@ proc makeRenderTree(windowW, windowH: float32, labelFont: FigFont): Renders =
           screenBox: cellRect,
           fill: cellColor(cellId),
           corners: [2.0'f32, 2.0, 2.0, 4.0],
-          stroke: RenderStroke(weight: 1.5, color: rgba(15, 20, 30, 38).color),
+          stroke: RenderStroke(weight: 1.5, fill: rgba(15, 20, 30, 38).color),
           shadows: [
             RenderShadow(
               style: DropShadow,
@@ -79,7 +79,7 @@ proc makeRenderTree(windowW, windowH: float32, labelFont: FigFont): Renders =
               spread: 0,
               x: 3,
               y: 3,
-              color: rgba(0, 0, 0, 45).color,
+              fill: rgba(0, 0, 0, 45).color,
             ),
             RenderShadow(),
             RenderShadow(),

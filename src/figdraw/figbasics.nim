@@ -8,15 +8,13 @@ import common/imgutils
 export uimaths, fonttypes, imgutils
 export options, chroma, stack_strings
 
-const
-  ShadowCount* {.intdefine.} = 4
+const ShadowCount* {.intdefine.} = 4
 
 type
   FigID* = int64
   ZLevel* = int8
 
 type
-
   Directions* = enum
     dTop
     dRight
@@ -46,7 +44,6 @@ type
     NfRootWindow
     NfInactive
     NfSelectText
-    NfGradientInsetShadow
 
   ShadowStyle* = enum
     ## Supports drop and inner shadows.
@@ -67,20 +64,20 @@ type
 
   Linear2* = object
     axis*: FillGradientAxis
-    start*: ColorRGBA  # packed RGBA8
-    stop*: ColorRGBA  # packed RGBA8
+    start*: ColorRGBA # packed RGBA8
+    stop*: ColorRGBA # packed RGBA8
 
   Linear3* = object
     axis*: FillGradientAxis
     start*: ColorRGBA # packed RGBA8
-    mid*: ColorRGBA   # packed RGBA8
-    stop*: ColorRGBA  # packed RGBA8
-    midPos*: uint8    # 0..255
+    mid*: ColorRGBA # packed RGBA8
+    stop*: ColorRGBA # packed RGBA8
+    midPos*: uint8 # 0..255
 
   Fill* = object
     case kind*: FillKind
     of flColor:
-      color: ColorRGBA
+      color*: ColorRGBA
     of flLinear2:
       lin2*: Linear2
     of flLinear3:
@@ -115,14 +112,15 @@ proc fill*(color: ColorRGBA): Fill =
   Fill(kind: flColor, color: color)
 
 proc fillLinear*(start, stop: ColorRGBA, axis: FillGradientAxis): Fill =
-  Fill(kind: flLinear2, lin2: Linear2(start: start, stop: stop))
+  Fill(kind: flLinear2, lin2: Linear2(axis: axis, start: start, stop: stop))
 
 proc fillLinear*(
-    start, mid, stop: ColorRGBA,
-    axis: FillGradientAxis,
-    midPos = 128'u8
+    start, mid, stop: ColorRGBA, axis: FillGradientAxis, midPos = 128'u8
 ): Fill =
-  Fill(kind: flLinear3, lin3: Linear3(start: start, mid: mid, stop: stop, midPos: midPos))
+  Fill(
+    kind: flLinear3,
+    lin3: Linear3(axis: axis, start: start, mid: mid, stop: stop, midPos: midPos),
+  )
 
 #converter toColorRGBA*(c: Color): ColorRGBA {.inline.} =
 #  ## Backward compatibility for callers still producing float colors.
@@ -150,7 +148,9 @@ proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
       return high(uint16)
     v.uint16
 
-converter toCornerRadii*[T: SomeNumber](a: array[4, T]): array[DirectionCorners, uint16] =
+converter toCornerRadii*[T: SomeNumber](
+    a: array[4, T]
+): array[DirectionCorners, uint16] =
   for i in 0 ..< 4:
     result[DirectionCorners(i)] = cornerToU16(a[i])
 

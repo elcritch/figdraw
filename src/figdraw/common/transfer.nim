@@ -53,34 +53,72 @@ proc toRenderFig*[N](current: N): Fig =
     result.fill = current.fill.rgba()
   else:
     result.fill = current.fill
-  when compiles(current.fillGradient):
-    result.fillGradient = current.fillGradient
 
   case current.kind
   of nkRectangle:
     result.stroke.weight = current.stroke.weight
-    result.stroke.color = current.stroke.color
+    when compiles(current.stroke.fill):
+      result.stroke.fill = current.stroke.fill
+    elif compiles(current.stroke.color.rgba()):
+      result.stroke.fill = current.stroke.color.rgba()
+    elif compiles(current.stroke.color):
+      result.stroke.fill = current.stroke.color
+    else:
+      result.stroke.fill = fill(rgba(0, 0, 0, 0))
 
     for i in 0 ..< min(result.shadows.len(), current.shadows.len()):
       var shadow: RenderShadow
       let orig = current.shadows[i]
+      when compiles(orig.style):
+        shadow.style = orig.style
+      else:
+        shadow.style = NoShadow
       shadow.blur = orig.blur
       shadow.x = orig.x
       shadow.y = orig.y
-      shadow.color = orig.color
       shadow.spread = orig.spread
+      when compiles(orig.fill):
+        shadow.fill = orig.fill
+      elif compiles(orig.color.rgba()):
+        shadow.fill = orig.color.rgba()
+      elif compiles(orig.color):
+        shadow.fill = orig.color
+      else:
+        shadow.fill = fill(rgba(0, 0, 0, 0))
       result.shadows[i] = shadow
 
     for corner in DirectionCorners:
       result.corners[corner] = cornerToU16(current.corners[corner])
   of nkImage:
-    result.image = current.image
+    result.image.id = current.image.id
+    when compiles(current.image.fill):
+      result.image.fill = current.image.fill
+    elif compiles(current.image.color.rgba()):
+      result.image.fill = current.image.color.rgba()
+    elif compiles(current.image.color):
+      result.image.fill = current.image.color
+    else:
+      result.image.fill = fill(rgba(255, 255, 255, 255))
   of nkMsdfImage:
     when compiles(current.msdfImage):
       result.msdfImage = current.msdfImage
+      when not compiles(current.msdfImage.fill):
+        when compiles(current.msdfImage.color.rgba()):
+          result.msdfImage.fill = current.msdfImage.color.rgba()
+        elif compiles(current.msdfImage.color):
+          result.msdfImage.fill = current.msdfImage.color
+        else:
+          result.msdfImage.fill = fill(rgba(255, 255, 255, 255))
   of nkMtsdfImage:
     when compiles(current.mtsdfImage):
       result.mtsdfImage = current.mtsdfImage
+      when not compiles(current.mtsdfImage.fill):
+        when compiles(current.mtsdfImage.color.rgba()):
+          result.mtsdfImage.fill = current.mtsdfImage.color.rgba()
+        elif compiles(current.mtsdfImage.color):
+          result.mtsdfImage.fill = current.mtsdfImage.color
+        else:
+          result.mtsdfImage.fill = fill(rgba(255, 255, 255, 255))
   of nkText:
     result.textLayout = current.textLayout
     result.selectionRange = current.selectionRange

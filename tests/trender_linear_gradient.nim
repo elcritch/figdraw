@@ -31,17 +31,12 @@ proc makeRenderTree(w, h: float32): Renders =
       zlevel: 0.ZLevel,
       screenBox: rect(80, 80, 440, 120),
       corners: [12'u16, 12'u16, 12'u16, 12'u16],
-      fill: rgba(255, 255, 255, 255),
-      fillGradient: FillGradient(
-        mode: fgmLinear,
-        axis: fgaX,
-        stopCount: 3'u8,
-        midPos: 128'u8,
-        colors: [
-          rgba(220, 40, 40, 255),
-          rgba(40, 200, 90, 255),
-          rgba(50, 90, 225, 255),
-        ],
+      fill: fillLinear(
+        rgba(220, 40, 40, 255),
+        rgba(40, 200, 90, 255),
+        rgba(50, 90, 225, 255),
+        axis = fgaX,
+        midPos = 128'u8,
       ),
     ),
   )
@@ -54,17 +49,7 @@ proc makeRenderTree(w, h: float32): Renders =
       zlevel: 0.ZLevel,
       screenBox: rect(80, 240, 220, 220),
       corners: [10'u16, 10'u16, 10'u16, 10'u16],
-      fill: rgba(255, 255, 255, 255),
-      fillGradient: FillGradient(
-        mode: fgmLinear,
-        axis: fgaY,
-        stopCount: 2'u8,
-        colors: [
-          rgba(240, 210, 40, 255),
-          rgba(110, 60, 210, 255),
-          rgba(0, 0, 0, 0),
-        ],
-      ),
+      fill: fillLinear(rgba(240, 210, 40, 255), rgba(110, 60, 210, 255), axis = fgaY),
     ),
   )
 

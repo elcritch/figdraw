@@ -11,7 +11,10 @@ import figdraw/utils/glutils
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
 when UseMetalBackend or UseVulkanBackend:
-  {.error: "sdl2 examples only support OpenGL; use windy examples for Metal/Vulkan (or pass -d:figdraw.vulkan=off).".}
+  {.
+    error:
+      "sdl2 examples only support OpenGL; use windy examples for Metal/Vulkan (or pass -d:figdraw.vulkan=off)."
+  .}
 
 type SdlWindow = ref object
   window: WindowPtr
@@ -43,7 +46,7 @@ proc makeRenderTree*(w, h: float32): Renders =
       corners: [10.0'f32, 20.0, 30.0, 40.0],
       screenBox: rect(60, 60, 220, 140),
       fill: rgba(220, 40, 40, 255),
-      stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 255).color),
+      stroke: RenderStroke(weight: 5.0, fill: rgba(0, 0, 0, 255).color),
     ),
   )
   discard result.addChild(
@@ -56,7 +59,7 @@ proc makeRenderTree*(w, h: float32): Renders =
       fill: rgba(40, 180, 90, 255),
       shadows: [
         RenderShadow(
-          style: DropShadow, blur: 10, spread: 10, x: 10, y: 10, color: blackColor
+          style: DropShadow, blur: 10, spread: 10, x: 10, y: 10, fill: blackColor
         ),
         RenderShadow(),
         RenderShadow(),
@@ -86,12 +89,8 @@ proc newSdlWindow(size: IVec2, title: string): SdlWindow =
 
   let flags = SDL_WINDOW_OPENGL or SDL_WINDOW_RESIZABLE or SDL_WINDOW_ALLOW_HIGHDPI
   let window = createWindow(
-    title.cstring,
-    SDL_WINDOWPOS_CENTERED,
-    SDL_WINDOWPOS_CENTERED,
-    size.x.cint,
-    size.y.cint,
-    flags,
+    title.cstring, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, size.x.cint,
+    size.y.cint, flags,
   )
   if window.isNil:
     quit "SDL2 window creation failed: " & $sdl2.getError()
@@ -163,7 +162,7 @@ when isMainModule:
   let size = ivec2(800, 600)
 
   let window = newSdlWindow(size, title)
-  let renderer = glrenderer.newFigRenderer(atlasSize = 256, )
+  let renderer = glrenderer.newFigRenderer(atlasSize = 256)
 
   proc redraw() =
     let sz = window.logicalSize()

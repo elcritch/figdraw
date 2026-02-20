@@ -275,7 +275,7 @@ proc makeOverlay(w, h: float32): Renders =
   let panelW = min(320'f32, w * 0.4'f32)
   let panelRect = rect(w - panelW - pad, pad, panelW, h - pad * 2)
   let panelShadow = RenderShadow(
-    style: DropShadow, blur: 18, spread: 0, x: 0, y: 10, color: rgba(0, 0, 0, 60).color
+    style: DropShadow, blur: 18, spread: 0, x: 0, y: 10, fill: rgba(0, 0, 0, 60).color
   )
 
   let panelIdx = list.addChild(
@@ -286,7 +286,7 @@ proc makeOverlay(w, h: float32): Renders =
       zlevel: 0.ZLevel,
       screenBox: panelRect,
       fill: rgba(20, 22, 32, 220),
-      stroke: RenderStroke(weight: 1.5, color: rgba(255, 255, 255, 40).color),
+      stroke: RenderStroke(weight: 1.5, fill: rgba(255, 255, 255, 40).color),
       corners: [12'u16, 12'u16, 12'u16, 12'u16],
       shadows: [panelShadow, RenderShadow(), RenderShadow(), RenderShadow()],
     ),

@@ -44,7 +44,7 @@ proc makeRenderTree*(w, h: float32): Renders =
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: rect(60, 60, 280, 280),
-      image: ImageStyle(color: rgba(255, 255, 255, 255).color, id: imgId("img1.png")),
+      image: ImageStyle(fill: rgba(255, 255, 255, 255).color, id: imgId("img1.png")),
     ),
   )
 
