@@ -45,8 +45,7 @@ type
       discard
 
 static:
-  echo "Fig size: ", sizeof(Fig)
-  echo "FillGradient size: ", sizeof(Fill)
+  {.warning: "Fig node size: " & $sizeof(Fig).}
   doAssert sizeof(Fig) < 256, "FigNode SIZE: should be smaller than 256! Got: " & $sizeof(Fig)
 
 proc `$`*(id: FigIdx): string =
