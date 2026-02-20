@@ -48,7 +48,7 @@ then renders glyph atlas sprites via the OpenGL renderer.
 """
   let highlightRange = findPhraseRange(text, "renders glyph atlas sprites")
   let bodyFill = rgba(20, 20, 20, 255)
-  let openGlFill = linear(rgba(255, 120, 66, 255), rgba(72, 197, 255, 255), axis = fgaX)
+  let openGlFill = linear(rgba(255, 120, 66, 255), rgba(72, 197, 255, 255), axis = fgaY)
   let openGlToken = "OpenGL"
   let openGlIdx = text.find(openGlToken)
   var spans: seq[(FontStyle, string)]
@@ -201,7 +201,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
       zlevel: z,
       screenBox: textRect,
       selectionRange: highlightRange,
-      fill: linear(rgba(255, 242, 170, 255), rgba(255, 192, 128, 255), axis = fgaX),
+      fill: linear(rgba(255, 242, 170, 255), rgba(255, 192, 128, 255), axis = fgaY),
       flags:
         if highlightRange.a <= highlightRange.b:
           {NfSelectText}
