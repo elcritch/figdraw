@@ -180,7 +180,8 @@ proc newFigRenderer*[BackendState](
 func fillAlphaMax(fill: Fill): uint8
 func gradientMidPos01(fill: Fill): float32
 func fillCenterColor(fill: Fill): Color
-func gradientColorsForAxis(fill: Fill): array[4, ColorRGBA]
+func fillCenterColors(fill: Fill): array[4, ColorRGBA]
+func gradientColors(fill: Fill): array[4, ColorRGBA]
 
 proc renderDrawable*(ctx: BackendContext, node: Fig) =
   ## TODO: draw non-node stuff?
@@ -316,35 +317,44 @@ func fillCenterColorRgba(fill: Fill): ColorRGBA =
 func fillCenterColor(fill: Fill): Color =
   fill.fillCenterColorRgba().color
 
+func fillCenterColors(fill: Fill): array[4, ColorRGBA] =
+  let c = fill.fillCenterColorRgba()
+  [c, c, c, c]
+
 func fillGradientAxis(fill: Fill): FillGradientAxis =
   case fill.kind
   of flLinear2: fill.lin2.axis
   of flLinear3: fill.lin3.axis
   of flColor: fgaX
 
-func gradientColorsForAxis(fill: Fill): array[4, ColorRGBA] =
+func gradientColors(fill: Fill): array[4, ColorRGBA] =
   ## Vertex order: 0=BL, 1=BR, 2=TR, 3=TL
-  case fill.fillGradientAxis()
-  of fgaX:
-    result[0] = fill.sampleGradientColor(0.0'f32)
-    result[1] = fill.sampleGradientColor(1.0'f32)
-    result[2] = fill.sampleGradientColor(1.0'f32)
-    result[3] = fill.sampleGradientColor(0.0'f32)
-  of fgaY:
-    result[0] = fill.sampleGradientColor(1.0'f32)
-    result[1] = fill.sampleGradientColor(1.0'f32)
-    result[2] = fill.sampleGradientColor(0.0'f32)
-    result[3] = fill.sampleGradientColor(0.0'f32)
-  of fgaDiagTLBR:
-    result[0] = fill.sampleGradientColor(0.5'f32)
-    result[1] = fill.sampleGradientColor(1.0'f32)
-    result[2] = fill.sampleGradientColor(0.5'f32)
-    result[3] = fill.sampleGradientColor(0.0'f32)
-  of fgaDiagBLTR:
-    result[0] = fill.sampleGradientColor(0.0'f32)
-    result[1] = fill.sampleGradientColor(0.5'f32)
-    result[2] = fill.sampleGradientColor(1.0'f32)
-    result[3] = fill.sampleGradientColor(0.5'f32)
+  case fill.kind:
+  of flColor:
+    result = fill.fillCenterColors()
+
+  else:
+    case fill.fillGradientAxis()
+    of fgaX:
+      result[0] = fill.sampleGradientColor(0.0'f32)
+      result[1] = fill.sampleGradientColor(1.0'f32)
+      result[2] = fill.sampleGradientColor(1.0'f32)
+      result[3] = fill.sampleGradientColor(0.0'f32)
+    of fgaY:
+      result[0] = fill.sampleGradientColor(1.0'f32)
+      result[1] = fill.sampleGradientColor(1.0'f32)
+      result[2] = fill.sampleGradientColor(0.0'f32)
+      result[3] = fill.sampleGradientColor(0.0'f32)
+    of fgaDiagTLBR:
+      result[0] = fill.sampleGradientColor(0.5'f32)
+      result[1] = fill.sampleGradientColor(1.0'f32)
+      result[2] = fill.sampleGradientColor(0.5'f32)
+      result[3] = fill.sampleGradientColor(0.0'f32)
+    of fgaDiagBLTR:
+      result[0] = fill.sampleGradientColor(0.0'f32)
+      result[1] = fill.sampleGradientColor(0.5'f32)
+      result[2] = fill.sampleGradientColor(1.0'f32)
+      result[3] = fill.sampleGradientColor(0.5'f32)
 
 #proc drawMasks(ctx: BackendContext, node: Fig) =
 #  ctx.setMaskRect(node.screenBox.scaled(), node.corners.scaledCorners())
@@ -376,26 +386,15 @@ proc renderDropShadows(ctx: BackendContext, node: Fig) =
           shadowRect.w + 2.0'f32 * pad,
           shadowRect.h + 2.0'f32 * pad,
         )
-      if shadow.fill.kind == flColor:
-        ctx.drawRoundedRectSdf(
-          rect = quadRect,
-          shapeSize = shadowRect.wh,
-          color = shadowColor,
-          radii = node.corners.scaledCorners(),
-          mode = figbackend.SdfMode.sdfModeDropShadow,
-          factor = shadowBlur,
-          spread = shadowSpread,
-        )
-      else:
-        ctx.drawRoundedRectSdf(
-          rect = quadRect,
-          shapeSize = shadowRect.wh,
-          colors = gradientColorsForAxis(shadow.fill),
-          radii = node.corners.scaledCorners(),
-          mode = figbackend.SdfMode.sdfModeDropShadow,
-          factor = shadowBlur,
-          spread = shadowSpread,
-        )
+      ctx.drawRoundedRectSdf(
+        rect = quadRect,
+        shapeSize = shadowRect.wh,
+        colors = gradientColors(shadow.fill),
+        radii = node.corners.scaledCorners(),
+        mode = figbackend.SdfMode.sdfModeDropShadow,
+        factor = shadowBlur,
+        spread = shadowSpread,
+      )
     elif FastShadows:
       ## should add a primitive to opengl.context to
       var color = shadowColor
@@ -444,26 +443,15 @@ proc renderInnerShadows(ctx: BackendContext, node: Fig) =
       # For inset mode, shapeSize carries shadow offset (x, y).
       # Backend shader evaluates clip distance from the node shape and shadow
       # distance from an offset shape in a single pass.
-      if shadow.fill.kind == flColor:
-        ctx.drawRoundedRectSdf(
-          rect = box,
-          shapeSize = shadowOffset,
-          color = shadowColor,
-          radii = node.corners.scaledCorners(),
-          mode = figbackend.SdfMode.sdfModeInsetShadow,
-          factor = shadowBlur,
-          spread = shadowSpread,
-        )
-      else:
-        ctx.drawRoundedRectSdf(
-          rect = box,
-          shapeSize = shadowOffset,
-          colors = gradientColorsForAxis(shadow.fill),
-          radii = node.corners.scaledCorners(),
-          mode = figbackend.SdfMode.sdfModeInsetShadow,
-          factor = shadowBlur,
-          spread = shadowSpread,
-        )
+      ctx.drawRoundedRectSdf(
+        rect = box,
+        shapeSize = shadowOffset,
+        colors = shadow.fill.gradientColors(),
+        radii = node.corners.scaledCorners(),
+        mode = figbackend.SdfMode.sdfModeInsetShadow,
+        factor = shadowBlur,
+        spread = shadowSpread,
+      )
     elif FastShadows:
       ## this is even more incorrect than drop shadows, but it's something
       ## and I don't actually want to think today ;)
@@ -546,10 +534,9 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
                 axis: fgaX, start: node.fill.lin3.start, stop: node.fill.lin3.mid
               ),
             )
-            let leftColors = gradientColorsForAxis(leftFill)
             ctx.drawRoundedRectSdf(
               rect = leftRect,
-              colors = leftColors,
+              colors = leftFill.gradientColors(),
               radii = leftRadii,
               mode = figbackend.SdfMode.sdfModeClipAA,
               factor = 4.0'f32,
@@ -570,10 +557,9 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
                 axis: fgaX, start: node.fill.lin3.mid, stop: node.fill.lin3.stop
               ),
             )
-            let rightColors = gradientColorsForAxis(rightFill)
             ctx.drawRoundedRectSdf(
               rect = rightRect,
-              colors = rightColors,
+              colors = rightFill.gradientColors(),
               radii = rightRadii,
               mode = figbackend.SdfMode.sdfModeClipAA,
               factor = 4.0'f32,
@@ -599,10 +585,9 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
                 axis: fgaY, start: node.fill.lin3.start, stop: node.fill.lin3.mid
               ),
             )
-            let topColors = gradientColorsForAxis(topFill)
             ctx.drawRoundedRectSdf(
               rect = topRect,
-              colors = topColors,
+              colors = topFill.gradientColors(),
               radii = topRadii,
               mode = figbackend.SdfMode.sdfModeClipAA,
               factor = 4.0'f32,
@@ -623,10 +608,9 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
                 axis: fgaY, start: node.fill.lin3.mid, stop: node.fill.lin3.stop
               ),
             )
-            let bottomColors = gradientColorsForAxis(bottomFill)
             ctx.drawRoundedRectSdf(
               rect = bottomRect,
-              colors = bottomColors,
+              colors = bottomFill.gradientColors(),
               radii = bottomRadii,
               mode = figbackend.SdfMode.sdfModeClipAA,
               factor = 4.0'f32,
@@ -634,10 +618,9 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
               shapeSize = vec2(0.0'f32, 0.0'f32),
             )
       else:
-        let gradColors = gradientColorsForAxis(node.fill)
         ctx.drawRoundedRectSdf(
           rect = box,
-          colors = gradColors,
+          colors = node.fill.gradientColors(),
           radii = corners,
           mode = figbackend.SdfMode.sdfModeClipAA,
           factor = 4.0'f32,
@@ -670,26 +653,15 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
 
   if fillAlphaMax(node.stroke.fill) > 0'u8 and node.stroke.weight > 0:
     when not defined(useFigDrawTextures):
-      if node.stroke.fill.kind == flColor:
-        ctx.drawRoundedRectSdf(
-          rect = box,
-          color = fillCenterColor(node.stroke.fill),
-          radii = corners,
-          mode = figbackend.SdfMode.sdfModeAnnularAA,
-          factor = node.stroke.weight.scaled(),
-          spread = 0.0'f32,
-          shapeSize = vec2(0.0'f32, 0.0'f32),
-        )
-      else:
-        ctx.drawRoundedRectSdf(
-          rect = box,
-          colors = gradientColorsForAxis(node.stroke.fill),
-          radii = corners,
-          mode = figbackend.SdfMode.sdfModeAnnularAA,
-          factor = node.stroke.weight.scaled(),
-          spread = 0.0'f32,
-          shapeSize = vec2(0.0'f32, 0.0'f32),
-        )
+      ctx.drawRoundedRectSdf(
+        rect = box,
+        colors = node.stroke.fill.gradientColors(),
+        radii = corners,
+        mode = figbackend.SdfMode.sdfModeAnnularAA,
+        factor = node.stroke.weight.scaled(),
+        spread = 0.0'f32,
+        shapeSize = vec2(0.0'f32, 0.0'f32),
+      )
     else:
       ctx.drawRoundedRect(
         rect = box,
