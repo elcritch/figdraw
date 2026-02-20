@@ -17,7 +17,7 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: rect(0, 0, w, h),
-      fill: rgba(255, 255, 255, 155).color,
+      fill: rgba(255, 255, 255, 155),
     )
   )
 
@@ -105,7 +105,7 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
         zlevel: 0.ZLevel,
         corners: [c0, c1, c2, c3],
         screenBox: rect(redStartX + offsetX, redStartY + offsetY, redW, redH),
-        fill: rgba(220, 40, 40, 155).color,
+        fill: rgba(220, 40, 40, 155),
         stroke: RenderStroke(weight: 5.0, color: rgba(0, 0, 0, 155).color),
       )
     )

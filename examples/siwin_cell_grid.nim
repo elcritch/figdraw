@@ -38,7 +38,7 @@ proc makeRenderTree(windowW, windowH: float32, labelFont: FigFont): Renders =
       childCount: 0,
       zlevel: z,
       screenBox: rect(0, 0, windowW, windowH),
-      fill: rgba(243, 246, 252, 255).color,
+      fill: rgba(243, 246, 252, 255),
     ),
   )
 

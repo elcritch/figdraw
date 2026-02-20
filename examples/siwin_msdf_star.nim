@@ -57,7 +57,7 @@ proc addLabel(
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: labelRect,
-      fill: rgba(0, 0, 0, 155).color,
+      fill: rgba(0, 0, 0, 155),
       corners: [8.0'f32, 8.0, 8.0, 8.0],
     ),
   )
@@ -92,7 +92,7 @@ proc makeRenderTree*(
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: rect(0, 0, w, h),
-      fill: rgba(30, 30, 30, 255).color,
+      fill: rgba(30, 30, 30, 255),
     )
   )
 
@@ -137,7 +137,7 @@ proc makeRenderTree*(
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: panelRect,
-      fill: rgba(80, 80, 80, 255).color,
+      fill: rgba(80, 80, 80, 255),
       corners: [16.0'f32, 16.0, 16.0, 16.0],
     ),
   )
@@ -345,7 +345,7 @@ when isMainModule:
         childCount: 0,
         zlevel: 0.ZLevel,
         screenBox: hudRect,
-        fill: rgba(0, 0, 0, 155).color,
+        fill: rgba(0, 0, 0, 155),
         corners: [8.0'f32, 8.0, 8.0, 8.0],
       )
     )

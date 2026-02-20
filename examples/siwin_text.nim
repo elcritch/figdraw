@@ -119,7 +119,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
       childCount: 0,
       zlevel: z,
       screenBox: rect(0, 0, w, h),
-      fill: rgba(245, 245, 245, 255).color,
+      fill: rgba(245, 245, 245, 255),
     ),
   )
 
@@ -133,7 +133,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
       childCount: 0,
       zlevel: z,
       screenBox: cardRect,
-      fill: rgba(255, 255, 255, 255).color,
+      fill: rgba(255, 255, 255, 255),
       stroke: RenderStroke(weight: 2.0, color: rgba(0, 0, 0, 25).color),
       corners: [16.0'f32, 16.0, 16.0, 16.0],
       shadows: [
@@ -188,7 +188,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
       zlevel: z,
       screenBox: textRect,
       selectionRange: highlightRange,
-      fill: rgba(255, 232, 140, 255).color,
+      fill: rgba(255, 232, 140, 255),
       flags:
         if highlightRange.a <= highlightRange.b:
           {NfSelectText}
@@ -206,7 +206,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
       childCount: 0,
       zlevel: z,
       screenBox: monoRect,
-      fill: rgba(27, 29, 36, 255).color,
+      fill: rgba(27, 29, 36, 255),
       stroke: RenderStroke(weight: 1.5, color: rgba(0, 0, 0, 50).color),
       corners: [10.0'f32, 10.0, 10.0, 10.0],
     ),
