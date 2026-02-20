@@ -55,7 +55,7 @@ Here's the primary rounded rect primitive with corners, borders, and shadows:
 
 Here's it running as an overlay on top of a 3D scene:
 
-![3D Pyramid overlay](data/Pyramid-3D-Overlay.png)
+<img width="800" height="600" alt="render_rgb_boxes_sdf" src="https://github.com/user-attachments/assets/6a7ef1f5-92de-4c0b-a1f5-29d8500afdd4" />
 
 Here's text rendering curtesy of Pixie. Note that Pixie's layout can be used or custom layout, e.g. for monospaced renderers:
 
