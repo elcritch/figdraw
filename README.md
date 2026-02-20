@@ -111,7 +111,7 @@ proc makeRenders(w, h: float32): Renders =
     screenBox: rect(80, 60, 240, 140),
     fill: rgba(220, 40, 40, 255),
     corners: [12.0'f32, 12.0, 12.0, 12.0],
-    stroke: RenderStroke(weight: 3.0, color: rgba(0, 0, 0, 255)),
+    stroke: RenderStroke(weight: 3.0, fill: rgba(0, 0, 0, 255)),
   ))
 
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
@@ -124,6 +124,87 @@ For a complete working example (window + GL context + render loop), see:
 
 - `examples/windy_renderlist.nim`
 - `examples/sdl2_renderlist.nim`
+
+## Gradients (Fill API)
+
+FigDraw uses `Fill` everywhere a color-style value is needed:
+
+- `Fig.fill`
+- `RenderStroke.fill`
+- `RenderShadow.fill`
+- text span styles (`fs` / `span`)
+
+API:
+
+- Solid fill: `fill(rgba(...))`
+- Linear 2-stop: `linear(start, stop, axis = fgaX|fgaY|fgaDiagTLBR|fgaDiagBLTR)`
+- Linear 3-stop: `linear(start, mid, stop, axis = ..., midPos = 128'u8)`
+
+`midPos` is `0..255` and controls where the middle stop lands along the gradient axis.
+`ColorRGBA` values (like `rgba(...)`) are accepted directly where `Fill` is expected.
+
+Example (box + stroke + text span gradient):
+
+```nim
+import figdraw/commons
+import figdraw/fignodes
+import chroma
+
+proc makeGradientDemo(w, h: float32, uiFont: FigFont): Renders =
+  var list = RenderList()
+
+  let panelFill = linear(
+    rgba(255, 236, 168, 255),
+    rgba(255, 178, 116, 255),
+    axis = fgaY,
+  )
+  let strokeFill = linear(
+    rgba(255, 120, 66, 255),
+    rgba(72, 197, 255, 255),
+    axis = fgaDiagTLBR,
+  )
+  let titleFill = linear(
+    rgba(255, 120, 66, 255),
+    rgba(252, 220, 128, 255),
+    rgba(72, 197, 255, 255),
+    axis = fgaX,
+    midPos = 96'u8,
+  )
+
+  let root = list.addRoot(Fig(
+    kind: nkRectangle,
+    screenBox: rect(0, 0, w, h),
+    fill: rgba(245, 245, 245, 255),
+  ))
+
+  discard list.addChild(root, Fig(
+    kind: nkRectangle,
+    screenBox: rect(40, 40, 360, 180),
+    fill: panelFill,
+    corners: [14.0'f32, 14.0, 14.0, 14.0],
+    stroke: RenderStroke(weight: 3.0, fill: strokeFill),
+  ))
+
+  let titleLayout = typeset(
+    rect(0, 0, 320, 50),
+    [
+      span(uiFont, rgba(20, 20, 20, 255), "FigDraw "),
+      span(uiFont, titleFill, "OpenGL"),
+    ],
+    wrap = false,
+  )
+
+  discard list.addChild(root, Fig(
+    kind: nkText,
+    screenBox: rect(60, 70, 320, 50),
+    textLayout: titleLayout,
+    # For nkText: glyph colors come from span fills. `fill` is used for selection highlight.
+    fill: rgba(255, 235, 170, 255),
+  ))
+
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  result.layers[0.ZLevel] = list
+```
 
 ## Layers and ZLevel
 
