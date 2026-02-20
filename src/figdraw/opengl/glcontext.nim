@@ -34,6 +34,7 @@ else:
 type OpenGlContext* = ref object of figbackend.BackendContext
   mainShader, maskShader, activeShader: Shader
   atlasTexture: Texture
+  backdropTexture: Texture
   maskTextureWrite: int ## Index into max textures for writing.
   maskTextures: seq[Texture] ## Masks array for pushing and popping.
   atlasSize: int ## Size x size dimensions of the atlas
@@ -149,6 +150,30 @@ proc addMaskTexture(ctx: OpenGlContext, frameSize = vec2(1, 1)) =
       maskTexture.internalFormat = GL_RGBA8
       bindTextureData(maskTexture.addr, nil)
   ctx.maskTextures.add(maskTexture)
+
+proc createBackdropTexture(ctx: OpenGlContext, width, height: int): Texture =
+  result.width = width.int32
+  result.height = height.int32
+  result.componentType = GL_UNSIGNED_BYTE
+  result.format = GL_RGBA
+  result.internalFormat = GL_RGBA8
+  result.minFilter = minLinear
+  if ctx.pixelate:
+    result.magFilter = magNearest
+  else:
+    result.magFilter = magLinear
+  result.wrapS = wClampToEdge
+  result.wrapT = wClampToEdge
+  bindTextureData(result.addr, nil)
+
+proc ensureBackdropTexture(ctx: OpenGlContext, frameSize: Vec2) =
+  let
+    w = max(1, frameSize.x.int)
+    h = max(1, frameSize.y.int)
+  if ctx.backdropTexture.textureId != 0 and ctx.backdropTexture.width.int == w and
+      ctx.backdropTexture.height.int == h:
+    return
+  ctx.backdropTexture = ctx.createBackdropTexture(w, h)
 
 proc newContext*(
     atlasSize = 1024,
@@ -447,6 +472,11 @@ proc flush(ctx: OpenGlContext, maskTextureRead: int = ctx.maskTextureWrite) =
       glActiveTexture(GL_TEXTURE1)
       glBindTexture(GL_TEXTURE_2D, ctx.maskTextures[maskTextureRead].textureId)
       ctx.activeShader.setUniform("maskTex", 1)
+
+  if ctx.activeShader.hasUniform("backdropTex"):
+    glActiveTexture(GL_TEXTURE2)
+    glBindTexture(GL_TEXTURE_2D, ctx.backdropTexture.textureId)
+    ctx.activeShader.setUniform("backdropTex", 2)
 
   ctx.activeShader.bindUniforms()
 
@@ -1082,6 +1112,62 @@ method drawRoundedRectSdf*(
 
   inc ctx.quadCount
 
+method drawBackdropBlur*(
+    ctx: OpenGlContext,
+    rect: Rect,
+    radii: array[DirectionCorners, float32],
+    blurRadius: float32,
+) =
+  if blurRadius <= 0.0'f32 or rect.w <= 0.0'f32 or rect.h <= 0.0'f32:
+    return
+
+  if ctx.maskBegun:
+    ctx.flush(ctx.maskTextureWrite - 1)
+  else:
+    ctx.flush()
+
+  ctx.ensureBackdropTexture(ctx.frameSize)
+
+  glActiveTexture(GL_TEXTURE2)
+  glBindTexture(GL_TEXTURE_2D, ctx.backdropTexture.textureId)
+
+  var canSelectReadBuffer = true
+  try:
+    glReadBuffer(GL_BACK)
+    if glGetError() != GL_NO_ERROR:
+      # Wayland/EGL may expose a single-buffer drawable where GL_BACK is invalid.
+      glReadBuffer(GL_FRONT)
+  except GLerror:
+    # GLES/EGL paths can reject glReadBuffer; default framebuffer read buffer is used.
+    canSelectReadBuffer = false
+
+  glCopyTexSubImage2D(
+    GL_TEXTURE_2D,
+    0,
+    0,
+    0,
+    0,
+    0,
+    max(1, ctx.frameSize.x.int).GLsizei,
+    max(1, ctx.frameSize.y.int).GLsizei,
+  )
+
+  if canSelectReadBuffer:
+    try:
+      glReadBuffer(GL_BACK)
+    except GLerror:
+      discard
+
+  ctx.drawRoundedRectSdf(
+    rect = rect,
+    color = whiteColor,
+    radii = radii,
+    mode = figbackend.SdfMode.sdfModeBackdropBlur,
+    factor = blurRadius,
+    spread = 0.0'f32,
+    shapeSize = vec2(0.0'f32, 0.0'f32),
+  )
+
 proc line*(ctx: OpenGlContext, a: Vec2, b: Vec2, weight: float32, color: Color) =
   let hash = hash((2345, a, b, (weight * 100).int, hash(color)))
 
@@ -1179,17 +1265,19 @@ proc beginFrameProj(ctx: OpenGlContext, frameSize: Vec2, proj: Mat4) =
   ctx.frameBegun = true
 
   ctx.proj = proj
+  ctx.frameSize = frameSize
 
   if ctx.maskTextures[0].width != frameSize.x.int32 or
       ctx.maskTextures[0].height != frameSize.y.int32:
     # Resize all of the masks.
-    ctx.frameSize = frameSize
     for i in 0 ..< ctx.maskTextures.len:
       ctx.maskTextures[i].width = frameSize.x.int32
       ctx.maskTextures[i].height = frameSize.y.int32
       if i > 0:
         # Never resize the 0th mask because its just white.
         bindTextureData(ctx.maskTextures[i].addr, nil)
+
+  ctx.ensureBackdropTexture(frameSize)
 
   glViewport(0, 0, ctx.frameSize.x.GLint, ctx.frameSize.y.GLint)
 

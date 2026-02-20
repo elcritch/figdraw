@@ -62,6 +62,35 @@ float shadowProfile(float sd, float blurRadius) {
   return exp(-0.5 * z * z);
 }
 
+float4 sampleBackdropBlur(
+    texture2d<float> backdropTex,
+    float2 normalizedPos,
+    float2 windowFrame,
+    float blurRadius) {
+  float radius = clamp(blurRadius, 0.0, 64.0);
+  if (radius <= 0.5) {
+    return backdropTex.sample(s, normalizedPos);
+  }
+
+  const int tapRadius = 4;
+  float sigma = max(0.5 * radius, 0.5);
+  float stepPx = max(radius / float(tapRadius), 1.0);
+  float2 texel = float2(1.0 / windowFrame.x, 1.0 / windowFrame.y);
+
+  float4 acc = float4(0.0);
+  float weightSum = 0.0;
+  for (int y = -tapRadius; y <= tapRadius; ++y) {
+    for (int x = -tapRadius; x <= tapRadius; ++x) {
+      float2 dPx = float2(float(x), float(y)) * stepPx;
+      float d2 = dot(dPx, dPx);
+      float w = exp(-0.5 * d2 / (sigma * sigma));
+      acc += backdropTex.sample(s, normalizedPos + dPx * texel) * w;
+      weightSum += w;
+    }
+  }
+  return acc / max(weightSum, 1e-5);
+}
+
 vertex VSOut vs_main(
     uint vid [[vertex_id]],
     const device float2* positions [[buffer(0)]],
@@ -89,7 +118,8 @@ fragment float4 fs_main(
     VSOut in [[stage_in]],
     constant FSUniforms& u [[buffer(0)]],
     texture2d<float> atlasTex [[texture(0)]],
-    texture2d<float> maskTex [[texture(1)]]) {
+    texture2d<float> maskTex [[texture(1)]],
+    texture2d<float> backdropTex [[texture(2)]]) {
   const int sdfModeAtlas = 0;
   const int sdfModeClipAA = 3;
   const int sdfModeDropShadow = 7;
@@ -101,6 +131,7 @@ fragment float4 fs_main(
   const int sdfModeMtsdf = 14;
   const int sdfModeMsdfAnnular = 15;
   const int sdfModeMtsdfAnnular = 16;
+  const int sdfModeBackdropBlur = 17;
 
   int sdfModeInt = int(in.sdfMode);
   float2 quadHalfExtents = in.sdfParams.xy;
@@ -194,6 +225,14 @@ fragment float4 fs_main(
         alpha = clipAlpha * insetAlpha;
         break;
       }
+      case sdfModeBackdropBlur: {
+        float cl = clamp(u.aaFactor * dist + 0.5, 0.0, 1.0);
+        alpha = 1.0 - cl;
+        float2 normalizedPos = float2(in.pos.x / u.windowFrame.x, in.pos.y / u.windowFrame.y);
+        float4 blur = sampleBackdropBlur(backdropTex, normalizedPos, u.windowFrame, sdfFactor);
+        fragColor = float4(blur.xyz, blur.w * alpha);
+        break;
+      }
       default: {
         float cl = clamp(u.aaFactor * dist + 0.5, 0.0, 1.0);
         alpha = 1.0 - cl;
@@ -201,7 +240,9 @@ fragment float4 fs_main(
       }
     }
 
-    fragColor = float4(in.color.x, in.color.y, in.color.z, in.color.w * alpha);
+    if (sdfModeInt != sdfModeBackdropBlur) {
+      fragColor = float4(in.color.x, in.color.y, in.color.z, in.color.w * alpha);
+    }
   }
 
   float2 normalizedPos =

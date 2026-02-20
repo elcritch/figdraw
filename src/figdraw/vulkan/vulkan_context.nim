@@ -156,6 +156,13 @@ type
     atlasImage: VkImage
     atlasImageMemory: VkDeviceMemory
     atlasView: VkImageView
+    backdropImage: VkImage
+    backdropImageMemory: VkDeviceMemory
+    backdropView: VkImageView
+    backdropLayoutReady: bool
+    backdropWidth: int32
+    backdropHeight: int32
+    backdropFormat: VkFormat
     atlasSampler: VkSampler
     atlasUploadBuffer: VkBuffer
     atlasUploadMemory: VkDeviceMemory
@@ -372,6 +379,48 @@ proc createImageView(
   )
   checkVkResult vkCreateImageView(ctx.device, info.addr, nil, result.addr)
 
+proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
+  let w = max(1'i32, width)
+  let h = max(1'i32, height)
+  let backdropFormat =
+    if ctx.swapchainFormat != VK_FORMAT_UNDEFINED:
+      ctx.swapchainFormat
+    else:
+      VK_FORMAT_B8G8R8A8_UNORM
+  if ctx.backdropImage != vkNullImage and ctx.backdropView != vkNullImageView and
+      ctx.backdropWidth == w and ctx.backdropHeight == h and
+      ctx.backdropFormat == backdropFormat:
+    return
+
+  if ctx.backdropView != vkNullImageView:
+    vkDestroyImageView(ctx.device, ctx.backdropView, nil)
+    ctx.backdropView = vkNullImageView
+  if ctx.backdropImage != vkNullImage:
+    vkDestroyImage(ctx.device, ctx.backdropImage, nil)
+    ctx.backdropImage = vkNullImage
+  if ctx.backdropImageMemory != vkNullMemory:
+    vkFreeMemory(ctx.device, ctx.backdropImageMemory, nil)
+    ctx.backdropImageMemory = vkNullMemory
+
+  let backdropAlloc = ctx.createImage(
+    width = w.uint32,
+    height = h.uint32,
+    format = backdropFormat,
+    tiling = VK_IMAGE_TILING_OPTIMAL,
+    usage = VkImageUsageFlags{SampledBit, TransferDstBit},
+    properties = VkMemoryPropertyFlags{DeviceLocalBit},
+  )
+  ctx.backdropImage = backdropAlloc.image
+  ctx.backdropImageMemory = backdropAlloc.memory
+  ctx.backdropView =
+    ctx.createImageView(ctx.backdropImage, backdropFormat, VkImageAspectFlags{ColorBit})
+  ctx.backdropLayoutReady = false
+  ctx.backdropWidth = w
+  ctx.backdropHeight = h
+  ctx.backdropFormat = backdropFormat
+  if ctx.descriptorSet != vkNullDescriptorSet:
+    ctx.updateDescriptorSet()
+
 proc fullFrameRect(ctx: VulkanContext): Rect =
   rect(0.0'f32, 0.0'f32, ctx.frameSize.x, ctx.frameSize.y)
 
@@ -418,6 +467,12 @@ proc updateDescriptorSet(ctx: VulkanContext) =
     imageView = ctx.atlasView,
     imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
   )
+  var backdropImageInfo = newVkDescriptorImageInfo(
+    sampler = ctx.atlasSampler,
+    imageView =
+      (if ctx.backdropView != vkNullImageView: ctx.backdropView else: ctx.atlasView),
+    imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+  )
 
   let writes = [
     newVkWriteDescriptorSet(
@@ -457,6 +512,16 @@ proc updateDescriptorSet(ctx: VulkanContext) =
       descriptorCount = 1,
       descriptorType = VkDescriptorType.CombinedImageSampler,
       pImageInfo = atlasImageInfo.addr,
+      pBufferInfo = nil,
+      pTexelBufferView = nil,
+    ),
+    newVkWriteDescriptorSet(
+      dstSet = ctx.descriptorSet,
+      dstBinding = 4,
+      dstArrayElement = 0,
+      descriptorCount = 1,
+      descriptorType = VkDescriptorType.CombinedImageSampler,
+      pImageInfo = backdropImageInfo.addr,
       pBufferInfo = nil,
       pTexelBufferView = nil,
     ),
@@ -503,7 +568,7 @@ proc createPipeline(ctx: VulkanContext) =
     storeOp: VK_ATTACHMENT_STORE_OP_STORE,
     stencilLoadOp: VK_ATTACHMENT_LOAD_OP_DONT_CARE,
     stencilStoreOp: VK_ATTACHMENT_STORE_OP_DONT_CARE,
-    initialLayout: VK_IMAGE_LAYOUT_UNDEFINED,
+    initialLayout: VkImageLayout.PresentSrcKhr,
     finalLayout: VkImageLayout.PresentSrcKhr,
   )
   var colorAttachmentRef = VkAttachmentReference(
@@ -1495,6 +1560,13 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
       stageFlags = VkShaderStageFlags{FragmentBit},
       pImmutableSamplers = nil,
     ),
+    newVkDescriptorSetLayoutBinding(
+      binding = 4,
+      descriptorType = VkDescriptorType.CombinedImageSampler,
+      descriptorCount = 1,
+      stageFlags = VkShaderStageFlags{FragmentBit},
+      pImmutableSamplers = nil,
+    ),
   ]
   ctx.descriptorSetLayout = createDescriptorSetLayout(
     ctx.device, newVkDescriptorSetLayoutCreateInfo(bindings = setBindings)
@@ -1505,7 +1577,7 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
       `type` = VkDescriptorType.UniformBuffer, descriptorCount = 2
     ),
     newVkDescriptorPoolSize(
-      `type` = VkDescriptorType.CombinedImageSampler, descriptorCount = 2
+      `type` = VkDescriptorType.CombinedImageSampler, descriptorCount = 3
     ),
   ]
   ctx.descriptorPool = createDescriptorPool(
@@ -2389,6 +2461,209 @@ method drawRoundedRectSdf*(
 
   inc ctx.quadCount
 
+method drawBackdropBlur*(
+    ctx: VulkanContext,
+    rect: Rect,
+    radii: array[DirectionCorners, float32],
+    blurRadius: float32,
+) =
+  if blurRadius <= 0.0'f32 or rect.w <= 0.0'f32 or rect.h <= 0.0'f32:
+    return
+  if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain:
+    return
+  if ctx.acquiredImageIndex.int >= ctx.swapchainImages.len:
+    return
+
+  ctx.flush()
+  ctx.beginRenderPassIfNeeded()
+  if ctx.renderPassBegun:
+    vkCmdEndRenderPass(ctx.commandBuffer)
+    ctx.renderPassBegun = false
+
+  let width = max(1'i32, ctx.swapchainExtent.width.int32)
+  let height = max(1'i32, ctx.swapchainExtent.height.int32)
+  if width <= 0 or height <= 0:
+    return
+  ctx.ensureBackdropImage(width, height)
+  if ctx.backdropImage == vkNullImage or ctx.backdropView == vkNullImageView:
+    return
+
+  let backdropOldLayout =
+    if ctx.backdropLayoutReady:
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    else:
+      VK_IMAGE_LAYOUT_UNDEFINED
+  let backdropSrcAccess =
+    if ctx.backdropLayoutReady:
+      VkAccessFlags{ShaderReadBit}
+    else:
+      0.VkAccessFlags
+  let backdropSrcStage =
+    if ctx.backdropLayoutReady:
+      VkPipelineStageFlags{FragmentShaderBit}
+    else:
+      VkPipelineStageFlags{TopOfPipeBit}
+
+  var backdropToTransfer = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    pNext: nil,
+    srcAccessMask: backdropSrcAccess,
+    dstAccessMask: VkAccessFlags{TransferWriteBit},
+    oldLayout: backdropOldLayout,
+    newLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: ctx.backdropImage,
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  vkCmdPipelineBarrier(
+    ctx.commandBuffer,
+    backdropSrcStage,
+    VkPipelineStageFlags{TransferBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    backdropToTransfer.addr,
+  )
+
+  let swapchainImage = ctx.swapchainImages[ctx.acquiredImageIndex.int]
+  var swapchainToTransfer = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    pNext: nil,
+    srcAccessMask: 0.VkAccessFlags,
+    dstAccessMask: VkAccessFlags{TransferReadBit},
+    oldLayout: VkImageLayout.PresentSrcKhr,
+    newLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: swapchainImage,
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  vkCmdPipelineBarrier(
+    ctx.commandBuffer,
+    VkPipelineStageFlags{BottomOfPipeBit},
+    VkPipelineStageFlags{TransferBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    swapchainToTransfer.addr,
+  )
+
+  var copyRegion = VkImageCopy(
+    srcSubresource: newVkImageSubresourceLayers(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      mipLevel = 0,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+    srcOffset: newVkOffset3D(x = 0, y = 0, z = 0),
+    dstSubresource: newVkImageSubresourceLayers(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      mipLevel = 0,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+    dstOffset: newVkOffset3D(x = 0, y = 0, z = 0),
+    extent: newVkExtent3D(
+      width = ctx.swapchainExtent.width, height = ctx.swapchainExtent.height, depth = 1
+    ),
+  )
+  vkCmdCopyImage(
+    ctx.commandBuffer, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    ctx.backdropImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, copyRegion.addr,
+  )
+
+  var backdropToRead = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    pNext: nil,
+    srcAccessMask: VkAccessFlags{TransferWriteBit},
+    dstAccessMask: VkAccessFlags{ShaderReadBit},
+    oldLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    newLayout: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: ctx.backdropImage,
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  vkCmdPipelineBarrier(
+    ctx.commandBuffer,
+    VkPipelineStageFlags{TransferBit},
+    VkPipelineStageFlags{FragmentShaderBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    backdropToRead.addr,
+  )
+
+  var swapchainToPresent = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    pNext: nil,
+    srcAccessMask: VkAccessFlags{TransferReadBit},
+    dstAccessMask: 0.VkAccessFlags,
+    oldLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    newLayout: VkImageLayout.PresentSrcKhr,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: swapchainImage,
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  vkCmdPipelineBarrier(
+    ctx.commandBuffer,
+    VkPipelineStageFlags{TransferBit},
+    VkPipelineStageFlags{BottomOfPipeBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    swapchainToPresent.addr,
+  )
+  ctx.backdropLayoutReady = true
+
+  ctx.drawRoundedRectSdf(
+    rect = rect,
+    color = whiteColor,
+    radii = radii,
+    mode = figbackend.SdfMode.sdfModeBackdropBlur,
+    factor = blurRadius,
+    spread = 0.0'f32,
+    shapeSize = vec2(0.0'f32, 0.0'f32),
+  )
+
 proc line*(ctx: VulkanContext, a: Vec2, b: Vec2, weight: float32, color: Color) =
   let hash = hash((2345, a, b, (weight * 100).int, hash(color)))
 
@@ -2502,6 +2777,7 @@ proc beginFrame*(
   ctx.ensureSwapchain(width, height)
   if ctx.swapchain == vkNullSwapchain:
     return
+  ctx.ensureBackdropImage(width, height)
 
   checkVkResult vkWaitForFences(
     ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
@@ -2640,6 +2916,16 @@ proc destroyGpu(ctx: VulkanContext) =
     vkFreeMemory(ctx.device, ctx.atlasImageMemory, nil)
     ctx.atlasImageMemory = vkNullMemory
 
+  if ctx.backdropView != vkNullImageView:
+    vkDestroyImageView(ctx.device, ctx.backdropView, nil)
+    ctx.backdropView = vkNullImageView
+  if ctx.backdropImage != vkNullImage:
+    vkDestroyImage(ctx.device, ctx.backdropImage, nil)
+    ctx.backdropImage = vkNullImage
+  if ctx.backdropImageMemory != vkNullMemory:
+    vkFreeMemory(ctx.device, ctx.backdropImageMemory, nil)
+    ctx.backdropImageMemory = vkNullMemory
+
   if ctx.atlasUploadBuffer != vkNullBuffer:
     destroyBuffer(ctx.device, ctx.atlasUploadBuffer)
     ctx.atlasUploadBuffer = vkNullBuffer
@@ -2704,6 +2990,10 @@ proc destroyGpu(ctx: VulkanContext) =
   ctx.swapchainOutOfDate = false
   ctx.swapchainTransferSrcSupported = false
   ctx.atlasLayoutReady = false
+  ctx.backdropLayoutReady = false
+  ctx.backdropWidth = 0
+  ctx.backdropHeight = 0
+  ctx.backdropFormat = VK_FORMAT_UNDEFINED
   ctx.readbackReady = false
 
 proc newContext*(
@@ -2787,6 +3077,45 @@ proc newContext*(
   result.readbackWidth = 0
   result.readbackHeight = 0
   result.readbackReady = false
+  result.atlasImage = vkNullImage
+  result.atlasImageMemory = vkNullMemory
+  result.atlasView = vkNullImageView
+  result.backdropImage = vkNullImage
+  result.backdropImageMemory = vkNullMemory
+  result.backdropView = vkNullImageView
+  result.backdropLayoutReady = false
+  result.backdropWidth = 0
+  result.backdropHeight = 0
+  result.backdropFormat = VK_FORMAT_UNDEFINED
+  result.atlasSampler = vkNullSampler
+  result.atlasUploadBuffer = vkNullBuffer
+  result.atlasUploadMemory = vkNullMemory
+  result.atlasUploadBytes = 0.VkDeviceSize
+  result.vertexBuffer = vkNullBuffer
+  result.vertexMemory = vkNullMemory
+  result.vertexBufferBytes = 0.VkDeviceSize
+  result.indexBuffer = vkNullBuffer
+  result.indexMemory = vkNullMemory
+  result.indexBufferBytes = 0.VkDeviceSize
+  result.vsUniformBuffer = vkNullBuffer
+  result.vsUniformMemory = vkNullMemory
+  result.fsUniformBuffer = vkNullBuffer
+  result.fsUniformMemory = vkNullMemory
+  result.commandPool = vkNullCommandPool
+  result.commandBuffer = vkNullCommandBuffer
+  result.imageAvailableSemaphore = vkNullSemaphore
+  result.renderFinishedSemaphore = vkNullSemaphore
+  result.inFlightFence = vkNullFence
+  result.descriptorSetLayout = vkNullDescriptorSetLayout
+  result.descriptorPool = vkNullDescriptorPool
+  result.descriptorSet = vkNullDescriptorSet
+  result.pipelineLayout = vkNullPipelineLayout
+  result.pipeline = vkNullPipeline
+  result.renderPass = vkNullRenderPass
+  result.vertShader = vkNullShaderModule
+  result.fragShader = vkNullShaderModule
+  result.frameSize = vec2(1.0'f32, 1.0'f32)
+  result.proj = mat4()
   result.pendingMaskRect = rect(0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32)
   result.pendingMaskValid = false
   result.clipRects = @[]

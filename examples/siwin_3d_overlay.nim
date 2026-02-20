@@ -407,17 +407,42 @@ proc makeOverlay*(
     style: DropShadow, blur: 18, spread: 0, x: 0, y: 10, fill: rgba(0, 0, 0, 60).color
   )
 
-  let panelIdx = list.addChild(
+  discard list.addChild(
     rootIdx,
     Fig(
       kind: nkRectangle,
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: panelRect,
-      fill: rgba(20, 22, 32, 220),
-      stroke: RenderStroke(weight: 1.5, fill: rgba(255, 255, 255, 40).color),
+      fill: rgba(0, 0, 0, 0).color,
+      stroke: RenderStroke(weight: 0.0, fill: rgba(0, 0, 0, 0).color),
       corners: [12.0'f32, 12.0, 12.0, 12.0],
       shadows: [panelShadow, RenderShadow(), RenderShadow(), RenderShadow()],
+    ),
+  )
+  let panelIdx = list.addChild(
+    rootIdx,
+    Fig(
+      kind: nkBackdropBlur,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: panelRect,
+      fill: rgba(20, 22, 32, 168),
+      corners: [12.0'f32, 12.0, 12.0, 12.0],
+      backdropBlur: BackdropBlurStyle(blur: 16.0'f32),
+    ),
+  )
+  discard list.addChild(
+    panelIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: 0.ZLevel,
+      screenBox: panelRect,
+      fill: rgba(20, 22, 32, 92),
+      stroke: RenderStroke(weight: 1.5, fill: rgba(255, 255, 255, 48).color),
+      corners: [12.0'f32, 12.0, 12.0, 12.0],
+      shadows: [RenderShadow(), RenderShadow(), RenderShadow(), RenderShadow()],
     ),
   )
 
@@ -486,11 +511,10 @@ when isMainModule:
   let monoTypeface = loadTypeface("HackNerdFont-Regular.ttf")
   let monoFont = monoTypeface.fontWithSize(14.0'f32)
 
-  when UseVulkanBackend:
-    if getEnv("FIGDRAW_FORCE_OPENGL").len == 0 and getEnv("FIGDRAW_BACKEND").len == 0:
-      # This sample renders raw OpenGL geometry and overlays FigDraw on top.
-      # On Vulkan-default builds, force OpenGL so siwin creates a GL window.
-      putEnv("FIGDRAW_FORCE_OPENGL", "1")
+  when not defined(emscripten):
+    # This sample draws the 3D scene with raw OpenGL and applies backdrop blur over it.
+    # Force FigDraw to OpenGL so both scene + overlay share the same framebuffer.
+    putEnv("FIGDRAW_FORCE_OPENGL", "1")
 
   let title = siwinWindowTitle("Siwin 3D + overlay")
   let size = ivec2(900, 640)

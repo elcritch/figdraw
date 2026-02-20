@@ -739,10 +739,17 @@ proc renderMtsdfImage(ctx: BackendContext, node: Fig) =
   )
 
 proc renderBackdropBlur(ctx: BackendContext, node: Fig) =
-  ## Backdrop sampling blur is not wired yet across backends.
-  ## Until it is, draw only the tint/fill overlay for this region.
+  let box = node.screenBox.scaled()
+  if node.backdropBlur.blur > 0.0'f32:
+    ctx.drawBackdropBlur(
+      rect = box,
+      radii = node.corners.scaledCorners(),
+      blurRadius = node.backdropBlur.blur.scaled(),
+    )
+
   if fillAlphaMax(node.fill) == 0'u8:
     return
+
   var overlay = Fig(kind: nkRectangle)
   overlay.screenBox = node.screenBox
   overlay.fill = node.fill

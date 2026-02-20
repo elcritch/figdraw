@@ -14,6 +14,7 @@ varying vec2 sdfFactors;
 uniform vec2 windowFrame;
 uniform sampler2D atlasTex;
 uniform sampler2D maskTex;
+uniform sampler2D backdropTex;
 uniform float aaFactor;
 uniform bool maskTexEnabled;
 
@@ -28,6 +29,7 @@ const int sdfModeMsdf = 13;
 const int sdfModeMtsdf = 14;
 const int sdfModeMsdfAnnular = 15;
 const int sdfModeMtsdfAnnular = 16;
+const int sdfModeBackdropBlur = 17;
 
 float median(float a, float b, float c) {
   return max(min(a, b), min(max(a, b), c));
@@ -65,6 +67,32 @@ float shadowProfile(float sd, float blurRadius) {
   float sigma = max(0.5 * blurRadius, 0.5);
   float z = sd / sigma;
   return exp(-0.5 * z * z);
+}
+
+vec4 sampleBackdropBlur(vec2 normalizedPos, float blurRadius) {
+  float radius = clamp(blurRadius, 0.0, 64.0);
+  if (radius <= 0.5) {
+    return texture2D(backdropTex, normalizedPos);
+  }
+
+  const int kernel = 4;
+  float sigma = max(0.5 * radius, 0.5);
+  float stepPx = max(radius / float(kernel), 1.0);
+  vec2 texel = vec2(1.0 / windowFrame.x, 1.0 / windowFrame.y);
+
+  vec4 acc = vec4(0.0);
+  float weightSum = 0.0;
+  for (int y = -kernel; y <= kernel; y++) {
+    for (int x = -kernel; x <= kernel; x++) {
+      vec2 dPx = vec2(float(x), float(y)) * stepPx;
+      float d2 = dot(dPx, dPx);
+      float w = exp(-0.5 * d2 / (sigma * sigma));
+      acc += texture2D(backdropTex, normalizedPos + dPx * texel) * w;
+      weightSum += w;
+    }
+  }
+
+  return acc / max(weightSum, 1e-5);
 }
 
 void main() {
@@ -147,12 +175,20 @@ void main() {
       float a = shadowProfile(sd, sdfFactor);
       float insetAlpha = (sd < 0.0) ? min(a, 1.0) : 1.0;
       alpha = clipAlpha * insetAlpha;
+    } else if (sdfModeInt == sdfModeBackdropBlur) {
+      float cl = clamp(aaFactor * dist + 0.5, 0.0, 1.0);
+      alpha = 1.0 - cl;
+      vec2 normalizedPos = vec2(pos.x / windowFrame.x, 1.0 - pos.y / windowFrame.y);
+      vec4 blur = sampleBackdropBlur(normalizedPos, sdfFactor);
+      fragColor = vec4(blur.rgb, blur.a * alpha);
     } else {
       float cl = clamp(aaFactor * dist + 0.5, 0.0, 1.0);
       alpha = 1.0 - cl;
     }
 
-    fragColor = vec4(color.x, color.y, color.z, color.w * alpha);
+    if (sdfModeInt != sdfModeBackdropBlur) {
+      fragColor = vec4(color.x, color.y, color.z, color.w * alpha);
+    }
   }
 
   vec2 normalizedPos = vec2(pos.x / windowFrame.x, 1.0 - pos.y / windowFrame.y);
