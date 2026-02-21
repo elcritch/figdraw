@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="480" viewBox="0 0 1600 480" role="img" aria-labelledby="title desc">
+  <title id="title">FigDraw Banner</title>
+  <desc id="desc">A stylized banner showing layered rounded rectangles, soft shadows, and the FigDraw wordmark.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#08121c"/>
+      <stop offset="45%" stop-color="#10283a"/>
+      <stop offset="100%" stop-color="#14384c"/>
+    </linearGradient>
+
+    <linearGradient id="accentA" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#ffcd45"/>
+    </linearGradient>
+
+    <linearGradient id="accentB" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4ad8ff"/>
+      <stop offset="100%" stop-color="#236bff"/>
+    </linearGradient>
+
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.02"/>
+    </linearGradient>
+
+    <filter id="shadowSoft" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#02060a" flood-opacity="0.48"/>
+    </filter>
+
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="24"/>
+    </filter>
+
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#d6f5ff" stroke-opacity="0.06" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1600" height="480" fill="url(#bg)"/>
+  <rect width="1600" height="480" fill="url(#grid)"/>
+
+  <ellipse cx="1180" cy="160" rx="220" ry="140" fill="#3dd6ff" fill-opacity="0.16" filter="url(#glow)"/>
+  <ellipse cx="340" cy="400" rx="320" ry="110" fill="#ff9f43" fill-opacity="0.14" filter="url(#glow)"/>
+
+  <g transform="translate(118, 98)" filter="url(#shadowSoft)">
+    <rect x="0" y="0" width="620" height="284" rx="32" fill="#07131d" fill-opacity="0.72" stroke="#67d9ff" stroke-opacity="0.24"/>
+    <rect x="36" y="44" width="548" height="196" rx="24" fill="url(#glass)" stroke="#ffffff" stroke-opacity="0.16"/>
+
+    <rect x="72" y="82" width="214" height="66" rx="18" fill="url(#accentA)"/>
+    <rect x="304" y="82" width="244" height="66" rx="18" fill="url(#accentB)"/>
+
+    <rect x="72" y="164" width="304" height="40" rx="12" fill="#ffffff" fill-opacity="0.14"/>
+    <rect x="388" y="164" width="160" height="40" rx="12" fill="#ffffff" fill-opacity="0.10"/>
+  </g>
+
+  <g transform="translate(808, 132)">
+    <text x="0" y="120" font-family="Avenir Next, Segoe UI, Helvetica, Arial, sans-serif" font-size="122" font-weight="800" fill="#f4fbff" letter-spacing="1">
+      FigDraw
+    </text>
+    <text x="4" y="172" font-family="Avenir Next, Segoe UI, Helvetica, Arial, sans-serif" font-size="34" font-weight="600" fill="#b7d8e8" letter-spacing="2.2">
+      Nim Scene Graph Rendering
+    </text>
+
+    <rect x="0" y="202" width="388" height="12" rx="6" fill="url(#accentA)"/>
+    <rect x="406" y="202" width="278" height="12" rx="6" fill="url(#accentB)"/>
+  </g>
+</svg>
