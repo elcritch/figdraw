@@ -1,4 +1,6 @@
 import std/[os, strutils]
+when defined(linux) or defined(bsd):
+  import std/osproc
 import vmath
 
 import siwin/[window as siWindow, windowOpengl as siWindowOpengl]
@@ -36,6 +38,36 @@ proc siwinBackendName*[BackendState](renderer: FigRenderer[BackendState]): strin
   renderer.backendName()
 
 var siwinGlobalsShared {.threadvar.}: SiwinGlobals
+
+when defined(linux) or defined(bsd):
+  var cachedXftScale {.threadvar.}: float32
+  var cachedXftScaleInitialized {.threadvar.}: bool
+
+  proc xftDpiScale(): float32 =
+    ## Xft.dpi gives a useful fractional scale for X11 and many XWayland sessions.
+    ## Cache once per thread to avoid shelling out repeatedly.
+    if cachedXftScaleInitialized:
+      return cachedXftScale
+    cachedXftScaleInitialized = true
+    cachedXftScale = 0.0
+    if getEnv("DISPLAY").len == 0:
+      return cachedXftScale
+    try:
+      let output = execProcess("xrdb -query")
+      for line in output.splitLines():
+        let trimmed = line.strip()
+        if not trimmed.toLowerAscii().startsWith("xft.dpi:"):
+          continue
+        let parts = trimmed.split(":", maxsplit = 1)
+        if parts.len != 2:
+          break
+        let dpi = parts[1].strip().parseFloat()
+        if dpi > 0:
+          cachedXftScale = (dpi / 96.0).float32
+        break
+    except CatchableError:
+      discard
+    cachedXftScale
 
 proc sharedSiwinGlobals*(): SiwinGlobals =
   if siwinGlobalsShared.isNil:
@@ -151,17 +183,21 @@ proc backingSize*(window: Window): IVec2 =
     let backing = contentView.convertRectToBacking(frame)
     ivec2(backing.size.width.int32, backing.size.height.int32)
   else:
-    let size = window.size
-    let scale =
-      when defined(linux) or defined(bsd):
-        let s = window.uiScale()
-        if s > 0: s else: 1.0
+    when defined(linux) or defined(bsd):
+      let size = window.size
+      if window of siWaylandWindow.WindowWayland:
+        let scale = window.uiScale()
+        if scale > 1.0:
+          ivec2(
+            max(1'i32, (size.x.float32 * scale + 0.5'f32).int32),
+            max(1'i32, (size.y.float32 * scale + 0.5'f32).int32),
+          )
+        else:
+          size
       else:
-        1.0
-    if scale <= 1.0:
-      size
+        size
     else:
-      ivec2((size.x.float32 * scale).int32, (size.y.float32 * scale).int32)
+      window.size
 
 proc logicalSize*(window: Window): Vec2 =
   vec2(window.backingSize()).descaled()
@@ -175,8 +211,13 @@ proc contentScale*(window: Window): float32 =
     let backing = contentView.convertRectToBacking(frame)
     (backing.size.width / frame.size.width).float32
   elif defined(linux) or defined(bsd):
-    let scale = window.uiScale()
-    if scale > 0: scale else: 1.0
+    let backendScale = window.uiScale()
+    let scale = if backendScale > 0: backendScale else: 1.0
+    let xftScale = xftDpiScale()
+    if xftScale > 0:
+      if window of siX11Window.WindowX11:
+        return xftScale
+    scale
   else:
     1.0
 
