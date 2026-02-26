@@ -36,7 +36,8 @@ feature "windy":
 feature "surfer":
   requires "https://github.com/nim-windowing/surfer"
 feature "siwin":
-  requires "siwin#fd90bd5"
+  #requires "siwin#fd90bd5"
+  requires "https://github.com/elcritch/siwin#impl-proper-wayland-scaling"
 
 feature "vulkan":
   requires "https://github.com/planetis-m/vulkan#b223dc9"
