@@ -55,17 +55,16 @@ jobs:
         ls -la /usr/share/vulkan/icd.d || true
         vulkaninfo --summary || true
 
-    - name: Install GrabNim
+    - name: Install ChooseNim
       if: runner.os != 'Windows'
       run: |
-        curl -fsSL https://codeberg.org/janAkali/grabnim/raw/branch/master/misc/install.sh | sh
-        echo "$HOME/.local/share/grabnim/current/bin" >> $GITHUB_PATH
+        curl -fsSL https://nim-lang.org/choosenim/init.sh | sh -s -- -y
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
     - name: Install Nim
       if: runner.os != 'Windows'
       run: |
-        grabnim ${{ matrix.nimversion }}
+        choosenim ${{ matrix.nimversion }}
         nim -v
 
     - name: Install Nim (Windows)
