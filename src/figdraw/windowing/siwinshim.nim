@@ -183,21 +183,7 @@ proc backingSize*(window: Window): IVec2 =
     let backing = contentView.convertRectToBacking(frame)
     ivec2(backing.size.width.int32, backing.size.height.int32)
   else:
-    when defined(linux) or defined(bsd):
-      let size = window.size
-      if window of siWaylandWindow.WindowWayland:
-        let scale = window.uiScale()
-        if scale > 1.0:
-          ivec2(
-            max(1'i32, (size.x.float32 * scale + 0.5'f32).int32),
-            max(1'i32, (size.y.float32 * scale + 0.5'f32).int32),
-          )
-        else:
-          size
-      else:
-        size
-    else:
-      window.size
+    window.size
 
 proc logicalSize*(window: Window): Vec2 =
   vec2(window.backingSize()).descaled()
