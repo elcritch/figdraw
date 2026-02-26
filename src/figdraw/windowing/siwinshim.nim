@@ -151,7 +151,17 @@ proc backingSize*(window: Window): IVec2 =
     let backing = contentView.convertRectToBacking(frame)
     ivec2(backing.size.width.int32, backing.size.height.int32)
   else:
-    window.size
+    let size = window.size
+    let scale =
+      when defined(linux) or defined(bsd):
+        let s = window.uiScale()
+        if s > 0: s else: 1.0
+      else:
+        1.0
+    if scale <= 1.0:
+      size
+    else:
+      ivec2((size.x.float32 * scale).int32, (size.y.float32 * scale).int32)
 
 proc logicalSize*(window: Window): Vec2 =
   vec2(window.backingSize()).descaled()
@@ -164,6 +174,9 @@ proc contentScale*(window: Window): float32 =
       return 1.0
     let backing = contentView.convertRectToBacking(frame)
     (backing.size.width / frame.size.width).float32
+  elif defined(linux) or defined(bsd):
+    let scale = window.uiScale()
+    if scale > 0: scale else: 1.0
   else:
     1.0
 
