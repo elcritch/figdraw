@@ -9,6 +9,7 @@ attribute vec4 vertexSdfParams;
 attribute vec4 vertexSdfRadii;
 attribute float vertexSdfMode;
 attribute vec2 vertexSdfFactors;
+attribute float vertexSubpixelShift;
 
 uniform mat4 proj;
 
@@ -19,6 +20,7 @@ varying vec4 sdfParams;
 varying vec4 sdfRadii;
 varying float sdfMode;
 varying vec2 sdfFactors;
+varying float subpixelShift;
 
 void main() {
   pos = vertexPos;
@@ -28,5 +30,6 @@ void main() {
   sdfRadii = vertexSdfRadii;
   sdfMode = vertexSdfMode;
   sdfFactors = vertexSdfFactors;
+  subpixelShift = vertexSubpixelShift;
   gl_Position = proj * vec4(vertexPos.x, vertexPos.y, 0.0, 1.0);
 }

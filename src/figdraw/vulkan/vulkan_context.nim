@@ -90,6 +90,10 @@ type
     pixelate*: bool
     pixelScale*: float32
     aaFactor: float32
+    textLcdFilteringEnabled: bool
+    textSubpixelPositioningEnabled: bool
+    textSubpixelGlyphVariantsEnabled: bool
+    textSubpixelShift: float32
 
     positions: seq[float32]
     colors: seq[uint8]
@@ -1960,6 +1964,11 @@ proc setVertColor(buf: var seq[uint8], i: int, color: ColorRGBA) =
   buf[i * 4 + 2] = color.b
   buf[i * 4 + 3] = color.a
 
+proc activeTextSubpixelShift(ctx: VulkanContext): float32 =
+  if not ctx.textSubpixelPositioningEnabled:
+    return 0.0'f32
+  max(0.0'f32, min(ctx.textSubpixelShift, 0.999'f32))
+
 func `*`*(m: Mat4, v: Vec2): Vec2 =
   (m * vec3(v.x, v.y, 0.0)).xy
 
@@ -2242,6 +2251,12 @@ proc drawUvRect(ctx: VulkanContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color
   ctx.checkBatch()
   assert ctx.quadCount < ctx.maxQuads
 
+  let uvShift =
+    if ctx.atlasSize > 0:
+      ctx.activeTextSubpixelShift() / ctx.atlasSize.float32
+    else:
+      0.0'f32
+
   let
     posQuad = [
       ceil(ctx.mat * vec2(at.x, to.y)),
@@ -2250,10 +2265,10 @@ proc drawUvRect(ctx: VulkanContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color
       ceil(ctx.mat * vec2(at.x, at.y)),
     ]
     uvQuad = [
-      vec2(uvAt.x, uvTo.y),
-      vec2(uvTo.x, uvTo.y),
-      vec2(uvTo.x, uvAt.y),
-      vec2(uvAt.x, uvAt.y),
+      vec2(uvAt.x - uvShift, uvTo.y),
+      vec2(uvTo.x - uvShift, uvTo.y),
+      vec2(uvTo.x - uvShift, uvAt.y),
+      vec2(uvAt.x - uvShift, uvAt.y),
     ]
 
   let offset = ctx.quadCount * 4
@@ -2307,6 +2322,12 @@ proc drawUvRect(
   ctx.checkBatch()
   assert ctx.quadCount < ctx.maxQuads
 
+  let uvShift =
+    if ctx.atlasSize > 0:
+      ctx.activeTextSubpixelShift() / ctx.atlasSize.float32
+    else:
+      0.0'f32
+
   let
     posQuad = [
       ceil(ctx.mat * vec2(at.x, to.y)),
@@ -2315,10 +2336,10 @@ proc drawUvRect(
       ceil(ctx.mat * vec2(at.x, at.y)),
     ]
     uvQuad = [
-      vec2(uvAt.x, uvTo.y),
-      vec2(uvTo.x, uvTo.y),
-      vec2(uvTo.x, uvAt.y),
-      vec2(uvAt.x, uvAt.y),
+      vec2(uvAt.x - uvShift, uvTo.y),
+      vec2(uvTo.x - uvShift, uvTo.y),
+      vec2(uvTo.x - uvShift, uvAt.y),
+      vec2(uvAt.x - uvShift, uvAt.y),
     ]
 
   let offset = ctx.quadCount * 4
@@ -3249,6 +3270,10 @@ proc newContext*(
   result.pixelate = pixelate
   result.pixelScale = pixelScale
   result.aaFactor = 1.2'f32
+  result.textLcdFilteringEnabled = false
+  result.textSubpixelPositioningEnabled = false
+  result.textSubpixelGlyphVariantsEnabled = false
+  result.textSubpixelShift = 0.0'f32
   result.atlasPixels = newImage(atlasSize, atlasSize)
   result.atlasPixels.fill(rgba(0, 0, 0, 0))
   result.atlasDirty = true
@@ -3549,3 +3574,24 @@ method entriesPtr*(ctx: VulkanContext): ptr Table[Hash, Rect] =
 
 method pixelScale*(ctx: VulkanContext): float32 =
   ctx.pixelScale
+
+method textLcdFilteringEnabled*(ctx: VulkanContext): bool =
+  ctx.textLcdFilteringEnabled
+
+method setTextLcdFilteringEnabled*(ctx: VulkanContext, enabled: bool) =
+  ctx.textLcdFilteringEnabled = enabled
+
+method textSubpixelPositioningEnabled*(ctx: VulkanContext): bool =
+  ctx.textSubpixelPositioningEnabled
+
+method setTextSubpixelPositioningEnabled*(ctx: VulkanContext, enabled: bool) =
+  ctx.textSubpixelPositioningEnabled = enabled
+
+method textSubpixelGlyphVariantsEnabled*(ctx: VulkanContext): bool =
+  ctx.textSubpixelGlyphVariantsEnabled
+
+method setTextSubpixelGlyphVariantsEnabled*(ctx: VulkanContext, enabled: bool) =
+  ctx.textSubpixelGlyphVariantsEnabled = enabled
+
+method setTextSubpixelShift*(ctx: VulkanContext, shift: float32) =
+  ctx.textSubpixelShift = shift

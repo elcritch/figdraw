@@ -87,6 +87,63 @@ suite "fontutils":
         break
     check foundNonWhitespace
 
+  test "glyph hash separates lcd filtering variants":
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+    let box = rect(0, 0, 240, 60)
+    let spans = [(fs(uiFont), "A")]
+    let arrangement =
+      typeset(box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false)
+
+    var checked = false
+    for glyph in arrangement.glyphs():
+      if glyph.rune.isWhiteSpace:
+        continue
+      check glyph.hash(lcdFiltering = false) != glyph.hash(lcdFiltering = true)
+      checked = true
+      break
+    check checked
+
+  test "glyph hash separates glyph-variant subpixel steps":
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+    let box = rect(0, 0, 240, 60)
+    let spans = [(fs(uiFont), "A")]
+    let arrangement =
+      typeset(box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false)
+
+    var checked = false
+    for glyph in arrangement.glyphs():
+      if glyph.rune.isWhiteSpace:
+        continue
+      check glyph.hash(subpixelVariant = 0) != glyph.hash(subpixelVariant = 1)
+      checked = true
+      break
+    check checked
+
+  test "glyph-variant subpixel step maps fractional x to 10 steps":
+    check toGlyphVariantSubpixelStep(0.0'f32) == 0
+    check toGlyphVariantSubpixelStep(0.09'f32) == 0
+    check toGlyphVariantSubpixelStep(0.10'f32) == 1
+    check toGlyphVariantSubpixelStep(0.59'f32) == 5
+    check toGlyphVariantSubpixelStep(0.999'f32) == 9
+    check toGlyphVariantSubpixelStep(1.25'f32) == 9
+
+  test "lcd filter applies freetype 5-tap kernel":
+    var image = newImage(7, 1)
+    image[3, 0] = rgba(255, 255, 255, 255)
+    image.applyLcdFilter()
+
+    let expected = [0'u8, 8'u8, 77'u8, 86'u8, 77'u8, 8'u8, 0'u8]
+    for x in 0 ..< expected.len:
+      let px = image[x, 0]
+      check px.r == expected[x]
+      check px.g == expected[x]
+      check px.b == expected[x]
+      check px.a == expected[x]
+
   test "typeset preserves gradient span fills":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)

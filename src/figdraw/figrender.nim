@@ -42,6 +42,9 @@ type NoRendererBackendState* = object
 type FigRenderer*[BackendState = NoRendererBackendState] = ref object
   ctx*: BackendContext
   backendState*: BackendState
+  textLcdFilteringDesired: bool
+  textSubpixelPositioningDesired: bool
+  textSubpixelGlyphVariantsDesired: bool
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     fallbackAtlasSize: int
     fallbackPixelate: bool
@@ -58,6 +61,67 @@ proc backendKind*[BackendState](
 
 proc backendName*[BackendState](renderer: FigRenderer[BackendState]): string =
   backendName(renderer.backendKind())
+
+proc runtimeTextLcdFilteringRequested*(): bool =
+  let v1 = getEnv("FIGDRAW_TEXT_LCD_FILTERING").strip().toLowerAscii()
+  if v1.len > 0:
+    return v1 in ["1", "true", "yes", "on"]
+  let v3 = getEnv("FIGDRAW_TEXT_LCD_FILTER").strip().toLowerAscii()
+  if v3.len > 0:
+    return v3 in ["1", "true", "yes", "on"]
+  false
+
+proc runtimeTextSubpixelPositioningRequested*(): bool =
+  let v1 = getEnv("FIGDRAW_TEXT_SUBPIXEL_POSITIONING").strip().toLowerAscii()
+  if v1.len > 0:
+    return v1 in ["1", "true", "yes", "on"]
+  false
+
+proc runtimeTextSubpixelGlyphVariantsRequested*(): bool =
+  let v1 = getEnv("FIGDRAW_TEXT_SUBPIXEL_GLYPH_VARIANTS").strip().toLowerAscii()
+  if v1.len > 0:
+    return v1 in ["1", "true", "yes", "on"]
+  false
+
+proc applyTextRuntimeFlags[BackendState](renderer: FigRenderer[BackendState]) =
+  if renderer.ctx.isNil:
+    return
+  renderer.ctx.setTextLcdFilteringEnabled(renderer.textLcdFilteringDesired)
+  renderer.ctx.setTextSubpixelPositioningEnabled(
+    renderer.textSubpixelPositioningDesired
+  )
+  renderer.ctx.setTextSubpixelGlyphVariantsEnabled(
+    renderer.textSubpixelGlyphVariantsDesired
+  )
+
+proc setTextLcdFiltering*[BackendState](
+    renderer: FigRenderer[BackendState], enabled: bool
+) =
+  renderer.textLcdFilteringDesired = enabled
+  renderer.ctx.setTextLcdFilteringEnabled(enabled)
+
+proc textLcdFiltering*[BackendState](renderer: FigRenderer[BackendState]): bool =
+  renderer.ctx.textLcdFilteringEnabled()
+
+proc setTextSubpixelPositioning*[BackendState](
+    renderer: FigRenderer[BackendState], enabled: bool
+) =
+  renderer.textSubpixelPositioningDesired = enabled
+  renderer.ctx.setTextSubpixelPositioningEnabled(enabled)
+
+proc textSubpixelPositioning*[BackendState](renderer: FigRenderer[BackendState]): bool =
+  renderer.ctx.textSubpixelPositioningEnabled()
+
+proc setTextSubpixelGlyphVariants*[BackendState](
+    renderer: FigRenderer[BackendState], enabled: bool
+) =
+  renderer.textSubpixelGlyphVariantsDesired = enabled
+  renderer.ctx.setTextSubpixelGlyphVariantsEnabled(enabled)
+
+proc textSubpixelGlyphVariants*[BackendState](
+    renderer: FigRenderer[BackendState]
+): bool =
+  renderer.ctx.textSubpixelGlyphVariantsEnabled()
 
 proc runtimeForceOpenGlRequested*(): bool =
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
@@ -96,6 +160,7 @@ when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
         pixelate = renderer.fallbackPixelate,
         pixelScale = renderer.fallbackPixelScale,
       )
+      renderer.applyTextRuntimeFlags()
     except CatchableError as glExc:
       raise newException(
         ValueError,
@@ -128,6 +193,10 @@ proc initRendererContext[BackendState](
     pixelate = false,
 ) =
   logBackend("Setting up preferred backend")
+  renderer.textLcdFilteringDesired = runtimeTextLcdFilteringRequested()
+  renderer.textSubpixelPositioningDesired = runtimeTextSubpixelPositioningRequested()
+  renderer.textSubpixelGlyphVariantsDesired =
+    runtimeTextSubpixelGlyphVariantsRequested()
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     renderer.fallbackAtlasSize = atlasSize
     renderer.fallbackPixelate = pixelate
@@ -154,6 +223,7 @@ proc initRendererContext[BackendState](
   else:
     renderer.ctx =
       newContext(atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale)
+  renderer.applyTextRuntimeFlags()
 
 proc newFigRenderer*(
     atlasSize: int, pixelScale = 1.0'f32
@@ -170,12 +240,20 @@ proc newFigRenderer*[BackendState](
 proc newFigRenderer*(ctx: BackendContext): FigRenderer[NoRendererBackendState] =
   ## Uses a caller-created backend context.
   result = FigRenderer[NoRendererBackendState](ctx: ctx)
+  result.textLcdFilteringDesired = runtimeTextLcdFilteringRequested()
+  result.textSubpixelPositioningDesired = runtimeTextSubpixelPositioningRequested()
+  result.textSubpixelGlyphVariantsDesired = runtimeTextSubpixelGlyphVariantsRequested()
+  result.applyTextRuntimeFlags()
 
 proc newFigRenderer*[BackendState](
     ctx: BackendContext, backendState: BackendState
 ): FigRenderer[BackendState] =
   ## Uses a caller-created backend context with custom backend state payload.
   result = FigRenderer[BackendState](ctx: ctx, backendState: backendState)
+  result.textLcdFilteringDesired = runtimeTextLcdFilteringRequested()
+  result.textSubpixelPositioningDesired = runtimeTextSubpixelPositioningRequested()
+  result.textSubpixelGlyphVariantsDesired = runtimeTextSubpixelGlyphVariantsRequested()
+  result.applyTextRuntimeFlags()
 
 func fillAlphaMax(fill: Fill): uint8
 func gradientMidPos01(fill: Fill): float32
@@ -195,6 +273,12 @@ proc renderDrawable*(ctx: BackendContext, node: Fig) =
 
 proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
+  let
+    lcdFiltering = ctx.textLcdFilteringEnabled()
+    subpixelPositioning = ctx.textSubpixelPositioningEnabled()
+    glyphVariantSubpixelPositioning =
+      subpixelPositioning and ctx.textSubpixelGlyphVariantsEnabled()
+
   if NfSelectText in node.flags and fillAlphaMax(node.fill) > 0'u8:
     let rects = node.textLayout.selectionRects
     if rects.len > 0 and node.selectionRange.a <= node.selectionRange.b:
@@ -224,18 +308,40 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       continue
 
     let
-      glyphId = glyph.hash()
-      lhDelta = figUiScale() * glyph.lineHeight
-      charPos = vec2(glyph.pos.x.scaled(), scaled(glyph.pos.y - glyph.descent))
+      baseX = glyph.pos.x.scaled()
+      baseY = scaled(glyph.pos.y - glyph.descent)
+    var
+      charPos = vec2(baseX, baseY)
+      subpixelShift = 0.0'f32
+      subpixelVariant = 0
+    if subpixelPositioning:
+      let snappedX = floor(baseX)
+      charPos.x = snappedX
+      let fractionalX = max(0.0'f32, min(baseX - snappedX, 0.999'f32))
+      if glyphVariantSubpixelPositioning:
+        subpixelVariant = toGlyphVariantSubpixelStep(fractionalX)
+      else:
+        subpixelShift = fractionalX
+
+    let glyphId =
+      glyph.hash(lcdFiltering = lcdFiltering, subpixelVariant = subpixelVariant)
+
+    ctx.setTextSubpixelShift(subpixelShift)
     if glyphId notin ctx.entries:
-      glyph.generateGlyph()
+      glyph.generateGlyph(
+        lcdFiltering = lcdFiltering, subpixelVariant = subpixelVariant
+      )
       warn "missing glyph image in context",
         glyphId = glyphId, glyphRune = $glyph.rune, glyphRuneRepr = repr(glyph.rune)
+      ctx.setTextSubpixelShift(0.0'f32)
       continue
+
     if glyph.fill.kind == flColor:
       ctx.drawImage(glyphId, charPos, fillCenterColor(glyph.fill))
     else:
       ctx.drawImage(glyphId, charPos, glyph.fill.gradientColors())
+    if subpixelPositioning:
+      ctx.setTextSubpixelShift(0.0'f32)
 
 import macros except `$`
 

@@ -201,6 +201,31 @@ method restoreTransform*(impl: BackendContext) {.base.} =
 method readPixels*(impl: BackendContext, frame: Rect, readFront: bool): Image {.base.} =
   raise newException(ValueError, "Backend readPixels unavailable")
 
+method textLcdFilteringEnabled*(impl: BackendContext): bool {.base.} =
+  false
+
+method setTextLcdFilteringEnabled*(impl: BackendContext, enabled: bool) {.base.} =
+  discard
+
+method textSubpixelPositioningEnabled*(impl: BackendContext): bool {.base.} =
+  false
+
+method setTextSubpixelPositioningEnabled*(
+    impl: BackendContext, enabled: bool
+) {.base.} =
+  discard
+
+method textSubpixelGlyphVariantsEnabled*(impl: BackendContext): bool {.base.} =
+  false
+
+method setTextSubpixelGlyphVariantsEnabled*(
+    impl: BackendContext, enabled: bool
+) {.base.} =
+  discard
+
+method setTextSubpixelShift*(impl: BackendContext, shift: float32) {.base.} =
+  discard
+
 when UseMetalBackend:
   method metalDevice*(impl: BackendContext): MTLDevice {.base.} =
     nil

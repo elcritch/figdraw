@@ -8,6 +8,7 @@ varying vec4 color;
 varying vec4 sdfParams;
 varying vec4 sdfRadii;
 varying float sdfMode;
+varying float subpixelShift;
 
 uniform vec2 windowFrame;
 uniform sampler2D atlasTex;
