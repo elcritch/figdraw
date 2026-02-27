@@ -25,12 +25,6 @@ type TextSubpixelMode = enum
   tsmUvShift
   tsmGlyphVariants
 
-proc next(mode: TextSubpixelMode): TextSubpixelMode =
-  case mode
-  of tsmOff: tsmUvShift
-  of tsmUvShift: tsmGlyphVariants
-  of tsmGlyphVariants: tsmOff
-
 proc subpixelModeDescription(mode: TextSubpixelMode): string =
   case mode
   of tsmOff: "off"
@@ -99,7 +93,7 @@ proc buildBodyTextLayout*(
     uiFont: FigFont, textRect: Rect, modeLine: string
 ): tuple[layout: GlyphArrangement, highlightRange: Slice[int16]] =
   let text =
-    "Mode: " & modeLine & " (T: subpixel, L: LCD)\n\n" & "FigDraw text demo\n\n" &
+    "Mode: " & modeLine & " (G/U/V: subpixel, L: LCD)\n\n" & "FigDraw text demo\n\n" &
     "This example uses `src/figdraw/common/fontutils.nim` typesetting + glyph caching,\n" &
     "then renders glyph atlas sprites via the active renderer backend.\n"
   let highlightRange = findPhraseRange(text, "renders glyph atlas sprites")
@@ -366,8 +360,18 @@ when isMainModule:
       pollEvents()
       if window.buttonPressed[KeyEscape]:
         app_running = false
-      if window.buttonPressed[KeyT]:
-        textSubpixelMode = textSubpixelMode.next()
+      if window.buttonPressed[KeyG]:
+        textSubpixelMode = tsmOff
+        renderer.applyTextSampling(textSubpixelMode, lcdFilteringEnabled)
+        echo "text mode: ", textStatusLine(textSubpixelMode, lcdFilteringEnabled)
+        needsRedraw = true
+      if window.buttonPressed[KeyU]:
+        textSubpixelMode = tsmUvShift
+        renderer.applyTextSampling(textSubpixelMode, lcdFilteringEnabled)
+        echo "text mode: ", textStatusLine(textSubpixelMode, lcdFilteringEnabled)
+        needsRedraw = true
+      if window.buttonPressed[KeyV]:
+        textSubpixelMode = tsmGlyphVariants
         renderer.applyTextSampling(textSubpixelMode, lcdFilteringEnabled)
         echo "text mode: ", textStatusLine(textSubpixelMode, lcdFilteringEnabled)
         needsRedraw = true
