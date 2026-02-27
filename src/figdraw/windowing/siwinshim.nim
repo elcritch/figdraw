@@ -1,4 +1,6 @@
 import std/[os, strutils]
+when defined(linux) or defined(bsd):
+  import std/osproc
 import vmath
 
 import siwin/[window as siWindow, windowOpengl as siWindowOpengl]
@@ -36,6 +38,36 @@ proc siwinBackendName*[BackendState](renderer: FigRenderer[BackendState]): strin
   renderer.backendName()
 
 var siwinGlobalsShared {.threadvar.}: SiwinGlobals
+
+when defined(linux) or defined(bsd):
+  var cachedXftScale {.threadvar.}: float32
+  var cachedXftScaleInitialized {.threadvar.}: bool
+
+  proc xftDpiScale(): float32 =
+    ## Xft.dpi gives a useful fractional scale for X11 and many XWayland sessions.
+    ## Cache once per thread to avoid shelling out repeatedly.
+    if cachedXftScaleInitialized:
+      return cachedXftScale
+    cachedXftScaleInitialized = true
+    cachedXftScale = 0.0
+    if getEnv("DISPLAY").len == 0:
+      return cachedXftScale
+    try:
+      let output = execProcess("xrdb -query")
+      for line in output.splitLines():
+        let trimmed = line.strip()
+        if not trimmed.toLowerAscii().startsWith("xft.dpi:"):
+          continue
+        let parts = trimmed.split(":", maxsplit = 1)
+        if parts.len != 2:
+          break
+        let dpi = parts[1].strip().parseFloat()
+        if dpi > 0:
+          cachedXftScale = (dpi / 96.0).float32
+        break
+    except CatchableError:
+      discard
+    cachedXftScale
 
 proc sharedSiwinGlobals*(): SiwinGlobals =
   if siwinGlobalsShared.isNil:
@@ -164,6 +196,14 @@ proc contentScale*(window: Window): float32 =
       return 1.0
     let backing = contentView.convertRectToBacking(frame)
     (backing.size.width / frame.size.width).float32
+  elif defined(linux) or defined(bsd):
+    let backendScale = window.uiScale()
+    let scale = if backendScale > 0: backendScale else: 1.0
+    let xftScale = xftDpiScale()
+    if xftScale > 0:
+      if window of siX11Window.WindowX11:
+        return xftScale
+    scale
   else:
     1.0
 

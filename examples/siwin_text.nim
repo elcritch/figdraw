@@ -291,9 +291,6 @@ when isMainModule:
   proc redraw() =
     renderer.beginFrame()
     let sz = appWindow.logicalSize()
-    let szOrig = appWindow.size()
-    let factor = round(szOrig.x.float32 / size.x.float32, 1)
-    setFigUiScale factor
 
     var renders = makeRenderTree(sz.x, sz.y, uiFont, monoFont)
     renderer.renderFrame(renders, sz)

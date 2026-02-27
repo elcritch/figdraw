@@ -16,7 +16,7 @@ jobs:
     strategy:
       matrix:
         nimversion:
-          - '2.2.6'
+          - '2.2.8'
         os:
           - ubuntu-24.04
           - macos-14
