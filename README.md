@@ -309,7 +309,7 @@ Equivalent env vars (read at renderer initialization):
 When subpixel positioning is enabled, glyph-variant mode switches from UV-shift
 sampling to pre-baked 10-step glyph variants for A/B comparison.
 
-These are currently implemented for the OpenGL backend only. Other backends ignore them for now.
+These are implemented for OpenGL and Vulkan backends. Other backends ignore them for now.
 
 ## Thread Safety Notes
 

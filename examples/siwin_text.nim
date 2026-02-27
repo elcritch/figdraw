@@ -17,6 +17,61 @@ const FontName {.strdefine: "figdraw.defaultfont".}: string = "Ubuntu.ttf"
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const MonoFontSize = 12.0'f32
 
+type TextSubpixelMode = enum
+  tsmOff
+  tsmUvShift
+  tsmGlyphVariants
+
+proc next(mode: TextSubpixelMode): TextSubpixelMode =
+  case mode
+  of tsmOff: tsmUvShift
+  of tsmUvShift: tsmGlyphVariants
+  of tsmGlyphVariants: tsmOff
+
+proc subpixelModeDescription(mode: TextSubpixelMode): string =
+  case mode
+  of tsmOff: "off"
+  of tsmUvShift: "uv shift"
+  of tsmGlyphVariants: "glyph variants"
+
+proc textStatusLine(mode: TextSubpixelMode, lcdFilteringEnabled: bool): string =
+  let lcdMode = if lcdFilteringEnabled: "on" else: "off"
+  "LCD: " & lcdMode & ", subpixel: " & subpixelModeDescription(mode)
+
+proc applyTextSampling[BackendState](
+    renderer: glrenderer.FigRenderer[BackendState],
+    mode: TextSubpixelMode,
+    lcdFilteringEnabled: bool,
+) =
+  renderer.setTextLcdFiltering(lcdFilteringEnabled)
+  case mode
+  of tsmOff:
+    renderer.setTextSubpixelPositioning(false)
+    renderer.setTextSubpixelGlyphVariants(false)
+  of tsmUvShift:
+    renderer.setTextSubpixelPositioning(true)
+    renderer.setTextSubpixelGlyphVariants(false)
+  of tsmGlyphVariants:
+    renderer.setTextSubpixelPositioning(true)
+    renderer.setTextSubpixelGlyphVariants(true)
+
+proc detectTextSubpixelMode[BackendState](
+    renderer: glrenderer.FigRenderer[BackendState]
+): TextSubpixelMode =
+  let
+    subpixel = renderer.textSubpixelPositioning()
+    glyphVariants = renderer.textSubpixelGlyphVariants()
+  if subpixel:
+    if glyphVariants:
+      return tsmGlyphVariants
+    return tsmUvShift
+  tsmOff
+
+proc detectLcdFilteringEnabled[BackendState](
+    renderer: glrenderer.FigRenderer[BackendState]
+): bool =
+  renderer.textLcdFiltering()
+
 proc findPhraseRange(text, phrase: string): Slice[int16] =
   let startByte = text.find(phrase)
   if startByte < 0:
@@ -38,27 +93,24 @@ proc findPhraseRange(text, phrase: string): Slice[int16] =
   result = startRune.int16 .. endRune.int16
 
 proc buildBodyTextLayout*(
-    uiFont: FigFont, textRect: Rect
+    uiFont: FigFont, textRect: Rect, modeLine: string
 ): tuple[layout: GlyphArrangement, highlightRange: Slice[int16]] =
   let text =
-    """
-FigDraw text demo
-
-This example uses `src/figdraw/common/fontutils.nim` typesetting + glyph caching,
-then renders glyph atlas sprites via the OpenGL renderer.
-"""
+    "Mode: " & modeLine & " (T: subpixel, L: LCD)\n\n" & "FigDraw text demo\n\n" &
+    "This example uses `src/figdraw/common/fontutils.nim` typesetting + glyph caching,\n" &
+    "then renders glyph atlas sprites via the active renderer backend.\n"
   let highlightRange = findPhraseRange(text, "renders glyph atlas sprites")
   let bodyFill = rgba(20, 20, 20, 255)
-  let openGlFill = linear(rgba(255, 120, 66, 255), rgba(72, 197, 255, 255), axis = fgaY)
-  let openGlToken = "OpenGL"
-  let openGlIdx = text.find(openGlToken)
+  let accentFill = linear(rgba(255, 120, 66, 255), rgba(72, 197, 255, 255), axis = fgaY)
+  let accentToken = "renderer backend"
+  let accentIdx = text.find(accentToken)
   var spans: seq[(FontStyle, string)]
-  if openGlIdx >= 0:
-    let prefix = text[0 ..< openGlIdx]
-    let suffix = text[openGlIdx + openGlToken.len .. ^1]
+  if accentIdx >= 0:
+    let prefix = text[0 ..< accentIdx]
+    let suffix = text[accentIdx + accentToken.len .. ^1]
     if prefix.len > 0:
       spans.add(span(uiFont, bodyFill, prefix))
-    spans.add(span(uiFont, openGlFill, openGlToken))
+    spans.add(span(uiFont, accentFill, accentToken))
     if suffix.len > 0:
       spans.add(span(uiFont, bodyFill, suffix))
   else:
@@ -122,7 +174,9 @@ proc buildMonoWordLayouts*(
   flushWord(glyphs, layouts, monoFont, colorsSeq, wordIdx)
   result = layouts
 
-proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
+proc makeRenderTree*(
+    w, h: float32, uiFont, monoFont: FigFont, modeLine: string
+): Renders =
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   let z = 0.ZLevel
 
@@ -191,7 +245,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
   let monoRect =
     rect(innerRect.x, textRect.y + textRect.h + 12'f32, innerRect.w, monoHeight)
 
-  let (layout, highlightRange) = buildBodyTextLayout(uiFont, textRect)
+  let (layout, highlightRange) = buildBodyTextLayout(uiFont, textRect, modeLine)
 
   discard result.addChild(
     z,
@@ -288,12 +342,17 @@ when isMainModule:
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
   appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin + Text")
+  var textSubpixelMode = detectTextSubpixelMode(renderer)
+  var lcdFilteringEnabled = detectLcdFilteringEnabled(renderer)
+  renderer.applyTextSampling(textSubpixelMode, lcdFilteringEnabled)
+  echo "text mode: ", textStatusLine(textSubpixelMode, lcdFilteringEnabled)
 
   proc redraw() =
     renderer.beginFrame()
     let sz = appWindow.logicalSize()
 
-    var renders = makeRenderTree(sz.x, sz.y, uiFont, monoFont)
+    let modeLine = textStatusLine(textSubpixelMode, lcdFilteringEnabled)
+    var renders = makeRenderTree(sz.x, sz.y, uiFont, monoFont, modeLine)
     renderer.renderFrame(renders, sz)
     renderer.endFrame()
 
@@ -304,9 +363,16 @@ when isMainModule:
       appWindow.refreshUiScale(useAutoScale)
       redraw(),
     onKey: proc(e: KeyEvent) =
-      if e.pressed and e.key == Key.escape:
-        close(e.window)
-    ,
+      if e.pressed and e.key == Key.t:
+        textSubpixelMode = textSubpixelMode.next()
+        renderer.applyTextSampling(textSubpixelMode, lcdFilteringEnabled)
+        echo "text mode: ", textStatusLine(textSubpixelMode, lcdFilteringEnabled)
+      elif e.pressed and e.key == Key.l:
+        lcdFilteringEnabled = not lcdFilteringEnabled
+        renderer.applyTextSampling(textSubpixelMode, lcdFilteringEnabled)
+        echo "text mode: ", textStatusLine(textSubpixelMode, lcdFilteringEnabled)
+      elif e.pressed and e.key == Key.escape:
+        close(e.window),
     onRender: proc(e: RenderEvent) =
       redraw(),
   )
