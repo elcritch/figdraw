@@ -7,13 +7,16 @@ in vec4 sdfParams;
 in vec4 sdfRadii;
 in float sdfMode;
 in vec2 sdfFactors;
+in float subpixelShift;
 
 uniform vec2 windowFrame;
 uniform sampler2D atlasTex;
 uniform sampler2D maskTex;
 uniform sampler2D backdropTex;
+uniform vec2 atlasTexelSize;
 uniform float aaFactor;
 uniform bool maskTexEnabled;
+uniform bool subpixelPositioningEnabled;
 
 out vec4 fragColor;
 
@@ -85,7 +88,11 @@ void main() {
 
   float alpha = 0.0;
   if (sdfModeInt == sdfModeAtlas) {
-    vec4 tex = texture(atlasTex, uv);
+    vec2 atlasUv = uv;
+    if (subpixelPositioningEnabled) {
+      atlasUv.x -= subpixelShift * atlasTexelSize.x;
+    }
+    vec4 tex = texture(atlasTex, atlasUv);
     fragColor = vec4(
       tex.x * color.x,
       tex.y * color.y,

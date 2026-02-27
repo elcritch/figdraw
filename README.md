@@ -292,6 +292,25 @@ Notes:
 - `-d:useFigDrawTextures`: force the legacy texture-based shape rendering path (disables SDF shapes)
 - `-d:openglMajor=3 -d:openglMinor=3`: override the requested OpenGL version (see `src/figdraw/utils/glutils.nim`)
 
+## Text Runtime Flags
+
+Text rendering exposes three runtime toggles:
+
+- `renderer.setTextLcdFiltering(true|false)`
+- `renderer.setTextSubpixelPositioning(true|false)`
+- `renderer.setTextSubpixelGlyphVariants(true|false)`
+
+Equivalent env vars (read at renderer initialization):
+
+- `FIGDRAW_TEXT_LCD_FILTERING=1` (alias: `FIGDRAW_TEXT_LCD_FILTER`)
+- `FIGDRAW_TEXT_SUBPIXEL_POSITIONING=1`
+- `FIGDRAW_TEXT_SUBPIXEL_GLYPH_VARIANTS=1`
+
+When subpixel positioning is enabled, glyph-variant mode switches from UV-shift
+sampling to pre-baked 10-step glyph variants for A/B comparison.
+
+These are currently implemented for the OpenGL backend only. Other backends ignore them for now.
+
 ## Thread Safety Notes
 
 - Rendering is structured so that preparing render lists/trees can be done off-thread.

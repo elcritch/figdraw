@@ -52,6 +52,10 @@ type OpenGlContext* = ref object of figbackend.BackendContext
   frameBegun, maskBegun: bool
   pixelate*: bool ## Makes texture look pixelated, like a pixel game.
   pixelScale*: float32 ## Multiple scaling factor.
+  textLcdFilteringEnabled: bool
+  textSubpixelPositioningEnabled: bool
+  textSubpixelGlyphVariantsEnabled: bool
+  textSubpixelShift: float32
 
   # Buffer data for OpenGL
   indices: tuple[buffer: Buffer, data: seq[uint16]]
@@ -64,6 +68,7 @@ type OpenGlContext* = ref object of figbackend.BackendContext
     ## Vec4: (topRight, bottomRight, topLeft, bottomLeft)
   sdfModeAttr: tuple[buffer: Buffer, data: seq[SdfModeData]] ## SDFMode value
   sdfFactors: tuple[buffer: Buffer, data: seq[float32]] ## Vec2: (factor, spread)
+  subpixelShifts: tuple[buffer: Buffer, data: seq[float32]] ## Scalar shift in px
 
   # SDF shader uniforms (global)
   aaFactor: float32
@@ -95,10 +100,12 @@ proc upload(ctx: OpenGlContext) =
   ctx.sdfRadii.buffer.count = ctx.quadCount * 4
   ctx.sdfModeAttr.buffer.count = ctx.quadCount * 4
   ctx.sdfFactors.buffer.count = ctx.quadCount * 4
+  ctx.subpixelShifts.buffer.count = ctx.quadCount * 4
   bindBufferData(ctx.sdfParams.buffer.addr, ctx.sdfParams.data[0].addr)
   bindBufferData(ctx.sdfRadii.buffer.addr, ctx.sdfRadii.data[0].addr)
   bindBufferData(ctx.sdfModeAttr.buffer.addr, ctx.sdfModeAttr.data[0].addr)
   bindBufferData(ctx.sdfFactors.buffer.addr, ctx.sdfFactors.data[0].addr)
+  bindBufferData(ctx.subpixelShifts.buffer.addr, ctx.subpixelShifts.data[0].addr)
 
 proc setUpMaskFramebuffer(ctx: OpenGlContext) =
   glBindFramebuffer(GL_FRAMEBUFFER, ctx.maskFramebufferId)
@@ -217,6 +224,10 @@ proc newContext*(
   result.pixelate = pixelate
   result.pixelScale = pixelScale
   result.aaFactor = 1.2'f32
+  result.textLcdFilteringEnabled = false
+  result.textSubpixelPositioningEnabled = false
+  result.textSubpixelGlyphVariantsEnabled = false
+  result.textSubpixelShift = 0.0'f32
 
   result.heights = newSeq[uint16](atlasSize)
   result.atlasTexture = result.createAtlasTexture(atlasSize)
@@ -297,6 +308,12 @@ proc newContext*(
   result.sdfFactors.data =
     newSeq[float32](result.sdfFactors.buffer.kind.componentCount() * maxQuads * 4)
 
+  result.subpixelShifts.buffer.componentType = cGL_FLOAT
+  result.subpixelShifts.buffer.kind = bkSCALAR
+  result.subpixelShifts.buffer.target = GL_ARRAY_BUFFER
+  result.subpixelShifts.buffer.usage = GL_STREAM_DRAW
+  result.subpixelShifts.data = newSeq[float32](maxQuads * 4)
+
   result.indices.buffer.componentType = GL_UNSIGNED_SHORT
   result.indices.buffer.kind = bkSCALAR
   result.indices.buffer.target = GL_ELEMENT_ARRAY_BUFFER
@@ -334,6 +351,7 @@ proc newContext*(
   result.mainShader.bindAttrib("vertexSdfRadii", result.sdfRadii.buffer)
   result.mainShader.bindAttrib("vertexSdfMode", result.sdfModeAttr.buffer)
   result.mainShader.bindAttrib("vertexSdfFactors", result.sdfFactors.buffer)
+  result.mainShader.bindAttrib("vertexSubpixelShift", result.subpixelShifts.buffer)
 
   # Mask shader.
   result.maskShader.bindAttrib("vertexPos", result.positions.buffer)
@@ -342,6 +360,7 @@ proc newContext*(
   result.maskShader.bindAttrib("vertexSdfParams", result.sdfParams.buffer)
   result.maskShader.bindAttrib("vertexSdfRadii", result.sdfRadii.buffer)
   result.maskShader.bindAttrib("vertexSdfMode", result.sdfModeAttr.buffer)
+  result.maskShader.bindAttrib("vertexSubpixelShift", result.subpixelShifts.buffer)
 
   # Fullscreen triangle buffers for blur passes.
   result.blurPositions.componentType = cGL_FLOAT
@@ -510,6 +529,15 @@ proc flush(ctx: OpenGlContext, maskTextureRead: int = ctx.maskTextureWrite) =
   if ctx.activeShader.hasUniform("maskTexEnabled"):
     ctx.activeShader.setUniform("maskTexEnabled", maskTextureRead != 0)
 
+  if ctx.activeShader.hasUniform("atlasTexelSize"):
+    let texel = 1.0'f32 / max(ctx.atlasSize.float32, 1.0'f32)
+    ctx.activeShader.setUniform("atlasTexelSize", texel, texel)
+
+  if ctx.activeShader.hasUniform("subpixelPositioningEnabled"):
+    ctx.activeShader.setUniform(
+      "subpixelPositioningEnabled", ctx.textSubpixelPositioningEnabled
+    )
+
   if ctx.activeShader.hasUniform("atlasTex"):
     glActiveTexture(GL_TEXTURE0)
     glBindTexture(GL_TEXTURE_2D, ctx.atlasTexture.textureId)
@@ -547,6 +575,9 @@ proc setVert2(buf: var seq[float32], i: int, v: Vec2) =
   buf[i * 2 + 0] = v.x
   buf[i * 2 + 1] = v.y
 
+proc setVert1(buf: var seq[float32], i: int, v: float32) =
+  buf[i] = v
+
 proc setVert4(buf: var seq[float32], i: int, v: Vec4) =
   buf[i * 4 + 0] = v.x
   buf[i * 4 + 1] = v.y
@@ -558,6 +589,18 @@ proc setVertColor(buf: var seq[uint8], i: int, color: ColorRGBA) =
   buf[i * 4 + 1] = color.g
   buf[i * 4 + 2] = color.b
   buf[i * 4 + 3] = color.a
+
+proc activeSubpixelShift(ctx: OpenGlContext): float32 =
+  if not ctx.textSubpixelPositioningEnabled:
+    return 0.0'f32
+  max(0.0'f32, min(ctx.textSubpixelShift, 0.999'f32))
+
+proc setQuadSubpixelShift(ctx: OpenGlContext, offset: int) =
+  let shift = ctx.activeSubpixelShift()
+  ctx.subpixelShifts.data.setVert1(offset + 0, shift)
+  ctx.subpixelShifts.data.setVert1(offset + 1, shift)
+  ctx.subpixelShifts.data.setVert1(offset + 2, shift)
+  ctx.subpixelShifts.data.setVert1(offset + 3, shift)
 
 func `*`*(m: Mat4, v: Vec2): Vec2 =
   (m * vec3(v.x, v.y, 0.0)).xy
@@ -612,6 +655,7 @@ proc drawQuad*(
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
+  ctx.setQuadSubpixelShift(offset)
 
   inc ctx.quadCount
 
@@ -685,6 +729,7 @@ proc drawUvRectAtlasSdf(
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
+  ctx.setQuadSubpixelShift(offset)
 
   inc ctx.quadCount
 
@@ -811,6 +856,7 @@ proc drawUvRect(ctx: OpenGlContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
+  ctx.setQuadSubpixelShift(offset)
 
   inc ctx.quadCount
 
@@ -877,6 +923,7 @@ proc drawUvRect(
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
+  ctx.setQuadSubpixelShift(offset)
 
   inc ctx.quadCount
 
@@ -1157,6 +1204,7 @@ method drawRoundedRectSdf*(
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
+  ctx.setQuadSubpixelShift(offset)
 
   inc ctx.quadCount
 
@@ -1437,6 +1485,27 @@ method entriesPtr*(ctx: OpenGlContext): ptr Table[Hash, Rect] =
 
 method pixelScale*(ctx: OpenGlContext): float32 =
   ctx.pixelScale
+
+method textLcdFilteringEnabled*(ctx: OpenGlContext): bool =
+  ctx.textLcdFilteringEnabled
+
+method setTextLcdFilteringEnabled*(ctx: OpenGlContext, enabled: bool) =
+  ctx.textLcdFilteringEnabled = enabled
+
+method textSubpixelPositioningEnabled*(ctx: OpenGlContext): bool =
+  ctx.textSubpixelPositioningEnabled
+
+method setTextSubpixelPositioningEnabled*(ctx: OpenGlContext, enabled: bool) =
+  ctx.textSubpixelPositioningEnabled = enabled
+
+method textSubpixelGlyphVariantsEnabled*(ctx: OpenGlContext): bool =
+  ctx.textSubpixelGlyphVariantsEnabled
+
+method setTextSubpixelGlyphVariantsEnabled*(ctx: OpenGlContext, enabled: bool) =
+  ctx.textSubpixelGlyphVariantsEnabled = enabled
+
+method setTextSubpixelShift*(ctx: OpenGlContext, shift: float32) =
+  ctx.textSubpixelShift = shift
 
 method beginFrame*(
     ctx: OpenGlContext,

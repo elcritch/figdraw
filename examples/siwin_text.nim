@@ -15,6 +15,7 @@ when not UseMetalBackend:
 
 const FontName {.strdefine: "figdraw.defaultfont".}: string = "Ubuntu.ttf"
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
+const MonoFontSize = 12.0'f32
 
 proc findPhraseRange(text, phrase: string): Slice[int16] =
   let startByte = text.find(phrase)
@@ -178,7 +179,7 @@ proc makeRenderTree*(w, h: float32, uiFont, monoFont: FigFont): Renders =
   let monoLineHeight =
     (if monoPx.lineHeight >= 0: monoPx.lineHeight
     else: monoPx.defaultLineHeight())
-  let monoPad = 12'f32
+  let monoPad = max(8.0'f32, monoFont.size * 0.6'f32)
   var monoLines = 1
   for rune in monoText.runes:
     if rune == Rune(10):
@@ -260,9 +261,9 @@ when isMainModule:
   registerStaticTypeface("HackNerdFont-Regular.ttf", "../data/HackNerdFont-Regular.ttf")
 
   let typefaceId = loadTypeface(fontName, @["Ubuntu.ttf"])
-  let uiFont = FigFont(typefaceId: typefaceId, size: 28.0'f32)
+  let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
   let monoTypefaceId = loadTypeface("HackNerdFont-Regular.ttf")
-  let monoFont = FigFont(typefaceId: monoTypefaceId, size: 20.0'f32)
+  let monoFont = FigFont(typefaceId: monoTypefaceId, size: MonoFontSize)
 
   let size = ivec2(900, 600)
 
