@@ -258,7 +258,6 @@ proc newFigRenderer*[BackendState](
 func fillAlphaMax(fill: Fill): uint8
 func gradientMidPos01(fill: Fill): float32
 func fillCenterColor(fill: Fill): Color
-func fillCenterColors(fill: Fill): array[4, ColorRGBA]
 func gradientColors(fill: Fill): array[4, ColorRGBA]
 
 proc renderDrawable*(ctx: BackendContext, node: Fig) =
@@ -278,6 +277,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
     subpixelPositioning = ctx.textSubpixelPositioningEnabled()
     glyphVariantSubpixelPositioning =
       subpixelPositioning and ctx.textSubpixelGlyphVariantsEnabled()
+    invertText = NfInvertY in node.flags and ctx.transformMirrorsY()
 
   if NfSelectText in node.flags and fillAlphaMax(node.fill) > 0'u8:
     let rects = node.textLayout.selectionRects
@@ -286,22 +286,18 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       let endIdx = min(node.selectionRange.b, rects.len - 1)
       let selectionGradient = node.fill.gradientColors()
       let zeroRadii = [0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32]
-      let selectionColor = fillCenterColor(node.fill)
       for idx in startIdx .. endIdx:
         let rect = rects[idx].scaled()
         if rect.w > 0 and rect.h > 0:
-          if node.fill.kind == flColor:
-            ctx.drawRect(rect, selectionColor)
-          else:
-            ctx.drawRoundedRectSdf(
-              rect = rect,
-              colors = selectionGradient,
-              radii = zeroRadii,
-              mode = figbackend.SdfMode.sdfModeClipAA,
-              factor = 4.0'f32,
-              spread = 0.0'f32,
-              shapeSize = vec2(0.0'f32, 0.0'f32),
-            )
+          ctx.drawRoundedRectSdf(
+            rect = rect,
+            colors = selectionGradient,
+            radii = zeroRadii,
+            mode = figbackend.SdfMode.sdfModeClipAA,
+            factor = 4.0'f32,
+            spread = 0.0'f32,
+            shapeSize = vec2(0.0'f32, 0.0'f32),
+          )
 
   for glyph in node.textLayout.glyphs():
     if unicode.isWhiteSpace(glyph.rune):
@@ -336,10 +332,13 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       ctx.setTextSubpixelShift(0.0'f32)
       continue
 
-    if glyph.fill.kind == flColor:
-      ctx.drawImage(glyphId, charPos, fillCenterColor(glyph.fill))
-    else:
-      ctx.drawImage(glyphId, charPos, glyph.fill.gradientColors())
+    var drawPos = charPos
+    if invertText:
+      # Parent Y-mirroring inverts quad placement around the text node origin.
+      # Compensate by reflecting glyph local Y and subtracting glyph height.
+      drawPos.y = -drawPos.y - glyph.lineHeight.scaled()
+
+    ctx.drawImage(glyphId, drawPos, glyph.fill.gradientColors(), invertText)
     if subpixelPositioning:
       ctx.setTextSubpixelShift(0.0'f32)
 
@@ -429,19 +428,8 @@ func sampleGradientColor(fill: Fill, t: float32): ColorRGBA =
     else:
       lerpColor(fill.lin3.mid, fill.lin3.stop, (clampedT - mid) / (1.0'f32 - mid))
 
-func fillCenterColorRgba(fill: Fill): ColorRGBA =
-  case fill.kind
-  of flColor:
-    fill.color
-  else:
-    fill.sampleGradientColor(0.5'f32)
-
 func fillCenterColor(fill: Fill): Color =
-  fill.fillCenterColorRgba().color
-
-func fillCenterColors(fill: Fill): array[4, ColorRGBA] =
-  let c = fill.fillCenterColorRgba()
-  [c, c, c, c]
+  fill.sampleGradientColor(0.5'f32).color
 
 func fillGradientAxis(fill: Fill): FillGradientAxis =
   case fill.kind
@@ -451,31 +439,27 @@ func fillGradientAxis(fill: Fill): FillGradientAxis =
 
 func gradientColors(fill: Fill): array[4, ColorRGBA] =
   ## Vertex order: 0=BL, 1=BR, 2=TR, 3=TL
-  case fill.kind
-  of flColor:
-    result = fill.fillCenterColors()
-  else:
-    case fill.fillGradientAxis()
-    of fgaX:
-      result[0] = fill.sampleGradientColor(0.0'f32)
-      result[1] = fill.sampleGradientColor(1.0'f32)
-      result[2] = fill.sampleGradientColor(1.0'f32)
-      result[3] = fill.sampleGradientColor(0.0'f32)
-    of fgaY:
-      result[0] = fill.sampleGradientColor(1.0'f32)
-      result[1] = fill.sampleGradientColor(1.0'f32)
-      result[2] = fill.sampleGradientColor(0.0'f32)
-      result[3] = fill.sampleGradientColor(0.0'f32)
-    of fgaDiagTLBR:
-      result[0] = fill.sampleGradientColor(0.5'f32)
-      result[1] = fill.sampleGradientColor(1.0'f32)
-      result[2] = fill.sampleGradientColor(0.5'f32)
-      result[3] = fill.sampleGradientColor(0.0'f32)
-    of fgaDiagBLTR:
-      result[0] = fill.sampleGradientColor(0.0'f32)
-      result[1] = fill.sampleGradientColor(0.5'f32)
-      result[2] = fill.sampleGradientColor(1.0'f32)
-      result[3] = fill.sampleGradientColor(0.5'f32)
+  case fill.fillGradientAxis()
+  of fgaX:
+    result[0] = fill.sampleGradientColor(0.0'f32)
+    result[1] = fill.sampleGradientColor(1.0'f32)
+    result[2] = fill.sampleGradientColor(1.0'f32)
+    result[3] = fill.sampleGradientColor(0.0'f32)
+  of fgaY:
+    result[0] = fill.sampleGradientColor(1.0'f32)
+    result[1] = fill.sampleGradientColor(1.0'f32)
+    result[2] = fill.sampleGradientColor(0.0'f32)
+    result[3] = fill.sampleGradientColor(0.0'f32)
+  of fgaDiagTLBR:
+    result[0] = fill.sampleGradientColor(0.5'f32)
+    result[1] = fill.sampleGradientColor(1.0'f32)
+    result[2] = fill.sampleGradientColor(0.5'f32)
+    result[3] = fill.sampleGradientColor(0.0'f32)
+  of fgaDiagBLTR:
+    result[0] = fill.sampleGradientColor(0.0'f32)
+    result[1] = fill.sampleGradientColor(0.5'f32)
+    result[2] = fill.sampleGradientColor(1.0'f32)
+    result[3] = fill.sampleGradientColor(0.5'f32)
 
 #proc drawMasks(ctx: BackendContext, node: Fig) =
 #  ctx.setMaskRect(node.screenBox.scaled(), node.corners.scaledCorners())
