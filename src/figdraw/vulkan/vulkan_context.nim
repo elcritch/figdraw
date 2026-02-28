@@ -3403,6 +3403,9 @@ method scale*(ctx: VulkanContext, s: float32) =
 method scale*(ctx: VulkanContext, s: Vec2) =
   ctx.mat = ctx.mat * scale(vec3(s.x, s.y, 1))
 
+method applyTransform*(ctx: VulkanContext, m: Mat4) =
+  ctx.mat = ctx.mat * m
+
 method saveTransform*(ctx: VulkanContext) =
   ctx.mats.add ctx.mat
 

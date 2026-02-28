@@ -1442,6 +1442,9 @@ method scale*(ctx: MetalContext, s: float32) =
 method scale*(ctx: MetalContext, s: Vec2) =
   ctx.mat = ctx.mat * scale(vec3(s.x, s.y, 1))
 
+method applyTransform*(ctx: MetalContext, m: Mat4) =
+  ctx.mat = ctx.mat * m
+
 method saveTransform*(ctx: MetalContext) =
   ctx.mats.add ctx.mat
 

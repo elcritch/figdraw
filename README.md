@@ -133,6 +133,32 @@ For a complete working example (window + GL context + render loop), see:
 - `examples/windy_renderlist.nim`
 - `examples/sdl2_renderlist.nim`
 
+## Transform Nodes
+
+Use `nkTransform` as a non-drawing container to apply transforms to descendants.
+
+- `transform.translation`: simple UI-space translation for all children
+- `transform.matrix` + `transform.useMatrix = true`: optional extra matrix applied after translation
+
+Example:
+
+```nim
+let tx = result.addChild(0.ZLevel, rootIdx, Fig(
+  kind: nkTransform,
+  transform: TransformStyle(
+    translation: vec2(20.0'f32, 10.0'f32),
+    matrix: scale(vec3(1.2'f32, 1.2'f32, 1.0'f32)),
+    useMatrix: true,
+  ),
+))
+
+discard result.addChild(0.ZLevel, tx, Fig(
+  kind: nkRectangle,
+  screenBox: rect(80, 60, 120, 80),
+  fill: rgba(220, 40, 40, 255),
+))
+```
+
 ## Gradients (Fill API)
 
 FigDraw uses `Fill` everywhere a color-style value is needed:

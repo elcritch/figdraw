@@ -126,6 +126,18 @@ proc toRenderFig*[N](current: N): Fig =
       result.backdropBlur.blur = current.blur
     else:
       result.backdropBlur.blur = 0.0'f32
+  of nkTransform:
+    when compiles(current.transform):
+      result.transform = current.transform
+    else:
+      when compiles(current.translation):
+        result.transform.translation = current.translation
+      when compiles(current.matrix):
+        result.transform.matrix = current.matrix
+        result.transform.useMatrix = true
+      elif compiles(current.transformMatrix):
+        result.transform.matrix = current.transformMatrix
+        result.transform.useMatrix = true
   of nkText:
     result.textLayout = current.textLayout
     result.selectionRange = current.selectionRange

@@ -1455,6 +1455,10 @@ method scale*(ctx: OpenGlContext, s: Vec2) =
   ## Scales the internal transform.
   ctx.mat = ctx.mat * scale(vec3(s.x, s.y, 1))
 
+method applyTransform*(ctx: OpenGlContext, m: Mat4) =
+  ## Applies an arbitrary transform matrix.
+  ctx.mat = ctx.mat * m
+
 method saveTransform*(ctx: OpenGlContext) =
   ## Pushes a transform onto the stack.
   ctx.mats.add ctx.mat

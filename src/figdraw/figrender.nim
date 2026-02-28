@@ -887,6 +887,15 @@ proc render(
   finally:
     ctx.restoreTransform()
 
+  ifrender node.kind == nkTransform:
+    ctx.saveTransform()
+    if node.transform.translation.x != 0.0'f32 or node.transform.translation.y != 0.0'f32:
+      ctx.translate(node.transform.translation.scaled())
+    if node.transform.useMatrix:
+      ctx.applyTransform(node.transform.matrix)
+  finally:
+    ctx.restoreTransform()
+
   ifrender node.kind == nkRectangle:
     ctx.renderDropShadows(node)
 

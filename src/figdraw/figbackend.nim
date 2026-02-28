@@ -192,6 +192,9 @@ method scale*(impl: BackendContext, s: float32) {.base.} =
 method scale*(impl: BackendContext, s: Vec2) {.base.} =
   raise newException(ValueError, "Backend scale unavailable")
 
+method applyTransform*(impl: BackendContext, m: Mat4) {.base.} =
+  raise newException(ValueError, "Backend applyTransform unavailable")
+
 method saveTransform*(impl: BackendContext) {.base.} =
   raise newException(ValueError, "Backend saveTransform unavailable")
 
