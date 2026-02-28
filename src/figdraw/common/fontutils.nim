@@ -1,4 +1,4 @@
-import std/[os, unicode, sequtils, tables, strutils, sets, hashes]
+import std/[os, unicode, sequtils, tables, strutils, sets, hashes, math]
 import std/isolation
 
 import pkg/vmath
@@ -99,9 +99,12 @@ proc typeset*(
     pfs.add(pf)
     spans.add(newSpan(txt, pf))
     assert not pf.typeface.isNil
-    let lhAdj = pf.lineHeight
-    #let lhAdj = (pf.lineHeight - pf.size * pf.lineHeight / pf.defaultLineHeight()) / 2
-    gfonts.add GlyphFont(fontId: fontId, lineHeight: pf.lineHeight, descentAdj: lhAdj)
+    let lineHeight = if pf.lineHeight >= 0: pf.lineHeight else: pf.defaultLineHeight()
+    let lineGap = (lineHeight / pf.scale) - pf.typeface.ascent + pf.typeface.descent
+    let baselineOffset = round((pf.typeface.ascent + lineGap / 2) * pf.scale)
+    gfonts.add GlyphFont(
+      fontId: fontId, lineHeight: lineHeight, descentAdj: baselineOffset
+    )
 
   var ha: HorizontalAlignment
   case hAlign
@@ -213,15 +216,15 @@ proc placeGlyphs*(
 
   for (rune, pos) in glyphs:
     let scaledPos = pos
-    let descent = cachedFont.glyph.lineHeight - cachedFont.glyph.descentAdj
+    let baselineOffset = cachedFont.glyph.descentAdj
     var baselinePos = pos
     if origin == GlyphTopLeft:
-      baselinePos.y = pos.y + descent
+      baselinePos.y = pos.y + baselineOffset
 
     runes.add(rune)
     positions.add(baselinePos)
 
-    let drawPos = vec2(baselinePos.x, baselinePos.y - descent)
+    let drawPos = vec2(baselinePos.x, baselinePos.y - baselineOffset)
     let advance = cachedFont.font.typeface.getAdvance(rune) * cachedFont.font.scale
     selectionRects.add(rect(drawPos.x, drawPos.y, advance, cachedFont.glyph.lineHeight))
 

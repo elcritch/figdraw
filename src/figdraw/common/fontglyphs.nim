@@ -138,8 +138,9 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
           rune = arrangement.runes[idx]
           selection = arrangement.selectionRects[idx]
 
-        #let descent = gfont.lineHeight - gfont.descentAdj
-        let descent = gfont.lineHeight
+        # Pixie arrangement positions are baseline positions; descentAdj stores
+        # the baseline offset needed to convert to glyph image top-left.
+        let descent = gfont.descentAdj
 
         yield GlyphPosition(
           fontId: gfont.fontId,

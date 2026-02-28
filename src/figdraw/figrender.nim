@@ -271,6 +271,26 @@ proc renderDrawable*(ctx: BackendContext, node: Fig) =
       bx = box.atXY(pos.x, pos.y)
     ctx.drawRect(bx, color)
 
+proc glyphScreenPos*(
+    nodeBox: Rect, glyphPos: Vec2, glyphDescent: float32
+): Vec2 {.inline.} =
+  ## Converts a local glyph position into screen-space coordinates.
+  vec2(
+    glyphPos.x.scaled() + nodeBox.x.scaled(),
+    scaled(glyphPos.y - glyphDescent) + nodeBox.y.scaled(),
+  )
+
+proc selectionScreenRect*(nodeBox: Rect, selectionRect: Rect): Rect {.inline.} =
+  ## Converts a local text selection rectangle into screen-space coordinates.
+
+  rect(
+    selectionRect.x + nodeBox.x,
+    selectionRect.y + nodeBox.y,
+    selectionRect.w,
+    selectionRect.h,
+  )
+  .scaled()
+
 proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
   let
@@ -288,7 +308,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       let zeroRadii = [0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32]
       let selectionColor = fillCenterColor(node.fill)
       for idx in startIdx .. endIdx:
-        let rect = rects[idx].scaled()
+        let rect = selectionScreenRect(node.screenBox, rects[idx])
         if rect.w > 0 and rect.h > 0:
           if node.fill.kind == flColor:
             ctx.drawRect(rect, selectionColor)
@@ -308,16 +328,15 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       continue
 
     let
-      baseX = glyph.pos.x.scaled()
-      baseY = scaled(glyph.pos.y - glyph.descent)
+      glyphPos = glyphScreenPos(node.screenBox, glyph.pos, glyph.descent)
     var
-      charPos = vec2(baseX, baseY)
+      charPos = glyphPos
       subpixelShift = 0.0'f32
       subpixelVariant = 0
     if subpixelPositioning:
-      let snappedX = floor(baseX)
+      let snappedX = floor(glyphPos.x)
       charPos.x = snappedX
-      let fractionalX = max(0.0'f32, min(baseX - snappedX, 0.999'f32))
+      let fractionalX = max(0.0'f32, min(glyphPos.x - snappedX, 0.999'f32))
       if glyphVariantSubpixelPositioning:
         subpixelVariant = toGlyphVariantSubpixelStep(fractionalX)
       else:
@@ -899,10 +918,7 @@ proc render(
 
   ifrender true:
     if node.kind == nkText:
-      ctx.saveTransform()
-      ctx.translate(box.xy)
       ctx.renderText(node)
-      ctx.restoreTransform()
     elif node.kind == nkDrawable:
       ctx.renderDrawable(node)
     elif node.kind == nkRectangle:
