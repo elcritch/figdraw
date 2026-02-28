@@ -332,7 +332,13 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       ctx.setTextSubpixelShift(0.0'f32)
       continue
 
-    ctx.drawImage(glyphId, charPos, glyph.fill.gradientColors(), invertText)
+    var drawPos = charPos
+    if invertText:
+      # Parent Y-mirroring inverts quad placement around the text node origin.
+      # Compensate by reflecting glyph local Y and subtracting glyph height.
+      drawPos.y = -drawPos.y - glyph.lineHeight.scaled()
+
+    ctx.drawImage(glyphId, drawPos, glyph.fill.gradientColors(), invertText)
     if subpixelPositioning:
       ctx.setTextSubpixelShift(0.0'f32)
 
