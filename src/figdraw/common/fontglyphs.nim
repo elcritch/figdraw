@@ -138,8 +138,9 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
           rune = arrangement.runes[idx]
           selection = arrangement.selectionRects[idx]
 
-        #let descent = gfont.lineHeight - gfont.descentAdj
-        let descent = gfont.lineHeight
+        # Pixie arrangement positions are baseline positions; descentAdj stores
+        # the baseline offset needed to convert to glyph image top-left.
+        let descent = gfont.descentAdj
 
         yield GlyphPosition(
           fontId: gfont.fontId,
@@ -183,12 +184,6 @@ proc convertArrangement*(
     spanSlices.add span[0] .. span[1]
   for rect in arrangement.selectionRects:
     selectionRects.add rect
-
-  for i, span in arrangement.spans:
-    # hmmm, really should figure this out based on the font coordinate inversion
-    # or whatever causes this...
-    for j in span[0] .. span[1]:
-      selectionRects[j].y -= gfonts[i].lineHeight / 6
 
   result = GlyphArrangement(
     contentHash: block:

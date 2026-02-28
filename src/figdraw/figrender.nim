@@ -270,6 +270,26 @@ proc renderDrawable*(ctx: BackendContext, node: Fig) =
       bx = box.atXY(pos.x, pos.y)
     ctx.drawRect(bx, color)
 
+proc glyphScreenPos*(
+    nodeBox: Rect, glyphPos: Vec2, glyphDescent: float32
+): Vec2 {.inline.} =
+  ## Converts a local glyph position into screen-space coordinates.
+  vec2(
+    glyphPos.x.scaled() + nodeBox.x.scaled(),
+    scaled(glyphPos.y - glyphDescent) + nodeBox.y.scaled(),
+  )
+
+proc selectionScreenRect*(nodeBox: Rect, selectionRect: Rect): Rect {.inline.} =
+  ## Converts a local text selection rectangle into screen-space coordinates.
+
+  rect(
+    selectionRect.x + nodeBox.x,
+    selectionRect.y + nodeBox.y,
+    selectionRect.w,
+    selectionRect.h,
+  )
+  .scaled()
+
 proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
   let
@@ -287,7 +307,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       let selectionGradient = node.fill.gradientColors()
       let zeroRadii = [0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32]
       for idx in startIdx .. endIdx:
-        let rect = rects[idx].scaled()
+        let rect = selectionScreenRect(node.screenBox, rects[idx])
         if rect.w > 0 and rect.h > 0:
           ctx.drawRoundedRectSdf(
             rect = rect,
@@ -303,17 +323,14 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
     if unicode.isWhiteSpace(glyph.rune):
       continue
 
-    let
-      baseX = glyph.pos.x.scaled()
-      baseY = scaled(glyph.pos.y - glyph.descent)
     var
-      charPos = vec2(baseX, baseY)
+      glyphPos = glyphScreenPos(node.screenBox, glyph.pos, glyph.descent)
       subpixelShift = 0.0'f32
       subpixelVariant = 0
     if subpixelPositioning:
-      let snappedX = floor(baseX)
-      charPos.x = snappedX
-      let fractionalX = max(0.0'f32, min(baseX - snappedX, 0.999'f32))
+      let snappedX = floor(glyphPos.x)
+      let fractionalX = max(0.0'f32, min(glyphPos.x - snappedX, 0.999'f32))
+      glyphPos.x = snappedX
       if glyphVariantSubpixelPositioning:
         subpixelVariant = toGlyphVariantSubpixelStep(fractionalX)
       else:
@@ -332,11 +349,12 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       ctx.setTextSubpixelShift(0.0'f32)
       continue
 
-    var drawPos = charPos
+    var drawPos = glyphPos
     if invertText:
       # Parent Y-mirroring inverts quad placement around the text node origin.
       # Compensate by reflecting glyph local Y and subtracting glyph height.
-      drawPos.y = -drawPos.y - glyph.lineHeight.scaled()
+      drawPos.y =
+        node.screenBox.y.scaled() * 2.0'f32 - drawPos.y - glyph.lineHeight.scaled()
 
     ctx.drawImage(glyphId, drawPos, glyph.fill.gradientColors(), invertText)
     if subpixelPositioning:
@@ -892,10 +910,7 @@ proc render(
 
   ifrender true:
     if node.kind == nkText:
-      ctx.saveTransform()
-      ctx.translate(box.xy)
       ctx.renderText(node)
-      ctx.restoreTransform()
     elif node.kind == nkDrawable:
       ctx.renderDrawable(node)
     elif node.kind == nkRectangle:

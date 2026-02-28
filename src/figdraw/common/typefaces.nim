@@ -2,6 +2,7 @@ import std/isolation
 import std/os
 import std/strutils
 import std/locks
+import std/math
 
 import pkg/vmath
 import pkg/pixie
@@ -200,11 +201,12 @@ proc glyphFontFor*(uiFont: FigFont): tuple[id: FontId, font: Font, glyph: GlyphF
   let (fontId, pf) = uiFont.convertFont()
   let defaultLineHeight = pf.defaultLineHeight()
   let lineHeight = if pf.lineHeight >= 0: pf.lineHeight else: defaultLineHeight
-  let lhAdj = 0.0'f32
+  let lineGap = (lineHeight / pf.scale) - pf.typeface.ascent + pf.typeface.descent
+  let baselineOffset = round((pf.typeface.ascent + lineGap / 2) * pf.scale)
   result = (
     id: fontId,
     font: pf,
-    glyph: GlyphFont(fontId: fontId, lineHeight: lineHeight, descentAdj: lhAdj),
+    glyph: GlyphFont(fontId: fontId, lineHeight: lineHeight, descentAdj: baselineOffset),
   )
 
 proc getLineHeightImpl*(font: FigFont): float32 =
