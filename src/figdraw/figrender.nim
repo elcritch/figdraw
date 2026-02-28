@@ -327,16 +327,14 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
     if unicode.isWhiteSpace(glyph.rune):
       continue
 
-    let
-      glyphPos = glyphScreenPos(node.screenBox, glyph.pos, glyph.descent)
     var
-      charPos = glyphPos
+      glyphPos = glyphScreenPos(node.screenBox, glyph.pos, glyph.descent)
       subpixelShift = 0.0'f32
       subpixelVariant = 0
     if subpixelPositioning:
       let snappedX = floor(glyphPos.x)
-      charPos.x = snappedX
       let fractionalX = max(0.0'f32, min(glyphPos.x - snappedX, 0.999'f32))
+      glyphPos.x = snappedX
       if glyphVariantSubpixelPositioning:
         subpixelVariant = toGlyphVariantSubpixelStep(fractionalX)
       else:
@@ -356,9 +354,9 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       continue
 
     if glyph.fill.kind == flColor:
-      ctx.drawImage(glyphId, charPos, fillCenterColor(glyph.fill))
+      ctx.drawImage(glyphId, glyphPos, fillCenterColor(glyph.fill))
     else:
-      ctx.drawImage(glyphId, charPos, glyph.fill.gradientColors())
+      ctx.drawImage(glyphId, glyphPos, glyph.fill.gradientColors())
     if subpixelPositioning:
       ctx.setTextSubpixelShift(0.0'f32)
 
