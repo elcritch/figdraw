@@ -929,6 +929,11 @@ proc tryGetImageRect(ctx: MetalContext, imageId: Hash, rect: var Rect): bool =
   rect = ctx.entries[imageId]
   true
 
+proc imageUvBounds(rect: Rect, flipY: bool): tuple[uvAt: Vec2, uvTo: Vec2] =
+  if flipY:
+    return (vec2(rect.x, rect.y + rect.h), vec2(rect.x + rect.w, rect.y))
+  (rect.xy, rect.xy + rect.wh)
+
 proc drawImage*(
     ctx: MetalContext,
     imageId: Hash,
@@ -941,9 +946,6 @@ proc drawImage*(
     return
   let wh = rect.wh * ctx.atlasSize.float32 * scale
   ctx.drawUvRect(pos, pos + wh, rect.xy, rect.xy + rect.wh, color)
-
-method drawImage*(ctx: MetalContext, imageId: Hash, pos: Vec2, color: Color) =
-  drawImage(ctx, imageId, pos, color, 1.0'f32)
 
 proc drawImage*(
     ctx: MetalContext,
@@ -966,14 +968,15 @@ method drawImage*(
 method drawImage*(
     ctx: MetalContext,
     imageId: Hash,
-    pos: Vec2 = vec2(0, 0),
-    color = color(1, 1, 1, 1),
-    size: Vec2,
+    pos: Vec2,
+    colors: array[4, ColorRGBA],
+    flipY: bool,
 ) =
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
-  ctx.drawUvRect(pos, pos + size, rect.xy, rect.xy + rect.wh, color)
+  let (uvAt, uvTo) = imageUvBounds(rect, flipY)
+  ctx.drawUvRect(pos, pos + rect.wh * ctx.atlasSize.float32, uvAt, uvTo, colors)
 
 method drawImage*(
     ctx: MetalContext,
@@ -1442,11 +1445,21 @@ method scale*(ctx: MetalContext, s: float32) =
 method scale*(ctx: MetalContext, s: Vec2) =
   ctx.mat = ctx.mat * scale(vec3(s.x, s.y, 1))
 
+method applyTransform*(ctx: MetalContext, m: Mat4) =
+  ctx.mat = ctx.mat * m
+
 method saveTransform*(ctx: MetalContext) =
   ctx.mats.add ctx.mat
 
 method restoreTransform*(ctx: MetalContext) =
   ctx.mat = ctx.mats.pop()
+
+method transformMirrorsY*(ctx: MetalContext): bool =
+  let origin = (ctx.mat * vec3(0.0'f32, 0.0'f32, 1.0'f32)).xy
+  let xAxis = (ctx.mat * vec3(1.0'f32, 0.0'f32, 1.0'f32)).xy - origin
+  let yAxis = (ctx.mat * vec3(0.0'f32, 1.0'f32, 1.0'f32)).xy - origin
+  let determinant = xAxis.x * yAxis.y - xAxis.y * yAxis.x
+  determinant < 0.0'f32
 
 proc clearTransform*(ctx: MetalContext) =
   ctx.mat = mat4()

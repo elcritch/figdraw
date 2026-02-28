@@ -124,3 +124,15 @@ suite "test layers":
     check converted.kind == nkBackdropBlur
     check converted.backdropBlur.blur == 14.0'f32
     check converted.corners == blurNode.corners
+
+  test "transfer keeps nkTransform style":
+    var transformNode = Fig(kind: nkTransform)
+    transformNode.transform.translation = vec2(12.0'f32, -8.0'f32)
+    transformNode.transform.matrix = scale(vec3(2.0'f32, 3.0'f32, 1.0'f32))
+    transformNode.transform.useMatrix = true
+
+    let converted = transformNode.toRenderFig()
+    check converted.kind == nkTransform
+    check converted.transform.translation == transformNode.transform.translation
+    check converted.transform.useMatrix == true
+    check converted.transform.matrix == transformNode.transform.matrix

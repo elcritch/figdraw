@@ -70,23 +70,41 @@ method updateImage*(impl: BackendContext, path: Hash, image: Image) {.base.} =
 method putImage*(impl: BackendContext, imgObj: ImgObj) {.base.} =
   raise newException(ValueError, "Backend putImage unavailable")
 
-method drawImage*(impl: BackendContext, path: Hash, pos: Vec2, color: Color) {.base.} =
-  raise newException(ValueError, "Backend drawImage unavailable")
-
 method drawImage*(
     impl: BackendContext, path: Hash, pos: Vec2, colors: array[4, ColorRGBA]
 ) {.base.} =
   raise newException(ValueError, "Backend drawImage unavailable")
 
 method drawImage*(
-    impl: BackendContext, path: Hash, pos: Vec2, color: Color, size: Vec2
+    impl: BackendContext,
+    path: Hash,
+    pos: Vec2,
+    colors: array[4, ColorRGBA],
+    flipY: bool,
 ) {.base.} =
-  raise newException(ValueError, "Backend drawImage unavailable")
+  discard flipY
+  impl.drawImage(path, pos, colors)
 
 method drawImage*(
     impl: BackendContext, path: Hash, pos: Vec2, colors: array[4, ColorRGBA], size: Vec2
 ) {.base.} =
   raise newException(ValueError, "Backend drawImage unavailable")
+
+proc drawImage*(impl: BackendContext, path: Hash, pos: Vec2, color: Color) =
+  let solid = color.rgba()
+  impl.drawImage(path, pos, [solid, solid, solid, solid])
+
+method drawImage*(
+    impl: BackendContext, path: Hash, pos: Vec2, color: Color, flipY: bool
+) {.base.} =
+  let solid = color.rgba()
+  impl.drawImage(path, pos, [solid, solid, solid, solid], flipY)
+
+method drawImage*(
+    impl: BackendContext, path: Hash, pos: Vec2, color: Color, size: Vec2
+) {.base.} =
+  let solid = color.rgba()
+  impl.drawImage(path, pos, [solid, solid, solid, solid], size)
 
 method drawImageAdj*(
     impl: BackendContext, path: Hash, pos: Vec2, color: Color, size: Vec2
@@ -192,11 +210,17 @@ method scale*(impl: BackendContext, s: float32) {.base.} =
 method scale*(impl: BackendContext, s: Vec2) {.base.} =
   raise newException(ValueError, "Backend scale unavailable")
 
+method applyTransform*(impl: BackendContext, m: Mat4) {.base.} =
+  raise newException(ValueError, "Backend applyTransform unavailable")
+
 method saveTransform*(impl: BackendContext) {.base.} =
   raise newException(ValueError, "Backend saveTransform unavailable")
 
 method restoreTransform*(impl: BackendContext) {.base.} =
   raise newException(ValueError, "Backend restoreTransform unavailable")
+
+method transformMirrorsY*(impl: BackendContext): bool {.base.} =
+  false
 
 method readPixels*(impl: BackendContext, frame: Rect, readFront: bool): Image {.base.} =
   raise newException(ValueError, "Backend readPixels unavailable")

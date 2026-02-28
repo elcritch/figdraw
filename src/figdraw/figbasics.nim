@@ -39,6 +39,7 @@ type
     nkMsdfImage
     nkMtsdfImage
     nkBackdropBlur
+    nkTransform
 
   FigFlags* = enum
     NfClipContent
@@ -46,6 +47,7 @@ type
     NfRootWindow
     NfInactive
     NfSelectText
+    NfInvertY
 
   ShadowStyle* = enum
     ## Supports drop and inner shadows.
@@ -80,6 +82,13 @@ type
 
   BackdropBlurStyle* = object ## Gaussian blur radius in UI units.
     blur*: float32
+
+  TransformStyle* = object ## Translation in UI units.
+    translation*: Vec2
+    ## Optional 4x4 transform matrix applied after translation.
+    ## Set `useMatrix = true` to apply this matrix.
+    matrix*: Mat4
+    useMatrix*: bool
 
 proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
   when v is SomeFloat:

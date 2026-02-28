@@ -43,6 +43,8 @@ type
       mtsdfImage*: MsdfImageStyle
     of nkBackdropBlur:
       backdropBlur*: BackdropBlurStyle
+    of nkTransform:
+      transform*: TransformStyle
     else:
       discard
 
