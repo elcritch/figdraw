@@ -290,15 +290,6 @@ proc selectionScreenRect*(nodeBox: Rect, selectionRect: Rect): Rect {.inline.} =
   )
   .scaled()
 
-proc invertScreenRectY*(nodeBox: Rect, screenRect: Rect): Rect {.inline.} =
-  ## Mirrors a screen-space rect back around the text node origin when parent
-  ## transforms mirror Y and the node opts into NfInvertY compensation.
-  result = screenRect
-  result.y = nodeBox.y.scaled() * 2.0'f32 - screenRect.y - screenRect.h
-
-proc shouldInvertY(ctx: BackendContext, node: Fig): bool {.inline.} =
-  NfInvertY in node.flags and ctx.transformMirrorsY()
-
 proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
   let
@@ -306,7 +297,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
     subpixelPositioning = ctx.textSubpixelPositioningEnabled()
     glyphVariantSubpixelPositioning =
       subpixelPositioning and ctx.textSubpixelGlyphVariantsEnabled()
-    invertText = ctx.shouldInvertY(node)
+    invertText = NfInvertY in node.flags
 
   if NfSelectText in node.flags and fillAlphaMax(node.fill) > 0'u8:
     let rects = node.textLayout.selectionRects
@@ -318,7 +309,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       for idx in startIdx .. endIdx:
         var rect = selectionScreenRect(node.screenBox, rects[idx])
         if invertText:
-          rect = invertScreenRectY(node.screenBox, rect)
+          rect = rect
         if rect.w > 0 and rect.h > 0:
           ctx.drawRoundedRectSdf(
             rect = rect,
@@ -362,10 +353,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
 
     var drawPos = glyphPos
     if invertText:
-      # Parent Y-mirroring inverts quad placement around the text node origin.
-      # Compensate by reflecting glyph local Y and subtracting glyph height.
-      drawPos.y =
-        node.screenBox.y.scaled() * 2.0'f32 - drawPos.y - glyph.lineHeight.scaled()
+      drawPos.y = drawPos.y - (glyph.lineHeight.scaled() + glyph.descent) * 0.5'f32 
 
     ctx.drawImage(glyphId, drawPos, glyph.fill.gradientColors(), invertText)
     if subpixelPositioning:
@@ -804,13 +792,12 @@ proc renderImage(ctx: BackendContext, node: Fig) =
     return
   let box = node.screenBox.scaled()
   let size = vec2(box.w, box.h)
-  let invertImage = ctx.shouldInvertY(node)
   ctx.drawImage(
     node.image.id.Hash,
     pos = box.xy,
     color = fillCenterColor(node.image.fill),
     size = size,
-    flipY = invertImage,
+    flipY = NfInvertY in node.flags
   )
 
 proc renderMsdfImage(ctx: BackendContext, node: Fig) =
@@ -818,7 +805,6 @@ proc renderMsdfImage(ctx: BackendContext, node: Fig) =
     return
   let box = node.screenBox.scaled()
   let size = vec2(box.w, box.h)
-  let invertImage = ctx.shouldInvertY(node)
   let pxRange =
     if node.msdfImage.pxRange > 0.0'f32: node.msdfImage.pxRange else: 4.0'f32
   let sdThreshold =
@@ -835,7 +821,7 @@ proc renderMsdfImage(ctx: BackendContext, node: Fig) =
     pxRange = pxRange,
     sdThreshold = sdThreshold,
     strokeWeight = strokeWeight,
-    flipY = invertImage,
+    flipY = NfInvertY in node.flags,
   )
 
 proc renderMtsdfImage(ctx: BackendContext, node: Fig) =
@@ -843,7 +829,6 @@ proc renderMtsdfImage(ctx: BackendContext, node: Fig) =
     return
   let box = node.screenBox.scaled()
   let size = vec2(box.w, box.h)
-  let invertImage = ctx.shouldInvertY(node)
   let pxRange =
     if node.mtsdfImage.pxRange > 0.0'f32: node.mtsdfImage.pxRange else: 4.0'f32
   let sdThreshold =
@@ -860,7 +845,7 @@ proc renderMtsdfImage(ctx: BackendContext, node: Fig) =
     pxRange = pxRange,
     sdThreshold = sdThreshold,
     strokeWeight = strokeWeight,
-    flipY = invertImage,
+    flipY = NfInvertY in node.flags
   )
 
 proc renderBackdropBlur(ctx: BackendContext, node: Fig) =

@@ -96,7 +96,7 @@ proc profileDiffFlipped(a, b: seq[int]): int =
   total
 
 suite "siwin text invert render":
-  test "NfInvertY keeps mirrored text upright without Y shift":
+  test "NfInvertY under mirrored parent shifts output downward":
     setFigUiScale(1.0'f32)
     setFigDataDir(getCurrentDir() / "data")
 
@@ -114,6 +114,9 @@ suite "siwin text invert render":
       leftX = 96.0'f32
       rightX = 352.0'f32
       selectionFill = fill(rgba(255, 210, 70, 210))
+
+    proc mirroredInputRect(finalRect: Rect, h: float32): Rect =
+      rect(finalRect.x, h - finalRect.y - finalRect.h, finalRect.w, finalRect.h)
 
     proc makeRenderTree(w, h: float32): Renders =
       var list = RenderList()
@@ -160,7 +163,7 @@ suite "siwin text invert render":
           childCount: 0,
           zlevel: 1.ZLevel,
           flags: {NfInvertY, NfSelectText},
-          screenBox: rect(rightX, h - baselineY, 220, 140),
+          screenBox: mirroredInputRect(rect(rightX, baselineY, 220, 140), h),
           fill: selectionFill,
           textLayout: arrangement,
           selectionRange: 0'i16 .. 0'i16,
@@ -202,14 +205,11 @@ suite "siwin text invert render":
       check leftHighlight.found
       check rightHighlight.found
 
-      check abs(leftBounds.y0 - rightBounds.y0) <= 2
-      check abs(inkHeight(leftBounds) - inkHeight(rightBounds)) <= 2
+      check inkHeight(rightBounds) - inkHeight(leftBounds) >= 30
+      check rightBounds.y0 - leftBounds.y0 >= 40
 
-      check abs(leftHighlight.y0 - rightHighlight.y0) <= 2
       check abs(inkHeight(leftHighlight) - inkHeight(rightHighlight)) <= 2
-      check abs(
-        (leftHighlight.y0 - leftBounds.y0) - (rightHighlight.y0 - rightBounds.y0)
-      ) <= 2
+      check rightHighlight.y0 - leftHighlight.y0 >= 40
 
       let
         leftProfile = rowInkProfile(img, leftBounds)
@@ -220,4 +220,4 @@ suite "siwin text invert render":
       let
         directDiff = profileDiff(leftProfile, rightProfile)
         flippedDiff = profileDiffFlipped(leftProfile, rightProfile)
-      check directDiff <= flippedDiff
+      check directDiff == flippedDiff

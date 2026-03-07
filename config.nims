@@ -1,6 +1,7 @@
 --nimcache:".nimcache/"
 --passc:"-Wno-incompatible-function-pointer-types"
 --define:useMalloc
+--define:release
 
 import std/strutils
 import std/os
