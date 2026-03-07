@@ -205,7 +205,7 @@ proc fillRoundedRectWithShadowSdf*[R](
         # important, floor once here, not after
       ctx.rotate(angles[corner])
       ctx.translate((-ccenter[corner] / 2))
-      ctx.drawImage(cornerHashes[corner], zero, shadowColor)
+      ctx.drawImage(cornerHashes[corner], zero, shadowColor, false)
 
       let sideAdj = (maxRadius.float32 - cornerCbs[corner].inner.float32)
       let inner = cornerCbs[corner].inner.float32
