@@ -290,22 +290,6 @@ proc selectionScreenRect*(nodeBox: Rect, selectionRect: Rect): Rect {.inline.} =
   )
   .scaled()
 
-proc textInvertPivotY*(nodeBox: Rect): float32 {.inline.} =
-  ## Shared pivot for NfInvertY compensation in text rendering.
-  nodeBox.y.scaled() + nodeBox.h.scaled() * 0.5'f32
-
-proc invertTopY*(topY, height, pivotY: float32): float32 {.inline.} =
-  ## Reflects a top-left Y coordinate around `pivotY` while preserving height.
-  pivotY * 2.0'f32 - topY - height
-
-proc invertScreenRectY*(screenRect: Rect, pivotY: float32): Rect {.inline.} =
-  result = screenRect
-  result.y = invertTopY(screenRect.y, screenRect.h, pivotY)
-
-proc shouldInvertY(ctx: BackendContext, node: Fig): bool {.inline.} =
-  discard ctx
-  NfInvertY in node.flags
-
 proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
   let
@@ -313,8 +297,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
     subpixelPositioning = ctx.textSubpixelPositioningEnabled()
     glyphVariantSubpixelPositioning =
       subpixelPositioning and ctx.textSubpixelGlyphVariantsEnabled()
-    invertText = ctx.shouldInvertY(node)
-    invertPivotY = node.screenBox.textInvertPivotY()
+    invertText = NfInvertY in node.flags
 
   if NfSelectText in node.flags and fillAlphaMax(node.fill) > 0'u8:
     let rects = node.textLayout.selectionRects
@@ -326,7 +309,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       for idx in startIdx .. endIdx:
         var rect = selectionScreenRect(node.screenBox, rects[idx])
         if invertText:
-          rect = invertScreenRectY(rect, invertPivotY)
+          rect = rect
         if rect.w > 0 and rect.h > 0:
           ctx.drawRoundedRectSdf(
             rect = rect,
@@ -370,7 +353,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
 
     var drawPos = glyphPos
     if invertText:
-      drawPos.y = invertTopY(drawPos.y, glyph.lineHeight.scaled(), invertPivotY)
+      drawPos.y = drawPos.y - (glyph.lineHeight.scaled() + glyph.descent) * 0.5'f32 
 
     ctx.drawImage(glyphId, drawPos, glyph.fill.gradientColors(), invertText)
     if subpixelPositioning:
