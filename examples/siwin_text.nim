@@ -234,7 +234,7 @@ proc makeRenderTree*(
       monoLines.inc
   let monoHeight = monoLines.float32 * monoLineHeight + monoPad * 2
   let invertedLineHeight = uiFont.size * 1.4'f32
-  let sectionGap = 20.0'f32
+  let sectionGap = 60.0'f32
 
   let textRect = rect(
     innerRect.x,
@@ -324,8 +324,7 @@ proc makeRenderTree*(
       kind: nkText,
       childCount: 0,
       zlevel: z,
-      # flags: {NfInvertY, NfSelectText},
-      flags: {NfSelectText},
+      flags: {NfInvertY, NfSelectText},
       screenBox: invertedTextRect,
       selectionRange: invertedSelectionRange,
       fill: linear(rgba(255, 244, 175, 255), rgba(255, 200, 140, 255), axis = fgaY),
