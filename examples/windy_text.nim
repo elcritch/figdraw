@@ -237,20 +237,29 @@ proc makeRenderTree*(
       monoLines.inc
   let monoHeight = monoLines.float32 * monoLineHeight + monoPad * 2
   let invertedLineHeight = uiFont.size * 1.4'f32
-  let sectionGap = 8.0'f32
+  let sectionGap = 60.0'f32
+
+  proc mirroredInputRect(finalRect: Rect): Rect =
+    rect(finalRect.x, h - finalRect.y - finalRect.h, finalRect.w, finalRect.h)
 
   let textRect = rect(
     innerRect.x,
     innerRect.y,
     innerRect.w,
-    innerRect.h - monoHeight - invertedLineHeight - sectionGap * 2.0'f32,
+    innerRect.h - monoHeight - invertedLineHeight * 2.0'f32 - sectionGap * 3.0'f32,
   )
   let invertedTextRect = rect(
     innerRect.x, textRect.y + textRect.h + sectionGap, innerRect.w, invertedLineHeight
   )
-  let monoRect = rect(
+  let mirroredInvertedTextRect = rect(
     innerRect.x,
     invertedTextRect.y + invertedTextRect.h + sectionGap,
+    innerRect.w,
+    invertedLineHeight,
+  )
+  let monoRect = rect(
+    innerRect.x,
+    mirroredInvertedTextRect.y + mirroredInvertedTextRect.h + sectionGap,
     innerRect.w,
     monoHeight,
   )
@@ -306,6 +315,12 @@ proc makeRenderTree*(
     invertedLayout.bounding.w,
     invertedLayout.bounding.h,
   )
+  let mirroredInvertedGlyphBounds = rect(
+    mirroredInvertedTextRect.x + invertedLayout.bounding.x,
+    mirroredInvertedTextRect.y + invertedLayout.bounding.y,
+    invertedLayout.bounding.w,
+    invertedLayout.bounding.h,
+  )
   discard result.addChild(
     z,
     cardIdx,
@@ -327,14 +342,54 @@ proc makeRenderTree*(
       kind: nkText,
       childCount: 0,
       zlevel: z,
-      flags:
-        if invertedSelectionRange.a <= invertedSelectionRange.b:
-          {NfInvertY, NfSelectText}
-        else:
-          {NfInvertY},
+      flags: {NfInvertY, NfSelectText},
       screenBox: invertedTextRect,
       selectionRange: invertedSelectionRange,
       fill: linear(rgba(255, 244, 175, 255), rgba(255, 200, 140, 255), axis = fgaY),
+      textLayout: invertedLayout,
+    ),
+  )
+
+  discard result.addChild(
+    z,
+    cardIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: z,
+      screenBox: mirroredInvertedGlyphBounds,
+      fill: clearColor,
+      stroke: RenderStroke(weight: 1.5, fill: rgba(42, 96, 168, 170).color),
+      corners: [4.0'f32, 4.0, 4.0, 4.0],
+    ),
+  )
+
+  let mirroredTransformIdx = result.addChild(
+    z,
+    cardIdx,
+    Fig(
+      kind: nkTransform,
+      childCount: 0,
+      zlevel: z,
+      transform: TransformStyle(
+        translation: vec2(0.0'f32, h),
+        matrix: scale(vec3(1.0'f32, -1.0'f32, 1.0'f32)),
+        useMatrix: true,
+      ),
+    ),
+  )
+
+  discard result.addChild(
+    z,
+    mirroredTransformIdx,
+    Fig(
+      kind: nkText,
+      childCount: 0,
+      zlevel: z,
+      flags: {NfInvertY, NfSelectText},
+      screenBox: mirroredInputRect(mirroredInvertedTextRect),
+      selectionRange: invertedSelectionRange,
+      fill: linear(rgba(180, 220, 255, 220), rgba(130, 180, 255, 220), axis = fgaY),
       textLayout: invertedLayout,
     ),
   )
