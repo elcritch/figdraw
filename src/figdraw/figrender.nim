@@ -290,6 +290,12 @@ proc selectionScreenRect*(nodeBox: Rect, selectionRect: Rect): Rect {.inline.} =
   )
   .scaled()
 
+proc invertScreenRectY*(nodeBox: Rect, screenRect: Rect): Rect {.inline.} =
+  ## Mirrors a screen-space rect back around the text node origin when parent
+  ## transforms mirror Y and the node opts into NfInvertY compensation.
+  result = screenRect
+  result.y = nodeBox.y.scaled() * 2.0'f32 - screenRect.y - screenRect.h
+
 proc shouldInvertY(ctx: BackendContext, node: Fig): bool {.inline.} =
   NfInvertY in node.flags and ctx.transformMirrorsY()
 
@@ -310,7 +316,9 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       let selectionGradient = node.fill.gradientColors()
       let zeroRadii = [0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32]
       for idx in startIdx .. endIdx:
-        let rect = selectionScreenRect(node.screenBox, rects[idx])
+        var rect = selectionScreenRect(node.screenBox, rects[idx])
+        if invertText:
+          rect = invertScreenRectY(node.screenBox, rect)
         if rect.w > 0 and rect.h > 0:
           ctx.drawRoundedRectSdf(
             rect = rect,

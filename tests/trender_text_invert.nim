@@ -19,6 +19,9 @@ type InkBounds = object
 proc isInk(px: ColorRGBX): bool =
   px.a >= 20'u8 and (px.r < 220'u8 or px.g < 220'u8 or px.b < 220'u8)
 
+proc isHighlight(px: ColorRGBX): bool =
+  px.a >= 20'u8 and px.r >= 180'u8 and px.g >= 150'u8 and px.b <= 140'u8
+
 proc findInkBounds(img: Image, x0, y0, w, h: int): InkBounds =
   let
     minX = max(0, x0)
@@ -32,6 +35,27 @@ proc findInkBounds(img: Image, x0, y0, w, h: int): InkBounds =
   for y in minY .. maxY:
     for x in minX .. maxX:
       if isInk(img[x, y]):
+        if not result.found:
+          result = InkBounds(found: true, x0: x, y0: y, x1: x, y1: y)
+        else:
+          result.x0 = min(result.x0, x)
+          result.y0 = min(result.y0, y)
+          result.x1 = max(result.x1, x)
+          result.y1 = max(result.y1, y)
+
+proc findHighlightBounds(img: Image, x0, y0, w, h: int): InkBounds =
+  let
+    minX = max(0, x0)
+    minY = max(0, y0)
+    maxX = min(img.width - 1, x0 + w - 1)
+    maxY = min(img.height - 1, y0 + h - 1)
+  if maxX < minX or maxY < minY:
+    return InkBounds(found: false)
+
+  result = InkBounds(found: false, x0: maxX, y0: maxY, x1: minX, y1: minY)
+  for y in minY .. maxY:
+    for x in minX .. maxX:
+      if isHighlight(img[x, y]):
         if not result.found:
           result = InkBounds(found: true, x0: x, y0: y, x1: x, y1: y)
         else:
@@ -89,6 +113,7 @@ suite "siwin text invert render":
       baselineY = 120.0'f32
       leftX = 96.0'f32
       rightX = 352.0'f32
+      selectionFill = fill(rgba(255, 210, 70, 210))
 
     proc makeRenderTree(w, h: float32): Renders =
       var list = RenderList()
@@ -107,10 +132,11 @@ suite "siwin text invert render":
           kind: nkText,
           childCount: 0,
           zlevel: 1.ZLevel,
+          flags: {NfSelectText},
           screenBox: rect(leftX, baselineY, 220, 140),
-          fill: fill(rgba(10, 10, 10, 255)),
+          fill: selectionFill,
           textLayout: arrangement,
-          selectionRange: 0'i16 .. -1'i16,
+          selectionRange: 0'i16 .. 0'i16,
         )
       )
 
@@ -133,11 +159,11 @@ suite "siwin text invert render":
           kind: nkText,
           childCount: 0,
           zlevel: 1.ZLevel,
-          flags: {NfInvertY},
+          flags: {NfInvertY, NfSelectText},
           screenBox: rect(rightX, h - baselineY, 220, 140),
-          fill: fill(rgba(10, 10, 10, 255)),
+          fill: selectionFill,
           textLayout: arrangement,
-          selectionRange: 0'i16 .. -1'i16,
+          selectionRange: 0'i16 .. 0'i16,
         ),
       )
 
@@ -169,11 +195,21 @@ suite "siwin text invert render":
       let
         leftBounds = findInkBounds(img, 32, 40, 260, 260)
         rightBounds = findInkBounds(img, 300, 40, 260, 260)
+        leftHighlight = findHighlightBounds(img, 32, 40, 260, 260)
+        rightHighlight = findHighlightBounds(img, 300, 40, 260, 260)
       check leftBounds.found
       check rightBounds.found
+      check leftHighlight.found
+      check rightHighlight.found
 
       check abs(leftBounds.y0 - rightBounds.y0) <= 2
       check abs(inkHeight(leftBounds) - inkHeight(rightBounds)) <= 2
+
+      check abs(leftHighlight.y0 - rightHighlight.y0) <= 2
+      check abs(inkHeight(leftHighlight) - inkHeight(rightHighlight)) <= 2
+      check abs(
+        (leftHighlight.y0 - leftBounds.y0) - (rightHighlight.y0 - rightBounds.y0)
+      ) <= 2
 
       let
         leftProfile = rowInkProfile(img, leftBounds)
