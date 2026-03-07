@@ -290,14 +290,21 @@ proc selectionScreenRect*(nodeBox: Rect, selectionRect: Rect): Rect {.inline.} =
   )
   .scaled()
 
-proc invertScreenRectY*(nodeBox: Rect, screenRect: Rect): Rect {.inline.} =
-  ## Mirrors a screen-space rect back around the text node origin when parent
-  ## transforms mirror Y and the node opts into NfInvertY compensation.
+proc textInvertPivotY*(nodeBox: Rect): float32 {.inline.} =
+  ## Shared pivot for NfInvertY compensation in text rendering.
+  nodeBox.y.scaled() + nodeBox.h.scaled() * 0.5'f32
+
+proc invertTopY*(topY, height, pivotY: float32): float32 {.inline.} =
+  ## Reflects a top-left Y coordinate around `pivotY` while preserving height.
+  pivotY * 2.0'f32 - topY - height
+
+proc invertScreenRectY*(screenRect: Rect, pivotY: float32): Rect {.inline.} =
   result = screenRect
-  result.y = nodeBox.y.scaled() * 2.0'f32 - screenRect.y - screenRect.h
+  result.y = invertTopY(screenRect.y, screenRect.h, pivotY)
 
 proc shouldInvertY(ctx: BackendContext, node: Fig): bool {.inline.} =
-  NfInvertY in node.flags and ctx.transformMirrorsY()
+  discard ctx
+  NfInvertY in node.flags
 
 proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
@@ -307,6 +314,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
     glyphVariantSubpixelPositioning =
       subpixelPositioning and ctx.textSubpixelGlyphVariantsEnabled()
     invertText = ctx.shouldInvertY(node)
+    invertPivotY = node.screenBox.textInvertPivotY()
 
   if NfSelectText in node.flags and fillAlphaMax(node.fill) > 0'u8:
     let rects = node.textLayout.selectionRects
@@ -318,7 +326,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       for idx in startIdx .. endIdx:
         var rect = selectionScreenRect(node.screenBox, rects[idx])
         if invertText:
-          rect = invertScreenRectY(node.screenBox, rect)
+          rect = invertScreenRectY(rect, invertPivotY)
         if rect.w > 0 and rect.h > 0:
           ctx.drawRoundedRectSdf(
             rect = rect,
@@ -362,10 +370,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
 
     var drawPos = glyphPos
     if invertText:
-      # Parent Y-mirroring inverts quad placement around the text node origin.
-      # Compensate by reflecting glyph local Y and subtracting glyph height.
-      drawPos.y =
-        node.screenBox.y.scaled() * 2.0'f32 - drawPos.y - glyph.lineHeight.scaled()
+      drawPos.y = invertTopY(drawPos.y, glyph.lineHeight.scaled(), invertPivotY)
 
     ctx.drawImage(glyphId, drawPos, glyph.fill.gradientColors(), invertText)
     if subpixelPositioning:

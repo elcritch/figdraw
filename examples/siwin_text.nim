@@ -233,13 +233,36 @@ proc makeRenderTree*(
     if rune == Rune(10):
       monoLines.inc
   let monoHeight = monoLines.float32 * monoLineHeight + monoPad * 2
+  let invertedLineHeight = uiFont.size * 1.4'f32
+  let sectionGap = 20.0'f32
 
-  let textRect =
-    rect(innerRect.x, innerRect.y, innerRect.w, innerRect.h - monoHeight - 12'f32)
-  let monoRect =
-    rect(innerRect.x, textRect.y + textRect.h + 12'f32, innerRect.w, monoHeight)
+  let textRect = rect(
+    innerRect.x,
+    innerRect.y,
+    innerRect.w,
+    innerRect.h - monoHeight - invertedLineHeight - sectionGap * 2.0'f32,
+  )
+  let invertedTextRect = rect(
+    innerRect.x, textRect.y + textRect.h + sectionGap, innerRect.w, invertedLineHeight
+  )
+  let monoRect = rect(
+    innerRect.x,
+    invertedTextRect.y + invertedTextRect.h + sectionGap,
+    innerRect.w,
+    monoHeight,
+  )
 
   let (layout, highlightRange) = buildBodyTextLayout(uiFont, textRect, modeLine)
+  let invertedText = "Inverted text line (NfInvertY) with selection"
+  let invertedSelectionRange = findPhraseRange(invertedText, "NfInvertY")
+  let invertedLayout = typeset(
+    rect(0, 0, invertedTextRect.w, invertedTextRect.h),
+    [span(uiFont, rgba(30, 30, 30, 255), invertedText)],
+    hAlign = Left,
+    vAlign = Top,
+    minContent = false,
+    wrap = false,
+  )
 
   discard result.addChild(
     z,
@@ -273,6 +296,43 @@ proc makeRenderTree*(
       corners: [10.0'f32, 10.0, 10.0, 10.0],
     ),
   )
+
+  let invertedGlyphBounds = rect(
+    invertedTextRect.x + invertedLayout.bounding.x,
+    invertedTextRect.y + invertedLayout.bounding.y,
+    invertedLayout.bounding.w,
+    invertedLayout.bounding.h,
+  )
+  discard result.addChild(
+    z,
+    cardIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: z,
+      screenBox: invertedGlyphBounds,
+      fill: clearColor,
+      stroke: RenderStroke(weight: 1.5, fill: rgba(38, 38, 38, 155).color),
+      corners: [4.0'f32, 4.0, 4.0, 4.0],
+    ),
+  )
+
+  discard result.addChild(
+    z,
+    cardIdx,
+    Fig(
+      kind: nkText,
+      childCount: 0,
+      zlevel: z,
+      # flags: {NfInvertY, NfSelectText},
+      flags: {NfSelectText},
+      screenBox: invertedTextRect,
+      selectionRange: invertedSelectionRange,
+      fill: linear(rgba(255, 244, 175, 255), rgba(255, 200, 140, 255), axis = fgaY),
+      textLayout: invertedLayout,
+    ),
+  )
+
   let monoColors = [
     linear(rgba(236, 238, 245, 255), rgba(182, 214, 255, 255), axis = fgaX),
     rgba(255, 210, 160, 255),
