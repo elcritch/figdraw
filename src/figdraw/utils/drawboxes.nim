@@ -165,7 +165,7 @@ proc drawRoundedRect*[R](
       ctx.translate(cpos[corner] + coffset[corner] + ccenter[corner] / 2)
       ctx.rotate(angles[corner])
       ctx.translate(-ccenter[corner] / 2)
-      ctx.drawImage(cornerHashes[corner], zero, color)
+      ctx.drawImage(cornerHashes[corner], zero, color, false)
 
       if cornerCbs[corner].sideDelta > 0:
         let inner = cornerCbs[corner].inner.float32

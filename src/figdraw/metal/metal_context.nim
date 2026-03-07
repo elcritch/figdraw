@@ -734,6 +734,8 @@ proc drawUvRectAtlasSdf(
 
   inc ctx.quadCount
 
+proc imageUvBounds(rect: Rect, flipY: bool): tuple[uvAt: Vec2, uvTo: Vec2]
+
 method drawMsdfImage*(
     ctx: MetalContext,
     imageId: Hash,
@@ -743,10 +745,12 @@ method drawMsdfImage*(
     pxRange: float32,
     sdThreshold: float32 = 0.5,
     strokeWeight: float32 = 0.0'f32,
+    flipY: bool = false,
 ) =
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
+  let (uvAt, uvTo) = imageUvBounds(rect, flipY)
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
   let modeSel: SdfMode =
@@ -754,8 +758,8 @@ method drawMsdfImage*(
   ctx.drawUvRectAtlasSdf(
     at = pos,
     to = pos + size,
-    uvAt = rect.xy,
-    uvTo = rect.xy + rect.wh,
+    uvAt = uvAt,
+    uvTo = uvTo,
     color = color,
     mode = modeSel,
     factors = vec2(pxRange, sdThreshold),
@@ -771,10 +775,12 @@ method drawMtsdfImage*(
     pxRange: float32,
     sdThreshold: float32 = 0.5,
     strokeWeight: float32 = 0.0'f32,
+    flipY: bool = false,
 ) =
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
+  let (uvAt, uvTo) = imageUvBounds(rect, flipY)
   let strokeW = max(0.0'f32, strokeWeight)
   let params = vec4(ctx.atlasSize.float32, strokeW, 0.0'f32, 0.0'f32)
   let modeSel: SdfMode =
@@ -782,8 +788,8 @@ method drawMtsdfImage*(
   ctx.drawUvRectAtlasSdf(
     at = pos,
     to = pos + size,
-    uvAt = rect.xy,
-    uvTo = rect.xy + rect.wh,
+    uvAt = uvAt,
+    uvTo = uvTo,
     color = color,
     mode = modeSel,
     factors = vec2(pxRange, sdThreshold),
@@ -961,34 +967,23 @@ proc drawImage*(
   ctx.drawUvRect(pos, pos + wh, rect.xy, rect.xy + rect.wh, colors)
 
 method drawImage*(
-    ctx: MetalContext, imageId: Hash, pos: Vec2, colors: array[4, ColorRGBA]
-) =
-  drawImage(ctx, imageId, pos, colors, 1.0'f32)
-
-method drawImage*(
     ctx: MetalContext,
     imageId: Hash,
     pos: Vec2,
     colors: array[4, ColorRGBA],
+    size: Vec2,
     flipY: bool,
 ) =
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
+  let drawSize =
+    if size.x > 0.0'f32 and size.y > 0.0'f32:
+      size
+    else:
+      rect.wh * ctx.atlasSize.float32
   let (uvAt, uvTo) = imageUvBounds(rect, flipY)
-  ctx.drawUvRect(pos, pos + rect.wh * ctx.atlasSize.float32, uvAt, uvTo, colors)
-
-method drawImage*(
-    ctx: MetalContext,
-    imageId: Hash,
-    pos: Vec2 = vec2(0, 0),
-    colors: array[4, ColorRGBA],
-    size: Vec2,
-) =
-  var rect: Rect
-  if not ctx.tryGetImageRect(imageId, rect):
-    return
-  ctx.drawUvRect(pos, pos + size, rect.xy, rect.xy + rect.wh, colors)
+  ctx.drawUvRect(pos, pos + drawSize, uvAt, uvTo, colors)
 
 method drawImageAdj*(
     ctx: MetalContext,

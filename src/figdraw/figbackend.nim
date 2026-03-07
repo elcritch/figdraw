@@ -71,40 +71,35 @@ method putImage*(impl: BackendContext, imgObj: ImgObj) {.base.} =
   raise newException(ValueError, "Backend putImage unavailable")
 
 method drawImage*(
-    impl: BackendContext, path: Hash, pos: Vec2, colors: array[4, ColorRGBA]
+    impl: BackendContext,
+    path: Hash,
+    pos: Vec2,
+    colors: array[4, ColorRGBA],
+    size: Vec2,
+    flipY: bool,
 ) {.base.} =
   raise newException(ValueError, "Backend drawImage unavailable")
 
-method drawImage*(
+proc drawImage*(
     impl: BackendContext,
     path: Hash,
     pos: Vec2,
     colors: array[4, ColorRGBA],
     flipY: bool,
-) {.base.} =
-  discard flipY
-  impl.drawImage(path, pos, colors)
+) =
+  impl.drawImage(path, pos, colors, vec2(0, 0), flipY)
 
-method drawImage*(
-    impl: BackendContext, path: Hash, pos: Vec2, colors: array[4, ColorRGBA], size: Vec2
-) {.base.} =
-  raise newException(ValueError, "Backend drawImage unavailable")
-
-proc drawImage*(impl: BackendContext, path: Hash, pos: Vec2, color: Color) =
-  let solid = color.rgba()
-  impl.drawImage(path, pos, [solid, solid, solid, solid])
-
-method drawImage*(
+proc drawImage*(
     impl: BackendContext, path: Hash, pos: Vec2, color: Color, flipY: bool
-) {.base.} =
+) =
   let solid = color.rgba()
-  impl.drawImage(path, pos, [solid, solid, solid, solid], flipY)
+  impl.drawImage(path, pos, [solid, solid, solid, solid], vec2(0, 0), flipY)
 
-method drawImage*(
-    impl: BackendContext, path: Hash, pos: Vec2, color: Color, size: Vec2
-) {.base.} =
+proc drawImage*(
+    impl: BackendContext, path: Hash, pos: Vec2, color: Color, size: Vec2, flipY: bool
+) =
   let solid = color.rgba()
-  impl.drawImage(path, pos, [solid, solid, solid, solid], size)
+  impl.drawImage(path, pos, [solid, solid, solid, solid], size, flipY)
 
 method drawImageAdj*(
     impl: BackendContext, path: Hash, pos: Vec2, color: Color, size: Vec2
@@ -156,7 +151,9 @@ method drawMsdfImage*(
     pxRange: float32,
     sdThreshold: float32,
     strokeWeight: float32,
+    flipY: bool = false,
 ) {.base.} =
+  discard flipY
   raise newException(ValueError, "Backend drawMsdfImage unavailable")
 
 method drawMtsdfImage*(
@@ -168,7 +165,9 @@ method drawMtsdfImage*(
     pxRange: float32,
     sdThreshold: float32,
     strokeWeight: float32,
+    flipY: bool = false,
 ) {.base.} =
+  discard flipY
   raise newException(ValueError, "Backend drawMtsdfImage unavailable")
 
 method drawBackdropBlur*(
