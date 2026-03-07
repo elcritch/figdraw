@@ -792,13 +792,12 @@ proc renderImage(ctx: BackendContext, node: Fig) =
     return
   let box = node.screenBox.scaled()
   let size = vec2(box.w, box.h)
-  let invertImage = ctx.shouldInvertY(node)
   ctx.drawImage(
     node.image.id.Hash,
     pos = box.xy,
     color = fillCenterColor(node.image.fill),
     size = size,
-    flipY = invertImage,
+    flipY = NfInvertY in node.flags
   )
 
 proc renderMsdfImage(ctx: BackendContext, node: Fig) =
@@ -806,7 +805,6 @@ proc renderMsdfImage(ctx: BackendContext, node: Fig) =
     return
   let box = node.screenBox.scaled()
   let size = vec2(box.w, box.h)
-  let invertImage = ctx.shouldInvertY(node)
   let pxRange =
     if node.msdfImage.pxRange > 0.0'f32: node.msdfImage.pxRange else: 4.0'f32
   let sdThreshold =
@@ -823,7 +821,7 @@ proc renderMsdfImage(ctx: BackendContext, node: Fig) =
     pxRange = pxRange,
     sdThreshold = sdThreshold,
     strokeWeight = strokeWeight,
-    flipY = invertImage,
+    flipY = NfInvertY in node.flags,
   )
 
 proc renderMtsdfImage(ctx: BackendContext, node: Fig) =
@@ -831,7 +829,6 @@ proc renderMtsdfImage(ctx: BackendContext, node: Fig) =
     return
   let box = node.screenBox.scaled()
   let size = vec2(box.w, box.h)
-  let invertImage = ctx.shouldInvertY(node)
   let pxRange =
     if node.mtsdfImage.pxRange > 0.0'f32: node.mtsdfImage.pxRange else: 4.0'f32
   let sdThreshold =
@@ -848,7 +845,7 @@ proc renderMtsdfImage(ctx: BackendContext, node: Fig) =
     pxRange = pxRange,
     sdThreshold = sdThreshold,
     strokeWeight = strokeWeight,
-    flipY = invertImage,
+    flipY = NfInvertY in node.flags
   )
 
 proc renderBackdropBlur(ctx: BackendContext, node: Fig) =
