@@ -105,4 +105,4 @@ proc loadImage*(filePath: string): ImageId =
 
 proc loadImage*(id: ImageId, image: Image) =
   var imgObj = ImgObj(id: id, kind: PixieImg, pimg: image)
-  sendImageCached(imgObj)
+  sendImage(imgObj)
