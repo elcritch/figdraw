@@ -41,6 +41,20 @@ COPIES = 100
 RUN_ONCE = os.getenv("FIGDRAW_RUN_ONCE", "").strip().lower() in {"1", "true", "yes"}
 NO_SLEEP = os.getenv("FIGDRAW_NO_SLEEP", "1").strip().lower() in {"1", "true", "yes"}
 
+RED_FILL = fd.RgbaColor(220, 40, 40, 155)
+RED_STROKE = fd.RgbaColor(0, 0, 0, 155)
+GREEN_SOLID = fd.RgbaColor(40, 180, 90, 155)
+GREEN_GRAD_START = fd.RgbaColor(18, 112, 64, 255)
+GREEN_GRAD_MID = fd.RgbaColor(40, 180, 90, 255)
+GREEN_GRAD_STOP = fd.RgbaColor(78, 224, 188, 255)
+BLUE_SOLID = fd.RgbaColor(60, 90, 220, 155)
+BLUE_GRAD_START = fd.RgbaColor(44, 72, 186, 255)
+BLUE_GRAD_MID = fd.RgbaColor(60, 90, 220, 255)
+BLUE_GRAD_STOP = fd.RgbaColor(118, 168, 255, 255)
+WHITE_STROKE = fd.RgbaColor(255, 255, 255, 210)
+BLACK_SHADOW = fd.RgbaColor(0, 0, 0, 155)
+BLUE_INNER_SHADOW = fd.RgbaColor(40, 40, 60, 150)
+
 
 def make_render_tree(width: float, height: float, frame: int) -> fd.Renders:
     renders = fd.Renders()
@@ -83,20 +97,27 @@ def make_render_tree(width: float, height: float, frame: int) -> fd.Renders:
         blue_h = 110.0 + 70.0 * (1.0 - size_pulse_h)
 
         red_fig = fd.new_rectangle_fig(red_start_x + offset_x, red_start_y + offset_y, red_w, red_h)
-        red_fig.set_fill_color(220, 40, 40, 155)
+        red_fig.set_fill_color_rgba(RED_FILL)
         corner_pulse = 0.5 + 0.5 * math.sin(t * 1.25 + i * 0.11)
         c0 = 4.0 + 26.0 * corner_pulse
         c1 = 6.0 + 22.0 * (1.0 - corner_pulse)
         c2 = 8.0 + 18.0 * (0.5 + 0.5 * math.sin(t * 0.7 + i * 0.05))
         c3 = 10.0 + 16.0 * (0.5 + 0.5 * math.cos(t * 0.8 + i * 0.06))
         red_fig.set_corners(c0, c1, c2, c3)
-        red_fig.set_stroke(5.0, 0, 0, 0, 155)
+        red_fig.set_stroke_rgba(5.0, RED_STROKE)
         renders.add_root(0, red_fig)
 
         green_fig = fd.new_rectangle_fig(
             green_start_x + offset_x, green_start_y + offset_y, green_w, green_h
         )
-        green_fig.set_fill_color(40, 180, 90, 155)
+        use_green_gradient = (i % 2) == 0
+        if use_green_gradient:
+            green_axis = 0 if (i % 4) < 2 else 2  # X or DiagTLBR
+            green_fig.set_fill_linear3_rgba(
+                GREEN_GRAD_START, GREEN_GRAD_MID, GREEN_GRAD_STOP, green_axis, 128
+            )
+        else:
+            green_fig.set_fill_color_rgba(GREEN_SOLID)
         green_corner_pulse = 0.5 + 0.5 * math.cos(t * 0.95 + i * 0.08)
         g0 = 6.0 + 22.0 * green_corner_pulse
         g1 = 8.0 + 18.0 * (1.0 - green_corner_pulse)
@@ -109,40 +130,41 @@ def make_render_tree(width: float, height: float, frame: int) -> fd.Renders:
         shadow_x = 6.0 + 10.0 * math.sin(t * 0.9 + i * 0.03)
         shadow_y = 6.0 + 10.0 * math.cos(t * 0.9 + i * 0.03)
         green_fig.clear_shadows()
-        green_fig.set_shadow(
+        green_fig.set_shadow_rgba(
             0,  # first shadow slot
             1,  # DropShadow
             shadow_blur,
             shadow_spread,
             shadow_x,
             shadow_y,
-            0,
-            0,
-            0,
-            155,
+            BLACK_SHADOW,
         )
         renders.add_root(0, green_fig)
 
         blue_fig = fd.new_rectangle_fig(blue_start_x + offset_x, blue_start_y + offset_y, blue_w, blue_h)
-        blue_fig.set_fill_color(60, 90, 220, 155)
-        blue_fig.set_stroke(4.0, 255, 255, 255, 210)
+        use_blue_gradient = (i % 3) == 0
+        if use_blue_gradient:
+            blue_axis = 1 if (i % 2) == 0 else 3  # Y or DiagBLTR
+            blue_fig.set_fill_linear3_rgba(
+                BLUE_GRAD_START, BLUE_GRAD_MID, BLUE_GRAD_STOP, blue_axis, 132
+            )
+        else:
+            blue_fig.set_fill_color_rgba(BLUE_SOLID)
+        blue_fig.set_stroke_rgba(4.0, WHITE_STROKE)
         inset_pulse = 0.5 + 0.5 * math.sin(t * 1.05 + i * 0.06)
         inset_blur = max(0.0, 8.0 + 10.0 * inset_pulse)
         inset_spread = max(0.0, 2.0 + 10.0 * (1.0 - inset_pulse))
         inset_x = 6.0 * math.sin(t * 0.85 + i * 0.04)
         inset_y = 6.0 * math.cos(t * 0.8 + i * 0.04)
         blue_fig.clear_shadows()
-        blue_fig.set_shadow(
+        blue_fig.set_shadow_rgba(
             0,  # first shadow slot
             2,  # InnerShadow
             inset_blur,
             inset_spread,
             inset_x,
             inset_y,
-            40,
-            40,
-            60,
-            150,
+            BLUE_INNER_SHADOW,
         )
         renders.add_root(0, blue_fig)
 
