@@ -46,6 +46,36 @@ proc fig_draw_renders_unref(x: RendersObj) {.importc: "fig_draw_renders_unref", 
 proc `=destroy`(x: var RendersObj) =
   fig_draw_renders_unref(x)
 
+type SiwinWindowRefObj = object
+  reference: pointer
+
+type SiwinWindowRef* = ref SiwinWindowRefObj
+
+proc fig_draw_siwin_window_ref_unref(x: SiwinWindowRefObj) {.importc: "fig_draw_siwin_window_ref_unref", cdecl.}
+
+proc `=destroy`(x: var SiwinWindowRefObj) =
+  fig_draw_siwin_window_ref_unref(x)
+
+type SiwinRendererRefObj = object
+  reference: pointer
+
+type SiwinRendererRef* = ref SiwinRendererRefObj
+
+proc fig_draw_siwin_renderer_ref_unref(x: SiwinRendererRefObj) {.importc: "fig_draw_siwin_renderer_ref_unref", cdecl.}
+
+proc `=destroy`(x: var SiwinRendererRefObj) =
+  fig_draw_siwin_renderer_ref_unref(x)
+
+type SiwinMetalLayerRefObj = object
+  reference: pointer
+
+type SiwinMetalLayerRef* = ref SiwinMetalLayerRefObj
+
+proc fig_draw_siwin_metal_layer_ref_unref(x: SiwinMetalLayerRefObj) {.importc: "fig_draw_siwin_metal_layer_ref_unref", cdecl.}
+
+proc `=destroy`(x: var SiwinMetalLayerRefObj) =
+  fig_draw_siwin_metal_layer_ref_unref(x)
+
 proc fig_draw_new_fig(): Fig {.importc: "fig_draw_new_fig", cdecl.}
 
 proc newFig*(): Fig {.inline.} =
@@ -246,6 +276,106 @@ proc fig_draw_descaled(a: float32): float32 {.importc: "fig_draw_descaled", cdec
 proc descaled*(a: float32): float32 {.inline.} =
   result = fig_draw_descaled(a)
 
+proc fig_draw_siwin_window_ref_close_window_binding(window: SiwinWindowRef) {.importc: "fig_draw_siwin_window_ref_close_window_binding", cdecl.}
+
+proc closeWindowBinding*(window: SiwinWindowRef) {.inline.} =
+  fig_draw_siwin_window_ref_close_window_binding(window)
+
+proc fig_draw_siwin_window_ref_step_window_binding(window: SiwinWindowRef) {.importc: "fig_draw_siwin_window_ref_step_window_binding", cdecl.}
+
+proc stepWindowBinding*(window: SiwinWindowRef) {.inline.} =
+  fig_draw_siwin_window_ref_step_window_binding(window)
+
+proc fig_draw_siwin_window_ref_make_current_window_binding(window: SiwinWindowRef) {.importc: "fig_draw_siwin_window_ref_make_current_window_binding", cdecl.}
+
+proc makeCurrentWindowBinding*(window: SiwinWindowRef) {.inline.} =
+  fig_draw_siwin_window_ref_make_current_window_binding(window)
+
+proc fig_draw_siwin_window_ref_window_is_open_binding(window: SiwinWindowRef): bool {.importc: "fig_draw_siwin_window_ref_window_is_open_binding", cdecl.}
+
+proc windowIsOpenBinding*(window: SiwinWindowRef): bool {.inline.} =
+  result = fig_draw_siwin_window_ref_window_is_open_binding(window)
+
+proc fig_draw_siwin_window_ref_siwin_display_server_name_binding(window: SiwinWindowRef): cstring {.importc: "fig_draw_siwin_window_ref_siwin_display_server_name_binding", cdecl.}
+
+proc siwinDisplayServerNameBinding*(window: SiwinWindowRef): cstring {.inline.} =
+  result = fig_draw_siwin_window_ref_siwin_display_server_name_binding(window)
+
+proc fig_draw_siwin_window_ref_backing_width_binding(window: SiwinWindowRef): int32 {.importc: "fig_draw_siwin_window_ref_backing_width_binding", cdecl.}
+
+proc backingWidthBinding*(window: SiwinWindowRef): int32 {.inline.} =
+  result = fig_draw_siwin_window_ref_backing_width_binding(window)
+
+proc fig_draw_siwin_window_ref_backing_height_binding(window: SiwinWindowRef): int32 {.importc: "fig_draw_siwin_window_ref_backing_height_binding", cdecl.}
+
+proc backingHeightBinding*(window: SiwinWindowRef): int32 {.inline.} =
+  result = fig_draw_siwin_window_ref_backing_height_binding(window)
+
+proc fig_draw_siwin_window_ref_logical_width_binding(window: SiwinWindowRef): float32 {.importc: "fig_draw_siwin_window_ref_logical_width_binding", cdecl.}
+
+proc logicalWidthBinding*(window: SiwinWindowRef): float32 {.inline.} =
+  result = fig_draw_siwin_window_ref_logical_width_binding(window)
+
+proc fig_draw_siwin_window_ref_logical_height_binding(window: SiwinWindowRef): float32 {.importc: "fig_draw_siwin_window_ref_logical_height_binding", cdecl.}
+
+proc logicalHeightBinding*(window: SiwinWindowRef): float32 {.inline.} =
+  result = fig_draw_siwin_window_ref_logical_height_binding(window)
+
+proc fig_draw_siwin_window_ref_content_scale_binding(window: SiwinWindowRef): float32 {.importc: "fig_draw_siwin_window_ref_content_scale_binding", cdecl.}
+
+proc contentScaleBinding*(window: SiwinWindowRef): float32 {.inline.} =
+  result = fig_draw_siwin_window_ref_content_scale_binding(window)
+
+proc fig_draw_siwin_window_ref_configure_ui_scale_binding(window: SiwinWindowRef, env_var: cstring): bool {.importc: "fig_draw_siwin_window_ref_configure_ui_scale_binding", cdecl.}
+
+proc configureUiScaleBinding*(window: SiwinWindowRef, envVar: string): bool {.inline.} =
+  result = fig_draw_siwin_window_ref_configure_ui_scale_binding(window, envVar.cstring)
+
+proc fig_draw_siwin_window_ref_refresh_ui_scale_binding(window: SiwinWindowRef, auto_scale: bool) {.importc: "fig_draw_siwin_window_ref_refresh_ui_scale_binding", cdecl.}
+
+proc refreshUiScaleBinding*(window: SiwinWindowRef, autoScale: bool) {.inline.} =
+  fig_draw_siwin_window_ref_refresh_ui_scale_binding(window, autoScale)
+
+proc fig_draw_siwin_window_ref_present_now_binding(window: SiwinWindowRef) {.importc: "fig_draw_siwin_window_ref_present_now_binding", cdecl.}
+
+proc presentNowBinding*(window: SiwinWindowRef) {.inline.} =
+  fig_draw_siwin_window_ref_present_now_binding(window)
+
+proc fig_draw_siwin_renderer_ref_siwin_backend_name_for_renderer_binding(renderer: SiwinRendererRef): cstring {.importc: "fig_draw_siwin_renderer_ref_siwin_backend_name_for_renderer_binding", cdecl.}
+
+proc siwinBackendNameForRendererBinding*(renderer: SiwinRendererRef): cstring {.inline.} =
+  result = fig_draw_siwin_renderer_ref_siwin_backend_name_for_renderer_binding(renderer)
+
+proc fig_draw_siwin_renderer_ref_siwin_window_title_for_renderer_binding(renderer: SiwinRendererRef, window: SiwinWindowRef, suffix: cstring): cstring {.importc: "fig_draw_siwin_renderer_ref_siwin_window_title_for_renderer_binding", cdecl.}
+
+proc siwinWindowTitleForRendererBinding*(renderer: SiwinRendererRef, window: SiwinWindowRef, suffix: string): cstring {.inline.} =
+  result = fig_draw_siwin_renderer_ref_siwin_window_title_for_renderer_binding(renderer, window, suffix.cstring)
+
+proc fig_draw_siwin_renderer_ref_setup_backend_binding(renderer: SiwinRendererRef, window: SiwinWindowRef) {.importc: "fig_draw_siwin_renderer_ref_setup_backend_binding", cdecl.}
+
+proc setupBackendBinding*(renderer: SiwinRendererRef, window: SiwinWindowRef) {.inline.} =
+  fig_draw_siwin_renderer_ref_setup_backend_binding(renderer, window)
+
+proc fig_draw_siwin_renderer_ref_begin_frame_binding(renderer: SiwinRendererRef) {.importc: "fig_draw_siwin_renderer_ref_begin_frame_binding", cdecl.}
+
+proc beginFrameBinding*(renderer: SiwinRendererRef) {.inline.} =
+  fig_draw_siwin_renderer_ref_begin_frame_binding(renderer)
+
+proc fig_draw_siwin_renderer_ref_end_frame_binding(renderer: SiwinRendererRef) {.importc: "fig_draw_siwin_renderer_ref_end_frame_binding", cdecl.}
+
+proc endFrameBinding*(renderer: SiwinRendererRef) {.inline.} =
+  fig_draw_siwin_renderer_ref_end_frame_binding(renderer)
+
+proc fig_draw_siwin_metal_layer_ref_update_metal_layer_binding(layer: SiwinMetalLayerRef, window: SiwinWindowRef) {.importc: "fig_draw_siwin_metal_layer_ref_update_metal_layer_binding", cdecl.}
+
+proc updateMetalLayerBinding*(layer: SiwinMetalLayerRef, window: SiwinWindowRef) {.inline.} =
+  fig_draw_siwin_metal_layer_ref_update_metal_layer_binding(layer, window)
+
+proc fig_draw_siwin_metal_layer_ref_set_opaque_binding(layer: SiwinMetalLayerRef, opaque: bool) {.importc: "fig_draw_siwin_metal_layer_ref_set_opaque_binding", cdecl.}
+
+proc setOpaqueBinding*(layer: SiwinMetalLayerRef, opaque: bool) {.inline.} =
+  fig_draw_siwin_metal_layer_ref_set_opaque_binding(layer, opaque)
+
 proc fig_draw_siwin_backend_name_binding(): cstring {.importc: "fig_draw_siwin_backend_name_binding", cdecl.}
 
 proc siwinBackendNameBinding*(): cstring {.inline.} =
@@ -255,4 +385,29 @@ proc fig_draw_siwin_window_title_binding(suffix: cstring): cstring {.importc: "f
 
 proc siwinWindowTitleBinding*(suffix: string): cstring {.inline.} =
   result = fig_draw_siwin_window_title_binding(suffix.cstring)
+
+proc fig_draw_shared_siwin_globals_ptr_binding(): uint64 {.importc: "fig_draw_shared_siwin_globals_ptr_binding", cdecl.}
+
+proc sharedSiwinGlobalsPtrBinding*(): uint64 {.inline.} =
+  result = fig_draw_shared_siwin_globals_ptr_binding()
+
+proc fig_draw_new_siwin_renderer_binding(atlas_size: int, pixel_scale: float32): SiwinRendererRef {.importc: "fig_draw_new_siwin_renderer_binding", cdecl.}
+
+proc newSiwinRendererBinding*(atlasSize: int, pixelScale: float32): SiwinRendererRef {.inline.} =
+  result = fig_draw_new_siwin_renderer_binding(atlasSize, pixelScale)
+
+proc fig_draw_new_siwin_window_binding(width: int32, height: int32, fullscreen: bool, title: cstring, vsync: bool, msaa: int32, resizable: bool, frameless: bool, transparent: bool): SiwinWindowRef {.importc: "fig_draw_new_siwin_window_binding", cdecl.}
+
+proc newSiwinWindowBinding*(width: int32, height: int32, fullscreen: bool, title: string, vsync: bool, msaa: int32, resizable: bool, frameless: bool, transparent: bool): SiwinWindowRef {.inline.} =
+  result = fig_draw_new_siwin_window_binding(width, height, fullscreen, title.cstring, vsync, msaa, resizable, frameless, transparent)
+
+proc fig_draw_new_siwin_window_for_renderer_binding(renderer: SiwinRendererRef, width: int32, height: int32, fullscreen: bool, title: cstring, vsync: bool, msaa: int32, resizable: bool, frameless: bool, transparent: bool): SiwinWindowRef {.importc: "fig_draw_new_siwin_window_for_renderer_binding", cdecl.}
+
+proc newSiwinWindowForRendererBinding*(renderer: SiwinRendererRef, width: int32, height: int32, fullscreen: bool, title: string, vsync: bool, msaa: int32, resizable: bool, frameless: bool, transparent: bool): SiwinWindowRef {.inline.} =
+  result = fig_draw_new_siwin_window_for_renderer_binding(renderer, width, height, fullscreen, title.cstring, vsync, msaa, resizable, frameless, transparent)
+
+proc fig_draw_attach_metal_layer_binding(window: SiwinWindowRef, device_ptr: uint64): SiwinMetalLayerRef {.importc: "fig_draw_attach_metal_layer_binding", cdecl.}
+
+proc attachMetalLayerBinding*(window: SiwinWindowRef, devicePtr: uint64): SiwinMetalLayerRef {.inline.} =
+  result = fig_draw_attach_metal_layer_binding(window, devicePtr)
 

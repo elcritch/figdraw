@@ -217,12 +217,138 @@ def descaled(a):
     result = dll.fig_draw_descaled(a)
     return result
 
+class SiwinWindowRef(Structure):
+    _fields_ = [("ref", c_ulonglong)]
+
+    def __bool__(self):
+        return self.ref != None
+
+    def __eq__(self, obj):
+        return self.ref == obj.ref
+
+    def __del__(self):
+        dll.fig_draw_siwin_window_ref_unref(self)
+
+    def close_window_binding(self):
+        dll.fig_draw_siwin_window_ref_close_window_binding(self)
+
+    def step_window_binding(self):
+        dll.fig_draw_siwin_window_ref_step_window_binding(self)
+
+    def make_current_window_binding(self):
+        dll.fig_draw_siwin_window_ref_make_current_window_binding(self)
+
+    def window_is_open_binding(self):
+        result = dll.fig_draw_siwin_window_ref_window_is_open_binding(self)
+        return result
+
+    def siwin_display_server_name_binding(self):
+        result = dll.fig_draw_siwin_window_ref_siwin_display_server_name_binding(self).decode("utf8")
+        return result
+
+    def backing_width_binding(self):
+        result = dll.fig_draw_siwin_window_ref_backing_width_binding(self)
+        return result
+
+    def backing_height_binding(self):
+        result = dll.fig_draw_siwin_window_ref_backing_height_binding(self)
+        return result
+
+    def logical_width_binding(self):
+        result = dll.fig_draw_siwin_window_ref_logical_width_binding(self)
+        return result
+
+    def logical_height_binding(self):
+        result = dll.fig_draw_siwin_window_ref_logical_height_binding(self)
+        return result
+
+    def content_scale_binding(self):
+        result = dll.fig_draw_siwin_window_ref_content_scale_binding(self)
+        return result
+
+    def configure_ui_scale_binding(self, env_var):
+        result = dll.fig_draw_siwin_window_ref_configure_ui_scale_binding(self, env_var.encode("utf8"))
+        return result
+
+    def refresh_ui_scale_binding(self, auto_scale):
+        dll.fig_draw_siwin_window_ref_refresh_ui_scale_binding(self, auto_scale)
+
+    def present_now_binding(self):
+        dll.fig_draw_siwin_window_ref_present_now_binding(self)
+
+class SiwinRendererRef(Structure):
+    _fields_ = [("ref", c_ulonglong)]
+
+    def __bool__(self):
+        return self.ref != None
+
+    def __eq__(self, obj):
+        return self.ref == obj.ref
+
+    def __del__(self):
+        dll.fig_draw_siwin_renderer_ref_unref(self)
+
+    def siwin_backend_name_for_renderer_binding(self):
+        result = dll.fig_draw_siwin_renderer_ref_siwin_backend_name_for_renderer_binding(self).decode("utf8")
+        return result
+
+    def siwin_window_title_for_renderer_binding(self, window, suffix):
+        result = dll.fig_draw_siwin_renderer_ref_siwin_window_title_for_renderer_binding(self, window, suffix.encode("utf8")).decode("utf8")
+        return result
+
+    def setup_backend_binding(self, window):
+        dll.fig_draw_siwin_renderer_ref_setup_backend_binding(self, window)
+
+    def begin_frame_binding(self):
+        dll.fig_draw_siwin_renderer_ref_begin_frame_binding(self)
+
+    def end_frame_binding(self):
+        dll.fig_draw_siwin_renderer_ref_end_frame_binding(self)
+
+class SiwinMetalLayerRef(Structure):
+    _fields_ = [("ref", c_ulonglong)]
+
+    def __bool__(self):
+        return self.ref != None
+
+    def __eq__(self, obj):
+        return self.ref == obj.ref
+
+    def __del__(self):
+        dll.fig_draw_siwin_metal_layer_ref_unref(self)
+
+    def update_metal_layer_binding(self, window):
+        dll.fig_draw_siwin_metal_layer_ref_update_metal_layer_binding(self, window)
+
+    def set_opaque_binding(self, opaque):
+        dll.fig_draw_siwin_metal_layer_ref_set_opaque_binding(self, opaque)
+
 def siwin_backend_name_binding():
     result = dll.fig_draw_siwin_backend_name_binding().decode("utf8")
     return result
 
 def siwin_window_title_binding(suffix):
     result = dll.fig_draw_siwin_window_title_binding(suffix.encode("utf8")).decode("utf8")
+    return result
+
+def shared_siwin_globals_ptr_binding():
+    result = dll.fig_draw_shared_siwin_globals_ptr_binding()
+    return result
+
+def new_siwin_renderer_binding(atlas_size, pixel_scale):
+    result = dll.fig_draw_new_siwin_renderer_binding(atlas_size, pixel_scale)
+    return result
+
+def new_siwin_window_binding(width, height, fullscreen, title, vsync, msaa, resizable, frameless, transparent):
+    result = dll.fig_draw_new_siwin_window_binding(width, height, fullscreen, title.encode("utf8"), vsync, msaa, resizable, frameless, transparent)
+    return result
+
+def new_siwin_window_for_renderer_binding(renderer, width, height, fullscreen, title, vsync, msaa, resizable, frameless, transparent):
+    result = dll.fig_draw_new_siwin_window_for_renderer_binding(renderer, width, height, fullscreen, title.encode("utf8"), vsync, msaa, resizable, frameless, transparent)
+    return result
+
+def attach_metal_layer_binding(window, device_ptr):
+    result = dll.fig_draw_attach_metal_layer_binding(window, device_ptr)
     return result
 
 dll.fig_draw_fig_unref.argtypes = [Fig]
@@ -354,9 +480,93 @@ dll.fig_draw_scaled.restype = c_float
 dll.fig_draw_descaled.argtypes = [c_float]
 dll.fig_draw_descaled.restype = c_float
 
+dll.fig_draw_siwin_window_ref_unref.argtypes = [SiwinWindowRef]
+dll.fig_draw_siwin_window_ref_unref.restype = None
+
+dll.fig_draw_siwin_window_ref_close_window_binding.argtypes = [SiwinWindowRef]
+dll.fig_draw_siwin_window_ref_close_window_binding.restype = None
+
+dll.fig_draw_siwin_window_ref_step_window_binding.argtypes = [SiwinWindowRef]
+dll.fig_draw_siwin_window_ref_step_window_binding.restype = None
+
+dll.fig_draw_siwin_window_ref_make_current_window_binding.argtypes = [SiwinWindowRef]
+dll.fig_draw_siwin_window_ref_make_current_window_binding.restype = None
+
+dll.fig_draw_siwin_window_ref_window_is_open_binding.argtypes = [SiwinWindowRef]
+dll.fig_draw_siwin_window_ref_window_is_open_binding.restype = c_bool
+
+dll.fig_draw_siwin_window_ref_siwin_display_server_name_binding.argtypes = [SiwinWindowRef]
+dll.fig_draw_siwin_window_ref_siwin_display_server_name_binding.restype = c_char_p
+
+dll.fig_draw_siwin_window_ref_backing_width_binding.argtypes = [SiwinWindowRef]
+dll.fig_draw_siwin_window_ref_backing_width_binding.restype = c_int
+
+dll.fig_draw_siwin_window_ref_backing_height_binding.argtypes = [SiwinWindowRef]
+dll.fig_draw_siwin_window_ref_backing_height_binding.restype = c_int
+
+dll.fig_draw_siwin_window_ref_logical_width_binding.argtypes = [SiwinWindowRef]
+dll.fig_draw_siwin_window_ref_logical_width_binding.restype = c_float
+
+dll.fig_draw_siwin_window_ref_logical_height_binding.argtypes = [SiwinWindowRef]
+dll.fig_draw_siwin_window_ref_logical_height_binding.restype = c_float
+
+dll.fig_draw_siwin_window_ref_content_scale_binding.argtypes = [SiwinWindowRef]
+dll.fig_draw_siwin_window_ref_content_scale_binding.restype = c_float
+
+dll.fig_draw_siwin_window_ref_configure_ui_scale_binding.argtypes = [SiwinWindowRef, c_char_p]
+dll.fig_draw_siwin_window_ref_configure_ui_scale_binding.restype = c_bool
+
+dll.fig_draw_siwin_window_ref_refresh_ui_scale_binding.argtypes = [SiwinWindowRef, c_bool]
+dll.fig_draw_siwin_window_ref_refresh_ui_scale_binding.restype = None
+
+dll.fig_draw_siwin_window_ref_present_now_binding.argtypes = [SiwinWindowRef]
+dll.fig_draw_siwin_window_ref_present_now_binding.restype = None
+
+dll.fig_draw_siwin_renderer_ref_unref.argtypes = [SiwinRendererRef]
+dll.fig_draw_siwin_renderer_ref_unref.restype = None
+
+dll.fig_draw_siwin_renderer_ref_siwin_backend_name_for_renderer_binding.argtypes = [SiwinRendererRef]
+dll.fig_draw_siwin_renderer_ref_siwin_backend_name_for_renderer_binding.restype = c_char_p
+
+dll.fig_draw_siwin_renderer_ref_siwin_window_title_for_renderer_binding.argtypes = [SiwinRendererRef, SiwinWindowRef, c_char_p]
+dll.fig_draw_siwin_renderer_ref_siwin_window_title_for_renderer_binding.restype = c_char_p
+
+dll.fig_draw_siwin_renderer_ref_setup_backend_binding.argtypes = [SiwinRendererRef, SiwinWindowRef]
+dll.fig_draw_siwin_renderer_ref_setup_backend_binding.restype = None
+
+dll.fig_draw_siwin_renderer_ref_begin_frame_binding.argtypes = [SiwinRendererRef]
+dll.fig_draw_siwin_renderer_ref_begin_frame_binding.restype = None
+
+dll.fig_draw_siwin_renderer_ref_end_frame_binding.argtypes = [SiwinRendererRef]
+dll.fig_draw_siwin_renderer_ref_end_frame_binding.restype = None
+
+dll.fig_draw_siwin_metal_layer_ref_unref.argtypes = [SiwinMetalLayerRef]
+dll.fig_draw_siwin_metal_layer_ref_unref.restype = None
+
+dll.fig_draw_siwin_metal_layer_ref_update_metal_layer_binding.argtypes = [SiwinMetalLayerRef, SiwinWindowRef]
+dll.fig_draw_siwin_metal_layer_ref_update_metal_layer_binding.restype = None
+
+dll.fig_draw_siwin_metal_layer_ref_set_opaque_binding.argtypes = [SiwinMetalLayerRef, c_bool]
+dll.fig_draw_siwin_metal_layer_ref_set_opaque_binding.restype = None
+
 dll.fig_draw_siwin_backend_name_binding.argtypes = []
 dll.fig_draw_siwin_backend_name_binding.restype = c_char_p
 
 dll.fig_draw_siwin_window_title_binding.argtypes = [c_char_p]
 dll.fig_draw_siwin_window_title_binding.restype = c_char_p
+
+dll.fig_draw_shared_siwin_globals_ptr_binding.argtypes = []
+dll.fig_draw_shared_siwin_globals_ptr_binding.restype = c_ulonglong
+
+dll.fig_draw_new_siwin_renderer_binding.argtypes = [c_longlong, c_float]
+dll.fig_draw_new_siwin_renderer_binding.restype = SiwinRendererRef
+
+dll.fig_draw_new_siwin_window_binding.argtypes = [c_int, c_int, c_bool, c_char_p, c_bool, c_int, c_bool, c_bool, c_bool]
+dll.fig_draw_new_siwin_window_binding.restype = SiwinWindowRef
+
+dll.fig_draw_new_siwin_window_for_renderer_binding.argtypes = [SiwinRendererRef, c_int, c_int, c_bool, c_char_p, c_bool, c_int, c_bool, c_bool, c_bool]
+dll.fig_draw_new_siwin_window_for_renderer_binding.restype = SiwinWindowRef
+
+dll.fig_draw_attach_metal_layer_binding.argtypes = [SiwinWindowRef, c_ulonglong]
+dll.fig_draw_attach_metal_layer_binding.restype = SiwinMetalLayerRef
 

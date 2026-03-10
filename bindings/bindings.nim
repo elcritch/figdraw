@@ -6,9 +6,6 @@ import figdraw/fignodes as fdn
 
 const ExportSiwinShim* {.booldefine: "figdraw.bindings.siwinshim".} = false
 
-when ExportSiwinShim:
-  import figdraw/windowing/siwinshim
-
 type
   FigKind* = fdn.FigKind
   ZLevel* = int8
@@ -69,13 +66,6 @@ proc newTransformFig(x, y, w, h: float32, tx, ty: float32): Fig =
       ),
     ),
   )
-
-when ExportSiwinShim:
-  proc siwinBackendNameBinding(): string =
-    siwinBackendName()
-
-  proc siwinWindowTitleBinding(suffix: string): string =
-    siwinWindowTitle(suffix = suffix)
 
 proc copy(fig: Fig): Fig =
   Fig(inner: fig.inner)
@@ -259,9 +249,7 @@ exportProcs:
   descaled(float32)
 
 when ExportSiwinShim:
-  exportProcs:
-    siwinBackendNameBinding
-    siwinWindowTitleBinding
+  include siwinshim_bindings
 
 writeFiles("bindings/generated", "FigDraw")
 

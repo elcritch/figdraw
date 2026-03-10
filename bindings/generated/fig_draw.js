@@ -247,6 +247,129 @@ function descaled(a){
   return result
 }
 
+SiwinWindowRef = Struct({'nimRef': 'uint64'});
+SiwinWindowRef.prototype.isNull = function(){
+  return this.nimRef == 0;
+};
+SiwinWindowRef.prototype.isEqual = function(other){
+  return this.nimRef == other.nimRef;
+};
+SiwinWindowRef.prototype.unref = function(){
+  return dll.fig_draw_siwin_window_ref_unref(this)
+};
+
+SiwinWindowRef.prototype.closeWindowBinding = function(){
+  dll.fig_draw_siwin_window_ref_close_window_binding(this)
+}
+
+SiwinWindowRef.prototype.stepWindowBinding = function(){
+  dll.fig_draw_siwin_window_ref_step_window_binding(this)
+}
+
+SiwinWindowRef.prototype.makeCurrentWindowBinding = function(){
+  dll.fig_draw_siwin_window_ref_make_current_window_binding(this)
+}
+
+SiwinWindowRef.prototype.windowIsOpenBinding = function(){
+  result = dll.fig_draw_siwin_window_ref_window_is_open_binding(this)
+  return result
+}
+
+SiwinWindowRef.prototype.siwinDisplayServerNameBinding = function(){
+  result = dll.fig_draw_siwin_window_ref_siwin_display_server_name_binding(this)
+  return result
+}
+
+SiwinWindowRef.prototype.backingWidthBinding = function(){
+  result = dll.fig_draw_siwin_window_ref_backing_width_binding(this)
+  return result
+}
+
+SiwinWindowRef.prototype.backingHeightBinding = function(){
+  result = dll.fig_draw_siwin_window_ref_backing_height_binding(this)
+  return result
+}
+
+SiwinWindowRef.prototype.logicalWidthBinding = function(){
+  result = dll.fig_draw_siwin_window_ref_logical_width_binding(this)
+  return result
+}
+
+SiwinWindowRef.prototype.logicalHeightBinding = function(){
+  result = dll.fig_draw_siwin_window_ref_logical_height_binding(this)
+  return result
+}
+
+SiwinWindowRef.prototype.contentScaleBinding = function(){
+  result = dll.fig_draw_siwin_window_ref_content_scale_binding(this)
+  return result
+}
+
+SiwinWindowRef.prototype.configureUiScaleBinding = function(env_var){
+  result = dll.fig_draw_siwin_window_ref_configure_ui_scale_binding(this, env_var)
+  return result
+}
+
+SiwinWindowRef.prototype.refreshUiScaleBinding = function(auto_scale){
+  dll.fig_draw_siwin_window_ref_refresh_ui_scale_binding(this, auto_scale)
+}
+
+SiwinWindowRef.prototype.presentNowBinding = function(){
+  dll.fig_draw_siwin_window_ref_present_now_binding(this)
+}
+
+SiwinRendererRef = Struct({'nimRef': 'uint64'});
+SiwinRendererRef.prototype.isNull = function(){
+  return this.nimRef == 0;
+};
+SiwinRendererRef.prototype.isEqual = function(other){
+  return this.nimRef == other.nimRef;
+};
+SiwinRendererRef.prototype.unref = function(){
+  return dll.fig_draw_siwin_renderer_ref_unref(this)
+};
+
+SiwinRendererRef.prototype.siwinBackendNameForRendererBinding = function(){
+  result = dll.fig_draw_siwin_renderer_ref_siwin_backend_name_for_renderer_binding(this)
+  return result
+}
+
+SiwinRendererRef.prototype.siwinWindowTitleForRendererBinding = function(window, suffix){
+  result = dll.fig_draw_siwin_renderer_ref_siwin_window_title_for_renderer_binding(this, window, suffix)
+  return result
+}
+
+SiwinRendererRef.prototype.setupBackendBinding = function(window){
+  dll.fig_draw_siwin_renderer_ref_setup_backend_binding(this, window)
+}
+
+SiwinRendererRef.prototype.beginFrameBinding = function(){
+  dll.fig_draw_siwin_renderer_ref_begin_frame_binding(this)
+}
+
+SiwinRendererRef.prototype.endFrameBinding = function(){
+  dll.fig_draw_siwin_renderer_ref_end_frame_binding(this)
+}
+
+SiwinMetalLayerRef = Struct({'nimRef': 'uint64'});
+SiwinMetalLayerRef.prototype.isNull = function(){
+  return this.nimRef == 0;
+};
+SiwinMetalLayerRef.prototype.isEqual = function(other){
+  return this.nimRef == other.nimRef;
+};
+SiwinMetalLayerRef.prototype.unref = function(){
+  return dll.fig_draw_siwin_metal_layer_ref_unref(this)
+};
+
+SiwinMetalLayerRef.prototype.updateMetalLayerBinding = function(window){
+  dll.fig_draw_siwin_metal_layer_ref_update_metal_layer_binding(this, window)
+}
+
+SiwinMetalLayerRef.prototype.setOpaqueBinding = function(opaque){
+  dll.fig_draw_siwin_metal_layer_ref_set_opaque_binding(this, opaque)
+}
+
 function siwinBackendNameBinding(){
   result = dll.fig_draw_siwin_backend_name_binding()
   return result
@@ -254,6 +377,31 @@ function siwinBackendNameBinding(){
 
 function siwinWindowTitleBinding(suffix){
   result = dll.fig_draw_siwin_window_title_binding(suffix)
+  return result
+}
+
+function sharedSiwinGlobalsPtrBinding(){
+  result = dll.fig_draw_shared_siwin_globals_ptr_binding()
+  return result
+}
+
+function newSiwinRendererBinding(atlas_size, pixel_scale){
+  result = dll.fig_draw_new_siwin_renderer_binding(atlas_size, pixel_scale)
+  return result
+}
+
+function newSiwinWindowBinding(width, height, fullscreen, title, vsync, msaa, resizable, frameless, transparent){
+  result = dll.fig_draw_new_siwin_window_binding(width, height, fullscreen, title, vsync, msaa, resizable, frameless, transparent)
+  return result
+}
+
+function newSiwinWindowForRendererBinding(renderer, width, height, fullscreen, title, vsync, msaa, resizable, frameless, transparent){
+  result = dll.fig_draw_new_siwin_window_for_renderer_binding(renderer, width, height, fullscreen, title, vsync, msaa, resizable, frameless, transparent)
+  return result
+}
+
+function attachMetalLayerBinding(window, device_ptr){
+  result = dll.fig_draw_attach_metal_layer_binding(window, device_ptr)
   return result
 }
 
@@ -311,8 +459,36 @@ dll = ffi.Library(dllPath, {
   'fig_draw_set_fig_ui_scale': ['void', ['float']],
   'fig_draw_scaled': ['float', ['float']],
   'fig_draw_descaled': ['float', ['float']],
+  'fig_draw_siwin_window_ref_unref': ['void', [SiwinWindowRef]],
+  'fig_draw_siwin_window_ref_close_window_binding': ['void', [SiwinWindowRef]],
+  'fig_draw_siwin_window_ref_step_window_binding': ['void', [SiwinWindowRef]],
+  'fig_draw_siwin_window_ref_make_current_window_binding': ['void', [SiwinWindowRef]],
+  'fig_draw_siwin_window_ref_window_is_open_binding': ['bool', [SiwinWindowRef]],
+  'fig_draw_siwin_window_ref_siwin_display_server_name_binding': ['string', [SiwinWindowRef]],
+  'fig_draw_siwin_window_ref_backing_width_binding': ['int32', [SiwinWindowRef]],
+  'fig_draw_siwin_window_ref_backing_height_binding': ['int32', [SiwinWindowRef]],
+  'fig_draw_siwin_window_ref_logical_width_binding': ['float', [SiwinWindowRef]],
+  'fig_draw_siwin_window_ref_logical_height_binding': ['float', [SiwinWindowRef]],
+  'fig_draw_siwin_window_ref_content_scale_binding': ['float', [SiwinWindowRef]],
+  'fig_draw_siwin_window_ref_configure_ui_scale_binding': ['bool', [SiwinWindowRef, 'string']],
+  'fig_draw_siwin_window_ref_refresh_ui_scale_binding': ['void', [SiwinWindowRef, 'bool']],
+  'fig_draw_siwin_window_ref_present_now_binding': ['void', [SiwinWindowRef]],
+  'fig_draw_siwin_renderer_ref_unref': ['void', [SiwinRendererRef]],
+  'fig_draw_siwin_renderer_ref_siwin_backend_name_for_renderer_binding': ['string', [SiwinRendererRef]],
+  'fig_draw_siwin_renderer_ref_siwin_window_title_for_renderer_binding': ['string', [SiwinRendererRef, SiwinWindowRef, 'string']],
+  'fig_draw_siwin_renderer_ref_setup_backend_binding': ['void', [SiwinRendererRef, SiwinWindowRef]],
+  'fig_draw_siwin_renderer_ref_begin_frame_binding': ['void', [SiwinRendererRef]],
+  'fig_draw_siwin_renderer_ref_end_frame_binding': ['void', [SiwinRendererRef]],
+  'fig_draw_siwin_metal_layer_ref_unref': ['void', [SiwinMetalLayerRef]],
+  'fig_draw_siwin_metal_layer_ref_update_metal_layer_binding': ['void', [SiwinMetalLayerRef, SiwinWindowRef]],
+  'fig_draw_siwin_metal_layer_ref_set_opaque_binding': ['void', [SiwinMetalLayerRef, 'bool']],
   'fig_draw_siwin_backend_name_binding': ['string', []],
   'fig_draw_siwin_window_title_binding': ['string', ['string']],
+  'fig_draw_shared_siwin_globals_ptr_binding': ['uint64', []],
+  'fig_draw_new_siwin_renderer_binding': [SiwinRendererRef, ['int64', 'float']],
+  'fig_draw_new_siwin_window_binding': [SiwinWindowRef, ['int32', 'int32', 'bool', 'string', 'bool', 'int32', 'bool', 'bool', 'bool']],
+  'fig_draw_new_siwin_window_for_renderer_binding': [SiwinWindowRef, [SiwinRendererRef, 'int32', 'int32', 'bool', 'string', 'bool', 'int32', 'bool', 'bool', 'bool']],
+  'fig_draw_attach_metal_layer_binding': [SiwinMetalLayerRef, [SiwinWindowRef, 'uint64']],
 });
 
 exports.FigKind = FigKind
@@ -333,5 +509,13 @@ exports.figUiScale = figUiScale
 exports.setFigUiScale = setFigUiScale
 exports.scaled = scaled
 exports.descaled = descaled
+exports.SiwinWindowRefType = SiwinWindowRef
+exports.SiwinRendererRefType = SiwinRendererRef
+exports.SiwinMetalLayerRefType = SiwinMetalLayerRef
 exports.siwinBackendNameBinding = siwinBackendNameBinding
 exports.siwinWindowTitleBinding = siwinWindowTitleBinding
+exports.sharedSiwinGlobalsPtrBinding = sharedSiwinGlobalsPtrBinding
+exports.newSiwinRendererBinding = newSiwinRendererBinding
+exports.newSiwinWindowBinding = newSiwinWindowBinding
+exports.newSiwinWindowForRendererBinding = newSiwinWindowForRendererBinding
+exports.attachMetalLayerBinding = attachMetalLayerBinding
