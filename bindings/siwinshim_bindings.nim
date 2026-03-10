@@ -15,15 +15,24 @@ when defined(macosx) and UseMetalBackend:
     SiwinMetalLayerRef* = ref object
       inner: MetalLayerHandle
 
+var
+  siwinBackendNameStorage {.threadvar.}: string
+  siwinWindowTitleStorage {.threadvar.}: string
+  siwinDisplayNameStorage {.threadvar.}: string
+  siwinRendererBackendNameStorage {.threadvar.}: string
+  siwinRendererWindowTitleStorage {.threadvar.}: string
+
 proc siwinBackendNameBinding(): string =
   try:
-    siwinBackendName()
+    siwinBackendNameStorage = siwinBackendName()
+    siwinBackendNameStorage
   except Exception:
     ""
 
 proc siwinWindowTitleBinding(suffix: string): string =
   try:
-    siwinWindowTitle(suffix = suffix)
+    siwinWindowTitleStorage = siwinWindowTitle(suffix = suffix)
+    siwinWindowTitleStorage
   except Exception:
     ""
 
@@ -45,7 +54,8 @@ proc siwinBackendNameForRendererBinding(renderer: SiwinRendererRef): string =
   if renderer.isNil or renderer.inner.isNil:
     return ""
   try:
-    siwinBackendName(renderer.inner)
+    siwinRendererBackendNameStorage = siwinBackendName(renderer.inner)
+    siwinRendererBackendNameStorage
   except Exception:
     ""
 
@@ -121,6 +131,22 @@ proc stepWindowBinding(window: SiwinWindowRef) =
   except Exception:
     discard
 
+proc firstStepWindowBinding(window: SiwinWindowRef, makeVisible = true) =
+  if window.isNil or window.inner.isNil:
+    return
+  try:
+    window.inner.firstStep(makeVisible)
+  except Exception:
+    discard
+
+proc redrawWindowBinding(window: SiwinWindowRef) =
+  if window.isNil or window.inner.isNil:
+    return
+  try:
+    window.inner.redraw()
+  except Exception:
+    discard
+
 proc makeCurrentWindowBinding(window: SiwinWindowRef) =
   if window.isNil or window.inner.isNil:
     return
@@ -138,7 +164,8 @@ proc siwinDisplayServerNameBinding(window: SiwinWindowRef): string =
   if window.isNil or window.inner.isNil:
     return ""
   try:
-    siwinDisplayServerName(window.inner)
+    siwinDisplayNameStorage = siwinDisplayServerName(window.inner)
+    siwinDisplayNameStorage
   except Exception:
     ""
 
@@ -148,7 +175,9 @@ proc siwinWindowTitleForRendererBinding(
   if renderer.isNil or renderer.inner.isNil or window.isNil or window.inner.isNil:
     return ""
   try:
-    siwinWindowTitle(renderer.inner, window.inner, suffix = suffix)
+    siwinRendererWindowTitleStorage =
+      siwinWindowTitle(renderer.inner, window.inner, suffix = suffix)
+    siwinRendererWindowTitleStorage
   except Exception:
     ""
 
@@ -285,7 +314,9 @@ when defined(macosx) and UseMetalBackend:
 exportRefObject SiwinWindowRef:
   procs:
     closeWindowBinding(SiwinWindowRef)
+    firstStepWindowBinding(SiwinWindowRef, bool)
     stepWindowBinding(SiwinWindowRef)
+    redrawWindowBinding(SiwinWindowRef)
     makeCurrentWindowBinding(SiwinWindowRef)
     windowIsOpenBinding(SiwinWindowRef)
     siwinDisplayServerNameBinding(SiwinWindowRef)
@@ -301,7 +332,6 @@ exportRefObject SiwinWindowRef:
 exportRefObject SiwinRendererRef:
   procs:
     siwinBackendNameForRendererBinding(SiwinRendererRef)
-    siwinWindowTitleForRendererBinding(SiwinRendererRef, SiwinWindowRef, string)
     setupBackendBinding(SiwinRendererRef, SiwinWindowRef)
     beginFrameBinding(SiwinRendererRef)
     endFrameBinding(SiwinRendererRef)

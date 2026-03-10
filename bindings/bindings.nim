@@ -10,7 +10,6 @@ const ExportSiwinShim* {.booldefine: "figdraw.bindings.siwinshim".} = false
 
 type
   FigKind* = fdn.FigKind
-  ZLevel* = int8
 
   Fig* = ref object
     inner: fdn.Fig
@@ -187,10 +186,10 @@ proc kind(fig: Fig): FigKind =
 proc setKind(fig: Fig, kind: FigKind) =
   fig.inner = figWithKind(fig.inner, kind)
 
-proc zLevel(fig: Fig): ZLevel =
+proc zLevel(fig: Fig): int8 =
   fig.inner.zlevel.int8
 
-proc setZLevel(fig: Fig, zLevel: ZLevel) =
+proc setZLevel(fig: Fig, zLevel: int8) =
   fig.inner.zlevel = fdn.ZLevel(zLevel)
 
 proc x(fig: Fig): float32 =
@@ -250,16 +249,16 @@ proc newRenders(): Renders =
 proc clear(renders: Renders) =
   renders.inner.layers.clear()
 
-proc containsLayer(renders: Renders, zLevel: ZLevel): bool =
+proc containsLayer(renders: Renders, zLevel: int8): bool =
   renders.inner.contains(fdn.ZLevel(zLevel))
 
-proc addRoot(renders: Renders, zLevel: ZLevel, root: Fig): int16 =
+proc addRoot(renders: Renders, zLevel: int8, root: Fig): int16 =
   try:
     renders.inner.addRoot(fdn.ZLevel(zLevel), root.inner).int16
   except CatchableError:
     -1'i16
 
-proc addChild(renders: Renders, zLevel: ZLevel, parentIdx: int16, child: Fig): int16 =
+proc addChild(renders: Renders, zLevel: int8, parentIdx: int16, child: Fig): int16 =
   try:
     renders.inner.addChild(
       fdn.ZLevel(zLevel),
@@ -269,7 +268,7 @@ proc addChild(renders: Renders, zLevel: ZLevel, parentIdx: int16, child: Fig): i
   except CatchableError:
     -1'i16
 
-proc layerNodeCount(renders: Renders, zLevel: ZLevel): int =
+proc layerNodeCount(renders: Renders, zLevel: int8): int =
   try:
     if not renders.containsLayer(zLevel):
       return 0
@@ -277,7 +276,7 @@ proc layerNodeCount(renders: Renders, zLevel: ZLevel): int =
   except CatchableError:
     0
 
-proc layerRootCount(renders: Renders, zLevel: ZLevel): int =
+proc layerRootCount(renders: Renders, zLevel: int8): int =
   try:
     if not renders.containsLayer(zLevel):
       return 0
@@ -285,7 +284,7 @@ proc layerRootCount(renders: Renders, zLevel: ZLevel): int =
   except CatchableError:
     0
 
-proc getLayerNode(renders: Renders, zLevel: ZLevel, nodeIdx: int16): Fig =
+proc getLayerNode(renders: Renders, zLevel: int8, nodeIdx: int16): Fig =
   try:
     Fig(inner: renders.inner[fdn.ZLevel(zLevel)].nodes[nodeIdx.int])
   except CatchableError:
@@ -302,7 +301,7 @@ exportRefObject Fig:
     kind(Fig)
     setKind(Fig, FigKind)
     zLevel(Fig)
-    setZLevel(Fig, ZLevel)
+    setZLevel(Fig, int8)
     x(Fig)
     y(Fig)
     width(Fig)
@@ -329,12 +328,12 @@ exportRefObject Renders:
     newRenders()
   procs:
     clear(Renders)
-    containsLayer(Renders, ZLevel)
-    addRoot(Renders, ZLevel, Fig)
-    addChild(Renders, ZLevel, int16, Fig)
-    layerNodeCount(Renders, ZLevel)
-    layerRootCount(Renders, ZLevel)
-    getLayerNode(Renders, ZLevel, int16)
+    containsLayer(Renders, int8)
+    addRoot(Renders, int8, Fig)
+    addChild(Renders, int8, int16, Fig)
+    layerNodeCount(Renders, int8)
+    layerRootCount(Renders, int8)
+    getLayerNode(Renders, int8, int16)
 
 exportRefObject TypefaceRef:
   discard
