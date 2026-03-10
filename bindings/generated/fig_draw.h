@@ -10,6 +10,12 @@ typedef long long RenderList;
 
 typedef long long Renders;
 
+typedef long long SiwinWindowRef;
+
+typedef long long SiwinRendererRef;
+
+typedef long long SiwinMetalLayerRef;
+
 void fig_draw_fig_unref(Fig fig);
 
 Fig fig_draw_new_fig();
@@ -96,8 +102,64 @@ float fig_draw_scaled(float a);
 
 float fig_draw_descaled(float a);
 
+void fig_draw_siwin_window_ref_unref(SiwinWindowRef siwin_window_ref);
+
+void fig_draw_siwin_window_ref_close_window_binding(SiwinWindowRef window);
+
+void fig_draw_siwin_window_ref_step_window_binding(SiwinWindowRef window);
+
+void fig_draw_siwin_window_ref_make_current_window_binding(SiwinWindowRef window);
+
+char fig_draw_siwin_window_ref_window_is_open_binding(SiwinWindowRef window);
+
+char* fig_draw_siwin_window_ref_siwin_display_server_name_binding(SiwinWindowRef window);
+
+int fig_draw_siwin_window_ref_backing_width_binding(SiwinWindowRef window);
+
+int fig_draw_siwin_window_ref_backing_height_binding(SiwinWindowRef window);
+
+float fig_draw_siwin_window_ref_logical_width_binding(SiwinWindowRef window);
+
+float fig_draw_siwin_window_ref_logical_height_binding(SiwinWindowRef window);
+
+float fig_draw_siwin_window_ref_content_scale_binding(SiwinWindowRef window);
+
+char fig_draw_siwin_window_ref_configure_ui_scale_binding(SiwinWindowRef window, char* env_var);
+
+void fig_draw_siwin_window_ref_refresh_ui_scale_binding(SiwinWindowRef window, char auto_scale);
+
+void fig_draw_siwin_window_ref_present_now_binding(SiwinWindowRef window);
+
+void fig_draw_siwin_renderer_ref_unref(SiwinRendererRef siwin_renderer_ref);
+
+char* fig_draw_siwin_renderer_ref_siwin_backend_name_for_renderer_binding(SiwinRendererRef renderer);
+
+char* fig_draw_siwin_renderer_ref_siwin_window_title_for_renderer_binding(SiwinRendererRef renderer, SiwinWindowRef window, char* suffix);
+
+void fig_draw_siwin_renderer_ref_setup_backend_binding(SiwinRendererRef renderer, SiwinWindowRef window);
+
+void fig_draw_siwin_renderer_ref_begin_frame_binding(SiwinRendererRef renderer);
+
+void fig_draw_siwin_renderer_ref_end_frame_binding(SiwinRendererRef renderer);
+
+void fig_draw_siwin_metal_layer_ref_unref(SiwinMetalLayerRef siwin_metal_layer_ref);
+
+void fig_draw_siwin_metal_layer_ref_update_metal_layer_binding(SiwinMetalLayerRef layer, SiwinWindowRef window);
+
+void fig_draw_siwin_metal_layer_ref_set_opaque_binding(SiwinMetalLayerRef layer, char opaque);
+
 char* fig_draw_siwin_backend_name_binding();
 
 char* fig_draw_siwin_window_title_binding(char* suffix);
+
+unsigned long long fig_draw_shared_siwin_globals_ptr_binding();
+
+SiwinRendererRef fig_draw_new_siwin_renderer_binding(long long atlas_size, float pixel_scale);
+
+SiwinWindowRef fig_draw_new_siwin_window_binding(int width, int height, char fullscreen, char* title, char vsync, int msaa, char resizable, char frameless, char transparent);
+
+SiwinWindowRef fig_draw_new_siwin_window_for_renderer_binding(SiwinRendererRef renderer, int width, int height, char fullscreen, char* title, char vsync, int msaa, char resizable, char frameless, char transparent);
+
+SiwinMetalLayerRef fig_draw_attach_metal_layer_binding(SiwinWindowRef window, unsigned long long device_ptr);
 
 #endif

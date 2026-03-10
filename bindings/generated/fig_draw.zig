@@ -225,6 +225,127 @@ pub inline fn descaled(a: f32) f32 {
     return fig_draw_descaled(a);
 }
 
+pub const SiwinWindowRef = opaque {
+    extern fn fig_draw_siwin_window_ref_unref(self: *SiwinWindowRef) callconv(.C) void;
+    pub inline fn deinit(self: *SiwinWindowRef) void {
+        return fig_draw_siwin_window_ref_unref(self);
+    }
+
+    extern fn fig_draw_siwin_window_ref_close_window_binding(self: *SiwinWindowRef) callconv(.C) void;
+    pub inline fn closeWindowBinding(self: *SiwinWindowRef) void {
+        return fig_draw_siwin_window_ref_close_window_binding(self);
+    }
+
+    extern fn fig_draw_siwin_window_ref_step_window_binding(self: *SiwinWindowRef) callconv(.C) void;
+    pub inline fn stepWindowBinding(self: *SiwinWindowRef) void {
+        return fig_draw_siwin_window_ref_step_window_binding(self);
+    }
+
+    extern fn fig_draw_siwin_window_ref_make_current_window_binding(self: *SiwinWindowRef) callconv(.C) void;
+    pub inline fn makeCurrentWindowBinding(self: *SiwinWindowRef) void {
+        return fig_draw_siwin_window_ref_make_current_window_binding(self);
+    }
+
+    extern fn fig_draw_siwin_window_ref_window_is_open_binding(self: *SiwinWindowRef) callconv(.C) bool;
+    pub inline fn windowIsOpenBinding(self: *SiwinWindowRef) bool {
+        return fig_draw_siwin_window_ref_window_is_open_binding(self);
+    }
+
+    extern fn fig_draw_siwin_window_ref_siwin_display_server_name_binding(self: *SiwinWindowRef) callconv(.C) [*:0]const u8;
+    pub inline fn siwinDisplayServerNameBinding(self: *SiwinWindowRef) [:0]const u8 {
+        return std.mem.span(fig_draw_siwin_window_ref_siwin_display_server_name_binding(self));
+    }
+
+    extern fn fig_draw_siwin_window_ref_backing_width_binding(self: *SiwinWindowRef) callconv(.C) i32;
+    pub inline fn backingWidthBinding(self: *SiwinWindowRef) i32 {
+        return fig_draw_siwin_window_ref_backing_width_binding(self);
+    }
+
+    extern fn fig_draw_siwin_window_ref_backing_height_binding(self: *SiwinWindowRef) callconv(.C) i32;
+    pub inline fn backingHeightBinding(self: *SiwinWindowRef) i32 {
+        return fig_draw_siwin_window_ref_backing_height_binding(self);
+    }
+
+    extern fn fig_draw_siwin_window_ref_logical_width_binding(self: *SiwinWindowRef) callconv(.C) f32;
+    pub inline fn logicalWidthBinding(self: *SiwinWindowRef) f32 {
+        return fig_draw_siwin_window_ref_logical_width_binding(self);
+    }
+
+    extern fn fig_draw_siwin_window_ref_logical_height_binding(self: *SiwinWindowRef) callconv(.C) f32;
+    pub inline fn logicalHeightBinding(self: *SiwinWindowRef) f32 {
+        return fig_draw_siwin_window_ref_logical_height_binding(self);
+    }
+
+    extern fn fig_draw_siwin_window_ref_content_scale_binding(self: *SiwinWindowRef) callconv(.C) f32;
+    pub inline fn contentScaleBinding(self: *SiwinWindowRef) f32 {
+        return fig_draw_siwin_window_ref_content_scale_binding(self);
+    }
+
+    extern fn fig_draw_siwin_window_ref_configure_ui_scale_binding(self: *SiwinWindowRef, env_var: [*:0]const u8) callconv(.C) bool;
+    pub inline fn configureUiScaleBinding(self: *SiwinWindowRef, env_var: [:0]const u8) bool {
+        return fig_draw_siwin_window_ref_configure_ui_scale_binding(self, env_var.ptr);
+    }
+
+    extern fn fig_draw_siwin_window_ref_refresh_ui_scale_binding(self: *SiwinWindowRef, auto_scale: bool) callconv(.C) void;
+    pub inline fn refreshUiScaleBinding(self: *SiwinWindowRef, auto_scale: bool) void {
+        return fig_draw_siwin_window_ref_refresh_ui_scale_binding(self, auto_scale);
+    }
+
+    extern fn fig_draw_siwin_window_ref_present_now_binding(self: *SiwinWindowRef) callconv(.C) void;
+    pub inline fn presentNowBinding(self: *SiwinWindowRef) void {
+        return fig_draw_siwin_window_ref_present_now_binding(self);
+    }
+};
+
+pub const SiwinRendererRef = opaque {
+    extern fn fig_draw_siwin_renderer_ref_unref(self: *SiwinRendererRef) callconv(.C) void;
+    pub inline fn deinit(self: *SiwinRendererRef) void {
+        return fig_draw_siwin_renderer_ref_unref(self);
+    }
+
+    extern fn fig_draw_siwin_renderer_ref_siwin_backend_name_for_renderer_binding(self: *SiwinRendererRef) callconv(.C) [*:0]const u8;
+    pub inline fn siwinBackendNameForRendererBinding(self: *SiwinRendererRef) [:0]const u8 {
+        return std.mem.span(fig_draw_siwin_renderer_ref_siwin_backend_name_for_renderer_binding(self));
+    }
+
+    extern fn fig_draw_siwin_renderer_ref_siwin_window_title_for_renderer_binding(self: *SiwinRendererRef, window: *SiwinWindowRef, suffix: [*:0]const u8) callconv(.C) [*:0]const u8;
+    pub inline fn siwinWindowTitleForRendererBinding(self: *SiwinRendererRef, window: *SiwinWindowRef, suffix: [:0]const u8) [:0]const u8 {
+        return std.mem.span(fig_draw_siwin_renderer_ref_siwin_window_title_for_renderer_binding(self, window, suffix.ptr));
+    }
+
+    extern fn fig_draw_siwin_renderer_ref_setup_backend_binding(self: *SiwinRendererRef, window: *SiwinWindowRef) callconv(.C) void;
+    pub inline fn setupBackendBinding(self: *SiwinRendererRef, window: *SiwinWindowRef) void {
+        return fig_draw_siwin_renderer_ref_setup_backend_binding(self, window);
+    }
+
+    extern fn fig_draw_siwin_renderer_ref_begin_frame_binding(self: *SiwinRendererRef) callconv(.C) void;
+    pub inline fn beginFrameBinding(self: *SiwinRendererRef) void {
+        return fig_draw_siwin_renderer_ref_begin_frame_binding(self);
+    }
+
+    extern fn fig_draw_siwin_renderer_ref_end_frame_binding(self: *SiwinRendererRef) callconv(.C) void;
+    pub inline fn endFrameBinding(self: *SiwinRendererRef) void {
+        return fig_draw_siwin_renderer_ref_end_frame_binding(self);
+    }
+};
+
+pub const SiwinMetalLayerRef = opaque {
+    extern fn fig_draw_siwin_metal_layer_ref_unref(self: *SiwinMetalLayerRef) callconv(.C) void;
+    pub inline fn deinit(self: *SiwinMetalLayerRef) void {
+        return fig_draw_siwin_metal_layer_ref_unref(self);
+    }
+
+    extern fn fig_draw_siwin_metal_layer_ref_update_metal_layer_binding(self: *SiwinMetalLayerRef, window: *SiwinWindowRef) callconv(.C) void;
+    pub inline fn updateMetalLayerBinding(self: *SiwinMetalLayerRef, window: *SiwinWindowRef) void {
+        return fig_draw_siwin_metal_layer_ref_update_metal_layer_binding(self, window);
+    }
+
+    extern fn fig_draw_siwin_metal_layer_ref_set_opaque_binding(self: *SiwinMetalLayerRef, opaque: bool) callconv(.C) void;
+    pub inline fn setOpaqueBinding(self: *SiwinMetalLayerRef, opaque: bool) void {
+        return fig_draw_siwin_metal_layer_ref_set_opaque_binding(self, opaque);
+    }
+};
+
 extern fn fig_draw_siwin_backend_name_binding() callconv(.C) [*:0]const u8;
 pub inline fn siwinBackendNameBinding() [:0]const u8 {
     return std.mem.span(fig_draw_siwin_backend_name_binding());
@@ -233,5 +354,30 @@ pub inline fn siwinBackendNameBinding() [:0]const u8 {
 extern fn fig_draw_siwin_window_title_binding(suffix: [*:0]const u8) callconv(.C) [*:0]const u8;
 pub inline fn siwinWindowTitleBinding(suffix: [:0]const u8) [:0]const u8 {
     return std.mem.span(fig_draw_siwin_window_title_binding(suffix.ptr));
+}
+
+extern fn fig_draw_shared_siwin_globals_ptr_binding() callconv(.C) u64;
+pub inline fn sharedSiwinGlobalsPtrBinding() u64 {
+    return fig_draw_shared_siwin_globals_ptr_binding();
+}
+
+extern fn fig_draw_new_siwin_renderer_binding(atlas_size: isize, pixel_scale: f32) callconv(.C) *SiwinRendererRef;
+pub inline fn newSiwinRendererBinding(atlas_size: isize, pixel_scale: f32) *SiwinRendererRef {
+    return fig_draw_new_siwin_renderer_binding(atlas_size, pixel_scale);
+}
+
+extern fn fig_draw_new_siwin_window_binding(width: i32, height: i32, fullscreen: bool, title: [*:0]const u8, vsync: bool, msaa: i32, resizable: bool, frameless: bool, transparent: bool) callconv(.C) *SiwinWindowRef;
+pub inline fn newSiwinWindowBinding(width: i32, height: i32, fullscreen: bool, title: [:0]const u8, vsync: bool, msaa: i32, resizable: bool, frameless: bool, transparent: bool) *SiwinWindowRef {
+    return fig_draw_new_siwin_window_binding(width, height, fullscreen, title.ptr, vsync, msaa, resizable, frameless, transparent);
+}
+
+extern fn fig_draw_new_siwin_window_for_renderer_binding(renderer: *SiwinRendererRef, width: i32, height: i32, fullscreen: bool, title: [*:0]const u8, vsync: bool, msaa: i32, resizable: bool, frameless: bool, transparent: bool) callconv(.C) *SiwinWindowRef;
+pub inline fn newSiwinWindowForRendererBinding(renderer: *SiwinRendererRef, width: i32, height: i32, fullscreen: bool, title: [:0]const u8, vsync: bool, msaa: i32, resizable: bool, frameless: bool, transparent: bool) *SiwinWindowRef {
+    return fig_draw_new_siwin_window_for_renderer_binding(renderer, width, height, fullscreen, title.ptr, vsync, msaa, resizable, frameless, transparent);
+}
+
+extern fn fig_draw_attach_metal_layer_binding(window: *SiwinWindowRef, device_ptr: u64) callconv(.C) *SiwinMetalLayerRef;
+pub inline fn attachMetalLayerBinding(window: *SiwinWindowRef, device_ptr: u64) *SiwinMetalLayerRef {
+    return fig_draw_attach_metal_layer_binding(window, device_ptr);
 }
 
