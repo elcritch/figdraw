@@ -77,16 +77,17 @@ proc generateGlyph*(
     lcdFiltering = false,
     subpixelVariant = 0,
     force = false,
-) =
+    upload = true,
+): Image {.discardable.} =
   if unicode.isWhiteSpace(glyph.rune):
-    return
+    return nil
 
   let
     variant = clampGlyphVariantSubpixelStep(subpixelVariant)
     hashFill = glyph.hash(lcdFiltering = lcdFiltering, subpixelVariant = variant)
 
   if (not force) and hasImage(hashFill.ImageId):
-    return
+    return nil
 
   let
     fontId = glyph.fontId
@@ -113,8 +114,8 @@ proc generateGlyph*(
     bounds = rect(0, 0, scaled(snappedBounds.w + snappedBounds.x), scaled(lh))
 
   if bounds.w == 0 or bounds.h == 0:
-    error "GEN IMG: ", rune = $glyph.rune, wh = repr wh, snapped = repr snappedBounds
-    return
+    debug "GEN IMG: ", rune = $glyph.rune, wh = repr wh, snapped = repr snappedBounds
+    return nil
 
   try:
     font.paint = parseHex"FFFFFF"
@@ -124,9 +125,11 @@ proc generateGlyph*(
       image.applyLcdFilter()
 
     # put into cache
-    loadImage(hashFill.ImageId, image)
+    if upload:
+      loadImage(hashFill.ImageId, image)
+    return image
   except PixieError:
-    discard
+    return nil
 
 iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
   var idx = 0
