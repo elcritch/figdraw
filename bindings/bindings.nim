@@ -224,6 +224,41 @@ proc setStroke(fig: Fig, weight: float32, r, g, b, a: uint8) =
     fill: fill(rgba(r, g, b, a)),
   )
 
+proc clearShadows(fig: Fig) =
+  if fig.inner.kind != fdn.nkRectangle:
+    fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
+  fig.inner.shadows = [RenderShadow(), RenderShadow(), RenderShadow(), RenderShadow()]
+
+proc setShadow(
+    fig: Fig,
+    shadowIndex: int8,
+    style: int8,
+    blur, spread, x, y: float32,
+    r, g, b, a: uint8,
+) =
+  if fig.inner.kind != fdn.nkRectangle:
+    fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
+  if shadowIndex < 0'i8 or shadowIndex >= ShadowCount.int8:
+    return
+
+  var shadowStyle = ShadowStyle.NoShadow
+  case style
+  of 1'i8:
+    shadowStyle = ShadowStyle.DropShadow
+  of 2'i8:
+    shadowStyle = ShadowStyle.InnerShadow
+  else:
+    discard
+
+  fig.inner.shadows[shadowIndex.int] = RenderShadow(
+    style: shadowStyle,
+    blur: blur,
+    spread: spread,
+    x: x,
+    y: y,
+    fill: fill(rgba(r, g, b, a)),
+  )
+
 proc newRenderList(): RenderList =
   RenderList(inner: fdn.RenderList())
 
@@ -322,6 +357,20 @@ exportRefObject Fig:
     setRotation(Fig, float32)
     setCorners(Fig, float32, float32, float32, float32)
     setStroke(Fig, float32, uint8, uint8, uint8, uint8)
+    clearShadows(Fig)
+    setShadow(
+      Fig,
+      int8,
+      int8,
+      float32,
+      float32,
+      float32,
+      float32,
+      uint8,
+      uint8,
+      uint8,
+      uint8,
+    )
 
 exportRefObject RenderList:
   constructor:

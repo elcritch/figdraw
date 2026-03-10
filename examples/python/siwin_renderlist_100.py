@@ -103,11 +103,47 @@ def make_render_tree(width: float, height: float, frame: int) -> fd.Renders:
         g2 = 10.0 + 16.0 * (0.5 + 0.5 * math.cos(t * 0.75 + i * 0.04))
         g3 = 12.0 + 14.0 * (0.5 + 0.5 * math.sin(t * 0.85 + i * 0.05))
         green_fig.set_corners(g0, g1, g2, g3)
+        shadow_pulse = 0.5 + 0.5 * math.sin(t * 1.1 + i * 0.05)
+        shadow_blur = max(0.0, 6.0 + 18.0 * shadow_pulse)
+        shadow_spread = max(0.0, 4.0 + 20.0 * (1.0 - shadow_pulse))
+        shadow_x = 6.0 + 10.0 * math.sin(t * 0.9 + i * 0.03)
+        shadow_y = 6.0 + 10.0 * math.cos(t * 0.9 + i * 0.03)
+        green_fig.clear_shadows()
+        green_fig.set_shadow(
+            0,  # first shadow slot
+            1,  # DropShadow
+            shadow_blur,
+            shadow_spread,
+            shadow_x,
+            shadow_y,
+            0,
+            0,
+            0,
+            155,
+        )
         renders.add_root(0, green_fig)
 
         blue_fig = fd.new_rectangle_fig(blue_start_x + offset_x, blue_start_y + offset_y, blue_w, blue_h)
         blue_fig.set_fill_color(60, 90, 220, 155)
         blue_fig.set_stroke(4.0, 255, 255, 255, 210)
+        inset_pulse = 0.5 + 0.5 * math.sin(t * 1.05 + i * 0.06)
+        inset_blur = max(0.0, 8.0 + 10.0 * inset_pulse)
+        inset_spread = max(0.0, 2.0 + 10.0 * (1.0 - inset_pulse))
+        inset_x = 6.0 * math.sin(t * 0.85 + i * 0.04)
+        inset_y = 6.0 * math.cos(t * 0.8 + i * 0.04)
+        blue_fig.clear_shadows()
+        blue_fig.set_shadow(
+            0,  # first shadow slot
+            2,  # InnerShadow
+            inset_blur,
+            inset_spread,
+            inset_x,
+            inset_y,
+            40,
+            40,
+            60,
+            150,
+        )
         renders.add_root(0, blue_fig)
 
     return renders
