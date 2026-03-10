@@ -17,6 +17,15 @@ type
     b*: uint8
     a*: uint8
 
+  CornerRadii* = object
+    topLeft*: float32
+    topRight*: float32
+    bottomLeft*: float32
+    bottomRight*: float32
+
+  BorderSize* = object
+    width*: float32
+
   Fig* = ref object
     inner: fdn.Fig
 
@@ -40,6 +49,19 @@ proc newFig(): Fig =
 
 proc newRgbaColor(r, g, b, a: uint8): RgbaColor =
   RgbaColor(r: r, g: g, b: b, a: a)
+
+proc newCornerRadii(
+    topLeft, topRight, bottomLeft, bottomRight: float32
+): CornerRadii =
+  CornerRadii(
+    topLeft: topLeft,
+    topRight: topRight,
+    bottomLeft: bottomLeft,
+    bottomRight: bottomRight,
+  )
+
+proc newBorderSize(width: float32): BorderSize =
+  BorderSize(width: width)
 
 proc newRectangleFig(x, y, w, h: float32): Fig =
   Fig(
@@ -233,7 +255,7 @@ proc parseFillAxis(axis: int8): FillGradientAxis =
   else:
     fgaX
 
-proc setFillLinear2(
+proc setFillLinear2Raw(
     fig: Fig,
     sr, sg, sb, sa: uint8,
     er, eg, eb, ea: uint8,
@@ -245,7 +267,7 @@ proc setFillLinear2(
     axis = parseFillAxis(axis),
   )
 
-proc setFillLinear2Rgba(
+proc setFillLinear2(
     fig: Fig,
     startColor, endColor: RgbaColor,
     axis: int8,
@@ -256,7 +278,7 @@ proc setFillLinear2Rgba(
     axis = parseFillAxis(axis),
   )
 
-proc setFillLinear3(
+proc setFillLinear3Raw(
     fig: Fig,
     sr, sg, sb, sa: uint8,
     mr, mg, mb, ma: uint8,
@@ -272,7 +294,7 @@ proc setFillLinear3(
     midPos = midPos,
   )
 
-proc setFillLinear3Rgba(
+proc setFillLinear3(
     fig: Fig,
     startColor, midColor, endColor: RgbaColor,
     axis: int8,
@@ -289,10 +311,18 @@ proc setFillLinear3Rgba(
 proc setRotation(fig: Fig, rotation: float32) =
   fig.inner.rotation = rotation
 
-proc setCorners(fig: Fig, topLeft, topRight, bottomLeft, bottomRight: float32) =
+proc setCornersRaw(fig: Fig, topLeft, topRight, bottomLeft, bottomRight: float32) =
   fig.inner.corners = [topLeft, topRight, bottomLeft, bottomRight]
 
-proc setStroke(fig: Fig, weight: float32, r, g, b, a: uint8) =
+proc setCorners(fig: Fig, radii: CornerRadii) =
+  fig.inner.corners = [
+    radii.topLeft,
+    radii.topRight,
+    radii.bottomLeft,
+    radii.bottomRight,
+  ]
+
+proc setStrokeRaw(fig: Fig, weight: float32, r, g, b, a: uint8) =
   if fig.inner.kind != fdn.nkRectangle:
     fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
   fig.inner.stroke = RenderStroke(
@@ -300,11 +330,19 @@ proc setStroke(fig: Fig, weight: float32, r, g, b, a: uint8) =
     fill: fill(rgba(r, g, b, a)),
   )
 
-proc setStrokeRgba(fig: Fig, weight: float32, color: RgbaColor) =
+proc setStrokeRaw(fig: Fig, weight: float32, color: RgbaColor) =
   if fig.inner.kind != fdn.nkRectangle:
     fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
   fig.inner.stroke = RenderStroke(
     weight: weight,
+    fill: fill(rgba(color.r, color.g, color.b, color.a)),
+  )
+
+proc setStroke(fig: Fig, border: BorderSize, color: RgbaColor) =
+  if fig.inner.kind != fdn.nkRectangle:
+    fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
+  fig.inner.stroke = RenderStroke(
+    weight: border.width,
     fill: fill(rgba(color.r, color.g, color.b, color.a)),
   )
 
@@ -313,7 +351,7 @@ proc clearShadows(fig: Fig) =
     fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
   fig.inner.shadows = [RenderShadow(), RenderShadow(), RenderShadow(), RenderShadow()]
 
-proc setShadow(
+proc setShadowRaw(
     fig: Fig,
     shadowIndex: int8,
     style: int8,
@@ -343,7 +381,7 @@ proc setShadow(
     fill: fill(rgba(r, g, b, a)),
   )
 
-proc setShadowRgba(
+proc setShadow(
     fig: Fig,
     shadowIndex: int8,
     style: int8,
@@ -457,6 +495,14 @@ exportObject RgbaColor:
   constructor:
     newRgbaColor(uint8, uint8, uint8, uint8)
 
+exportObject CornerRadii:
+  constructor:
+    newCornerRadii(float32, float32, float32, float32)
+
+exportObject BorderSize:
+  constructor:
+    newBorderSize(float32)
+
 exportRefObject Fig:
   constructor:
     newFig()
@@ -473,56 +519,13 @@ exportRefObject Fig:
     setScreenBox(Fig, float32, float32, float32, float32)
     setFillColor(Fig, uint8, uint8, uint8, uint8)
     setFillColorRgba(Fig, RgbaColor)
-    setFillLinear2(
-      Fig,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      int8,
-    )
-    setFillLinear2Rgba(Fig, RgbaColor, RgbaColor, int8)
-    setFillLinear3(
-      Fig,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-      int8,
-      uint8,
-    )
-    setFillLinear3Rgba(Fig, RgbaColor, RgbaColor, RgbaColor, int8, uint8)
+    setFillLinear2(Fig, RgbaColor, RgbaColor, int8)
+    setFillLinear3(Fig, RgbaColor, RgbaColor, RgbaColor, int8, uint8)
     setRotation(Fig, float32)
-    setCorners(Fig, float32, float32, float32, float32)
-    setStroke(Fig, float32, uint8, uint8, uint8, uint8)
-    setStrokeRgba(Fig, float32, RgbaColor)
+    setCorners(Fig, CornerRadii)
+    setStroke(Fig, BorderSize, RgbaColor)
     clearShadows(Fig)
-    setShadow(
-      Fig,
-      int8,
-      int8,
-      float32,
-      float32,
-      float32,
-      float32,
-      uint8,
-      uint8,
-      uint8,
-      uint8,
-    )
-    setShadowRgba(Fig, int8, int8, float32, float32, float32, float32, RgbaColor)
+    setShadow(Fig, int8, int8, float32, float32, float32, float32, RgbaColor)
 
 exportRefObject RenderList:
   constructor:

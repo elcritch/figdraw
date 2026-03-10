@@ -54,6 +54,8 @@ BLUE_GRAD_STOP = fd.RgbaColor(118, 168, 255, 255)
 WHITE_STROKE = fd.RgbaColor(255, 255, 255, 210)
 BLACK_SHADOW = fd.RgbaColor(0, 0, 0, 155)
 BLUE_INNER_SHADOW = fd.RgbaColor(40, 40, 60, 150)
+RED_BORDER = fd.BorderSize(5.0)
+BLUE_BORDER = fd.BorderSize(4.0)
 
 
 def make_render_tree(width: float, height: float, frame: int) -> fd.Renders:
@@ -103,8 +105,8 @@ def make_render_tree(width: float, height: float, frame: int) -> fd.Renders:
         c1 = 6.0 + 22.0 * (1.0 - corner_pulse)
         c2 = 8.0 + 18.0 * (0.5 + 0.5 * math.sin(t * 0.7 + i * 0.05))
         c3 = 10.0 + 16.0 * (0.5 + 0.5 * math.cos(t * 0.8 + i * 0.06))
-        red_fig.set_corners(c0, c1, c2, c3)
-        red_fig.set_stroke_rgba(5.0, RED_STROKE)
+        red_fig.set_corners(fd.CornerRadii(c0, c1, c2, c3))
+        red_fig.set_stroke(RED_BORDER, RED_STROKE)
         renders.add_root(0, red_fig)
 
         green_fig = fd.new_rectangle_fig(
@@ -113,7 +115,7 @@ def make_render_tree(width: float, height: float, frame: int) -> fd.Renders:
         use_green_gradient = (i % 2) == 0
         if use_green_gradient:
             green_axis = 0 if (i % 4) < 2 else 2  # X or DiagTLBR
-            green_fig.set_fill_linear3_rgba(
+            green_fig.set_fill_linear3(
                 GREEN_GRAD_START, GREEN_GRAD_MID, GREEN_GRAD_STOP, green_axis, 128
             )
         else:
@@ -123,14 +125,14 @@ def make_render_tree(width: float, height: float, frame: int) -> fd.Renders:
         g1 = 8.0 + 18.0 * (1.0 - green_corner_pulse)
         g2 = 10.0 + 16.0 * (0.5 + 0.5 * math.cos(t * 0.75 + i * 0.04))
         g3 = 12.0 + 14.0 * (0.5 + 0.5 * math.sin(t * 0.85 + i * 0.05))
-        green_fig.set_corners(g0, g1, g2, g3)
+        green_fig.set_corners(fd.CornerRadii(g0, g1, g2, g3))
         shadow_pulse = 0.5 + 0.5 * math.sin(t * 1.1 + i * 0.05)
         shadow_blur = max(0.0, 6.0 + 18.0 * shadow_pulse)
         shadow_spread = max(0.0, 4.0 + 20.0 * (1.0 - shadow_pulse))
         shadow_x = 6.0 + 10.0 * math.sin(t * 0.9 + i * 0.03)
         shadow_y = 6.0 + 10.0 * math.cos(t * 0.9 + i * 0.03)
         green_fig.clear_shadows()
-        green_fig.set_shadow_rgba(
+        green_fig.set_shadow(
             0,  # first shadow slot
             1,  # DropShadow
             shadow_blur,
@@ -145,19 +147,19 @@ def make_render_tree(width: float, height: float, frame: int) -> fd.Renders:
         use_blue_gradient = (i % 3) == 0
         if use_blue_gradient:
             blue_axis = 1 if (i % 2) == 0 else 3  # Y or DiagBLTR
-            blue_fig.set_fill_linear3_rgba(
+            blue_fig.set_fill_linear3(
                 BLUE_GRAD_START, BLUE_GRAD_MID, BLUE_GRAD_STOP, blue_axis, 132
             )
         else:
             blue_fig.set_fill_color_rgba(BLUE_SOLID)
-        blue_fig.set_stroke_rgba(4.0, WHITE_STROKE)
+        blue_fig.set_stroke(BLUE_BORDER, WHITE_STROKE)
         inset_pulse = 0.5 + 0.5 * math.sin(t * 1.05 + i * 0.06)
         inset_blur = max(0.0, 8.0 + 10.0 * inset_pulse)
         inset_spread = max(0.0, 2.0 + 10.0 * (1.0 - inset_pulse))
         inset_x = 6.0 * math.sin(t * 0.85 + i * 0.04)
         inset_y = 6.0 * math.cos(t * 0.8 + i * 0.04)
         blue_fig.clear_shadows()
-        blue_fig.set_shadow_rgba(
+        blue_fig.set_shadow(
             0,  # first shadow slot
             2,  # InnerShadow
             inset_blur,
@@ -230,7 +232,7 @@ def main() -> int:
             hud_y = hud_margin
             hud_rect = fd.new_rectangle_fig(hud_x, hud_y, hud_w, hud_h)
             hud_rect.set_fill_color(0, 0, 0, 155)
-            hud_rect.set_corners(8.0, 8.0, 8.0, 8.0)
+            hud_rect.set_corners(fd.CornerRadii(8.0, 8.0, 8.0, 8.0))
             renders.add_root(0, hud_rect)
 
             hud_text_pad_x = 10.0
