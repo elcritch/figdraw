@@ -343,13 +343,17 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
 
     ctx.setTextSubpixelShift(subpixelShift)
     if glyphId notin ctx.entries:
-      glyph.generateGlyph(
-        lcdFiltering = lcdFiltering, subpixelVariant = subpixelVariant
+      let img = glyph.generateGlyph(lcdFiltering = lcdFiltering,
+                                    subpixelVariant = subpixelVariant,
+                                    force = true,
+                                    upload = false,
       )
-      warn "missing glyph image in context",
-        glyphId = glyphId, glyphRune = $glyph.rune, glyphRuneRepr = repr(glyph.rune)
-      ctx.setTextSubpixelShift(0.0'f32)
-      continue
+      ctx.putImage(glyphId, img)
+      if glyphId in ctx.entries:
+        debug "missing glyph image in context",
+          glyphId = glyphId, glyphRune = $glyph.rune, glyphRuneRepr = repr(glyph.rune)
+        ctx.setTextSubpixelShift(0.0'f32)
+        continue
 
     var drawPos = glyphPos
     if invertText:

@@ -99,28 +99,72 @@ proc siwinWindowTitle*[BackendState](
     "figdraw: " & backend & " + " & suffix
 
 proc newSiwinWindow*(
-    size: IVec2, fullscreen = false, title = "FigDraw", vsync = true, msaa = 0'i32
+    size: IVec2,
+    fullscreen = false,
+    title = "FigDraw",
+    vsync = true,
+    msaa = 0'i32,
+    resizable = true,
+    frameless = false,
+    transparent = false,
 ): Window =
   let forceOpenGl = runtimeForceOpenGlRequested()
   let window =
     when UseMetalBackend and not NeedSiwinOpenGLContext:
       when defined(macosx):
-        newMetalWindowCocoa(size = size, title = title)
+        newMetalWindowCocoa(
+          size = size,
+          title = title,
+          resizable = resizable,
+          frameless = frameless,
+          transparent = transparent,
+        )
       else:
         {.error: "siwinshim: Metal backend requires macOS".}
     else:
       when defined(macosx):
-        newOpenglWindowCocoa(size = size, title = title, vsync = vsync, msaa = msaa)
+        newOpenglWindowCocoa(
+          size = size,
+          title = title,
+          vsync = vsync,
+          msaa = msaa,
+          resizable = resizable,
+          frameless = frameless,
+          transparent = transparent,
+        )
       else:
         let globals = sharedSiwinGlobals()
         when UseVulkanBackend:
           if forceOpenGl:
-            newOpenglWindow(globals, size = size, title = title, vsync = vsync)
+            newOpenglWindow(
+              globals,
+              size = size,
+              title = title,
+              vsync = vsync,
+              resizable = resizable,
+              frameless = frameless,
+              transparent = transparent,
+            )
           else:
             # Use a non-GL window for Vulkan so siwin's GL swap path does not flicker.
-            newSoftwareRenderingWindow(globals, size = size, title = title)
+            newSoftwareRenderingWindow(
+              globals,
+              size = size,
+              title = title,
+              resizable = resizable,
+              frameless = frameless,
+              transparent = transparent,
+            )
         else:
-          newOpenglWindow(globals, size = size, title = title, vsync = vsync)
+          newOpenglWindow(
+            globals,
+            size = size,
+            title = title,
+            vsync = vsync,
+            resizable = resizable,
+            frameless = frameless,
+            transparent = transparent,
+          )
   when NeedSiwinOpenGLContext:
     when UseVulkanBackend:
       if forceOpenGl:
@@ -140,6 +184,9 @@ proc newSiwinWindow*(
     title = "FigDraw",
     vsync = true,
     msaa = 0'i32,
+    resizable = true,
+    frameless = false,
+    transparent = false,
 ): Window =
   ## Compatibility overload. Prefer creating a window first, then renderer.
   let forceOpenGl = runtimeForceOpenGlRequested() or renderer.forceOpenGlByEnv()
@@ -173,7 +220,14 @@ proc newSiwinWindow*(
 
   discard renderer
   result = newSiwinWindow(
-    size = size, fullscreen = fullscreen, title = title, vsync = vsync, msaa = msaa
+    size = size,
+    fullscreen = fullscreen,
+    title = title,
+    vsync = vsync,
+    msaa = msaa,
+    resizable = resizable,
+    frameless = frameless,
+    transparent = transparent,
   )
 
 proc backingSize*(window: Window): IVec2 =

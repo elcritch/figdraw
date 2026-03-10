@@ -72,54 +72,64 @@ proc hash*(
   let variant = clampGlyphVariantSubpixelStep(subpixelVariant)
   result = hash((2344, glyph.fontId, glyph.rune, lcdFiltering, variant))
 
-proc generateGlyph*(glyph: GlyphPosition, lcdFiltering = false, subpixelVariant = 0) =
+proc generateGlyph*(
+    glyph: GlyphPosition,
+    lcdFiltering = false,
+    subpixelVariant = 0,
+    force = false,
+    upload = true,
+): Image {.discardable.} =
   if unicode.isWhiteSpace(glyph.rune):
-    return
+    return nil
 
   let
     variant = clampGlyphVariantSubpixelStep(subpixelVariant)
     hashFill = glyph.hash(lcdFiltering = lcdFiltering, subpixelVariant = variant)
 
-  if not hasImage(hashFill.ImageId):
-    let
-      fontId = glyph.fontId
-      font = getPixieFont(fontId)
+  if (not force) and hasImage(hashFill.ImageId):
+    return nil
 
-    var
-      text = $glyph.rune
-      arrangement = pixie.typeset(
-        @[newSpan(text, font)],
-        bounds = glyph.rect.wh.scaled(),
-        hAlign = CenterAlign,
-        vAlign = TopAlign,
-        wrap = false,
-      )
-    if variant > 0:
-      let subpixelOffset = variant.float32 / glyphVariantSubpixelSteps.float32
-      for i in 0 ..< arrangement.positions.len:
-        arrangement.positions[i].x += subpixelOffset
+  let
+    fontId = glyph.fontId
+    font = getPixieFont(fontId)
 
-    let snappedBounds = arrangement.computeBounds().snapToPixels()
+  var
+    text = $glyph.rune
+    arrangement = pixie.typeset(
+      @[newSpan(text, font)],
+      bounds = glyph.rect.wh.scaled(),
+      hAlign = CenterAlign,
+      vAlign = TopAlign,
+      wrap = false,
+    )
+  if variant > 0:
+    let subpixelOffset = variant.float32 / glyphVariantSubpixelSteps.float32
+    for i in 0 ..< arrangement.positions.len:
+      arrangement.positions[i].x += subpixelOffset
 
-    let
-      lh = font.defaultLineHeight()
-      bounds = rect(0, 0, scaled(snappedBounds.w + snappedBounds.x), scaled(lh))
+  let snappedBounds = arrangement.computeBounds().snapToPixels()
 
-    if bounds.w == 0 or bounds.h == 0:
-      error "GEN IMG: ", rune = $glyph.rune, wh = repr wh, snapped = repr snappedBounds
-      return
+  let
+    lh = font.defaultLineHeight()
+    bounds = rect(0, 0, scaled(snappedBounds.w + snappedBounds.x), scaled(lh))
 
-    try:
-      font.paint = parseHex"FFFFFF"
-      var image = newImage(bounds.w.int, bounds.h.int)
-      image.fillText(arrangement)
-      if lcdFiltering:
-        image.applyLcdFilter()
+  if bounds.w == 0 or bounds.h == 0:
+    debug "GEN IMG: ", rune = $glyph.rune, wh = repr wh, snapped = repr snappedBounds
+    return nil
 
-      # put into cache
+  try:
+    font.paint = parseHex"FFFFFF"
+    var image = newImage(bounds.w.int, bounds.h.int)
+    image.fillText(arrangement)
+    if lcdFiltering:
+      image.applyLcdFilter()
+
+    # put into cache
+    if upload:
       loadImage(hashFill.ImageId, image)
-    except PixieError:
-      discard
+    return image
+  except PixieError:
+    return nil
 
 iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
   var idx = 0
