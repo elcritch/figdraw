@@ -43,4 +43,6 @@ feature "vulkan":
 feature "metal":
   requires "https://github.com/elcritch/metalx#head"
 
+feature "sharedlib":
+  requires "genny"
 
