@@ -240,6 +240,16 @@ proc endFrameBinding(renderer: SiwinRendererRef) =
   except Exception:
     discard
 
+proc renderFrameBinding(
+    renderer: SiwinRendererRef, renders: Renders, width, height: float32
+) =
+  if renderer.isNil or renderer.inner.isNil or renders.isNil:
+    return
+  try:
+    renderer.inner.renderFrame(renders.inner, vec2(width, height))
+  except Exception:
+    discard
+
 when defined(macosx) and UseMetalBackend:
   proc attachMetalLayerBinding(
       window: SiwinWindowRef, devicePtr: uint64
@@ -295,6 +305,7 @@ exportRefObject SiwinRendererRef:
     setupBackendBinding(SiwinRendererRef, SiwinWindowRef)
     beginFrameBinding(SiwinRendererRef)
     endFrameBinding(SiwinRendererRef)
+    renderFrameBinding(SiwinRendererRef, Renders, float32, float32)
 
 when defined(macosx) and UseMetalBackend:
   exportRefObject SiwinMetalLayerRef:

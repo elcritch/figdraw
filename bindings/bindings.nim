@@ -3,6 +3,8 @@ import std/tables
 import std/hashes
 import figdraw/commons
 import figdraw/fignodes as fdn
+import figdraw/common/fonttypes as fnt
+import figdraw/common/fontutils as fut
 
 const ExportSiwinShim* {.booldefine: "figdraw.bindings.siwinshim".} = false
 
@@ -18,6 +20,15 @@ type
 
   Renders* = ref object
     inner: fdn.Renders
+
+  TypefaceRef* = ref object
+    id: fnt.TypefaceId
+
+  FigFontRef* = ref object
+    inner: fnt.FigFont
+
+  GlyphLayoutRef* = ref object
+    inner: fnt.GlyphArrangement
 
 proc newFig(): Fig =
   Fig(inner: fdn.Fig(kind: fdn.nkFrame))
@@ -66,6 +77,95 @@ proc newTransformFig(x, y, w, h: float32, tx, ty: float32): Fig =
       ),
     ),
   )
+
+proc loadTypefaceBinding(name: string): TypefaceRef =
+  try:
+    let fontId = fut.loadTypeface(name)
+    TypefaceRef(id: cast[fnt.TypefaceId](fontId))
+  except CatchableError:
+    nil
+
+proc newFigFontBinding(typeface: TypefaceRef, size: float32): FigFontRef =
+  if typeface.isNil:
+    return nil
+  FigFontRef(inner: fnt.FigFont(typefaceId: typeface.id, size: size))
+
+proc setFigFontLineHeightBinding(font: FigFontRef, lineHeight: float32) =
+  if font.isNil:
+    return
+  font.inner.lineHeight = lineHeight
+
+proc setFigFontCaseBinding(font: FigFontRef, fontCase: int8) =
+  if font.isNil:
+    return
+  case fontCase
+  of 1'i8:
+    font.inner.fontCase = fnt.FontCase.UpperCase
+  of 2'i8:
+    font.inner.fontCase = fnt.FontCase.LowerCase
+  of 3'i8:
+    font.inner.fontCase = fnt.FontCase.TitleCase
+  else:
+    font.inner.fontCase = fnt.FontCase.NormalCase
+
+proc typesetTextBinding(
+    width, height: float32,
+    font: FigFontRef,
+    text: string,
+    hAlign: int8 = 0,
+    vAlign: int8 = 0,
+    minContent = false,
+    wrap = false,
+): GlyphLayoutRef =
+  if font.isNil:
+    return nil
+  var h = fnt.FontHorizontal.Left
+  case hAlign
+  of 1'i8:
+    h = fnt.FontHorizontal.Center
+  of 2'i8:
+    h = fnt.FontHorizontal.Right
+  else:
+    discard
+
+  var v = fnt.FontVertical.Top
+  case vAlign
+  of 1'i8:
+    v = fnt.FontVertical.Middle
+  of 2'i8:
+    v = fnt.FontVertical.Bottom
+  else:
+    discard
+
+  try:
+    let layout = fut.typeset(
+      box = rect(0'f32, 0'f32, width, height),
+      uiSpans = @[(font.inner, text)],
+      hAlign = h,
+      vAlign = v,
+      minContent = minContent,
+      wrap = wrap,
+    )
+    GlyphLayoutRef(inner: layout)
+  except CatchableError:
+    nil
+
+proc setFigTextLayoutBinding(fig: Fig, layout: GlyphLayoutRef) =
+  if fig.isNil or layout.isNil:
+    return
+  if fig.inner.kind != fdn.nkText:
+    fig.inner.kind = fdn.nkText
+  fig.inner.textLayout = layout.inner
+
+proc textLayoutWidthBinding(layout: GlyphLayoutRef): float32 =
+  if layout.isNil:
+    return 0'f32
+  layout.inner.bounding.w
+
+proc textLayoutHeightBinding(layout: GlyphLayoutRef): float32 =
+  if layout.isNil:
+    return 0'f32
+  layout.inner.bounding.h
 
 proc copy(fig: Fig): Fig =
   Fig(inner: fig.inner)
@@ -236,11 +336,29 @@ exportRefObject Renders:
     layerRootCount(Renders, ZLevel)
     getLayerNode(Renders, ZLevel, int16)
 
+exportRefObject TypefaceRef:
+  discard
+
+exportRefObject FigFontRef:
+  constructor:
+    newFigFontBinding(TypefaceRef, float32)
+  procs:
+    setFigFontLineHeightBinding(FigFontRef, float32)
+    setFigFontCaseBinding(FigFontRef, int8)
+
+exportRefObject GlyphLayoutRef:
+  procs:
+    textLayoutWidthBinding(GlyphLayoutRef)
+    textLayoutHeightBinding(GlyphLayoutRef)
+
 exportProcs:
   newRectangleFig
   newTextFig
   newImageFig
   newTransformFig
+  loadTypefaceBinding
+  typesetTextBinding
+  setFigTextLayoutBinding
   figDataDir
   setFigDataDir
   figUiScale
