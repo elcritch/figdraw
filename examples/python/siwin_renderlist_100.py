@@ -84,16 +84,30 @@ def make_render_tree(width: float, height: float, frame: int) -> fd.Renders:
 
         red_fig = fd.new_rectangle_fig(red_start_x + offset_x, red_start_y + offset_y, red_w, red_h)
         red_fig.set_fill_color(220, 40, 40, 155)
+        corner_pulse = 0.5 + 0.5 * math.sin(t * 1.25 + i * 0.11)
+        c0 = 4.0 + 26.0 * corner_pulse
+        c1 = 6.0 + 22.0 * (1.0 - corner_pulse)
+        c2 = 8.0 + 18.0 * (0.5 + 0.5 * math.sin(t * 0.7 + i * 0.05))
+        c3 = 10.0 + 16.0 * (0.5 + 0.5 * math.cos(t * 0.8 + i * 0.06))
+        red_fig.set_corners(c0, c1, c2, c3)
+        red_fig.set_stroke(5.0, 0, 0, 0, 155)
         renders.add_root(0, red_fig)
 
         green_fig = fd.new_rectangle_fig(
             green_start_x + offset_x, green_start_y + offset_y, green_w, green_h
         )
         green_fig.set_fill_color(40, 180, 90, 155)
+        green_corner_pulse = 0.5 + 0.5 * math.cos(t * 0.95 + i * 0.08)
+        g0 = 6.0 + 22.0 * green_corner_pulse
+        g1 = 8.0 + 18.0 * (1.0 - green_corner_pulse)
+        g2 = 10.0 + 16.0 * (0.5 + 0.5 * math.cos(t * 0.75 + i * 0.04))
+        g3 = 12.0 + 14.0 * (0.5 + 0.5 * math.sin(t * 0.85 + i * 0.05))
+        green_fig.set_corners(g0, g1, g2, g3)
         renders.add_root(0, green_fig)
 
         blue_fig = fd.new_rectangle_fig(blue_start_x + offset_x, blue_start_y + offset_y, blue_w, blue_h)
         blue_fig.set_fill_color(60, 90, 220, 155)
+        blue_fig.set_stroke(4.0, 255, 255, 255, 210)
         renders.add_root(0, blue_fig)
 
     return renders
@@ -114,7 +128,7 @@ def main() -> int:
         print("Failed to create Siwin renderer")
         return 1
 
-    title = fd.siwin_window_title_binding("Siwin RenderList (Python)")
+    title = "Siwin RenderList (Python)"
     window = fd.new_siwin_window_binding(800, 600, False, title, True, 0, True, False, False)
     if not window:
         print("Failed to create Siwin window")
@@ -124,7 +138,7 @@ def main() -> int:
     renderer.setup_backend_binding(window)
     window.first_step_window_binding(True)
     window.make_current_window_binding()
-    print("Backend:", renderer.siwin_backend_name_for_renderer_binding())
+    print("Backend initialized")
 
     frames = 0
     fps_frames = 0
@@ -158,6 +172,7 @@ def main() -> int:
             hud_y = hud_margin
             hud_rect = fd.new_rectangle_fig(hud_x, hud_y, hud_w, hud_h)
             hud_rect.set_fill_color(0, 0, 0, 155)
+            hud_rect.set_corners(8.0, 8.0, 8.0, 8.0)
             renders.add_root(0, hud_rect)
 
             hud_text_pad_x = 10.0

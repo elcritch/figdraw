@@ -213,6 +213,17 @@ proc setFillColor(fig: Fig, r, g, b, a: uint8) =
 proc setRotation(fig: Fig, rotation: float32) =
   fig.inner.rotation = rotation
 
+proc setCorners(fig: Fig, topLeft, topRight, bottomLeft, bottomRight: float32) =
+  fig.inner.corners = [topLeft, topRight, bottomLeft, bottomRight]
+
+proc setStroke(fig: Fig, weight: float32, r, g, b, a: uint8) =
+  if fig.inner.kind != fdn.nkRectangle:
+    fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
+  fig.inner.stroke = RenderStroke(
+    weight: weight,
+    fill: fill(rgba(r, g, b, a)),
+  )
+
 proc newRenderList(): RenderList =
   RenderList(inner: fdn.RenderList())
 
@@ -309,6 +320,8 @@ exportRefObject Fig:
     setScreenBox(Fig, float32, float32, float32, float32)
     setFillColor(Fig, uint8, uint8, uint8, uint8)
     setRotation(Fig, float32)
+    setCorners(Fig, float32, float32, float32, float32)
+    setStroke(Fig, float32, uint8, uint8, uint8, uint8)
 
 exportRefObject RenderList:
   constructor:
