@@ -9,8 +9,6 @@ import figdraw/common/fontutils as fut
 const ExportSiwinShim* {.booldefine: "figdraw.bindings.siwinshim".} = false
 
 type
-  FigKind* = fdn.FigKind
-
   RgbaColor* = object
     r*: uint8
     g*: uint8
@@ -200,7 +198,7 @@ proc textLayoutHeightBinding(layout: GlyphLayoutRef): float32 =
 proc copy(fig: Fig): Fig =
   Fig(inner: fig.inner)
 
-proc figWithKind(src: fdn.Fig, kind: FigKind): fdn.Fig =
+proc figWithKind(src: fdn.Fig, kind: int8): fdn.Fig =
   result = fdn.Fig(kind: fdn.FigKind(kind))
   result.zlevel = src.zlevel
   result.parent = src.parent
@@ -211,10 +209,10 @@ proc figWithKind(src: fdn.Fig, kind: FigKind): fdn.Fig =
   result.fill = src.fill
   result.corners = src.corners
 
-proc kind(fig: Fig): FigKind =
-  fig.inner.kind
+proc kind(fig: Fig): int8 =
+  fig.inner.kind.int8
 
-proc setKind(fig: Fig, kind: FigKind) =
+proc setKind(fig: Fig, kind: int8) =
   fig.inner = figWithKind(fig.inner, kind)
 
 proc zLevel(fig: Fig): int8 =
@@ -324,7 +322,7 @@ proc setCorners(fig: Fig, radii: CornerRadii) =
 
 proc setStrokeRaw(fig: Fig, weight: float32, r, g, b, a: uint8) =
   if fig.inner.kind != fdn.nkRectangle:
-    fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
+    fig.inner = figWithKind(fig.inner, fdn.nkRectangle.int8)
   fig.inner.stroke = RenderStroke(
     weight: weight,
     fill: fill(rgba(r, g, b, a)),
@@ -332,7 +330,7 @@ proc setStrokeRaw(fig: Fig, weight: float32, r, g, b, a: uint8) =
 
 proc setStrokeRaw(fig: Fig, weight: float32, color: RgbaColor) =
   if fig.inner.kind != fdn.nkRectangle:
-    fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
+    fig.inner = figWithKind(fig.inner, fdn.nkRectangle.int8)
   fig.inner.stroke = RenderStroke(
     weight: weight,
     fill: fill(rgba(color.r, color.g, color.b, color.a)),
@@ -340,7 +338,7 @@ proc setStrokeRaw(fig: Fig, weight: float32, color: RgbaColor) =
 
 proc setStroke(fig: Fig, border: BorderSize, color: RgbaColor) =
   if fig.inner.kind != fdn.nkRectangle:
-    fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
+    fig.inner = figWithKind(fig.inner, fdn.nkRectangle.int8)
   fig.inner.stroke = RenderStroke(
     weight: border.width,
     fill: fill(rgba(color.r, color.g, color.b, color.a)),
@@ -348,7 +346,7 @@ proc setStroke(fig: Fig, border: BorderSize, color: RgbaColor) =
 
 proc clearShadows(fig: Fig) =
   if fig.inner.kind != fdn.nkRectangle:
-    fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
+    fig.inner = figWithKind(fig.inner, fdn.nkRectangle.int8)
   fig.inner.shadows = [RenderShadow(), RenderShadow(), RenderShadow(), RenderShadow()]
 
 proc setShadowRaw(
@@ -359,7 +357,7 @@ proc setShadowRaw(
     r, g, b, a: uint8,
 ) =
   if fig.inner.kind != fdn.nkRectangle:
-    fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
+    fig.inner = figWithKind(fig.inner, fdn.nkRectangle.int8)
   if shadowIndex < 0'i8 or shadowIndex >= ShadowCount.int8:
     return
 
@@ -389,7 +387,7 @@ proc setShadow(
     color: RgbaColor,
 ) =
   if fig.inner.kind != fdn.nkRectangle:
-    fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
+    fig.inner = figWithKind(fig.inner, fdn.nkRectangle.int8)
   if shadowIndex < 0'i8 or shadowIndex >= ShadowCount.int8:
     return
 
@@ -488,9 +486,6 @@ proc getLayerNode(renders: Renders, zLevel: int8, nodeIdx: int16): Fig =
   except CatchableError:
     newFig()
 
-exportEnums:
-  FigKind
-
 exportObject RgbaColor:
   constructor:
     newRgbaColor(uint8, uint8, uint8, uint8)
@@ -509,7 +504,7 @@ exportRefObject Fig:
   procs:
     copy(Fig)
     kind(Fig)
-    setKind(Fig, FigKind)
+    setKind(Fig, int8)
     zLevel(Fig)
     setZLevel(Fig, int8)
     x(Fig)
