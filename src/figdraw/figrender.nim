@@ -279,6 +279,20 @@ proc glyphScreenPos*(
     scaled(glyphPos.y - glyphDescent) + nodeBox.y.scaled(),
   )
 
+proc glyphScreenPosInverted*(
+    nodeBox: Rect,
+    layoutBounds: Rect,
+    glyphX: float32,
+    glyphRect: Rect,
+): Vec2 {.inline.} =
+  ## Converts a local glyph position into screen-space coordinates with Y-inverted
+  ## text layout (line order + glyph placement), mirrored around content bounds.
+  let invertedTop = layoutBounds.y + layoutBounds.h - (glyphRect.y + glyphRect.h)
+  vec2(
+    glyphX.scaled() + nodeBox.x.scaled(),
+    scaled(invertedTop) + nodeBox.y.scaled(),
+  )
+
 proc selectionScreenRect*(nodeBox: Rect, selectionRect: Rect): Rect {.inline.} =
   ## Converts a local text selection rectangle into screen-space coordinates.
 
@@ -290,6 +304,15 @@ proc selectionScreenRect*(nodeBox: Rect, selectionRect: Rect): Rect {.inline.} =
   )
   .scaled()
 
+proc selectionLocalRectInverted*(layoutBounds: Rect, selectionRect: Rect): Rect {.inline.} =
+  ## Mirrors a local text selection rectangle along the content bounds' Y axis.
+  rect(
+    selectionRect.x,
+    layoutBounds.y + layoutBounds.h - (selectionRect.y + selectionRect.h),
+    selectionRect.w,
+    selectionRect.h,
+  )
+
 proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
   let
@@ -298,6 +321,11 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
     glyphVariantSubpixelPositioning =
       subpixelPositioning and ctx.textSubpixelGlyphVariantsEnabled()
     invertText = NfInvertY in node.flags
+    layoutBounds =
+      if node.textLayout.bounding.h > 0.0'f32:
+        node.textLayout.bounding
+      else:
+        rect(0.0'f32, 0.0'f32, node.screenBox.w, node.screenBox.h)
 
   if NfSelectText in node.flags and fillAlphaMax(node.fill) > 0'u8:
     let rects = node.textLayout.selectionRects
@@ -307,9 +335,10 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       let selectionGradient = node.fill.gradientColors()
       let zeroRadii = [0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32]
       for idx in startIdx .. endIdx:
-        var rect = selectionScreenRect(node.screenBox, rects[idx])
+        var selectionRect = rects[idx]
         if invertText:
-          rect = rect
+          selectionRect = selectionLocalRectInverted(layoutBounds, selectionRect)
+        let rect = selectionScreenRect(node.screenBox, selectionRect)
         if rect.w > 0 and rect.h > 0:
           ctx.drawRoundedRectSdf(
             rect = rect,
@@ -326,7 +355,13 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       continue
 
     var
-      glyphPos = glyphScreenPos(node.screenBox, glyph.pos, glyph.descent)
+      glyphPos =
+        if invertText:
+          glyphScreenPosInverted(
+            node.screenBox, layoutBounds, glyph.pos.x, glyph.rect
+          )
+        else:
+          glyphScreenPos(node.screenBox, glyph.pos, glyph.descent)
       subpixelShift = 0.0'f32
       subpixelVariant = 0
     if subpixelPositioning:
@@ -355,11 +390,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
         ctx.setTextSubpixelShift(0.0'f32)
         continue
 
-    var drawPos = glyphPos
-    if invertText:
-      drawPos.y = drawPos.y - (glyph.lineHeight.scaled() + glyph.descent) * 0.5'f32 
-
-    ctx.drawImage(glyphId, drawPos, glyph.fill.gradientColors(), invertText)
+    ctx.drawImage(glyphId, glyphPos, glyph.fill.gradientColors(), invertText)
     if subpixelPositioning:
       ctx.setTextSubpixelShift(0.0'f32)
 

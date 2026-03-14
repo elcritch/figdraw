@@ -96,7 +96,7 @@ proc profileDiffFlipped(a, b: seq[int]): int =
   total
 
 suite "siwin text invert render":
-  test "NfInvertY under mirrored parent shifts output downward":
+  test "NfInvertY under mirrored parent stays upright but shifts downward":
     setFigUiScale(1.0'f32)
     setFigDataDir(getCurrentDir() / "data")
 
@@ -205,7 +205,7 @@ suite "siwin text invert render":
       check leftHighlight.found
       check rightHighlight.found
 
-      check inkHeight(rightBounds) - inkHeight(leftBounds) >= 30
+      check abs(inkHeight(leftBounds) - inkHeight(rightBounds)) <= 4
       check rightBounds.y0 - leftBounds.y0 >= 40
 
       check abs(inkHeight(leftHighlight) - inkHeight(rightHighlight)) <= 2
@@ -220,4 +220,4 @@ suite "siwin text invert render":
       let
         directDiff = profileDiff(leftProfile, rightProfile)
         flippedDiff = profileDiffFlipped(leftProfile, rightProfile)
-      check directDiff == flippedDiff
+      check directDiff <= flippedDiff
