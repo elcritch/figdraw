@@ -280,18 +280,12 @@ proc glyphScreenPos*(
   )
 
 proc glyphScreenPosInverted*(
-    nodeBox: Rect,
-    layoutBounds: Rect,
-    glyphX: float32,
-    glyphRect: Rect,
+    nodeBox: Rect, layoutBounds: Rect, glyphX: float32, glyphRect: Rect
 ): Vec2 {.inline.} =
   ## Converts a local glyph position into screen-space coordinates with Y-inverted
   ## text layout (line order + glyph placement), mirrored around content bounds.
   let invertedTop = layoutBounds.y + layoutBounds.h - (glyphRect.y + glyphRect.h)
-  vec2(
-    glyphX.scaled() + nodeBox.x.scaled(),
-    scaled(invertedTop) + nodeBox.y.scaled(),
-  )
+  vec2(glyphX.scaled() + nodeBox.x.scaled(), scaled(invertedTop) + nodeBox.y.scaled())
 
 proc selectionScreenRect*(nodeBox: Rect, selectionRect: Rect): Rect {.inline.} =
   ## Converts a local text selection rectangle into screen-space coordinates.
@@ -304,7 +298,9 @@ proc selectionScreenRect*(nodeBox: Rect, selectionRect: Rect): Rect {.inline.} =
   )
   .scaled()
 
-proc selectionLocalRectInverted*(layoutBounds: Rect, selectionRect: Rect): Rect {.inline.} =
+proc selectionLocalRectInverted*(
+    layoutBounds: Rect, selectionRect: Rect
+): Rect {.inline.} =
   ## Mirrors a local text selection rectangle along the content bounds' Y axis.
   rect(
     selectionRect.x,
@@ -312,6 +308,10 @@ proc selectionLocalRectInverted*(layoutBounds: Rect, selectionRect: Rect): Rect 
     selectionRect.w,
     selectionRect.h,
   )
+
+proc glyphLocalPos*(glyphPos: Vec2, glyphDescent: float32): Vec2 {.inline.} =
+  ## Converts a local glyph baseline position into local glyph top-left coordinates.
+  vec2(glyphPos.x.scaled(), scaled(glyphPos.y - glyphDescent))
 
 proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Draw characters (glyphs)
@@ -327,72 +327,77 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       else:
         rect(0.0'f32, 0.0'f32, node.screenBox.w, node.screenBox.h)
 
-  if NfSelectText in node.flags and fillAlphaMax(node.fill) > 0'u8:
-    let rects = node.textLayout.selectionRects
-    if rects.len > 0 and node.selectionRange.a <= node.selectionRange.b:
-      let startIdx = max(node.selectionRange.a, 0)
-      let endIdx = min(node.selectionRange.b, rects.len - 1)
-      let selectionGradient = node.fill.gradientColors()
-      let zeroRadii = [0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32]
-      for idx in startIdx .. endIdx:
-        var selectionRect = rects[idx]
-        if invertText:
-          selectionRect = selectionLocalRectInverted(layoutBounds, selectionRect)
-        let rect = selectionScreenRect(node.screenBox, selectionRect)
-        if rect.w > 0 and rect.h > 0:
-          ctx.drawRoundedRectSdf(
-            rect = rect,
-            colors = selectionGradient,
-            radii = zeroRadii,
-            mode = figbackend.SdfMode.sdfModeClipAA,
-            factor = 4.0'f32,
-            spread = 0.0'f32,
-            shapeSize = vec2(0.0'f32, 0.0'f32),
-          )
+  ctx.saveTransform()
+  try:
+    ctx.translate(node.screenBox.xy.scaled())
+    if invertText:
+      # Typeset layout coordinates are top-left based; invert the full local text
+      # layout around its content bounds so line order + selection + glyphs match.
+      let invertPivotY = scaled(layoutBounds.y + layoutBounds.h)
+      ctx.translate(vec2(0.0'f32, invertPivotY))
+      ctx.scale(vec2(1.0'f32, -1.0'f32))
 
-  for glyph in node.textLayout.glyphs():
-    if unicode.isWhiteSpace(glyph.rune):
-      continue
+    if NfSelectText in node.flags and fillAlphaMax(node.fill) > 0'u8:
+      let rects = node.textLayout.selectionRects
+      if rects.len > 0 and node.selectionRange.a <= node.selectionRange.b:
+        let startIdx = max(node.selectionRange.a, 0)
+        let endIdx = min(node.selectionRange.b, rects.len - 1)
+        let selectionGradient = node.fill.gradientColors()
+        let zeroRadii = [0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32]
+        for idx in startIdx .. endIdx:
+          let rect = rects[idx].scaled()
+          if rect.w > 0 and rect.h > 0:
+            ctx.drawRoundedRectSdf(
+              rect = rect,
+              colors = selectionGradient,
+              radii = zeroRadii,
+              mode = figbackend.SdfMode.sdfModeClipAA,
+              factor = 4.0'f32,
+              spread = 0.0'f32,
+              shapeSize = vec2(0.0'f32, 0.0'f32),
+            )
 
-    var
-      glyphPos =
-        if invertText:
-          glyphScreenPosInverted(
-            node.screenBox, layoutBounds, glyph.pos.x, glyph.rect
-          )
-        else:
-          glyphScreenPos(node.screenBox, glyph.pos, glyph.descent)
-      subpixelShift = 0.0'f32
-      subpixelVariant = 0
-    if subpixelPositioning:
-      let snappedX = floor(glyphPos.x)
-      let fractionalX = max(0.0'f32, min(glyphPos.x - snappedX, 0.999'f32))
-      glyphPos.x = snappedX
-      if glyphVariantSubpixelPositioning:
-        subpixelVariant = toGlyphVariantSubpixelStep(fractionalX)
-      else:
-        subpixelShift = fractionalX
-
-    let glyphId =
-      glyph.hash(lcdFiltering = lcdFiltering, subpixelVariant = subpixelVariant)
-
-    ctx.setTextSubpixelShift(subpixelShift)
-    if glyphId notin ctx.entries:
-      let img = glyph.generateGlyph(lcdFiltering = lcdFiltering,
-                                    subpixelVariant = subpixelVariant,
-                                    force = true,
-                                    upload = false,
-      )
-      ctx.putImage(glyphId, img)
-      if glyphId in ctx.entries:
-        debug "missing glyph image in context",
-          glyphId = glyphId, glyphRune = $glyph.rune, glyphRuneRepr = repr(glyph.rune)
-        ctx.setTextSubpixelShift(0.0'f32)
+    for glyph in node.textLayout.glyphs():
+      if unicode.isWhiteSpace(glyph.rune):
         continue
 
-    ctx.drawImage(glyphId, glyphPos, glyph.fill.gradientColors(), invertText)
-    if subpixelPositioning:
-      ctx.setTextSubpixelShift(0.0'f32)
+      var
+        glyphPos = glyphLocalPos(glyph.pos, glyph.descent)
+        subpixelShift = 0.0'f32
+        subpixelVariant = 0
+      if subpixelPositioning:
+        let snappedX = floor(glyphPos.x)
+        let fractionalX = max(0.0'f32, min(glyphPos.x - snappedX, 0.999'f32))
+        glyphPos.x = snappedX
+        if glyphVariantSubpixelPositioning:
+          subpixelVariant = toGlyphVariantSubpixelStep(fractionalX)
+        else:
+          subpixelShift = fractionalX
+
+      let glyphId =
+        glyph.hash(lcdFiltering = lcdFiltering, subpixelVariant = subpixelVariant)
+
+      ctx.setTextSubpixelShift(subpixelShift)
+      if glyphId notin ctx.entries:
+        let img = glyph.generateGlyph(
+          lcdFiltering = lcdFiltering,
+          subpixelVariant = subpixelVariant,
+          force = true,
+          upload = false,
+        )
+        ctx.putImage(glyphId, img)
+        if glyphId in ctx.entries:
+          debug "missing glyph image in context",
+            glyphId = glyphId, glyphRune = $glyph.rune, glyphRuneRepr = repr(glyph.rune)
+          ctx.setTextSubpixelShift(0.0'f32)
+          continue
+
+      ctx.drawImage(glyphId, glyphPos, glyph.fill.gradientColors(), false)
+      if subpixelPositioning:
+        ctx.setTextSubpixelShift(0.0'f32)
+  finally:
+    ctx.setTextSubpixelShift(0.0'f32)
+    ctx.restoreTransform()
 
 import macros except `$`
 
@@ -832,7 +837,7 @@ proc renderImage(ctx: BackendContext, node: Fig) =
     pos = box.xy,
     color = fillCenterColor(node.image.fill),
     size = size,
-    flipY = NfInvertY in node.flags
+    flipY = NfInvertY in node.flags,
   )
 
 proc renderMsdfImage(ctx: BackendContext, node: Fig) =
@@ -880,7 +885,7 @@ proc renderMtsdfImage(ctx: BackendContext, node: Fig) =
     pxRange = pxRange,
     sdThreshold = sdThreshold,
     strokeWeight = strokeWeight,
-    flipY = NfInvertY in node.flags
+    flipY = NfInvertY in node.flags,
   )
 
 proc renderBackdropBlur(ctx: BackendContext, node: Fig) =
