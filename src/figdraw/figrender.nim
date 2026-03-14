@@ -379,8 +379,9 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
           force = true,
           upload = false,
         )
-        ctx.putImage(glyphId, img)
-        if glyphId in ctx.entries:
+        if img != nil:
+          ctx.putImage(glyphId, img)
+        if glyphId notin ctx.entries:
           debug "missing glyph image in context",
             glyphId = glyphId, glyphRune = $glyph.rune, glyphRuneRepr = repr(glyph.rune)
           ctx.setTextSubpixelShift(0.0'f32)
@@ -985,6 +986,15 @@ proc renderRoot*(
   var img: ImgObj
   while imageChan.tryRecv(img):
     trace "image loaded", id = $img.id.Hash
+    case img.kind
+    of PixieImg:
+      if img.pimg == nil:
+        debug "skipping nil pixie image", imageId = img.id.Hash
+        continue
+    of FlippyImg:
+      if img.flippy.mipmaps.len == 0:
+        debug "skipping empty flippy image", imageId = img.id.Hash
+        continue
     ctx.putImage(img)
 
   for zlvl, list in nodes.layers.pairs():
