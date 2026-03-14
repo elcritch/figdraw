@@ -233,7 +233,7 @@ proc makeRenderTree*(
     if rune == Rune(10):
       monoLines.inc
   let monoHeight = monoLines.float32 * monoLineHeight + monoPad * 2
-  let invertedLineHeight = uiFont.size * 1.4'f32
+  let invertedBoxHeight = uiFont.size * 5.0'f32
   let sectionGap = 60.0'f32
 
   proc mirroredInputRect(finalRect: Rect): Rect =
@@ -243,16 +243,16 @@ proc makeRenderTree*(
     innerRect.x,
     innerRect.y,
     innerRect.w,
-    innerRect.h - monoHeight - invertedLineHeight * 2.0'f32 - sectionGap * 3.0'f32,
+    innerRect.h - monoHeight - invertedBoxHeight * 2.0'f32 - sectionGap * 3.0'f32,
   )
   let invertedTextRect = rect(
-    innerRect.x, textRect.y + textRect.h + sectionGap, innerRect.w, invertedLineHeight
+    innerRect.x, textRect.y + textRect.h + sectionGap, innerRect.w, invertedBoxHeight
   )
   let mirroredInvertedTextRect = rect(
     innerRect.x,
     invertedTextRect.y + invertedTextRect.h + sectionGap,
     innerRect.w,
-    invertedLineHeight,
+    invertedBoxHeight,
   )
   let monoRect = rect(
     innerRect.x,
@@ -262,7 +262,7 @@ proc makeRenderTree*(
   )
 
   let (layout, highlightRange) = buildBodyTextLayout(uiFont, textRect, modeLine)
-  let invertedText = "Inverted text line (NfInvertY) with selection"
+  let invertedText = "Inverted text line (NfInvertY)\nwith selection"
   let invertedSelectionRange = findPhraseRange(invertedText, "NfInvertY")
   let invertedLayout = typeset(
     rect(0, 0, invertedTextRect.w, invertedTextRect.h),
@@ -306,18 +306,6 @@ proc makeRenderTree*(
     ),
   )
 
-  let invertedGlyphBounds = rect(
-    invertedTextRect.x + invertedLayout.bounding.x,
-    invertedTextRect.y + invertedLayout.bounding.y,
-    invertedLayout.bounding.w,
-    invertedLayout.bounding.h,
-  )
-  let mirroredInvertedGlyphBounds = rect(
-    mirroredInvertedTextRect.x + invertedLayout.bounding.x,
-    mirroredInvertedTextRect.y + invertedLayout.bounding.y,
-    invertedLayout.bounding.w,
-    invertedLayout.bounding.h,
-  )
   discard result.addChild(
     z,
     cardIdx,
@@ -325,7 +313,7 @@ proc makeRenderTree*(
       kind: nkRectangle,
       childCount: 0,
       zlevel: z,
-      screenBox: invertedGlyphBounds,
+      screenBox: invertedTextRect,
       fill: clearColor,
       stroke: RenderStroke(weight: 1.5, fill: rgba(38, 38, 38, 155).color),
       corners: [4.0'f32, 4.0, 4.0, 4.0],
@@ -354,7 +342,7 @@ proc makeRenderTree*(
       kind: nkRectangle,
       childCount: 0,
       zlevel: z,
-      screenBox: mirroredInvertedGlyphBounds,
+      screenBox: mirroredInvertedTextRect,
       fill: clearColor,
       stroke: RenderStroke(weight: 1.5, fill: rgba(42, 96, 168, 170).color),
       corners: [4.0'f32, 4.0, 4.0, 4.0],
