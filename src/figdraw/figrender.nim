@@ -261,7 +261,7 @@ func fillCenterColor(fill: Fill): Color
 func gradientColors(fill: Fill): array[4, ColorRGBA]
 
 proc renderDrawable*(ctx: BackendContext, node: Fig) =
-  ## TODO: draw non-node stuff?
+  ## TODO: render non-node stuff?
   let box = node.screenBox.scaled()
   let color = fillCenterColor(node.fill)
   for point in node.points:
@@ -314,18 +314,17 @@ proc glyphLocalPos*(glyphPos: Vec2, glyphDescent: float32): Vec2 {.inline.} =
   vec2(glyphPos.x.scaled(), scaled(glyphPos.y - glyphDescent))
 
 proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
-  ## Draw characters (glyphs)
+  ## Render characters (glyphs)
   let
     lcdFiltering = ctx.textLcdFilteringEnabled()
     subpixelPositioning = ctx.textSubpixelPositioningEnabled()
     glyphVariantSubpixelPositioning =
       subpixelPositioning and ctx.textSubpixelGlyphVariantsEnabled()
-    invertText = NfInvertY in node.flags
 
   ctx.saveTransform()
-  try:
+  block:
     ctx.translate(node.screenBox.xy.scaled())
-    if invertText:
+    if NfInvertY in node.flags:
       # Mirror in local text-box coordinates so first-line top offset/padding is
       # preserved instead of swapping Top/Bottom alignment.
       let invertPivotY = scaled(node.screenBox.h)
@@ -390,9 +389,8 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       ctx.drawImage(glyphId, glyphPos, glyph.fill.gradientColors(), false)
       if subpixelPositioning:
         ctx.setTextSubpixelShift(0.0'f32)
-  finally:
-    ctx.setTextSubpixelShift(0.0'f32)
-    ctx.restoreTransform()
+  ctx.setTextSubpixelShift(0.0'f32)
+  ctx.restoreTransform()
 
 import macros except `$`
 
