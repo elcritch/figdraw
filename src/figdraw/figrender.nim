@@ -321,19 +321,14 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
     glyphVariantSubpixelPositioning =
       subpixelPositioning and ctx.textSubpixelGlyphVariantsEnabled()
     invertText = NfInvertY in node.flags
-    layoutBounds =
-      if node.textLayout.bounding.h > 0.0'f32:
-        node.textLayout.bounding
-      else:
-        rect(0.0'f32, 0.0'f32, node.screenBox.w, node.screenBox.h)
 
   ctx.saveTransform()
   try:
     ctx.translate(node.screenBox.xy.scaled())
     if invertText:
-      # Typeset layout coordinates are top-left based; invert the full local text
-      # layout around its content bounds so line order + selection + glyphs match.
-      let invertPivotY = scaled(layoutBounds.y + layoutBounds.h)
+      # Mirror in local text-box coordinates so first-line top offset/padding is
+      # preserved instead of swapping Top/Bottom alignment.
+      let invertPivotY = scaled(node.screenBox.h)
       ctx.translate(vec2(0.0'f32, invertPivotY))
       ctx.scale(vec2(1.0'f32, -1.0'f32))
 

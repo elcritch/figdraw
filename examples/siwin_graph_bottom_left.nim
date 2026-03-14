@@ -137,8 +137,7 @@ proc makeRenderTree(windowW, windowH: float32, uiFont: FigFont): Renders =
     rgba(39, 169, 110, 255),
   )
 
-  # let legendPadding = 12.0'f32
-  let legendPadding = 0.0'f32
+  let legendPadding = 12.0'f32
   let legendRect = rect(
     plotRect.x + plotRect.w - 300.0'f32,
     plotRect.y + plotRect.h - 20.0'f32 - 124.0'f32,
@@ -176,7 +175,7 @@ proc makeRenderTree(windowW, windowH: float32, uiFont: FigFont): Renders =
     rect(0, 0, legendTextRect.w, legendTextRect.h),
     [span(uiFont, rgba(35, 40, 52, 255), legendText)],
     hAlign = Left,
-    vAlign = Bottom,
+    vAlign = Top,
     minContent = false,
     wrap = true,
   )
