@@ -250,11 +250,21 @@ proc inputUsesBackingPixels*(window: Window): bool =
   else:
     false
 
+proc inputDeviceScale*(window: Window): float32 =
+  if window.isNil:
+    return 1.0'f32
+  let scale = window.contentScale()
+  if scale > 0.0'f32:
+    return scale
+  1.0'f32
+
 proc logicalSize*(window: Window): Vec2 =
   if window.isNil:
     return vec2(0.0'f32, 0.0'f32)
   if window.inputUsesBackingPixels():
-    return vec2(window.backingSize()).descaled()
+    let scale = window.inputDeviceScale()
+    let backing = window.backingSize()
+    return vec2(backing.x.float32 / scale, backing.y.float32 / scale)
   vec2(window.size)
 
 proc contentScale*(window: Window): float32 =
