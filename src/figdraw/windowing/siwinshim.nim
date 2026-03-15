@@ -212,7 +212,10 @@ proc newSiwinWindow*(
         vkCtx.instanceHandle(),
         size = size,
         title = title,
+        resizable = resizable,
         fullscreen = fullscreen,
+        frameless = frameless,
+        transparent = transparent,
       )
       if fullscreen:
         result.fullscreen = true
@@ -239,8 +242,20 @@ proc backingSize*(window: Window): IVec2 =
   else:
     window.size
 
+proc inputUsesBackingPixels*(window: Window): bool =
+  when defined(macosx):
+    not window.isNil
+  elif defined(linux) or defined(bsd):
+    window of siWaylandWindow.WindowWayland
+  else:
+    false
+
 proc logicalSize*(window: Window): Vec2 =
-  vec2(window.backingSize()).descaled()
+  if window.isNil:
+    return vec2(0.0'f32, 0.0'f32)
+  if window.inputUsesBackingPixels():
+    return vec2(window.backingSize()).descaled()
+  vec2(window.size)
 
 proc contentScale*(window: Window): float32 =
   when defined(macosx):
@@ -337,42 +352,50 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
           raise exc
   when UseVulkanBackend:
     if renderer.backendKind() == rbVulkan:
-      let vkCtx = renderer.ctx.VulkanContext
-      var hasPresentTarget = false
-      when defined(linux) or defined(bsd):
-        if window of siX11Window.WindowX11SoftwareRendering:
-          siX11Window.WindowX11SoftwareRendering(window).setSoftwarePresentEnabled(
-            false
-          )
-      let surface = window.vulkanSurface()
-      if not surface.isNil:
+      try:
+        let vkCtx = renderer.ctx.VulkanContext
+        var hasPresentTarget = false
         when defined(linux) or defined(bsd):
-          if window of siWaylandWindow.WindowWayland:
-            vkCtx.setExternalSurface(
-              surface, presentTargetWayland, ownedByContext = true
+          if window of siX11Window.WindowX11SoftwareRendering:
+            siX11Window.WindowX11SoftwareRendering(window).setSoftwarePresentEnabled(
+              false
+            )
+        let surface = window.vulkanSurface()
+        if not surface.isNil:
+          when defined(linux) or defined(bsd):
+            if window of siWaylandWindow.WindowWayland:
+              vkCtx.setExternalSurface(
+                surface, presentTargetWayland, ownedByContext = true
+              )
+              hasPresentTarget = true
+            else:
+              vkCtx.setExternalSurface(
+                surface, presentTargetXlib, ownedByContext = true
+              )
+              hasPresentTarget = true
+          elif defined(windows):
+            vkCtx.setExternalSurface(surface, presentTargetWin32, ownedByContext = true)
+            hasPresentTarget = true
+          elif defined(macosx):
+            vkCtx.setExternalSurface(surface, presentTargetMetal, ownedByContext = true)
+            hasPresentTarget = true
+        when defined(linux) or defined(bsd):
+          if surface.isNil and window of siX11Window.WindowX11:
+            let x11Window = siX11Window.WindowX11(window)
+            vkCtx.setPresentXlibTarget(
+              x11Window.nativeDisplayHandle(), x11Window.nativeWindowHandle()
             )
             hasPresentTarget = true
-          else:
-            vkCtx.setExternalSurface(surface, presentTargetXlib, ownedByContext = true)
-            hasPresentTarget = true
-        elif defined(windows):
-          vkCtx.setExternalSurface(surface, presentTargetWin32, ownedByContext = true)
-          hasPresentTarget = true
-        elif defined(macosx):
-          vkCtx.setExternalSurface(surface, presentTargetMetal, ownedByContext = true)
-          hasPresentTarget = true
-      when defined(linux) or defined(bsd):
-        if surface.isNil and window of siX11Window.WindowX11:
-          let x11Window = siX11Window.WindowX11(window)
-          vkCtx.setPresentXlibTarget(
-            x11Window.nativeDisplayHandle(), x11Window.nativeWindowHandle()
+        if not hasPresentTarget:
+          raise newException(
+            ValueError,
+            "Vulkan present target unavailable for this siwin window (Wayland/X11 mismatch)",
           )
-          hasPresentTarget = true
-      if not hasPresentTarget:
-        raise newException(
-          ValueError,
-          "Vulkan present target unavailable for this siwin window (Wayland/X11 mismatch)",
-        )
+      except CatchableError as exc:
+        when UseOpenGlFallback:
+          renderer.useOpenGlFallback(exc.msg)
+        else:
+          raise exc
 
 proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   ## Per-frame pre-render backend maintenance.
