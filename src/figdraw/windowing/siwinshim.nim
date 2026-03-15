@@ -250,13 +250,7 @@ proc inputUsesBackingPixels*(window: Window): bool =
   else:
     false
 
-proc inputDeviceScale*(window: Window): float32 =
-  if window.isNil:
-    return 1.0'f32
-  let scale = window.contentScale()
-  if scale > 0.0'f32:
-    return scale
-  1.0'f32
+proc inputDeviceScale*(window: Window): float32
 
 proc logicalSize*(window: Window): Vec2 =
   if window.isNil:
@@ -285,6 +279,14 @@ proc contentScale*(window: Window): float32 =
     scale
   else:
     1.0
+
+proc inputDeviceScale*(window: Window): float32 =
+  if window.isNil:
+    return 1.0'f32
+  let scale = window.contentScale()
+  if scale > 0.0'f32:
+    return scale
+  1.0'f32
 
 proc configureUiScale*(window: Window, envVar = "HDI"): bool =
   ## Returns true when scale should track contentScale (auto mode).
