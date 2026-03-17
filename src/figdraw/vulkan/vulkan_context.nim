@@ -18,7 +18,8 @@ import ./vulkan_utils
 import ./vresource
 from ./vulkan_types import
   BlurUniforms, FSUniforms, GpuBuffer, GpuFramebuffer, GpuImage, GpuImageView, GpuState,
-  VSUniforms, clearFrameVertexUploads, destroyPipelineObjects, destroySwapchain
+  VSUniforms, clearFrameVertexUploads, destroyPipelineObjects, destroySwapchain,
+  initGpuBuffer, initGpuFramebuffer, initGpuImage, initGpuImageView
 
 export drawextras
 
@@ -144,33 +145,6 @@ proc updateBlurDescriptorSet(
 proc updateBlurDescriptorSets(ctx: VulkanContext)
 proc recreateBlurFramebuffers(ctx: VulkanContext)
 
-proc createBuffer(
-    ctx: VulkanContext,
-    size: VkDeviceSize,
-    usage: VkBufferUsageFlags,
-    properties: VkMemoryPropertyFlags,
-): VResource[GpuBuffer] =
-  let bufferInfo = newVkBufferCreateInfo(
-    size = size,
-    usage = usage,
-    sharingMode = VkSharingMode.Exclusive,
-    queueFamilyIndices = [],
-  )
-  var bufferAlloc = GpuBuffer(device: ctx.gpu.device)
-  bufferAlloc.buffer = createBuffer(ctx.gpu.device, bufferInfo)
-
-  let req = getBufferMemoryRequirements(ctx.gpu.device, bufferAlloc.buffer)
-  let memoryAlloc = newVkMemoryAllocateInfo(
-    allocationSize = req.size,
-    memoryTypeIndex =
-      findMemoryType(ctx.gpu.physicalDevice, req.memoryTypeBits, properties),
-  )
-  bufferAlloc.memory = allocateMemory(ctx.gpu.device, memoryAlloc)
-  bindBufferMemory(
-    ctx.gpu.device, bufferAlloc.buffer, bufferAlloc.memory, 0.VkDeviceSize
-  )
-  result = initVResource(bufferAlloc)
-
 proc createPresentSurface(ctx: VulkanContext) =
   if not ctx.hasPresentTarget() or ctx.gpu.instance == vkNullInstance:
     return
@@ -259,77 +233,6 @@ proc createPresentSurface(ctx: VulkanContext) =
   of presentTargetNone:
     discard
 
-proc createImage(
-    ctx: VulkanContext,
-    width, height: uint32,
-    format: VkFormat,
-    tiling: VkImageTiling,
-    usage: VkImageUsageFlags,
-    properties: VkMemoryPropertyFlags,
-): VResource[GpuImage] =
-  let info = newVkImageCreateInfo(
-    imageType = VK_IMAGE_TYPE_2D,
-    format = format,
-    extent = newVkExtent3D(width = width, height = height, depth = 1),
-    mipLevels = 1,
-    arrayLayers = 1,
-    samples = VK_SAMPLE_COUNT_1_BIT,
-    tiling = tiling,
-    usage = usage,
-    sharingMode = VkSharingMode.Exclusive,
-    queueFamilyIndices = [],
-    initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-  )
-  var alloc = GpuImage(device: ctx.gpu.device)
-  checkVkResult vkCreateImage(ctx.gpu.device, info.addr, nil, alloc.image.addr)
-
-  var req: VkMemoryRequirements
-  vkGetImageMemoryRequirements(ctx.gpu.device, alloc.image, req.addr)
-  let memoryAlloc = newVkMemoryAllocateInfo(
-    allocationSize = req.size,
-    memoryTypeIndex =
-      findMemoryType(ctx.gpu.physicalDevice, req.memoryTypeBits, properties),
-  )
-  checkVkResult vkAllocateMemory(
-    ctx.gpu.device, memoryAlloc.addr, nil, alloc.memory.addr
-  )
-  checkVkResult vkBindImageMemory(
-    ctx.gpu.device, alloc.image, alloc.memory, 0.VkDeviceSize
-  )
-  result = initVResource(alloc)
-
-proc createImageView(
-    ctx: VulkanContext, image: VkImage, format: VkFormat, aspectMask: VkImageAspectFlags
-): VResource[GpuImageView] =
-  let info = newVkImageViewCreateInfo(
-    image = image,
-    viewType = VK_IMAGE_VIEW_TYPE_2D,
-    format = format,
-    components = newVkComponentMapping(
-      VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
-      VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
-    ),
-    subresourceRange = newVkImageSubresourceRange(
-      aspectMask = aspectMask,
-      baseMipLevel = 0,
-      levelCount = 1,
-      baseArrayLayer = 0,
-      layerCount = 1,
-    ),
-  )
-  var alloc = GpuImageView(device: ctx.gpu.device)
-  checkVkResult vkCreateImageView(ctx.gpu.device, info.addr, nil, alloc.view.addr)
-  result = initVResource(alloc)
-
-proc createFramebuffer(
-    ctx: VulkanContext, info: VkFramebufferCreateInfo
-): VResource[GpuFramebuffer] =
-  var alloc = GpuFramebuffer(device: ctx.gpu.device)
-  checkVkResult vkCreateFramebuffer(
-    ctx.gpu.device, info.addr, nil, alloc.framebuffer.addr
-  )
-  result = initVResource(alloc)
-
 proc recreateBlurFramebuffers(ctx: VulkanContext) =
   vulkanBlurRecreateFramebuffers(ctx)
 
@@ -355,7 +258,9 @@ proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
   ctx.gpu.backdropView.reset()
   ctx.gpu.backdropImage.reset()
 
-  var backdropAlloc = ctx.createImage(
+  var backdropAlloc = initGpuImage(
+    device = ctx.gpu.device,
+    physicalDevice = ctx.gpu.physicalDevice,
     width = w.uint32,
     height = h.uint32,
     format = backdropFormat,
@@ -363,10 +268,15 @@ proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
     usage = VkImageUsageFlags{SampledBit, TransferDstBit, ColorAttachmentBit},
     properties = VkMemoryPropertyFlags{DeviceLocalBit},
   )
-  var backdropView = ctx.createImageView(
-    backdropAlloc[].image, backdropFormat, VkImageAspectFlags{ColorBit}
+  var backdropView = initGpuImageView(
+    device = ctx.gpu.device,
+    image = backdropAlloc[].image,
+    format = backdropFormat,
+    aspectMask = VkImageAspectFlags{ColorBit},
   )
-  var backdropTempAlloc = ctx.createImage(
+  var backdropTempAlloc = initGpuImage(
+    device = ctx.gpu.device,
+    physicalDevice = ctx.gpu.physicalDevice,
     width = w.uint32,
     height = h.uint32,
     format = backdropFormat,
@@ -374,8 +284,11 @@ proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
     usage = VkImageUsageFlags{SampledBit, ColorAttachmentBit},
     properties = VkMemoryPropertyFlags{DeviceLocalBit},
   )
-  var backdropTempView = ctx.createImageView(
-    backdropTempAlloc[].image, backdropFormat, VkImageAspectFlags{ColorBit}
+  var backdropTempView = initGpuImageView(
+    device = ctx.gpu.device,
+    image = backdropTempAlloc[].image,
+    format = backdropFormat,
+    aspectMask = VkImageAspectFlags{ColorBit},
   )
   ctx.gpu.backdropImage.reset(backdropAlloc.release())
   ctx.gpu.backdropView.reset(backdropView.release())
@@ -501,7 +414,9 @@ proc recreateAtlasGpu(ctx: VulkanContext) =
   ctx.gpu.atlasView.reset()
   ctx.gpu.atlasImage.reset()
 
-  var atlasAlloc = ctx.createImage(
+  var atlasAlloc = initGpuImage(
+    device = ctx.gpu.device,
+    physicalDevice = ctx.gpu.physicalDevice,
     width = ctx.atlasSize.uint32,
     height = ctx.atlasSize.uint32,
     format = VK_FORMAT_R8G8B8A8_UNORM,
@@ -509,8 +424,11 @@ proc recreateAtlasGpu(ctx: VulkanContext) =
     usage = VkImageUsageFlags{SampledBit, TransferDstBit},
     properties = VkMemoryPropertyFlags{DeviceLocalBit},
   )
-  var atlasView = ctx.createImageView(
-    atlasAlloc[].image, VK_FORMAT_R8G8B8A8_UNORM, VkImageAspectFlags{ColorBit}
+  var atlasView = initGpuImageView(
+    device = ctx.gpu.device,
+    image = atlasAlloc[].image,
+    format = VK_FORMAT_R8G8B8A8_UNORM,
+    aspectMask = VkImageAspectFlags{ColorBit},
   )
   ctx.gpu.atlasImage.reset(atlasAlloc.release())
   ctx.gpu.atlasView.reset(atlasView.release())
@@ -828,8 +746,11 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
 
   ctx.gpu.swapchainViews.setLen(actualCount)
   for i in 0 ..< actualCount.int:
-    var imageView = ctx.createImageView(
-      ctx.gpu.swapchainImages[i], surfaceFormat.format, VkImageAspectFlags{ColorBit}
+    var imageView = initGpuImageView(
+      device = ctx.gpu.device,
+      image = ctx.gpu.swapchainImages[i],
+      format = surfaceFormat.format,
+      aspectMask = VkImageAspectFlags{ColorBit},
     )
     ctx.gpu.swapchainViews[i] = imageView.release().view
 
@@ -849,7 +770,7 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
       height = ctx.gpu.swapchainExtent.height,
       layers = 1,
     )
-    var framebuffer = ctx.createFramebuffer(info)
+    var framebuffer = initGpuFramebuffer(ctx.gpu.device, info)
     ctx.gpu.swapchainFramebuffers[i].reset(framebuffer.release())
 
   trace "Created Vulkan swapchain",
@@ -880,7 +801,9 @@ proc ensureAtlasUploadBuffer(ctx: VulkanContext, bytes: VkDeviceSize) =
 
   ctx.gpu.atlasUpload.reset()
 
-  var alloc = ctx.createBuffer(
+  var alloc = initGpuBuffer(
+    device = ctx.gpu.device,
+    physicalDevice = ctx.gpu.physicalDevice,
     size = bytes,
     usage = VkBufferUsageFlags{TransferSrcBit},
     properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
@@ -894,7 +817,9 @@ proc ensureReadbackBuffer(ctx: VulkanContext, bytes: VkDeviceSize) =
 
   ctx.gpu.readback.reset()
 
-  var alloc = ctx.createBuffer(
+  var alloc = initGpuBuffer(
+    device = ctx.gpu.device,
+    physicalDevice = ctx.gpu.physicalDevice,
     size = bytes,
     usage = VkBufferUsageFlags{TransferDstBit},
     properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
@@ -1607,7 +1532,9 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   )
 
   let vertexBytes = VkDeviceSize(sizeof(vktypes.Vertex) * ctx.maxQuads * 4)
-  var vertex = ctx.createBuffer(
+  var vertex = initGpuBuffer(
+    device = ctx.gpu.device,
+    physicalDevice = ctx.gpu.physicalDevice,
     size = vertexBytes,
     usage = VkBufferUsageFlags{VertexBufferBit},
     properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
@@ -1616,7 +1543,9 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   ctx.gpu.vertexBufferBytes = vertexBytes
 
   let indexBytes = VkDeviceSize(sizeof(uint16) * ctx.indices.len)
-  var index = ctx.createBuffer(
+  var index = initGpuBuffer(
+    device = ctx.gpu.device,
+    physicalDevice = ctx.gpu.physicalDevice,
     size = indexBytes,
     usage = VkBufferUsageFlags{IndexBufferBit},
     properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
@@ -1634,27 +1563,35 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   copyMem(mappedIdx, ctx.indices[0].addr, int(indexBytes))
   unmapMemory(ctx.gpu.device, ctx.gpu.index[].memory)
 
-  var vsAlloc = ctx.createBuffer(
+  var vsAlloc = initGpuBuffer(
+    device = ctx.gpu.device,
+    physicalDevice = ctx.gpu.physicalDevice,
     size = VkDeviceSize(sizeof(VSUniforms)),
     usage = VkBufferUsageFlags{UniformBufferBit},
     properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
   )
   ctx.gpu.vsUniform.reset(vsAlloc.release())
 
-  var fsAlloc = ctx.createBuffer(
+  var fsAlloc = initGpuBuffer(
+    device = ctx.gpu.device,
+    physicalDevice = ctx.gpu.physicalDevice,
     size = VkDeviceSize(sizeof(FSUniforms)),
     usage = VkBufferUsageFlags{UniformBufferBit},
     properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
   )
   ctx.gpu.fsUniform.reset(fsAlloc.release())
 
-  var blurAlloc0 = ctx.createBuffer(
+  var blurAlloc0 = initGpuBuffer(
+    device = ctx.gpu.device,
+    physicalDevice = ctx.gpu.physicalDevice,
     size = VkDeviceSize(sizeof(BlurUniforms)),
     usage = VkBufferUsageFlags{UniformBufferBit},
     properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
   )
   ctx.gpu.blurUniforms[0].reset(blurAlloc0.release())
-  var blurAlloc1 = ctx.createBuffer(
+  var blurAlloc1 = initGpuBuffer(
+    device = ctx.gpu.device,
+    physicalDevice = ctx.gpu.physicalDevice,
     size = VkDeviceSize(sizeof(BlurUniforms)),
     usage = VkBufferUsageFlags{UniformBufferBit},
     properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
@@ -1737,7 +1674,9 @@ proc flush(ctx: VulkanContext) =
     v.sdfFactors[1] = ctx.sdfFactors[i * 2 + 1]
 
   let uploadBytes = VkDeviceSize(vertexCount * sizeof(vktypes.Vertex))
-  var vertex = ctx.createBuffer(
+  var vertex = initGpuBuffer(
+    device = ctx.gpu.device,
+    physicalDevice = ctx.gpu.physicalDevice,
     size = uploadBytes,
     usage = VkBufferUsageFlags{VertexBufferBit},
     properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},

@@ -4,6 +4,7 @@ import pkg/vulkan/wrapper
 
 import ../commons
 import ./vresource
+import ./vulkan_utils
 
 type
   VSUniforms* = object
@@ -303,3 +304,93 @@ proc `=destroy`*(gpu: var GpuState) =
   if gpu.instance != vkNullInstance:
     destroyInstance(gpu.instance)
     gpu.instance = vkNullInstance
+
+proc initGpuBuffer*(
+    device: VkDevice,
+    physicalDevice: VkPhysicalDevice,
+    size: VkDeviceSize,
+    usage: VkBufferUsageFlags,
+    properties: VkMemoryPropertyFlags,
+): VResource[GpuBuffer] =
+  let bufferInfo = newVkBufferCreateInfo(
+    size = size,
+    usage = usage,
+    sharingMode = VkSharingMode.Exclusive,
+    queueFamilyIndices = [],
+  )
+  var bufferAlloc = GpuBuffer(device: device)
+  bufferAlloc.buffer = createBuffer(device, bufferInfo)
+
+  let req = getBufferMemoryRequirements(device, bufferAlloc.buffer)
+  let memoryAlloc = newVkMemoryAllocateInfo(
+    allocationSize = req.size,
+    memoryTypeIndex = findMemoryType(physicalDevice, req.memoryTypeBits, properties),
+  )
+  bufferAlloc.memory = allocateMemory(device, memoryAlloc)
+  bindBufferMemory(device, bufferAlloc.buffer, bufferAlloc.memory, 0.VkDeviceSize)
+  result = initVResource(bufferAlloc)
+
+proc initGpuImage*(
+    device: VkDevice,
+    physicalDevice: VkPhysicalDevice,
+    width, height: uint32,
+    format: VkFormat,
+    tiling: VkImageTiling,
+    usage: VkImageUsageFlags,
+    properties: VkMemoryPropertyFlags,
+): VResource[GpuImage] =
+  let info = newVkImageCreateInfo(
+    imageType = VK_IMAGE_TYPE_2D,
+    format = format,
+    extent = newVkExtent3D(width = width, height = height, depth = 1),
+    mipLevels = 1,
+    arrayLayers = 1,
+    samples = VK_SAMPLE_COUNT_1_BIT,
+    tiling = tiling,
+    usage = usage,
+    sharingMode = VkSharingMode.Exclusive,
+    queueFamilyIndices = [],
+    initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+  )
+  var alloc = GpuImage(device: device)
+  checkVkResult vkCreateImage(device, info.addr, nil, alloc.image.addr)
+
+  var req: VkMemoryRequirements
+  vkGetImageMemoryRequirements(device, alloc.image, req.addr)
+  let memoryAlloc = newVkMemoryAllocateInfo(
+    allocationSize = req.size,
+    memoryTypeIndex = findMemoryType(physicalDevice, req.memoryTypeBits, properties),
+  )
+  checkVkResult vkAllocateMemory(device, memoryAlloc.addr, nil, alloc.memory.addr)
+  checkVkResult vkBindImageMemory(device, alloc.image, alloc.memory, 0.VkDeviceSize)
+  result = initVResource(alloc)
+
+proc initGpuImageView*(
+    device: VkDevice, image: VkImage, format: VkFormat, aspectMask: VkImageAspectFlags
+): VResource[GpuImageView] =
+  let info = newVkImageViewCreateInfo(
+    image = image,
+    viewType = VK_IMAGE_VIEW_TYPE_2D,
+    format = format,
+    components = newVkComponentMapping(
+      VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+      VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+    ),
+    subresourceRange = newVkImageSubresourceRange(
+      aspectMask = aspectMask,
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  var alloc = GpuImageView(device: device)
+  checkVkResult vkCreateImageView(device, info.addr, nil, alloc.view.addr)
+  result = initVResource(alloc)
+
+proc initGpuFramebuffer*(
+    device: VkDevice, info: VkFramebufferCreateInfo
+): VResource[GpuFramebuffer] =
+  var alloc = GpuFramebuffer(device: device)
+  checkVkResult vkCreateFramebuffer(device, info.addr, nil, alloc.framebuffer.addr)
+  result = initVResource(alloc)

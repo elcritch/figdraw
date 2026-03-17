@@ -21,7 +21,7 @@ template vulkanBlurRecreateFramebuffers*(ctx: untyped) =
     height = ctx.gpu.backdropHeight.uint32,
     layers = 1,
   )
-  var tempFramebuffer = ctx.createFramebuffer(tempInfo)
+  var tempFramebuffer = initGpuFramebuffer(ctx.gpu.device, tempInfo)
   ctx.gpu.backdropBlurTempFramebuffer.reset(tempFramebuffer.release())
 
   let backdropInfo = newVkFramebufferCreateInfo(
@@ -31,7 +31,7 @@ template vulkanBlurRecreateFramebuffers*(ctx: untyped) =
     height = ctx.gpu.backdropHeight.uint32,
     layers = 1,
   )
-  var backdropFramebuffer = ctx.createFramebuffer(backdropInfo)
+  var backdropFramebuffer = initGpuFramebuffer(ctx.gpu.device, backdropInfo)
   ctx.gpu.backdropBlurFramebuffer.reset(backdropFramebuffer.release())
 
 template vulkanBlurUpdateDescriptorSet*(
