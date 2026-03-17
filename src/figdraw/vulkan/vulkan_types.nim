@@ -774,7 +774,7 @@ proc ensureBackdropImage*(gpu: var GpuState, width, height: int32): bool =
 proc createPipeline*(
     gpu: var GpuState,
     descriptorSetLayout: VkDescriptorSetLayout,
-    vertCode, fragCode: openArray[uint32],
+    vertCode, fragCode: openArray[char],
 ) =
   gpu.destroyPipelineObjects()
 

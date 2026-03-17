@@ -213,6 +213,13 @@ proc recreateBlurFramebuffers(ctx: VulkanContext) =
   vulkanBlurRecreateFramebuffers(ctx)
 
 proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
+  if ctx.gpu.ensureBackdropImage(width, height):
+    ctx.recreateBlurFramebuffers()
+    if ctx.gpu.descriptorSet != vkNullDescriptorSet:
+      ctx.updateDescriptorSet()
+    ctx.updateBlurDescriptorSets()
+  return
+
   let w = max(1'i32, width)
   let h = max(1'i32, height)
   let backdropFormat =
@@ -322,6 +329,9 @@ proc recreateAtlasGpu(ctx: VulkanContext) =
     ctx.updateDescriptorSet()
 
 proc createPipeline(ctx: VulkanContext) =
+  createPipeline(ctx.gpu, ctx.gpu.descriptorSetLayout, sdfVertSpv, sdfFragSpv)
+  return
+
   ctx.gpu.destroyPipelineObjects()
 
   var colorAttachment = VkAttachmentDescription(
