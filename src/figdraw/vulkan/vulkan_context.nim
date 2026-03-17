@@ -998,7 +998,7 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
       ctx.device, info.addr, nil, ctx.swapchainFramebuffers[i].addr
     )
 
-  info "Created Vulkan swapchain",
+  trace "Created Vulkan swapchain",
     width = int(ctx.swapchainExtent.width),
     height = int(ctx.swapchainExtent.height),
     imageCount = ctx.swapchainImages.len,
