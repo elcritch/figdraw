@@ -4,9 +4,9 @@
 ## that module's private context fields and Vulkan helper constants.
 
 template vulkanBlurRecreateFramebuffers*(ctx: untyped) =
-  ctx.gpu.backdropBlurFramebuffer.reset()
-  ctx.gpu.backdropBlurTempFramebuffer.reset()
-  if ctx.gpu.blurRenderPass == vkNullRenderPass:
+  ctx.gpu.blurPipelineState.backdropBlurFramebuffer = VResource[GpuFramebuffer]()
+  ctx.gpu.blurPipelineState.backdropBlurTempFramebuffer = VResource[GpuFramebuffer]()
+  if not ctx.gpu.blurPipelineState.renderPass.isInitialized():
     return
   if not ctx.gpu.backdropView.isInitialized() or
       not ctx.gpu.backdropBlurTempView.isInitialized():
@@ -15,95 +15,24 @@ template vulkanBlurRecreateFramebuffers*(ctx: untyped) =
     return
 
   let tempInfo = newVkFramebufferCreateInfo(
-    renderPass = ctx.gpu.blurRenderPass,
+    renderPass = ctx.gpu.blurPipelineState.renderPass[].handle,
     attachments = [ctx.gpu.backdropBlurTempView[].view],
     width = ctx.gpu.backdropWidth.uint32,
     height = ctx.gpu.backdropHeight.uint32,
     layers = 1,
   )
-  var tempFramebuffer = initGpuFramebuffer(ctx.gpu.device, tempInfo)
-  ctx.gpu.backdropBlurTempFramebuffer.reset(tempFramebuffer.release())
+  ctx.gpu.blurPipelineState.backdropBlurTempFramebuffer =
+    initGpuFramebuffer(ctx.gpu.device, tempInfo)
 
   let backdropInfo = newVkFramebufferCreateInfo(
-    renderPass = ctx.gpu.blurRenderPass,
+    renderPass = ctx.gpu.blurPipelineState.renderPass[].handle,
     attachments = [ctx.gpu.backdropView[].view],
     width = ctx.gpu.backdropWidth.uint32,
     height = ctx.gpu.backdropHeight.uint32,
     layers = 1,
   )
-  var backdropFramebuffer = initGpuFramebuffer(ctx.gpu.device, backdropInfo)
-  ctx.gpu.backdropBlurFramebuffer.reset(backdropFramebuffer.release())
-
-template vulkanBlurUpdateDescriptorSet*(
-    ctx, descriptorSet, srcView, uniformBuffer: untyped
-) =
-  if srcView == vkNullImageView or descriptorSet == vkNullDescriptorSet or
-      uniformBuffer == vkNullBuffer:
-    return
-
-  var srcInfo = newVkDescriptorImageInfo(
-    sampler = ctx.gpu.atlasSampler,
-    imageView = srcView,
-    imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-  )
-  var blurInfo = newVkDescriptorBufferInfo(
-    buffer = uniformBuffer,
-    offset = 0.VkDeviceSize,
-    range = VkDeviceSize(sizeof(BlurUniforms)),
-  )
-
-  let writes = [
-    newVkWriteDescriptorSet(
-      dstSet = descriptorSet,
-      dstBinding = 0,
-      dstArrayElement = 0,
-      descriptorCount = 1,
-      descriptorType = VkDescriptorType.CombinedImageSampler,
-      pImageInfo = srcInfo.addr,
-      pBufferInfo = nil,
-      pTexelBufferView = nil,
-    ),
-    newVkWriteDescriptorSet(
-      dstSet = descriptorSet,
-      dstBinding = 1,
-      dstArrayElement = 0,
-      descriptorCount = 1,
-      descriptorType = VkDescriptorType.UniformBuffer,
-      pImageInfo = nil,
-      pBufferInfo = blurInfo.addr,
-      pTexelBufferView = nil,
-    ),
-  ]
-  updateDescriptorSets(ctx.gpu.device, writes, [])
-
-template vulkanBlurUpdateDescriptorSets*(ctx: untyped) =
-  if ctx.gpu.blurDescriptorSets[0] == vkNullDescriptorSet or
-      ctx.gpu.blurDescriptorSets[1] == vkNullDescriptorSet:
-    return
-  if not ctx.gpu.blurUniforms[0].isInitialized() or
-      not ctx.gpu.blurUniforms[1].isInitialized():
-    return
-  let src0 = (
-    if ctx.gpu.backdropView.isInitialized():
-      ctx.gpu.backdropView[].view
-    else:
-      ctx.gpu.atlasView[].view
-  )
-  let src1 =
-    if ctx.gpu.backdropBlurTempView.isInitialized():
-      ctx.gpu.backdropBlurTempView[].view
-    else:
-      src0
-  ctx.updateBlurDescriptorSet(
-    descriptorSet = ctx.gpu.blurDescriptorSets[0],
-    srcView = src0,
-    uniformBuffer = ctx.gpu.blurUniforms[0][].buffer,
-  )
-  ctx.updateBlurDescriptorSet(
-    descriptorSet = ctx.gpu.blurDescriptorSets[1],
-    srcView = src1,
-    uniformBuffer = ctx.gpu.blurUniforms[1][].buffer,
-  )
+  ctx.gpu.blurPipelineState.backdropBlurFramebuffer =
+    initGpuFramebuffer(ctx.gpu.device, backdropInfo)
 
 template vulkanBlurWriteUniforms*(ctx, uniformMemory, texelStep, blurRadius: untyped) =
   if uniformMemory == vkNullMemory:
@@ -123,17 +52,7 @@ template vulkanBlurCreatePipeline*(ctx: untyped) =
   if ctx.gpu.swapchainFormat == VK_FORMAT_UNDEFINED:
     return
 
-  if ctx.gpu.blurPipeline != vkNullPipeline:
-    vkDestroyPipeline(ctx.gpu.device, ctx.gpu.blurPipeline, nil)
-    ctx.gpu.blurPipeline = vkNullPipeline
-  if ctx.gpu.blurPipelineLayout != vkNullPipelineLayout:
-    vkDestroyPipelineLayout(ctx.gpu.device, ctx.gpu.blurPipelineLayout, nil)
-    ctx.gpu.blurPipelineLayout = vkNullPipelineLayout
-  if ctx.gpu.blurRenderPass != vkNullRenderPass:
-    vkDestroyRenderPass(ctx.gpu.device, ctx.gpu.blurRenderPass, nil)
-    ctx.gpu.blurRenderPass = vkNullRenderPass
-  ctx.gpu.backdropBlurFramebuffer.reset()
-  ctx.gpu.backdropBlurTempFramebuffer.reset()
+  ctx.gpu.blurPipelineState = BlurPipelineState()
 
   var colorAttachment = VkAttachmentDescription(
     flags: 0.VkAttachmentDescriptionFlags,
@@ -185,26 +104,23 @@ template vulkanBlurCreatePipeline*(ctx: untyped) =
   let renderPassInfo = newVkRenderPassCreateInfo(
     attachments = [colorAttachment], subpasses = [subpass], dependencies = dependencies
   )
-  checkVkResult vkCreateRenderPass(
-    ctx.gpu.device, renderPassInfo.addr, nil, ctx.gpu.blurRenderPass.addr
-  )
+  var blurPipelineState =
+    BlurPipelineState(renderPass: initGpuRenderPass(ctx.gpu.device, renderPassInfo))
 
-  if ctx.gpu.blurVertShader == vkNullShaderModule:
-    let vertInfo = newVkShaderModuleCreateInfo(code = blurVertSpv)
-    ctx.gpu.blurVertShader = createShaderModule(ctx.gpu.device, vertInfo)
-  if ctx.gpu.blurFragShader == vkNullShaderModule:
-    let fragInfo = newVkShaderModuleCreateInfo(code = blurFragSpv)
-    ctx.gpu.blurFragShader = createShaderModule(ctx.gpu.device, fragInfo)
+  let vertInfo = newVkShaderModuleCreateInfo(code = blurVertSpv)
+  blurPipelineState.vertShader = initGpuShaderModule(ctx.gpu.device, vertInfo)
+  let fragInfo = newVkShaderModuleCreateInfo(code = blurFragSpv)
+  blurPipelineState.fragShader = initGpuShaderModule(ctx.gpu.device, fragInfo)
 
   let vertStage = newVkPipelineShaderStageCreateInfo(
     stage = VkShaderStageFlagBits.VertexBit,
-    module = ctx.gpu.blurVertShader,
+    module = blurPipelineState.vertShader[].handle,
     pName = "main",
     pSpecializationInfo = nil,
   )
   let fragStage = newVkPipelineShaderStageCreateInfo(
     stage = VkShaderStageFlagBits.FragmentBit,
-    module = ctx.gpu.blurFragShader,
+    module = blurPipelineState.fragShader[].handle,
     pName = "main",
     pSpecializationInfo = nil,
   )
@@ -285,7 +201,8 @@ template vulkanBlurCreatePipeline*(ctx: untyped) =
   let pipelineLayoutInfo = newVkPipelineLayoutCreateInfo(
     setLayouts = [ctx.gpu.blurDescriptorSetLayout], pushConstantRanges = []
   )
-  ctx.gpu.blurPipelineLayout = createPipelineLayout(ctx.gpu.device, pipelineLayoutInfo)
+  blurPipelineState.pipelineLayout =
+    initGpuPipelineLayout(ctx.gpu.device, pipelineLayoutInfo)
 
   let pipelineInfo = newVkGraphicsPipelineCreateInfo(
     stages = [vertStage, fragStage],
@@ -298,16 +215,14 @@ template vulkanBlurCreatePipeline*(ctx: untyped) =
     pDepthStencilState = nil,
     pColorBlendState = unsafeAddr colorBlending,
     pDynamicState = unsafeAddr dynamicState,
-    layout = ctx.gpu.blurPipelineLayout,
-    renderPass = ctx.gpu.blurRenderPass,
+    layout = blurPipelineState.pipelineLayout[].handle,
+    renderPass = blurPipelineState.renderPass[].handle,
     subpass = 0,
     basePipelineHandle = 0.VkPipeline,
     basePipelineIndex = -1,
   )
-  checkVkResult vkCreateGraphicsPipelines(
-    ctx.gpu.device, 0.VkPipelineCache, 1, pipelineInfo.addr, nil,
-    ctx.gpu.blurPipeline.addr,
-  )
+  blurPipelineState.pipeline = initGpuPipeline(ctx.gpu.device, pipelineInfo)
+  ctx.gpu.blurPipelineState = move(blurPipelineState)
 
   ctx.recreateBlurFramebuffers()
 
@@ -316,8 +231,9 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
     return
   if not ctx.gpu.commandRecording:
     return
-  if ctx.gpu.blurRenderPass == vkNullRenderPass or ctx.gpu.blurPipeline == vkNullPipeline or
-      ctx.gpu.blurPipelineLayout == vkNullPipelineLayout:
+  if not ctx.gpu.blurPipelineState.renderPass.isInitialized() or
+      not ctx.gpu.blurPipelineState.pipeline.isInitialized() or
+      not ctx.gpu.blurPipelineState.pipelineLayout.isInitialized():
     return
   if ctx.gpu.blurDescriptorSets[0] == vkNullDescriptorSet or
       ctx.gpu.blurDescriptorSets[1] == vkNullDescriptorSet or
@@ -326,8 +242,8 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
     return
   if not ctx.gpu.backdropView.isInitialized() or
       not ctx.gpu.backdropBlurTempView.isInitialized() or
-      not ctx.gpu.backdropBlurFramebuffer.isInitialized() or
-      not ctx.gpu.backdropBlurTempFramebuffer.isInitialized():
+      not ctx.gpu.blurPipelineState.backdropBlurFramebuffer.isInitialized() or
+      not ctx.gpu.blurPipelineState.backdropBlurTempFramebuffer.isInitialized():
     return
   if ctx.gpu.backdropWidth <= 0 or ctx.gpu.backdropHeight <= 0:
     return
@@ -424,8 +340,8 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
   let tempPassInfo = VkRenderPassBeginInfo(
     sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
     pNext: nil,
-    renderPass: ctx.gpu.blurRenderPass,
-    framebuffer: ctx.gpu.backdropBlurTempFramebuffer[].framebuffer,
+    renderPass: ctx.gpu.blurPipelineState.renderPass[].handle,
+    framebuffer: ctx.gpu.blurPipelineState.backdropBlurTempFramebuffer[].framebuffer,
     renderArea: drawRect,
     clearValueCount: 0,
     pClearValues: nil,
@@ -434,14 +350,16 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
     ctx.gpu.commandBuffer, tempPassInfo.addr, VK_SUBPASS_CONTENTS_INLINE
   )
   vkCmdBindPipeline(
-    ctx.gpu.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.gpu.blurPipeline
+    ctx.gpu.commandBuffer,
+    VK_PIPELINE_BIND_POINT_GRAPHICS,
+    ctx.gpu.blurPipelineState.pipeline[].handle,
   )
   vkCmdSetViewport(ctx.gpu.commandBuffer, 0, 1, viewport.addr)
   vkCmdSetScissor(ctx.gpu.commandBuffer, 0, 1, scissor.addr)
   vkCmdBindDescriptorSets(
     ctx.gpu.commandBuffer,
     VK_PIPELINE_BIND_POINT_GRAPHICS,
-    ctx.gpu.blurPipelineLayout,
+    ctx.gpu.blurPipelineState.pipelineLayout[].handle,
     0,
     1,
     ctx.gpu.blurDescriptorSets[0].addr,
@@ -492,8 +410,8 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
   let backdropPassInfo = VkRenderPassBeginInfo(
     sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
     pNext: nil,
-    renderPass: ctx.gpu.blurRenderPass,
-    framebuffer: ctx.gpu.backdropBlurFramebuffer[].framebuffer,
+    renderPass: ctx.gpu.blurPipelineState.renderPass[].handle,
+    framebuffer: ctx.gpu.blurPipelineState.backdropBlurFramebuffer[].framebuffer,
     renderArea: drawRect,
     clearValueCount: 0,
     pClearValues: nil,
@@ -502,14 +420,16 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
     ctx.gpu.commandBuffer, backdropPassInfo.addr, VK_SUBPASS_CONTENTS_INLINE
   )
   vkCmdBindPipeline(
-    ctx.gpu.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.gpu.blurPipeline
+    ctx.gpu.commandBuffer,
+    VK_PIPELINE_BIND_POINT_GRAPHICS,
+    ctx.gpu.blurPipelineState.pipeline[].handle,
   )
   vkCmdSetViewport(ctx.gpu.commandBuffer, 0, 1, viewport.addr)
   vkCmdSetScissor(ctx.gpu.commandBuffer, 0, 1, scissor.addr)
   vkCmdBindDescriptorSets(
     ctx.gpu.commandBuffer,
     VK_PIPELINE_BIND_POINT_GRAPHICS,
-    ctx.gpu.blurPipelineLayout,
+    ctx.gpu.blurPipelineState.pipelineLayout[].handle,
     0,
     1,
     ctx.gpu.blurDescriptorSets[1].addr,

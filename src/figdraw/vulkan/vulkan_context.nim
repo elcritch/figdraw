@@ -37,18 +37,6 @@ else:
 
 type SdfMode* = figbackend.SdfMode
 
-type PresentTargetKind* = enum
-  presentTargetNone
-  presentTargetXlib
-  presentTargetWayland
-  presentTargetWin32
-  presentTargetMetal
-
-when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
-  type LinuxSurfaceKind = enum
-    linuxSurfaceXlib
-    linuxSurfaceXcb
-
 type VulkanContext* = ref object of figbackend.BackendContext
   atlasSize: int
   atlasMargin: int
@@ -131,15 +119,6 @@ method hasImage*(ctx: VulkanContext, key: Hash): bool =
   key in ctx.entries
 
 proc tryGetImageRect(ctx: VulkanContext, imageId: Hash, rect: var Rect): bool
-proc updateDescriptorSet(ctx: VulkanContext)
-proc updateBlurDescriptorSet(
-  ctx: VulkanContext,
-  descriptorSet: VkDescriptorSet,
-  srcView: VkImageView,
-  uniformBuffer: VkBuffer,
-)
-
-proc updateBlurDescriptorSets(ctx: VulkanContext)
 proc recreateBlurFramebuffers(ctx: VulkanContext)
 
 proc createPresentSurface(ctx: VulkanContext) =
@@ -247,8 +226,8 @@ proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
       ctx.gpu.backdropHeight == h and ctx.gpu.backdropFormat == backdropFormat:
     return
 
-  ctx.gpu.backdropBlurFramebuffer.reset()
-  ctx.gpu.backdropBlurTempFramebuffer.reset()
+  ctx.gpu.blurPipelineState.backdropBlurFramebuffer = VResource[GpuFramebuffer]()
+  ctx.gpu.blurPipelineState.backdropBlurTempFramebuffer = VResource[GpuFramebuffer]()
 
   ctx.gpu.backdropBlurTempView.reset()
   ctx.gpu.backdropBlurTempImage.reset()
@@ -303,98 +282,6 @@ proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
 
 proc fullFrameRect(ctx: VulkanContext): Rect =
   rect(0.0'f32, 0.0'f32, ctx.frameSize.x, ctx.frameSize.y)
-
-proc updateDescriptorSet(ctx: VulkanContext) =
-  var vsInfo = newVkDescriptorBufferInfo(
-    buffer = ctx.gpu.vsUniform[].buffer,
-    offset = 0.VkDeviceSize,
-    range = VkDeviceSize(sizeof(VSUniforms)),
-  )
-  var fsInfo = newVkDescriptorBufferInfo(
-    buffer = ctx.gpu.fsUniform[].buffer,
-    offset = 0.VkDeviceSize,
-    range = VkDeviceSize(sizeof(FSUniforms)),
-  )
-  var atlasImageInfo = newVkDescriptorImageInfo(
-    sampler = ctx.gpu.atlasSampler,
-    imageView = ctx.gpu.atlasView[].view,
-    imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-  )
-  var backdropImageInfo = newVkDescriptorImageInfo(
-    sampler = ctx.gpu.atlasSampler,
-    imageView = (
-      if ctx.gpu.backdropView.isInitialized():
-        ctx.gpu.backdropView[].view
-      else:
-        ctx.gpu.atlasView[].view
-    ),
-    imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-  )
-
-  let writes = [
-    newVkWriteDescriptorSet(
-      dstSet = ctx.gpu.descriptorSet,
-      dstBinding = 0,
-      dstArrayElement = 0,
-      descriptorCount = 1,
-      descriptorType = VkDescriptorType.UniformBuffer,
-      pImageInfo = nil,
-      pBufferInfo = vsInfo.addr,
-      pTexelBufferView = nil,
-    ),
-    newVkWriteDescriptorSet(
-      dstSet = ctx.gpu.descriptorSet,
-      dstBinding = 1,
-      dstArrayElement = 0,
-      descriptorCount = 1,
-      descriptorType = VkDescriptorType.UniformBuffer,
-      pImageInfo = nil,
-      pBufferInfo = fsInfo.addr,
-      pTexelBufferView = nil,
-    ),
-    newVkWriteDescriptorSet(
-      dstSet = ctx.gpu.descriptorSet,
-      dstBinding = 2,
-      dstArrayElement = 0,
-      descriptorCount = 1,
-      descriptorType = VkDescriptorType.CombinedImageSampler,
-      pImageInfo = atlasImageInfo.addr,
-      pBufferInfo = nil,
-      pTexelBufferView = nil,
-    ),
-    newVkWriteDescriptorSet(
-      dstSet = ctx.gpu.descriptorSet,
-      dstBinding = 3,
-      dstArrayElement = 0,
-      descriptorCount = 1,
-      descriptorType = VkDescriptorType.CombinedImageSampler,
-      pImageInfo = atlasImageInfo.addr,
-      pBufferInfo = nil,
-      pTexelBufferView = nil,
-    ),
-    newVkWriteDescriptorSet(
-      dstSet = ctx.gpu.descriptorSet,
-      dstBinding = 4,
-      dstArrayElement = 0,
-      descriptorCount = 1,
-      descriptorType = VkDescriptorType.CombinedImageSampler,
-      pImageInfo = backdropImageInfo.addr,
-      pBufferInfo = nil,
-      pTexelBufferView = nil,
-    ),
-  ]
-  updateDescriptorSets(ctx.gpu.device, writes, [])
-
-proc updateBlurDescriptorSet(
-    ctx: VulkanContext,
-    descriptorSet: VkDescriptorSet,
-    srcView: VkImageView,
-    uniformBuffer: VkBuffer,
-) =
-  vulkanBlurUpdateDescriptorSet(ctx, descriptorSet, srcView, uniformBuffer)
-
-proc updateBlurDescriptorSets(ctx: VulkanContext) =
-  vulkanBlurUpdateDescriptorSets(ctx)
 
 proc writeBlurUniforms(
     ctx: VulkanContext,
@@ -476,25 +363,23 @@ proc createPipeline(ctx: VulkanContext) =
   let renderPassInfo = newVkRenderPassCreateInfo(
     attachments = [colorAttachment], subpasses = [subpass], dependencies = [dependency]
   )
-  var renderPass = initGpuRenderPass(ctx.gpu.device, renderPassInfo)
-  ctx.gpu.renderPass.reset(renderPass.release())
+  var pipelineState =
+    MainPipelineState(renderPass: initGpuRenderPass(ctx.gpu.device, renderPassInfo))
 
-  if ctx.gpu.vertShader == vkNullShaderModule:
-    let vertInfo = newVkShaderModuleCreateInfo(code = sdfVertSpv)
-    ctx.gpu.vertShader = createShaderModule(ctx.gpu.device, vertInfo)
-  if ctx.gpu.fragShader == vkNullShaderModule:
-    let fragInfo = newVkShaderModuleCreateInfo(code = sdfFragSpv)
-    ctx.gpu.fragShader = createShaderModule(ctx.gpu.device, fragInfo)
+  let vertInfo = newVkShaderModuleCreateInfo(code = sdfVertSpv)
+  pipelineState.vertShader = initGpuShaderModule(ctx.gpu.device, vertInfo)
+  let fragInfo = newVkShaderModuleCreateInfo(code = sdfFragSpv)
+  pipelineState.fragShader = initGpuShaderModule(ctx.gpu.device, fragInfo)
 
   let vertStage = newVkPipelineShaderStageCreateInfo(
     stage = VkShaderStageFlagBits.VertexBit,
-    module = ctx.gpu.vertShader,
+    module = pipelineState.vertShader[].handle,
     pName = "main",
     pSpecializationInfo = nil,
   )
   let fragStage = newVkPipelineShaderStageCreateInfo(
     stage = VkShaderStageFlagBits.FragmentBit,
-    module = ctx.gpu.fragShader,
+    module = pipelineState.fragShader[].handle,
     pName = "main",
     pSpecializationInfo = nil,
   )
@@ -634,8 +519,8 @@ proc createPipeline(ctx: VulkanContext) =
   let pipelineLayoutInfo = newVkPipelineLayoutCreateInfo(
     setLayouts = [ctx.gpu.descriptorSetLayout], pushConstantRanges = []
   )
-  var pipelineLayout = initGpuPipelineLayout(ctx.gpu.device, pipelineLayoutInfo)
-  ctx.gpu.pipelineLayout.reset(pipelineLayout.release())
+  pipelineState.pipelineLayout =
+    initGpuPipelineLayout(ctx.gpu.device, pipelineLayoutInfo)
 
   let pipelineInfo = newVkGraphicsPipelineCreateInfo(
     stages = [vertStage, fragStage],
@@ -648,14 +533,14 @@ proc createPipeline(ctx: VulkanContext) =
     pDepthStencilState = nil,
     pColorBlendState = unsafeAddr colorBlending,
     pDynamicState = unsafeAddr dynamicState,
-    layout = ctx.gpu.pipelineLayout[].pipelineLayout,
-    renderPass = ctx.gpu.renderPass[].renderPass,
+    layout = pipelineState.pipelineLayout[].handle,
+    renderPass = pipelineState.renderPass[].handle,
     subpass = 0,
     basePipelineHandle = 0.VkPipeline,
     basePipelineIndex = -1,
   )
-  var pipeline = initGpuPipeline(ctx.gpu.device, pipelineInfo)
-  ctx.gpu.pipeline.reset(pipeline.release())
+  pipelineState.pipeline = initGpuPipeline(ctx.gpu.device, pipelineInfo)
+  ctx.gpu.pipelineState = move(pipelineState)
 
 proc createSwapchain(ctx: VulkanContext, width, height: int32) =
   if ctx.gpu.surface == vkNullSurface:
@@ -760,7 +645,7 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
   ctx.gpu.swapchainFramebuffers.setLen(ctx.gpu.swapchainViews.len)
   for i in 0 ..< ctx.gpu.swapchainViews.len:
     let info = newVkFramebufferCreateInfo(
-      renderPass = ctx.gpu.renderPass[].renderPass,
+      renderPass = ctx.gpu.pipelineState.renderPass[].handle,
       attachments = [ctx.gpu.swapchainViews[i]],
       width = ctx.gpu.swapchainExtent.width,
       height = ctx.gpu.swapchainExtent.height,
@@ -932,199 +817,6 @@ proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
 proc recordSwapchainReadback(ctx: VulkanContext) =
   vkRecordSwapchainReadback(ctx)
 
-proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
-  let loaderApiVersion = detectLoaderApiVersion()
-  let availableExts = queryInstanceExtensionNames()
-  let availableLayers = queryInstanceLayerNames()
-
-  var enabledExtNames: seq[string] = @[]
-  let surfaceTargetKind =
-    if ctx.presentTargetKind != presentTargetNone:
-      ctx.presentTargetKind
-    else:
-      ctx.instanceSurfaceHint
-  if surfaceTargetKind != presentTargetNone:
-    enabledExtNames.add(VkKhrSurfaceExtensionName)
-    case surfaceTargetKind
-    of presentTargetXlib:
-      when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
-        let hasXlib = VkKhrXlibSurfaceExtensionName in availableExts
-        let hasXcb = VkKhrXcbSurfaceExtensionName in availableExts
-        if hasXlib:
-          ctx.linuxSurfaceKind = linuxSurfaceXlib
-          enabledExtNames.add(VkKhrXlibSurfaceExtensionName)
-        elif hasXcb:
-          ctx.linuxSurfaceKind = linuxSurfaceXcb
-          enabledExtNames.add(VkKhrXcbSurfaceExtensionName)
-          warn "Vulkan XLIB surface extension unavailable; using XCB surface extension",
-            selectedExtension = VkKhrXcbSurfaceExtensionName
-        else:
-          # Keep legacy default behavior for clearer downstream errors.
-          ctx.linuxSurfaceKind = linuxSurfaceXlib
-          enabledExtNames.add(VkKhrXlibSurfaceExtensionName)
-          warn "Neither VK_KHR_xlib_surface nor VK_KHR_xcb_surface reported as available"
-      else:
-        enabledExtNames.add(VkKhrXlibSurfaceExtensionName)
-    of presentTargetWayland:
-      when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
-        if VkKhrWaylandSurfaceExtensionName in availableExts:
-          enabledExtNames.add(VkKhrWaylandSurfaceExtensionName)
-        else:
-          raise newException(
-            ValueError, "VK_KHR_wayland_surface extension is required but unavailable"
-          )
-      else:
-        raise newException(ValueError, "Wayland Vulkan surface unsupported on this OS")
-    of presentTargetWin32:
-      enabledExtNames.add(VkKhrWin32SurfaceExtensionName)
-    of presentTargetMetal:
-      enabledExtNames.add(VkExtMetalSurfaceExtensionName)
-    of presentTargetNone:
-      discard
-
-  var enabledExts: seq[cstring] = @[]
-  for name in enabledExtNames:
-    enabledExts.add(name.cstring)
-
-  debug "Vulkan instance setup",
-    loaderApiVersion = vulkanApiVersion(loaderApiVersion),
-    requestedExtensions = enabledExtNames,
-    availableExtensions = availableExts,
-    availableExtensionsCount = availableExts.len,
-    availableLayers = availableLayers,
-    presentTarget = $surfaceTargetKind
-  when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
-    debug "Selected Linux Vulkan surface extension mode",
-      linuxSurfaceKind = $ctx.linuxSurfaceKind
-
-  var attempts: seq[uint32] = @[]
-  if loaderApiVersion >= vkApiVersion1_1:
-    attempts.add(vkApiVersion1_1)
-  attempts.add(vkApiVersion1_0)
-
-  for apiVersion in attempts:
-    let appInfo = newVkApplicationInfo(
-      pApplicationName = "figdraw-vulkan",
-      applicationVersion = vkMakeVersion(0, 0, 1, 0),
-      pEngineName = "figdraw",
-      engineVersion = vkMakeVersion(0, 0, 1, 0),
-      apiVersion = apiVersion,
-    )
-    let instanceInfo = newVkInstanceCreateInfo(
-      pApplicationInfo = appInfo.addr,
-      pEnabledLayerNames = [],
-      pEnabledExtensionNames = enabledExts,
-    )
-    try:
-      debug "Creating Vulkan instance",
-        requestedApiVersion = vulkanApiVersion(apiVersion),
-        requestedExtensions = enabledExtNames
-      return createInstance(instanceInfo)
-    except VulkanError as exc:
-      if exc.res == VkErrorIncompatibleDriver and apiVersion != vkApiVersion1_0:
-        warn "Vulkan instance creation failed; retrying with older API version",
-          attemptedApiVersion = vulkanApiVersion(apiVersion), reason = exc.msg
-        continue
-      raise
-
-  raise newException(
-    ValueError, "Failed to create Vulkan instance (no compatible Vulkan API version)"
-  )
-
-proc applyClipScissor(ctx: VulkanContext) =
-  if not ctx.gpu.commandRecording or ctx.gpu.swapchain == vkNullSwapchain or
-      not ctx.gpu.renderPassBegun:
-    return
-
-  let clipRect =
-    if ctx.clipRects.len > 0:
-      ctx.clipRects[^1]
-    else:
-      ctx.fullFrameRect()
-
-  let maxW = max(0'i32, ctx.gpu.swapchainExtent.width.int32)
-  let maxH = max(0'i32, ctx.gpu.swapchainExtent.height.int32)
-
-  var x0 = clamp(floor(clipRect.x).int32, 0'i32, maxW)
-  var y0 = clamp(floor(clipRect.y).int32, 0'i32, maxH)
-  var x1 = clamp(ceil(clipRect.x + clipRect.w).int32, 0'i32, maxW)
-  var y1 = clamp(ceil(clipRect.y + clipRect.h).int32, 0'i32, maxH)
-  if x1 < x0:
-    x1 = x0
-  if y1 < y0:
-    y1 = y0
-
-  var scissor = newVkRect2D(
-    offset = newVkOffset2D(x = x0, y = y0),
-    extent = newVkExtent2D(width = uint32(x1 - x0), height = uint32(y1 - y0)),
-  )
-  vkCmdSetScissor(ctx.gpu.commandBuffer, 0, 1, scissor.addr)
-
-proc beginRenderPassIfNeeded(ctx: VulkanContext) =
-  if not ctx.gpu.commandRecording or ctx.gpu.swapchain == vkNullSwapchain or
-      ctx.gpu.renderPassBegun:
-    return
-
-  let renderPassInfo = VkRenderPassBeginInfo(
-    sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-    pNext: nil,
-    renderPass: ctx.gpu.renderPass[].renderPass,
-    framebuffer:
-      ctx.gpu.swapchainFramebuffers[ctx.gpu.acquiredImageIndex.int][].framebuffer,
-    renderArea: newVkRect2D(
-      offset = newVkOffset2D(x = 0, y = 0), extent = ctx.gpu.swapchainExtent
-    ),
-    clearValueCount: 0,
-    pClearValues: nil,
-  )
-  vkCmdBeginRenderPass(
-    ctx.gpu.commandBuffer, renderPassInfo.addr, VK_SUBPASS_CONTENTS_INLINE
-  )
-  ctx.gpu.renderPassBegun = true
-
-  let viewport = newVkViewport(
-    x = 0,
-    y = 0,
-    width = ctx.gpu.swapchainExtent.width.float32,
-    height = ctx.gpu.swapchainExtent.height.float32,
-    minDepth = 0,
-    maxDepth = 1,
-  )
-  vkCmdSetViewport(ctx.gpu.commandBuffer, 0, 1, viewport.addr)
-
-  var fullScissor =
-    newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.gpu.swapchainExtent)
-  vkCmdSetScissor(ctx.gpu.commandBuffer, 0, 1, fullScissor.addr)
-
-  if ctx.gpu.frameNeedsClear:
-    let clearValue = VkClearValue(
-      color: VkClearColorValue(
-        float32: [
-          ctx.gpu.frameClearColor.r.float32, ctx.gpu.frameClearColor.g.float32,
-          ctx.gpu.frameClearColor.b.float32, ctx.gpu.frameClearColor.a.float32,
-        ]
-      )
-    )
-    var clearAttachment = VkClearAttachment(
-      aspectMask: VkImageAspectFlags{ColorBit},
-      colorAttachment: 0,
-      clearValue: clearValue,
-    )
-    var clearRect = VkClearRect(
-      rect: newVkRect2D(
-        offset = newVkOffset2D(x = 0, y = 0), extent = ctx.gpu.swapchainExtent
-      ),
-      baseArrayLayer: 0,
-      layerCount: 1,
-    )
-    vkCmdClearAttachments(
-      ctx.gpu.commandBuffer, 1, clearAttachment.addr, 1, clearRect.addr
-    )
-    ctx.gpu.frameNeedsClear = false
-
-  if ctx.clipRects.len > 0:
-    ctx.applyClipScissor()
-
 proc ensureGpuRuntime(ctx: VulkanContext) =
   if ctx.gpu.gpuReady:
     return
@@ -1139,7 +831,14 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     win32Hwnd = cast[uint64](ctx.presentWin32Hwnd)
 
   if ctx.gpu.instance == vkNullInstance:
-    ctx.gpu.instance = ctx.createInstanceWithFallback()
+    when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+      ctx.gpu.instance = createInstanceWithFallback(
+        ctx.presentTargetKind, ctx.instanceSurfaceHint, ctx.linuxSurfaceKind
+      )
+    else:
+      ctx.gpu.instance = createInstanceWithFallback(
+        ctx.presentTargetKind, ctx.instanceSurfaceHint
+      )
     vkInit(ctx.gpu.instance, load1_2 = false, load1_3 = false)
 
   if ctx.hasPresentTarget():
@@ -1499,7 +1198,7 @@ proc flush(ctx: VulkanContext) =
       vkCmdEndRenderPass(ctx.gpu.commandBuffer)
       ctx.gpu.renderPassBegun = false
     ctx.recordAtlasUpload(ctx.gpu.commandBuffer)
-  ctx.beginRenderPassIfNeeded()
+  ctx.gpu.beginRenderPassIfNeeded(ctx.clipRects, ctx.fullFrameRect())
 
   let vertexCount = ctx.quadCount * 4
   for i in 0 ..< vertexCount:
@@ -1575,7 +1274,9 @@ proc flush(ctx: VulkanContext) =
   unmapMemory(ctx.gpu.device, ctx.gpu.fsUniform[].memory)
 
   vkCmdBindPipeline(
-    ctx.gpu.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.gpu.pipeline[].pipeline
+    ctx.gpu.commandBuffer,
+    VK_PIPELINE_BIND_POINT_GRAPHICS,
+    ctx.gpu.pipelineState.pipeline[].handle,
   )
 
   let vbs = [vertexBuffer]
@@ -1589,7 +1290,7 @@ proc flush(ctx: VulkanContext) =
   vkCmdBindDescriptorSets(
     ctx.gpu.commandBuffer,
     VK_PIPELINE_BIND_POINT_GRAPHICS,
-    ctx.gpu.pipelineLayout[].pipelineLayout,
+    ctx.gpu.pipelineState.pipelineLayout[].handle,
     0,
     1,
     ctx.gpu.descriptorSet.addr,
@@ -2333,7 +2034,7 @@ method drawBackdropBlur*(
     return
 
   ctx.flush()
-  ctx.beginRenderPassIfNeeded()
+  ctx.gpu.beginRenderPassIfNeeded(ctx.clipRects, ctx.fullFrameRect())
   if ctx.gpu.renderPassBegun:
     vkCmdEndRenderPass(ctx.gpu.commandBuffer)
     ctx.gpu.renderPassBegun = false
@@ -2614,7 +2315,7 @@ method endMask*(ctx: VulkanContext) =
     else:
       maskRect
   ctx.clipRects.add(effective)
-  ctx.applyClipScissor()
+  ctx.gpu.applyClipScissor(ctx.clipRects, ctx.fullFrameRect())
   ctx.pendingMaskValid = false
 
 method popMask*(ctx: VulkanContext) =
@@ -2623,7 +2324,7 @@ method popMask*(ctx: VulkanContext) =
     dec ctx.maskDepth
   if ctx.clipRects.len > 0:
     discard ctx.clipRects.pop()
-  ctx.applyClipScissor()
+  ctx.gpu.applyClipScissor(ctx.clipRects, ctx.fullFrameRect())
 
 proc beginFrame*(
     ctx: VulkanContext,
@@ -2709,7 +2410,7 @@ method endFrame*(ctx: VulkanContext) =
     return
 
   ctx.flush()
-  ctx.beginRenderPassIfNeeded()
+  ctx.gpu.beginRenderPassIfNeeded(ctx.clipRects, ctx.fullFrameRect())
   if ctx.gpu.renderPassBegun:
     vkCmdEndRenderPass(ctx.gpu.commandBuffer)
     ctx.gpu.renderPassBegun = false
@@ -2891,7 +2592,14 @@ proc ensureInstance*(ctx: VulkanContext) =
   if ctx.gpu.instance != vkNullInstance:
     return
   vkPreload()
-  ctx.gpu.instance = ctx.createInstanceWithFallback()
+  when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+    ctx.gpu.instance = createInstanceWithFallback(
+      ctx.presentTargetKind, ctx.instanceSurfaceHint, ctx.linuxSurfaceKind
+    )
+  else:
+    ctx.gpu.instance = createInstanceWithFallback(
+      ctx.presentTargetKind, ctx.instanceSurfaceHint
+    )
   vkInit(ctx.gpu.instance, load1_2 = false, load1_3 = false)
 
 proc instanceHandle*(ctx: VulkanContext): pointer =
