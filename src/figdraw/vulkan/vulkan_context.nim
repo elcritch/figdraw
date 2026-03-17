@@ -706,123 +706,7 @@ proc ensureReadbackBuffer(ctx: VulkanContext, bytes: VkDeviceSize) =
   vkRecordEnsureReadbackBuffer(ctx, bytes)
 
 proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
-  let bytes = VkDeviceSize(ctx.atlasSize * ctx.atlasSize * 4)
-  ctx.ensureAtlasUploadBuffer(bytes)
-
-  let mapped = cast[ptr uint8](mapMemory(
-    ctx.gpu.device,
-    ctx.gpu.atlasUpload[].memory,
-    0.VkDeviceSize,
-    bytes,
-    0.VkMemoryMapFlags,
-  ))
-  copyMem(mapped, ctx.atlasPixels.data[0].addr, int(bytes))
-  unmapMemory(ctx.gpu.device, ctx.gpu.atlasUpload[].memory)
-
-  let atlasOldLayout =
-    if ctx.gpu.atlasLayoutReady:
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    else:
-      VK_IMAGE_LAYOUT_UNDEFINED
-  let atlasSrcAccess =
-    if ctx.gpu.atlasLayoutReady:
-      VkAccessFlags{ShaderReadBit}
-    else:
-      0.VkAccessFlags
-  let atlasSrcStage =
-    if ctx.gpu.atlasLayoutReady:
-      VkPipelineStageFlags{FragmentShaderBit}
-    else:
-      VkPipelineStageFlags{TopOfPipeBit}
-
-  var barrierToTransfer = VkImageMemoryBarrier(
-    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-    pNext: nil,
-    srcAccessMask: atlasSrcAccess,
-    dstAccessMask: VkAccessFlags{TransferWriteBit},
-    oldLayout: atlasOldLayout,
-    newLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
-    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
-    image: ctx.gpu.atlasImage[].image,
-    subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
-      baseMipLevel = 0,
-      levelCount = 1,
-      baseArrayLayer = 0,
-      layerCount = 1,
-    ),
-  )
-  vkCmdPipelineBarrier(
-    cmd,
-    atlasSrcStage,
-    VkPipelineStageFlags{TransferBit},
-    0.VkDependencyFlags,
-    0,
-    nil,
-    0,
-    nil,
-    1,
-    barrierToTransfer.addr,
-  )
-
-  var region = VkBufferImageCopy(
-    bufferOffset: 0.VkDeviceSize,
-    bufferRowLength: 0,
-    bufferImageHeight: 0,
-    imageSubresource: newVkImageSubresourceLayers(
-      aspectMask = VkImageAspectFlags{ColorBit},
-      mipLevel = 0,
-      baseArrayLayer = 0,
-      layerCount = 1,
-    ),
-    imageOffset: newVkOffset3D(x = 0, y = 0, z = 0),
-    imageExtent: newVkExtent3D(
-      width = ctx.atlasSize.uint32, height = ctx.atlasSize.uint32, depth = 1
-    ),
-  )
-  vkCmdCopyBufferToImage(
-    cmd,
-    ctx.gpu.atlasUpload[].buffer,
-    ctx.gpu.atlasImage[].image,
-    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-    1,
-    region.addr,
-  )
-
-  var barrierToRead = VkImageMemoryBarrier(
-    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-    pNext: nil,
-    srcAccessMask: VkAccessFlags{TransferWriteBit},
-    dstAccessMask: VkAccessFlags{ShaderReadBit},
-    oldLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-    newLayout: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
-    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
-    image: ctx.gpu.atlasImage[].image,
-    subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
-      baseMipLevel = 0,
-      levelCount = 1,
-      baseArrayLayer = 0,
-      layerCount = 1,
-    ),
-  )
-  vkCmdPipelineBarrier(
-    cmd,
-    VkPipelineStageFlags{TransferBit},
-    VkPipelineStageFlags{FragmentShaderBit},
-    0.VkDependencyFlags,
-    0,
-    nil,
-    0,
-    nil,
-    1,
-    barrierToRead.addr,
-  )
-
-  ctx.atlasDirty = false
-  ctx.gpu.atlasLayoutReady = true
+  vkRecordAtlasUpload(ctx, cmd)
 
 proc recordSwapchainReadback(ctx: VulkanContext) =
   vkRecordSwapchainReadback(ctx)
@@ -846,9 +730,8 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
         ctx.presentTargetKind, ctx.instanceSurfaceHint, ctx.linuxSurfaceKind
       )
     else:
-      ctx.gpu.instance = createInstanceWithFallback(
-        ctx.presentTargetKind, ctx.instanceSurfaceHint
-      )
+      ctx.gpu.instance =
+        createInstanceWithFallback(ctx.presentTargetKind, ctx.instanceSurfaceHint)
     vkInit(ctx.gpu.instance, load1_2 = false, load1_3 = false)
 
   if ctx.hasPresentTarget():
@@ -2607,9 +2490,8 @@ proc ensureInstance*(ctx: VulkanContext) =
       ctx.presentTargetKind, ctx.instanceSurfaceHint, ctx.linuxSurfaceKind
     )
   else:
-    ctx.gpu.instance = createInstanceWithFallback(
-      ctx.presentTargetKind, ctx.instanceSurfaceHint
-    )
+    ctx.gpu.instance =
+      createInstanceWithFallback(ctx.presentTargetKind, ctx.instanceSurfaceHint)
   vkInit(ctx.gpu.instance, load1_2 = false, load1_3 = false)
 
 proc instanceHandle*(ctx: VulkanContext): pointer =
