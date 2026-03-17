@@ -13,13 +13,9 @@ import ../common/formatflippy
 import ../fignodes
 import ../utils/drawextras
 import ./vulkan_blur
-import ./vulkan_types as vktypes
+import ./vulkan_types
 import ./vulkan_utils
 import ./vresource
-from ./vulkan_types import
-  BlurUniforms, FSUniforms, GpuBuffer, GpuFramebuffer, GpuImage, GpuImageView, GpuState,
-  VSUniforms, clearFrameVertexUploads, destroyPipelineObjects, destroySwapchain,
-  initGpuBuffer, initGpuFramebuffer, initGpuImage, initGpuImageView
 
 export drawextras
 
@@ -85,7 +81,7 @@ type VulkanContext* = ref object of figbackend.BackendContext
   sdfModeAttr: seq[SdfModeData]
   sdfFactors: seq[float32]
   indices: seq[uint16]
-  vertexScratch: seq[vktypes.Vertex]
+  vertexScratch: seq[vulkan_types.Vertex]
 
   atlasPixels: Image
   atlasDirty: bool
@@ -505,7 +501,7 @@ proc createPipeline(ctx: VulkanContext) =
 
   let bindingDesc = VkVertexInputBindingDescription(
     binding: 0,
-    stride: uint32(sizeof(vktypes.Vertex)),
+    stride: uint32(sizeof(vulkan_types.Vertex)),
     inputRate: VK_VERTEX_INPUT_RATE_VERTEX,
   )
 
@@ -514,43 +510,43 @@ proc createPipeline(ctx: VulkanContext) =
       location: 0,
       binding: 0,
       format: VK_FORMAT_R32G32_SFLOAT,
-      offset: uint32(offsetOf(vktypes.Vertex, pos)),
+      offset: uint32(offsetOf(vulkan_types.Vertex, pos)),
     ),
     VkVertexInputAttributeDescription(
       location: 1,
       binding: 0,
       format: VK_FORMAT_R32G32_SFLOAT,
-      offset: uint32(offsetOf(vktypes.Vertex, uv)),
+      offset: uint32(offsetOf(vulkan_types.Vertex, uv)),
     ),
     VkVertexInputAttributeDescription(
       location: 2,
       binding: 0,
       format: VK_FORMAT_R8G8B8A8_UNORM,
-      offset: uint32(offsetOf(vktypes.Vertex, color)),
+      offset: uint32(offsetOf(vulkan_types.Vertex, color)),
     ),
     VkVertexInputAttributeDescription(
       location: 3,
       binding: 0,
       format: VK_FORMAT_R32G32B32A32_SFLOAT,
-      offset: uint32(offsetOf(vktypes.Vertex, sdfParams)),
+      offset: uint32(offsetOf(vulkan_types.Vertex, sdfParams)),
     ),
     VkVertexInputAttributeDescription(
       location: 4,
       binding: 0,
       format: VK_FORMAT_R32G32B32A32_SFLOAT,
-      offset: uint32(offsetOf(vktypes.Vertex, sdfRadii)),
+      offset: uint32(offsetOf(vulkan_types.Vertex, sdfRadii)),
     ),
     VkVertexInputAttributeDescription(
       location: 5,
       binding: 0,
       format: VK_FORMAT_R16_UINT,
-      offset: uint32(offsetOf(vktypes.Vertex, sdfMode)),
+      offset: uint32(offsetOf(vulkan_types.Vertex, sdfMode)),
     ),
     VkVertexInputAttributeDescription(
       location: 6,
       binding: 0,
       format: VK_FORMAT_R32G32_SFLOAT,
-      offset: uint32(offsetOf(vktypes.Vertex, sdfFactors)),
+      offset: uint32(offsetOf(vulkan_types.Vertex, sdfFactors)),
     ),
   ]
 
@@ -1531,7 +1527,7 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     ),
   )
 
-  let vertexBytes = VkDeviceSize(sizeof(vktypes.Vertex) * ctx.maxQuads * 4)
+  let vertexBytes = VkDeviceSize(sizeof(vulkan_types.Vertex) * ctx.maxQuads * 4)
   var vertex = initGpuBuffer(
     device = ctx.gpu.device,
     physicalDevice = ctx.gpu.physicalDevice,
@@ -1673,7 +1669,7 @@ proc flush(ctx: VulkanContext) =
     v.sdfFactors[0] = ctx.sdfFactors[i * 2 + 0]
     v.sdfFactors[1] = ctx.sdfFactors[i * 2 + 1]
 
-  let uploadBytes = VkDeviceSize(vertexCount * sizeof(vktypes.Vertex))
+  let uploadBytes = VkDeviceSize(vertexCount * sizeof(vulkan_types.Vertex))
   var vertex = initGpuBuffer(
     device = ctx.gpu.device,
     physicalDevice = ctx.gpu.physicalDevice,
@@ -2924,7 +2920,7 @@ proc newContext*(
   result.sdfRadii = newSeq[float32](4 * maxQuads * 4)
   result.sdfModeAttr = newSeq[SdfModeData](maxQuads * 4)
   result.sdfFactors = newSeq[float32](2 * maxQuads * 4)
-  result.vertexScratch = newSeq[vktypes.Vertex](maxQuads * 4)
+  result.vertexScratch = newSeq[vulkan_types.Vertex](maxQuads * 4)
 
   result.indices = newSeq[uint16](maxQuads * 6)
   for i in 0 ..< maxQuads:
