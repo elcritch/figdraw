@@ -13,10 +13,10 @@ import ../common/formatflippy
 import ../fignodes
 import ../utils/drawextras
 import ./vulkan_blur
-import ./vulkan_impl as vktypes
+import ./vulkan_types as vktypes
 import ./vulkan_utils
 import ./vresource
-from ./vulkan_impl import
+from ./vulkan_types import
   BlurUniforms, FSUniforms, GpuBuffer, GpuFramebuffer, GpuImage, GpuImageView, GpuState,
   VSUniforms, clearFrameVertexUploads, destroyPipelineObjects, destroySwapchain
 
