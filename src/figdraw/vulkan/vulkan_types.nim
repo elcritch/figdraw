@@ -38,6 +38,18 @@ type
     device*: VkDevice
     framebuffer*: VkFramebuffer
 
+  GpuRenderPass* = object
+    device*: VkDevice
+    renderPass*: VkRenderPass
+
+  GpuPipelineLayout* = object
+    device*: VkDevice
+    pipelineLayout*: VkPipelineLayout
+
+  GpuPipeline* = object
+    device*: VkDevice
+    pipeline*: VkPipeline
+
   Vertex* = object
     pos*: array[2, float32]
     uv*: array[2, float32]
@@ -69,12 +81,12 @@ type
     swapchainTransferSrcSupported*: bool
     presentReady*: bool
 
-    renderPass*: VkRenderPass
+    renderPass*: VResource[GpuRenderPass]
     descriptorSetLayout*: VkDescriptorSetLayout
     descriptorPool*: VkDescriptorPool
     descriptorSet*: VkDescriptorSet
-    pipelineLayout*: VkPipelineLayout
-    pipeline*: VkPipeline
+    pipelineLayout*: VResource[GpuPipelineLayout]
+    pipeline*: VResource[GpuPipeline]
     vertShader*: VkShaderModule
     fragShader*: VkShaderModule
 
@@ -108,12 +120,12 @@ type
     backdropFormat*: VkFormat
     backdropBlurFramebuffer*: VResource[GpuFramebuffer]
     backdropBlurTempFramebuffer*: VResource[GpuFramebuffer]
-    blurRenderPass*: VkRenderPass
+    blurRenderPass*: VResource[GpuRenderPass]
     blurDescriptorSetLayout*: VkDescriptorSetLayout
     blurDescriptorPool*: VkDescriptorPool
     blurDescriptorSets*: array[2, VkDescriptorSet]
-    blurPipelineLayout*: VkPipelineLayout
-    blurPipeline*: VkPipeline
+    blurPipelineLayout*: VResource[GpuPipelineLayout]
+    blurPipeline*: VResource[GpuPipeline]
     blurVertShader*: VkShaderModule
     blurFragShader*: VkShaderModule
     blurUniforms*: array[2, VResource[GpuBuffer]]
@@ -182,6 +194,24 @@ proc `=destroy`*(resource: var GpuFramebuffer) =
     resource.framebuffer = vkNullFramebuffer
   resource.device = vkNullDevice
 
+proc `=destroy`*(resource: var GpuRenderPass) =
+  if resource.renderPass != vkNullRenderPass:
+    vkDestroyRenderPass(resource.device, resource.renderPass, nil)
+    resource.renderPass = vkNullRenderPass
+  resource.device = vkNullDevice
+
+proc `=destroy`*(resource: var GpuPipelineLayout) =
+  if resource.pipelineLayout != vkNullPipelineLayout:
+    vkDestroyPipelineLayout(resource.device, resource.pipelineLayout, nil)
+    resource.pipelineLayout = vkNullPipelineLayout
+  resource.device = vkNullDevice
+
+proc `=destroy`*(resource: var GpuPipeline) =
+  if resource.pipeline != vkNullPipeline:
+    vkDestroyPipeline(resource.device, resource.pipeline, nil)
+    resource.pipeline = vkNullPipeline
+  resource.device = vkNullDevice
+
 proc destroySwapchain*(gpu: var GpuState) =
   gpu.swapchainFramebuffers.setLen(0)
 
@@ -198,26 +228,12 @@ proc destroySwapchain*(gpu: var GpuState) =
 proc destroyPipelineObjects*(gpu: var GpuState) =
   gpu.backdropBlurFramebuffer.reset()
   gpu.backdropBlurTempFramebuffer.reset()
-
-  if gpu.blurPipeline != vkNullPipeline:
-    vkDestroyPipeline(gpu.device, gpu.blurPipeline, nil)
-    gpu.blurPipeline = vkNullPipeline
-  if gpu.blurPipelineLayout != vkNullPipelineLayout:
-    vkDestroyPipelineLayout(gpu.device, gpu.blurPipelineLayout, nil)
-    gpu.blurPipelineLayout = vkNullPipelineLayout
-  if gpu.blurRenderPass != vkNullRenderPass:
-    vkDestroyRenderPass(gpu.device, gpu.blurRenderPass, nil)
-    gpu.blurRenderPass = vkNullRenderPass
-
-  if gpu.pipeline != vkNullPipeline:
-    vkDestroyPipeline(gpu.device, gpu.pipeline, nil)
-    gpu.pipeline = vkNullPipeline
-  if gpu.pipelineLayout != vkNullPipelineLayout:
-    vkDestroyPipelineLayout(gpu.device, gpu.pipelineLayout, nil)
-    gpu.pipelineLayout = vkNullPipelineLayout
-  if gpu.renderPass != vkNullRenderPass:
-    vkDestroyRenderPass(gpu.device, gpu.renderPass, nil)
-    gpu.renderPass = vkNullRenderPass
+  gpu.blurPipeline.reset()
+  gpu.blurPipelineLayout.reset()
+  gpu.blurRenderPass.reset()
+  gpu.pipeline.reset()
+  gpu.pipelineLayout.reset()
+  gpu.renderPass.reset()
 
 proc clearFrameVertexUploads*(gpu: var GpuState) =
   gpu.frameVertices.setLen(0)
@@ -393,4 +409,27 @@ proc initGpuFramebuffer*(
 ): VResource[GpuFramebuffer] =
   var alloc = GpuFramebuffer(device: device)
   checkVkResult vkCreateFramebuffer(device, info.addr, nil, alloc.framebuffer.addr)
+  result = initVResource(alloc)
+
+proc initGpuRenderPass*(
+    device: VkDevice, info: VkRenderPassCreateInfo
+): VResource[GpuRenderPass] =
+  var alloc = GpuRenderPass(device: device)
+  checkVkResult vkCreateRenderPass(device, info.addr, nil, alloc.renderPass.addr)
+  result = initVResource(alloc)
+
+proc initGpuPipelineLayout*(
+    device: VkDevice, info: VkPipelineLayoutCreateInfo
+): VResource[GpuPipelineLayout] =
+  var alloc = GpuPipelineLayout(device: device)
+  alloc.pipelineLayout = createPipelineLayout(device, info)
+  result = initVResource(alloc)
+
+proc initGpuPipeline*(
+    device: VkDevice, info: VkGraphicsPipelineCreateInfo
+): VResource[GpuPipeline] =
+  var alloc = GpuPipeline(device: device)
+  checkVkResult vkCreateGraphicsPipelines(
+    device, 0.VkPipelineCache, 1, info.addr, nil, alloc.pipeline.addr
+  )
   result = initVResource(alloc)

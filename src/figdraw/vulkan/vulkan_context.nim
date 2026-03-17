@@ -476,9 +476,8 @@ proc createPipeline(ctx: VulkanContext) =
   let renderPassInfo = newVkRenderPassCreateInfo(
     attachments = [colorAttachment], subpasses = [subpass], dependencies = [dependency]
   )
-  checkVkResult vkCreateRenderPass(
-    ctx.gpu.device, renderPassInfo.addr, nil, ctx.gpu.renderPass.addr
-  )
+  var renderPass = initGpuRenderPass(ctx.gpu.device, renderPassInfo)
+  ctx.gpu.renderPass.reset(renderPass.release())
 
   if ctx.gpu.vertShader == vkNullShaderModule:
     let vertInfo = newVkShaderModuleCreateInfo(code = sdfVertSpv)
@@ -635,7 +634,8 @@ proc createPipeline(ctx: VulkanContext) =
   let pipelineLayoutInfo = newVkPipelineLayoutCreateInfo(
     setLayouts = [ctx.gpu.descriptorSetLayout], pushConstantRanges = []
   )
-  ctx.gpu.pipelineLayout = createPipelineLayout(ctx.gpu.device, pipelineLayoutInfo)
+  var pipelineLayout = initGpuPipelineLayout(ctx.gpu.device, pipelineLayoutInfo)
+  ctx.gpu.pipelineLayout.reset(pipelineLayout.release())
 
   let pipelineInfo = newVkGraphicsPipelineCreateInfo(
     stages = [vertStage, fragStage],
@@ -648,15 +648,14 @@ proc createPipeline(ctx: VulkanContext) =
     pDepthStencilState = nil,
     pColorBlendState = unsafeAddr colorBlending,
     pDynamicState = unsafeAddr dynamicState,
-    layout = ctx.gpu.pipelineLayout,
-    renderPass = ctx.gpu.renderPass,
+    layout = ctx.gpu.pipelineLayout[].pipelineLayout,
+    renderPass = ctx.gpu.renderPass[].renderPass,
     subpass = 0,
     basePipelineHandle = 0.VkPipeline,
     basePipelineIndex = -1,
   )
-  checkVkResult vkCreateGraphicsPipelines(
-    ctx.gpu.device, 0.VkPipelineCache, 1, pipelineInfo.addr, nil, ctx.gpu.pipeline.addr
-  )
+  var pipeline = initGpuPipeline(ctx.gpu.device, pipelineInfo)
+  ctx.gpu.pipeline.reset(pipeline.release())
 
 proc createSwapchain(ctx: VulkanContext, width, height: int32) =
   if ctx.gpu.surface == vkNullSurface:
@@ -761,7 +760,7 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
   ctx.gpu.swapchainFramebuffers.setLen(ctx.gpu.swapchainViews.len)
   for i in 0 ..< ctx.gpu.swapchainViews.len:
     let info = newVkFramebufferCreateInfo(
-      renderPass = ctx.gpu.renderPass,
+      renderPass = ctx.gpu.renderPass[].renderPass,
       attachments = [ctx.gpu.swapchainViews[i]],
       width = ctx.gpu.swapchainExtent.width,
       height = ctx.gpu.swapchainExtent.height,
@@ -1069,7 +1068,7 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
   let renderPassInfo = VkRenderPassBeginInfo(
     sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
     pNext: nil,
-    renderPass: ctx.gpu.renderPass,
+    renderPass: ctx.gpu.renderPass[].renderPass,
     framebuffer:
       ctx.gpu.swapchainFramebuffers[ctx.gpu.acquiredImageIndex.int][].framebuffer,
     renderArea: newVkRect2D(
@@ -1576,7 +1575,7 @@ proc flush(ctx: VulkanContext) =
   unmapMemory(ctx.gpu.device, ctx.gpu.fsUniform[].memory)
 
   vkCmdBindPipeline(
-    ctx.gpu.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.gpu.pipeline
+    ctx.gpu.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.gpu.pipeline[].pipeline
   )
 
   let vbs = [vertexBuffer]
@@ -1588,8 +1587,14 @@ proc flush(ctx: VulkanContext) =
     ctx.gpu.commandBuffer, ctx.gpu.index[].buffer, 0.VkDeviceSize, VK_INDEX_TYPE_UINT16
   )
   vkCmdBindDescriptorSets(
-    ctx.gpu.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.gpu.pipelineLayout, 0,
-    1, ctx.gpu.descriptorSet.addr, 0, nil,
+    ctx.gpu.commandBuffer,
+    VK_PIPELINE_BIND_POINT_GRAPHICS,
+    ctx.gpu.pipelineLayout[].pipelineLayout,
+    0,
+    1,
+    ctx.gpu.descriptorSet.addr,
+    0,
+    nil,
   )
 
   let indexCount = uint32(ctx.quadCount * 6)
