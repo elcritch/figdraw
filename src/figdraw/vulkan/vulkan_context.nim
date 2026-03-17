@@ -75,6 +75,10 @@ type
     device: VkDevice
     view: VkImageView
 
+  GpuFramebuffer = object
+    device: VkDevice
+    framebuffer: VkFramebuffer
+
   Vertex = object
     pos: array[2, float32]
     uv: array[2, float32]
@@ -99,7 +103,7 @@ type
     swapchain: VkSwapchainKHR
     swapchainImages: seq[VkImage]
     swapchainViews: seq[VkImageView]
-    swapchainFramebuffers: seq[VkFramebuffer]
+    swapchainFramebuffers: seq[VResource[GpuFramebuffer]]
     swapchainFormat: VkFormat
     swapchainExtent: VkExtent2D
     swapchainOutOfDate: bool
@@ -143,8 +147,8 @@ type
     backdropWidth: int32
     backdropHeight: int32
     backdropFormat: VkFormat
-    backdropBlurFramebuffer: VkFramebuffer
-    backdropBlurTempFramebuffer: VkFramebuffer
+    backdropBlurFramebuffer: VResource[GpuFramebuffer]
+    backdropBlurTempFramebuffer: VResource[GpuFramebuffer]
     blurRenderPass: VkRenderPass
     blurDescriptorSetLayout: VkDescriptorSetLayout
     blurDescriptorPool: VkDescriptorPool
@@ -243,21 +247,35 @@ const
   vkNullSemaphore = VkSemaphore(0)
   vkNullFence = VkFence(0)
 
-proc dealloc(resource: GpuBuffer) =
+proc `=destroy`(resource: var GpuBuffer) =
   if resource.buffer != vkNullBuffer:
     destroyBuffer(resource.device, resource.buffer)
+    resource.buffer = vkNullBuffer
   if resource.memory != vkNullMemory:
     freeMemory(resource.device, resource.memory)
+    resource.memory = vkNullMemory
+  resource.device = vkNullDevice
 
-proc dealloc(resource: GpuImage) =
+proc `=destroy`(resource: var GpuImage) =
   if resource.image != vkNullImage:
     vkDestroyImage(resource.device, resource.image, nil)
+    resource.image = vkNullImage
   if resource.memory != vkNullMemory:
     vkFreeMemory(resource.device, resource.memory, nil)
+    resource.memory = vkNullMemory
+  resource.device = vkNullDevice
 
-proc dealloc(resource: GpuImageView) =
+proc `=destroy`(resource: var GpuImageView) =
   if resource.view != vkNullImageView:
     vkDestroyImageView(resource.device, resource.view, nil)
+    resource.view = vkNullImageView
+  resource.device = vkNullDevice
+
+proc `=destroy`(resource: var GpuFramebuffer) =
+  if resource.framebuffer != vkNullFramebuffer:
+    vkDestroyFramebuffer(resource.device, resource.framebuffer, nil)
+    resource.framebuffer = vkNullFramebuffer
+  resource.device = vkNullDevice
 
 proc hasPresentTarget(ctx: VulkanContext): bool =
   ctx.presentTargetKind != presentTargetNone
@@ -454,6 +472,15 @@ proc createImageView(
   checkVkResult vkCreateImageView(ctx.gpu.device, info.addr, nil, alloc.view.addr)
   result = initVResource(alloc)
 
+proc createFramebuffer(
+    ctx: VulkanContext, info: VkFramebufferCreateInfo
+): VResource[GpuFramebuffer] =
+  var alloc = GpuFramebuffer(device: ctx.gpu.device)
+  checkVkResult vkCreateFramebuffer(
+    ctx.gpu.device, info.addr, nil, alloc.framebuffer.addr
+  )
+  result = initVResource(alloc)
+
 proc recreateBlurFramebuffers(ctx: VulkanContext) =
   vulkanBlurRecreateFramebuffers(ctx)
 
@@ -471,12 +498,8 @@ proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
       ctx.gpu.backdropHeight == h and ctx.gpu.backdropFormat == backdropFormat:
     return
 
-  if ctx.gpu.backdropBlurFramebuffer != vkNullFramebuffer:
-    vkDestroyFramebuffer(ctx.gpu.device, ctx.gpu.backdropBlurFramebuffer, nil)
-    ctx.gpu.backdropBlurFramebuffer = vkNullFramebuffer
-  if ctx.gpu.backdropBlurTempFramebuffer != vkNullFramebuffer:
-    vkDestroyFramebuffer(ctx.gpu.device, ctx.gpu.backdropBlurTempFramebuffer, nil)
-    ctx.gpu.backdropBlurTempFramebuffer = vkNullFramebuffer
+  ctx.gpu.backdropBlurFramebuffer.reset()
+  ctx.gpu.backdropBlurTempFramebuffer.reset()
 
   ctx.gpu.backdropBlurTempView.reset()
   ctx.gpu.backdropBlurTempImage.reset()
@@ -523,9 +546,6 @@ proc fullFrameRect(ctx: VulkanContext): Rect =
   rect(0.0'f32, 0.0'f32, ctx.frameSize.x, ctx.frameSize.y)
 
 proc destroySwapchain(gpu: var GpuState) =
-  for fb in gpu.swapchainFramebuffers:
-    if fb != vkNullFramebuffer:
-      vkDestroyFramebuffer(gpu.device, fb, nil)
   gpu.swapchainFramebuffers.setLen(0)
 
   for view in gpu.swapchainViews:
@@ -539,12 +559,8 @@ proc destroySwapchain(gpu: var GpuState) =
     gpu.swapchain = vkNullSwapchain
 
 proc destroyPipelineObjects(gpu: var GpuState) =
-  if gpu.backdropBlurFramebuffer != vkNullFramebuffer:
-    vkDestroyFramebuffer(gpu.device, gpu.backdropBlurFramebuffer, nil)
-    gpu.backdropBlurFramebuffer = vkNullFramebuffer
-  if gpu.backdropBlurTempFramebuffer != vkNullFramebuffer:
-    vkDestroyFramebuffer(gpu.device, gpu.backdropBlurTempFramebuffer, nil)
-    gpu.backdropBlurTempFramebuffer = vkNullFramebuffer
+  gpu.backdropBlurFramebuffer.reset()
+  gpu.backdropBlurTempFramebuffer.reset()
 
   if gpu.blurPipeline != vkNullPipeline:
     vkDestroyPipeline(gpu.device, gpu.blurPipeline, nil)
@@ -1102,9 +1118,8 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
       height = ctx.gpu.swapchainExtent.height,
       layers = 1,
     )
-    checkVkResult vkCreateFramebuffer(
-      ctx.gpu.device, info.addr, nil, ctx.gpu.swapchainFramebuffers[i].addr
-    )
+    var framebuffer = ctx.createFramebuffer(info)
+    ctx.gpu.swapchainFramebuffers[i].reset(framebuffer.release())
 
   trace "Created Vulkan swapchain",
     width = int(ctx.gpu.swapchainExtent.width),
@@ -1546,7 +1561,8 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
     sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
     pNext: nil,
     renderPass: ctx.gpu.renderPass,
-    framebuffer: ctx.gpu.swapchainFramebuffers[ctx.gpu.acquiredImageIndex.int],
+    framebuffer:
+      ctx.gpu.swapchainFramebuffers[ctx.gpu.acquiredImageIndex.int][].framebuffer,
     renderArea: newVkRect2D(
       offset = newVkOffset2D(x = 0, y = 0), extent = ctx.gpu.swapchainExtent
     ),

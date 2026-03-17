@@ -14,11 +14,16 @@ type
 
 var deallocLog: seq[string]
 
-proc dealloc(buf: TestBuffer) =
-  deallocLog.add("buffer:" & $cast[uint](buf.device) & ":" & $cast[uint](buf.handle))
+proc `=destroy`(buf: var TestBuffer) =
+  if buf.device != VkDevice(0) or buf.handle != VkBuffer(0):
+    deallocLog.add("buffer:" & $cast[uint](buf.device) & ":" & $cast[uint](buf.handle))
+  buf.device = VkDevice(0)
+  buf.handle = VkBuffer(0)
 
-proc dealloc(view: TestImageView) =
-  deallocLog.add("view:" & $cast[uint](view.handle))
+proc `=destroy`(view: var TestImageView) =
+  if view.handle != VkImageView(0):
+    deallocLog.add("view:" & $cast[uint](view.handle))
+  view.handle = VkImageView(0)
 
 suite "vulkan resource wrapper":
   setup:

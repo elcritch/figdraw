@@ -18,38 +18,27 @@ proc initVResource*[T](value: sink T): VResource[T] =
 proc isInitialized*[T](res: VResource[T]): bool {.inline.} =
   res.initialized
 
-proc `[]`*[T](res: VResource[T]): T {.inline.} =
+template `[]`*[T](res: VResource[T]): untyped =
   res.value
 
 proc release*[T](res: var VResource[T]): T =
-  result = res.value
-  res.value = default(T)
+  result = move(res.value)
   res.initialized = false
 
 proc reset*[T](res: var VResource[T]) =
   if not res.initialized:
     return
 
-  mixin dealloc
+  mixin `=destroy`
 
-  let value = res.value
-  res.value = default(T)
+  var value = move(res.value)
   res.initialized = false
-  dealloc(value)
+  `=destroy`(value)
 
 proc reset*[T](res: var VResource[T], value: sink T) =
   res.reset()
   res.value = value
   res.initialized = true
 
-when defined(nimAllowNonVarDestructor):
-  proc `=destroy`*[T](res: VResource[T]) =
-    if not res.initialized:
-      return
-
-    mixin dealloc
-    dealloc(res.value)
-
-else:
-  proc `=destroy`*[T](res: var VResource[T]) =
-    res.reset()
+proc `=destroy`*[T](res: var VResource[T]) =
+  res.reset()

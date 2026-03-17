@@ -4,12 +4,8 @@
 ## that module's private context fields and Vulkan helper constants.
 
 template vulkanBlurRecreateFramebuffers*(ctx: untyped) =
-  if ctx.gpu.backdropBlurFramebuffer != vkNullFramebuffer:
-    vkDestroyFramebuffer(ctx.gpu.device, ctx.gpu.backdropBlurFramebuffer, nil)
-    ctx.gpu.backdropBlurFramebuffer = vkNullFramebuffer
-  if ctx.gpu.backdropBlurTempFramebuffer != vkNullFramebuffer:
-    vkDestroyFramebuffer(ctx.gpu.device, ctx.gpu.backdropBlurTempFramebuffer, nil)
-    ctx.gpu.backdropBlurTempFramebuffer = vkNullFramebuffer
+  ctx.gpu.backdropBlurFramebuffer.reset()
+  ctx.gpu.backdropBlurTempFramebuffer.reset()
   if ctx.gpu.blurRenderPass == vkNullRenderPass:
     return
   if not ctx.gpu.backdropView.isInitialized() or
@@ -25,9 +21,8 @@ template vulkanBlurRecreateFramebuffers*(ctx: untyped) =
     height = ctx.gpu.backdropHeight.uint32,
     layers = 1,
   )
-  checkVkResult vkCreateFramebuffer(
-    ctx.gpu.device, tempInfo.addr, nil, ctx.gpu.backdropBlurTempFramebuffer.addr
-  )
+  var tempFramebuffer = ctx.createFramebuffer(tempInfo)
+  ctx.gpu.backdropBlurTempFramebuffer.reset(tempFramebuffer.release())
 
   let backdropInfo = newVkFramebufferCreateInfo(
     renderPass = ctx.gpu.blurRenderPass,
@@ -36,9 +31,8 @@ template vulkanBlurRecreateFramebuffers*(ctx: untyped) =
     height = ctx.gpu.backdropHeight.uint32,
     layers = 1,
   )
-  checkVkResult vkCreateFramebuffer(
-    ctx.gpu.device, backdropInfo.addr, nil, ctx.gpu.backdropBlurFramebuffer.addr
-  )
+  var backdropFramebuffer = ctx.createFramebuffer(backdropInfo)
+  ctx.gpu.backdropBlurFramebuffer.reset(backdropFramebuffer.release())
 
 template vulkanBlurUpdateDescriptorSet*(
     ctx, descriptorSet, srcView, uniformBuffer: untyped
@@ -138,12 +132,8 @@ template vulkanBlurCreatePipeline*(ctx: untyped) =
   if ctx.gpu.blurRenderPass != vkNullRenderPass:
     vkDestroyRenderPass(ctx.gpu.device, ctx.gpu.blurRenderPass, nil)
     ctx.gpu.blurRenderPass = vkNullRenderPass
-  if ctx.gpu.backdropBlurFramebuffer != vkNullFramebuffer:
-    vkDestroyFramebuffer(ctx.gpu.device, ctx.gpu.backdropBlurFramebuffer, nil)
-    ctx.gpu.backdropBlurFramebuffer = vkNullFramebuffer
-  if ctx.gpu.backdropBlurTempFramebuffer != vkNullFramebuffer:
-    vkDestroyFramebuffer(ctx.gpu.device, ctx.gpu.backdropBlurTempFramebuffer, nil)
-    ctx.gpu.backdropBlurTempFramebuffer = vkNullFramebuffer
+  ctx.gpu.backdropBlurFramebuffer.reset()
+  ctx.gpu.backdropBlurTempFramebuffer.reset()
 
   var colorAttachment = VkAttachmentDescription(
     flags: 0.VkAttachmentDescriptionFlags,
@@ -336,8 +326,8 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
     return
   if not ctx.gpu.backdropView.isInitialized() or
       not ctx.gpu.backdropBlurTempView.isInitialized() or
-      ctx.gpu.backdropBlurFramebuffer == vkNullFramebuffer or
-      ctx.gpu.backdropBlurTempFramebuffer == vkNullFramebuffer:
+      not ctx.gpu.backdropBlurFramebuffer.isInitialized() or
+      not ctx.gpu.backdropBlurTempFramebuffer.isInitialized():
     return
   if ctx.gpu.backdropWidth <= 0 or ctx.gpu.backdropHeight <= 0:
     return
@@ -435,7 +425,7 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
     sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
     pNext: nil,
     renderPass: ctx.gpu.blurRenderPass,
-    framebuffer: ctx.gpu.backdropBlurTempFramebuffer,
+    framebuffer: ctx.gpu.backdropBlurTempFramebuffer[].framebuffer,
     renderArea: drawRect,
     clearValueCount: 0,
     pClearValues: nil,
@@ -503,7 +493,7 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
     sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
     pNext: nil,
     renderPass: ctx.gpu.blurRenderPass,
-    framebuffer: ctx.gpu.backdropBlurFramebuffer,
+    framebuffer: ctx.gpu.backdropBlurFramebuffer[].framebuffer,
     renderArea: drawRect,
     clearValueCount: 0,
     pClearValues: nil,
