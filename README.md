@@ -337,6 +337,35 @@ sampling to pre-baked 10-step glyph variants for A/B comparison.
 
 These are implemented for OpenGL and Vulkan backends. Other backends ignore them for now.
 
+## Font Cache Management
+
+Font size/style changes generate different `FontId` / glyph hashes by design.
+If you want to explicitly clear cached glyphs and font entries, use:
+
+- `clearFontCache(font: FigFont)`
+- `clearTypefaceCache(typefaceId: TypefaceId)`
+- `clearAllFontCaches()`
+
+Common-level usage (`import figdraw/commons`) returns the removed glyph `ImageId`s:
+
+```nim
+let removedGlyphs = clearFontCache(uiFont)
+let removedTypefaceGlyphs = clearTypefaceCache(uiFont.typefaceId)
+let removedAllGlyphs = clearAllFontCaches()
+```
+
+Renderer-level usage (`import figdraw/figrender`) also drops matching atlas entries
+from the live backend context and returns how many entries were removed:
+
+```nim
+let droppedForFont = renderer.clearFontCache(uiFont)
+let droppedForTypeface = renderer.clearTypefaceCache(uiFont.typefaceId)
+let droppedAll = renderer.clearAllFontCaches()
+```
+
+Note: cache clearing removes lookup entries; atlas space is not compacted in place.
+Freed regions are not repacked until atlas recreation/growth.
+
 ## Thread Safety Notes
 
 - Rendering is structured so that preparing render lists/trees can be done off-thread.
