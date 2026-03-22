@@ -1,4 +1,4 @@
-import std/[os, unicode, sequtils, tables, strutils, sets, hashes, math]
+import std/[os, unicode, sequtils, tables, strutils, sets, hashes, math, locks]
 import std/isolation
 
 import pkg/vmath
@@ -14,7 +14,35 @@ import ./fonttypes
 import ./typefaces
 import ./fontglyphs
 
-export loadTypeface, convertFont, registerStaticTypeface
+export loadTypeface, convertFont, registerStaticTypeface, fontCacheId
+
+proc clearFontCache*(font: FigFont): seq[ImageId] =
+  ## Clears cached font metadata and generated glyph image ids for a font.
+  let fontId = font.fontCacheId()
+  withLock(fontLock):
+    if fontId in fontTable:
+      fontTable.del(fontId)
+  result = clearGlyphImagesForFonts([fontId])
+
+proc clearTypefaceCache*(typefaceId: TypefaceId): seq[ImageId] =
+  ## Clears a typeface and every cached font/glyph that depends on it.
+  var fontIds: seq[FontId]
+  withLock(fontLock):
+    for fontId, cachedFont in fontTable.pairs():
+      if cachedFont.typefaceId == typefaceId:
+        fontIds.add(fontId)
+    for fontId in fontIds:
+      fontTable.del(fontId)
+    if typefaceId in typefaceTable:
+      typefaceTable.del(typefaceId)
+  result = clearGlyphImagesForFonts(fontIds)
+
+proc clearAllFontCaches*(): seq[ImageId] =
+  ## Clears all cached font/typeface metadata and glyph image ids.
+  withLock(fontLock):
+    fontTable.clear()
+    typefaceTable.clear()
+  result = clearGlyphImagesForAllFonts()
 
 proc calcMinMaxContent(
     textLayout: GlyphArrangement
@@ -99,7 +127,11 @@ proc typeset*(
     pfs.add(pf)
     spans.add(newSpan(txt, pf))
     assert not pf.typeface.isNil
-    let lineHeight = if pf.lineHeight >= 0: pf.lineHeight else: pf.defaultLineHeight()
+    let lineHeight =
+      if pf.lineHeight >= 0:
+        pf.lineHeight
+      else:
+        pf.defaultLineHeight()
     let lineGap = (lineHeight / pf.scale) - pf.typeface.ascent + pf.typeface.descent
     let baselineOffset = round((pf.typeface.ascent + lineGap / 2) * pf.scale)
     gfonts.add GlyphFont(
