@@ -25,3 +25,22 @@ proc figLine*(
     zlevel: ZLevel = 0.ZLevel,
 ): Fig =
   figLine(vec2(x1, y1), vec2(x2, y2), fill, weight, zlevel)
+
+proc figCircle*(
+    center: Vec2, fill: Fill, radius: float32, zlevel: ZLevel = 0.ZLevel
+): Fig =
+  let
+    clampedRadius = max(0.0'f32, radius)
+    diameter = clampedRadius * 2.0'f32
+
+  result = Fig(kind: nkRectangle)
+  result.zlevel = zlevel
+  result.screenBox =
+    rect(center.x - clampedRadius, center.y - clampedRadius, diameter, diameter)
+  result.fill = fill
+  result.corners = [clampedRadius, clampedRadius, clampedRadius, clampedRadius]
+
+proc figCircle*(
+    x1: float32, y1: float32, fill: Fill, radius: float32, zlevel: ZLevel = 0.ZLevel
+): Fig =
+  figCircle(vec2(x1, y1), fill, radius, zlevel)
