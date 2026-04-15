@@ -1,4 +1,4 @@
-import std/[os, unittest, tables, locks, unicode]
+import std/[os, unittest, tables, unicode]
 
 import pkg/pixie
 import pkg/pixie/fonts
@@ -10,12 +10,11 @@ import figdraw/common/fontglyphs
 import figdraw/extras/systemfonts
 
 proc resetFontState() =
+  discard clearGlyphImagesForAllFonts()
   typefaceTable = initTable[TypefaceId, Typeface]()
   fontTable = initTable[FontId, FigFont]()
   staticTypefaceTable =
     initTable[string, tuple[name: string, data: string, kind: TypeFaceKinds]]()
-  #withLock imageCachedLock:
-  #  imageCached.clear()
 
 suite "fontutils":
   setup:
@@ -122,6 +121,109 @@ suite "fontutils":
       checked = true
       break
     check checked
+
+  test "changing font size creates new glyph ids and clearFontCache evicts old size":
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+    let font18 = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+    let font24 = FigFont(typefaceId: typefaceId, size: 24.0'f32)
+    let box = rect(0, 0, 240, 60)
+
+    let arr18 = typeset(
+      box,
+      [(fs(font18), "A")],
+      hAlign = Left,
+      vAlign = Top,
+      minContent = false,
+      wrap = false,
+    )
+    let arr24 = typeset(
+      box,
+      [(fs(font24), "A")],
+      hAlign = Left,
+      vAlign = Top,
+      minContent = false,
+      wrap = false,
+    )
+
+    var glyph18 = Hash(0)
+    for glyph in arr18.glyphs():
+      if glyph.rune.isWhiteSpace:
+        continue
+      glyph18 = glyph.hash()
+      break
+
+    var glyph24 = Hash(0)
+    for glyph in arr24.glyphs():
+      if glyph.rune.isWhiteSpace:
+        continue
+      glyph24 = glyph.hash()
+      break
+
+    check glyph18 != 0
+    check glyph24 != 0
+    check glyph18 != glyph24
+    check hasImage(glyph18.ImageId)
+    check hasImage(glyph24.ImageId)
+
+    let removed = clearFontCache(font18)
+    check removed.len > 0
+    check font18.fontCacheId() notin fontTable
+    check font24.fontCacheId() in fontTable
+    check not hasImage(glyph18.ImageId)
+    check hasImage(glyph24.ImageId)
+
+  test "clearTypefaceCache evicts all cached font sizes for the typeface":
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+    let font18 = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+    let font24 = FigFont(typefaceId: typefaceId, size: 24.0'f32)
+    let box = rect(0, 0, 240, 60)
+
+    let arr18 = typeset(
+      box,
+      [(fs(font18), "A")],
+      hAlign = Left,
+      vAlign = Top,
+      minContent = false,
+      wrap = false,
+    )
+    let arr24 = typeset(
+      box,
+      [(fs(font24), "B")],
+      hAlign = Left,
+      vAlign = Top,
+      minContent = false,
+      wrap = false,
+    )
+
+    var glyph18 = Hash(0)
+    for glyph in arr18.glyphs():
+      if glyph.rune.isWhiteSpace:
+        continue
+      glyph18 = glyph.hash()
+      break
+
+    var glyph24 = Hash(0)
+    for glyph in arr24.glyphs():
+      if glyph.rune.isWhiteSpace:
+        continue
+      glyph24 = glyph.hash()
+      break
+
+    check hasImage(glyph18.ImageId)
+    check hasImage(glyph24.ImageId)
+    check typefaceId in typefaceTable
+    check font18.fontCacheId() in fontTable
+    check font24.fontCacheId() in fontTable
+
+    let removed = clearTypefaceCache(typefaceId)
+    check removed.len >= 2
+    check typefaceId notin typefaceTable
+    check font18.fontCacheId() notin fontTable
+    check font24.fontCacheId() notin fontTable
+    check not hasImage(glyph18.ImageId)
+    check not hasImage(glyph24.ImageId)
 
   test "glyph-variant subpixel step maps fractional x to 10 steps":
     check toGlyphVariantSubpixelStep(0.0'f32) == 0

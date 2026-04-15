@@ -167,9 +167,12 @@ proc loadTypeface*(name, data: string, kind: TypeFaceKinds): FontId =
   typefaceTable[id] = typeface
   result = id
 
+proc fontCacheId*(font: FigFont): FontId {.inline.} =
+  FontId(hash((font.getId(), figUiScale())))
+
 proc pixieFont(font: FigFont): (FontId, Font) =
   let
-    id = FontId(hash((font.getId(), figUiScale())))
+    id = font.fontCacheId()
     typeface = typefaceTable[font.typefaceId]
 
   var pxfont = newFont(typeface)
