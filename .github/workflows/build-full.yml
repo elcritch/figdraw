@@ -75,8 +75,10 @@ jobs:
         nim-version: ${{ matrix.nimversion }}
 
     - name: Install Atlas
+      run: curl -fsSL https://raw.githubusercontent.com/nim-lang/atlas/HEAD/install.sh | bash -
+
+    - name: Versions
       run: |
-        nimble install 'https://github.com/nim-lang/atlas@#head'
         echo "Nim:: "
         nim -v
         echo "Nimble:: "
@@ -89,9 +91,7 @@ jobs:
         key: ${{ runner.os }}-${{ hashFiles('figdraw.nimble') }}
 
     - name: Install Deps
-      run: |
-        # sync deps
-        atlas install --feature:windy --feature:sdl2 --feature:siwin
+      run: atlas install -t:8 --features:windy,sdl2,siwin
 
     - name: Build Tests
       if: runner.os == 'Linux'
