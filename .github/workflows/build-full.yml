@@ -75,7 +75,7 @@ jobs:
         nim-version: ${{ matrix.nimversion }}
 
     - name: Install Atlas
-      run: curl -fsSL https://raw.githubusercontent.com/nim-lang/atlas/HEAD/install.sh | ATLAS_REF=fix-gitprogresspool-race bash -
+      run: curl -fsSL https://raw.githubusercontent.com/nim-lang/atlas/HEAD/install.sh | bash -
 
     - name: Versions
       run: |
