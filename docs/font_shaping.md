@@ -127,13 +127,24 @@ Required changes:
 
 Rasterization options:
 
-1. Extend Pixie/OpenType to expose `getGlyphPath(glyphId)` and keep Pixie as the
-   rasterizer.
-2. Add a FreeType-backed rasterization path later.
-3. Keep a temporary rune path only for Pixie compatibility. This does not solve
+1. Use HarfBuzz `hb-raster` to render glyph masks or BGRA color glyph images.
+   HarfBuzz 14.x exposes CPU raster APIs such as `hb_raster_draw_glyph`,
+   `hb_raster_draw_render`, and `hb_raster_paint_glyph`.
+2. Use HarfBuzz `hb-gpu` for direct GPU outline/color-glyph rendering. This is
+   a larger renderer integration because FigDraw would upload HarfBuzz-encoded
+   glyph blobs and use HarfBuzz shader snippets instead of the current bitmap
+   atlas path.
+3. Extend Pixie/OpenType to expose `getGlyphPath(glyphId)` and keep Pixie as the
+   rasterizer. This is still useful if FigDraw wants to keep all glyph cache
+   output as Pixie `Image`s.
+4. Add a FreeType-backed rasterization path later.
+5. Keep a temporary rune path only for Pixie compatibility. This does not solve
    Arabic shaping or ligatures.
 
-The first useful HarfBuzz implementation should use option 1.
+The first useful HarfBuzz implementation should use either HarfBuzz `hb-raster`
+or Pixie glyph-id paths, depending on whether it is easier to extend
+`../harfbuzzy` or Pixie's OpenType surface first. HarfBuzz `hb-gpu` should be a
+separate later project because it bypasses FigDraw's current image-atlas model.
 
 ## Bidi
 
@@ -163,6 +174,11 @@ Before relying on `../harfbuzzy` for FigDraw, add or verify:
   registry.
 - A stable way to retrieve face `upem`, extents, glyph extents, and glyph
   advances without exposing raw handles.
+- Bindings and wrappers for HarfBuzz rendering APIs if FigDraw uses HarfBuzz for
+  rasterization:
+  - `hb-draw` / `hb_font_draw_glyph_or_fail` for vector outlines.
+  - `hb-raster` for CPU glyph masks and BGRA color glyph output.
+  - `hb-gpu` only if FigDraw adopts HarfBuzz's GPU glyph encoding path.
 
 ## Migration Phases
 
@@ -170,7 +186,8 @@ Before relying on `../harfbuzzy` for FigDraw, add or verify:
    behavior.
 2. Move the current Pixie implementation behind `textbackends/pixie.nim`.
 3. Change glyph cache and renderer code to use `glyphId`.
-4. Add glyph-id rasterization through Pixie.
+4. Add glyph-id rasterization through HarfBuzz `hb-raster` or Pixie glyph-id
+   paths.
 5. Add `textbackends/harfbuzz.nim` for unidirectional runs.
 6. Add tests comparing Latin Pixie and HarfBuzz layout for simple text.
 7. Add Arabic and Hebrew fixture tests with known fonts.
