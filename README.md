@@ -133,6 +133,53 @@ For a complete working example (window + GL context + render loop), see:
 - `examples/windy_renderlist.nim`
 - `examples/sdl2_renderlist.nim`
 
+### RenderList Tree Helpers
+
+`addRoot` and `addChild` append nodes to the end of a layer. Use the insert helpers when draw order
+or child order matters:
+
+- `insertRoot(root, rootPos)`: inserts a root at `rootPos` in `rootIds`.
+- `insertChild(parentIdx, child, childPos)`: inserts a child at `childPos` within a parent.
+- `addChildren(parentIdx, children)`: appends roots from another `RenderList` as children.
+- `insertChildren(parentIdx, children, childPos)`: inserts roots from another `RenderList` as children
+  at `childPos`.
+
+Each helper updates parent indexes, root indexes, and `childCount` after insertion. Batch helpers
+preserve internal parent-child relationships from the incoming `RenderList`; incoming roots become
+children of `parentIdx`.
+
+Cost note: `addRoot` and `addChild` are amortized O(1) appends. The insert helpers are O(n) in the
+target `RenderList` because they may shift nodes, rewrite parent/root indexes, and recompute child
+counts. Batch helpers are O(n + m), where `m` is the inserted `RenderList` size, because inserted
+nodes are also copied and remapped.
+
+The `Renders` overloads take a `ZLevel` and force inserted nodes to that layer's zlevel:
+
+```nim
+var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+let root = renders.addRoot(0.ZLevel, Fig(
+  kind: nkRectangle,
+  screenBox: rect(0, 0, 300, 200),
+  fill: rgba(245, 245, 245, 255),
+))
+
+discard renders.insertChild(0.ZLevel, root, Fig(
+  kind: nkRectangle,
+  screenBox: rect(20, 20, 80, 60),
+  fill: rgba(43, 159, 234, 255),
+), 0)
+
+var menuItems = RenderList()
+discard menuItems.addRoot(Fig(
+  kind: nkRectangle,
+  screenBox: rect(24, 90, 120, 32),
+  fill: rgba(40, 40, 40, 255),
+))
+
+discard renders.addChildren(0.ZLevel, root, menuItems)
+```
+
 ## Transform Nodes
 
 Use `nkTransform` as a non-drawing container to apply transforms to descendants.
