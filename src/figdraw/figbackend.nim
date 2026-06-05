@@ -189,6 +189,15 @@ method endMask*(impl: BackendContext) {.base.} =
 method popMask*(impl: BackendContext) {.base.} =
   raise newException(ValueError, "Backend popMask unavailable")
 
+method beginRectMask*(
+    impl: BackendContext, maskRect: Rect, radii: array[DirectionCorners, float32]
+) {.base.} =
+  impl.beginMask(maskRect, radii)
+  impl.endMask()
+
+method popRectMask*(impl: BackendContext) {.base.} =
+  impl.popMask()
+
 method beginFrame*(
     impl: BackendContext, frameSize: Vec2, clearMain: bool, clearMainColor: Color
 ) {.base.} =

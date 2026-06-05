@@ -10,6 +10,10 @@ struct VSOut {
   float4 sdfRadii;
   float sdfMode;
   float2 sdfFactors;
+  float4 rectMaskParams;
+  float4 rectMaskRadii;
+  float4 rectMaskMatX;
+  float4 rectMaskMatY;
 };
 
 struct VSUniforms {
@@ -62,6 +66,26 @@ float shadowProfile(float sd, float blurRadius) {
   return exp(-0.5 * z * z);
 }
 
+float rectMaskAlpha(
+    float2 pos,
+    float4 params,
+    float4 radii,
+    float4 matX,
+    float4 matY,
+    float aaFactor) {
+  if (params.z < 0.0 || params.w < 0.0) {
+    return 1.0;
+  }
+
+  float2 local = float2(
+    dot(matX.xy, pos) + matX.z,
+    dot(matY.xy, pos) + matY.z
+  );
+  float2 q = local - params.xy;
+  float dist = sdRoundedBox(float2(q.x, -q.y), params.zw, radii);
+  return 1.0 - clamp(aaFactor * dist + 0.5, 0.0, 1.0);
+}
+
 vertex VSOut vs_main(
     uint vid [[vertex_id]],
     const device float2* positions [[buffer(0)]],
@@ -71,7 +95,11 @@ vertex VSOut vs_main(
     const device float4* sdfRadii [[buffer(4)]],
     const device ushort* sdfMode [[buffer(5)]],
     const device float2* sdfFactors [[buffer(6)]],
-    constant VSUniforms& u [[buffer(7)]]) {
+    const device float4* rectMaskParams [[buffer(7)]],
+    const device float4* rectMaskRadii [[buffer(8)]],
+    const device float4* rectMaskMatX [[buffer(9)]],
+    const device float4* rectMaskMatY [[buffer(10)]],
+    constant VSUniforms& u [[buffer(11)]]) {
   VSOut out;
   float2 p = positions[vid];
   out.position = u.proj * float4(p.x, p.y, 0.0, 1.0);
@@ -82,6 +110,10 @@ vertex VSOut vs_main(
   out.sdfRadii = sdfRadii[vid];
   out.sdfMode = float(sdfMode[vid]);
   out.sdfFactors = sdfFactors[vid];
+  out.rectMaskParams = rectMaskParams[vid];
+  out.rectMaskRadii = rectMaskRadii[vid];
+  out.rectMaskMatX = rectMaskMatX[vid];
+  out.rectMaskMatY = rectMaskMatY[vid];
   return out;
 }
 
@@ -221,6 +253,14 @@ fragment float4 fs_main(
   if (u.maskTexEnabled != 0) {
     fragColor.w *= maskTex.sample(s, normalizedPos).x;
   }
+  fragColor.w *= rectMaskAlpha(
+    in.pos,
+    in.rectMaskParams,
+    in.rectMaskRadii,
+    in.rectMaskMatX,
+    in.rectMaskMatY,
+    u.aaFactor
+  );
   return fragColor;
 }
 

@@ -944,6 +944,11 @@ proc render(
   finally:
     ctx.popMask()
 
+  ifrender NfRectMaskContent in node.flags:
+    ctx.beginRectMask(node.screenBox.scaled(), node.corners.scaledCorners())
+  finally:
+    ctx.popRectMask()
+
   ifrender true:
     if node.kind == nkText:
       ctx.renderText(node)
