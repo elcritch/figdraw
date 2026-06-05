@@ -24,7 +24,15 @@ proc addRect(
     color: ColorRGBA,
     z: ZLevel,
     clip: bool = false,
+    rectMask: bool = false,
+    corners: uint16 = 10'u16,
 ) =
+  var flags: set[FigFlags] = {}
+  if clip:
+    flags.incl NfClipContent
+  if rectMask:
+    flags.incl NfRectMaskContent
+
   discard list.addChild(
     parentIdx,
     Fig(
@@ -33,18 +41,26 @@ proc addRect(
       zlevel: z,
       screenBox: rectBox,
       fill: color,
-      corners: [10'u16, 10'u16, 10'u16, 10'u16],
-      flags:
-        if clip:
-          {NfClipContent}
-        else:
-          {},
+      corners: [corners, corners, corners, corners],
+      flags: flags,
     ),
   )
 
 proc addRootRect(
-    list: var RenderList, rectBox: Rect, color: ColorRGBA, z: ZLevel, clip: bool = false
+    list: var RenderList,
+    rectBox: Rect,
+    color: ColorRGBA,
+    z: ZLevel,
+    clip: bool = false,
+    rectMask: bool = false,
+    corners: uint16 = 10'u16,
 ): FigIdx =
+  var flags: set[FigFlags] = {}
+  if clip:
+    flags.incl NfClipContent
+  if rectMask:
+    flags.incl NfRectMaskContent
+
   list.addRoot(
     Fig(
       kind: nkRectangle,
@@ -52,16 +68,12 @@ proc addRootRect(
       zlevel: z,
       screenBox: rectBox,
       fill: color,
-      corners: [10'u16, 10'u16, 10'u16, 10'u16],
-      flags:
-        if clip:
-          {NfClipContent}
-        else:
-          {},
+      corners: [corners, corners, corners, corners],
+      flags: flags,
     )
   )
 
-proc makeRenderTree(w, h: float32): Renders =
+proc makeRenderTree(w, h: float32, rectMask = false): Renders =
   let bgColor = rgba(255, 255, 255, 255)
   let containerColor = rgba(208, 208, 208, 255)
   let buttonColor = rgba(43, 159, 234, 255)
@@ -102,7 +114,8 @@ proc makeRenderTree(w, h: float32): Renders =
     rect(containerRightX, containerY, containerW, containerH),
     containerColor,
     0.ZLevel,
-    clip = true,
+    clip = not rectMask,
+    rectMask = rectMask,
   )
 
   addRect(
@@ -159,6 +172,50 @@ proc makeRenderTree(w, h: float32): Renders =
       cmp(x[0], y[0])
   )
 
+proc makeClipRenderTree(w, h: float32): Renders =
+  makeRenderTree(w, h)
+
+proc makeRectMaskRenderTree(w, h: float32): Renders =
+  makeRenderTree(w, h, rectMask = true)
+
+proc makeMixedRectMaskBatchRenderTree(w, h: float32): Renders =
+  var list = RenderList()
+  discard list.addRootRect(
+    rect(0.0'f32, 0.0'f32, w, h), rgba(255, 255, 255, 255), 0.ZLevel, corners = 0
+  )
+
+  discard list.addRootRect(
+    rect(32.0'f32, 48.0'f32, 96.0'f32, 80.0'f32),
+    rgba(230, 70, 52, 255),
+    0.ZLevel,
+    corners = 0,
+  )
+
+  let maskIdx = list.addRootRect(
+    rect(180.0'f32, 48.0'f32, 80.0'f32, 80.0'f32),
+    rgba(218, 218, 218, 255),
+    0.ZLevel,
+    rectMask = true,
+    corners = 0,
+  )
+  list.addRect(
+    maskIdx,
+    rect(150.0'f32, 72.0'f32, 150.0'f32, 34.0'f32),
+    rgba(56, 168, 88, 255),
+    0.ZLevel,
+    corners = 0,
+  )
+
+  discard list.addRootRect(
+    rect(310.0'f32, 48.0'f32, 96.0'f32, 80.0'f32),
+    rgba(54, 118, 230, 255),
+    0.ZLevel,
+    corners = 0,
+  )
+
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  result.layers[0.ZLevel] = list
+
 suite "opengl layer + clip render":
   test "renders figuro-style layers + clip layout":
     setFigUiScale(1.0)
@@ -170,7 +227,7 @@ suite "opengl layer + clip render":
       var img: Image
       try:
         img = renderAndScreenshotOnce(
-          makeRenders = makeRenderTree,
+          makeRenders = makeClipRenderTree,
           outputPath = outPath,
           windowW = 800,
           windowH = 375,
@@ -230,3 +287,67 @@ suite "opengl layer + clip render":
       assertColor(
         rendered, (containerRightX + containerW * 0.5'f32).int, lowY, 208, 208, 208
       )
+
+  test "renders figuro-style layers with rect mask layout":
+    setFigUiScale(1.0)
+    let outDir = ensureTestOutputDir()
+    let outPath = outDir / "render_layers_rect_mask.png"
+    if fileExists(outPath):
+      removeFile(outPath)
+    block renderOnce:
+      var img: Image
+      try:
+        img = renderAndScreenshotOnce(
+          makeRenders = makeRectMaskRenderTree,
+          outputPath = outPath,
+          windowW = 800,
+          windowH = 375,
+          title = "figdraw test: layers + rect mask",
+        )
+      except WindyError:
+        skip()
+        break renderOnce
+
+      check fileExists(outPath)
+      check getFileSize(outPath) > 0
+
+      let expectedPath = "tests" / "expected" / "render_layers_clip.png"
+      check fileExists(expectedPath)
+      let expected = pixie.readImage(expectedPath)
+      var rendered = img
+      if rendered.width != expected.width or rendered.height != expected.height:
+        rendered = rendered.resize(expected.width, expected.height)
+      let (diffScore, diffImg) = expected.diff(rendered)
+      echo "Got rect mask image difference of: ", diffScore
+      let diffThreshold = 1.0'f32
+      if diffScore > diffThreshold:
+        diffImg.writeFile(joinPath(outDir, "render_layers_rect_mask.diff.png"))
+      check diffScore <= diffThreshold
+
+  test "keeps unmasked siblings visible around rect mask in one batch":
+    setFigUiScale(1.0)
+    let outDir = ensureTestOutputDir()
+    let outPath = outDir / "render_rect_mask_mixed_batch.png"
+    if fileExists(outPath):
+      removeFile(outPath)
+    block renderOnce:
+      var rendered: Image
+      try:
+        rendered = renderAndScreenshotOnce(
+          makeRenders = makeMixedRectMaskBatchRenderTree,
+          outputPath = outPath,
+          windowW = 480,
+          windowH = 180,
+          title = "figdraw test: mixed rect mask batch",
+        )
+      except WindyError:
+        skip()
+        break renderOnce
+
+      check fileExists(outPath)
+      check getFileSize(outPath) > 0
+
+      assertColor(rendered, 74, 88, 230, 70, 52)
+      assertColor(rendered, 160, 88, 255, 255, 255)
+      assertColor(rendered, 204, 88, 56, 168, 88)
+      assertColor(rendered, 336, 88, 54, 118, 230)

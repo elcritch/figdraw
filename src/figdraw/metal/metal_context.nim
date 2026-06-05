@@ -36,6 +36,17 @@ type PassKind = enum
 
 type SdfModeData = uint16
 
+type RectMaskKind = enum
+  rmkFast
+  rmkMask
+
+type RectMask = object
+  kind: RectMaskKind
+  params: Vec4
+  radii: Vec4
+  matX: Vec4
+  matY: Vec4
+
 type FlushBuffers = object
   positions: ObjcOwned[MTLBuffer]
   positionsCapacity: int
@@ -51,6 +62,14 @@ type FlushBuffers = object
   sdfModeAttrCapacity: int
   sdfFactors: ObjcOwned[MTLBuffer]
   sdfFactorsCapacity: int
+  rectMaskParams: ObjcOwned[MTLBuffer]
+  rectMaskParamsCapacity: int
+  rectMaskRadii: ObjcOwned[MTLBuffer]
+  rectMaskRadiiCapacity: int
+  rectMaskMatX: ObjcOwned[MTLBuffer]
+  rectMaskMatXCapacity: int
+  rectMaskMatY: ObjcOwned[MTLBuffer]
+  rectMaskMatYCapacity: int
 
 type FrameArena = object
   flushBuffers: seq[FlushBuffers]
@@ -69,6 +88,7 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   passKind: PassKind
 
   pipelineMain: ObjcOwned[MTLRenderPipelineState]
+  pipelineMainRectMask: ObjcOwned[MTLRenderPipelineState]
   pipelineMask: ObjcOwned[MTLRenderPipelineState]
   pipelineBlit: ObjcOwned[MTLRenderPipelineState]
   pipelineBlur: ObjcOwned[MTLRenderPipelineState]
@@ -96,6 +116,7 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   proj*: Mat4
   frameSize: Vec2
   frameBegun, maskBegun: bool
+  batchHasRectMask: bool
   pixelate*: bool
   pixelScale*: float32
 
@@ -108,6 +129,11 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   sdfRadii: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
   sdfModeAttr: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[SdfModeData]]
   sdfFactors: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+  rectMaskParams: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+  rectMaskRadii: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+  rectMaskMatX: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+  rectMaskMatY: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+  rectMaskStack: seq[RectMask]
 
   # SDF shader uniform (global)
   aaFactor: float32
@@ -360,8 +386,8 @@ proc ensureMaskPass(ctx: MetalContext, clear: bool, clearColor: MTLClearColor) =
 
 proc ensureDeviceAndPipelines(ctx: MetalContext) =
   if not ctx.device.isNil and not ctx.queue.isNil and not ctx.pipelineMain.isNil and
-      not ctx.pipelineMask.isNil and not ctx.pipelineBlit.isNil and
-      not ctx.pipelineBlur.isNil:
+      not ctx.pipelineMainRectMask.isNil and not ctx.pipelineMask.isNil and
+      not ctx.pipelineBlit.isNil and not ctx.pipelineBlur.isNil:
     return
 
   withAutoreleasePool:
@@ -394,8 +420,18 @@ proc ensureDeviceAndPipelines(ctx: MetalContext) =
     let vsMain = fromRetained(
       newFunctionWithName(library.borrow, NSString.withUTF8String(cstring("vs_main")))
     )
+    let vsRectMask = fromRetained(
+      newFunctionWithName(
+        library.borrow, NSString.withUTF8String(cstring("vs_rect_mask"))
+      )
+    )
     let fsMain = fromRetained(
       newFunctionWithName(library.borrow, NSString.withUTF8String(cstring("fs_main")))
+    )
+    let fsRectMask = fromRetained(
+      newFunctionWithName(
+        library.borrow, NSString.withUTF8String(cstring("fs_rect_mask"))
+      )
     )
     let fsMask = fromRetained(
       newFunctionWithName(library.borrow, NSString.withUTF8String(cstring("fs_mask")))
@@ -409,8 +445,8 @@ proc ensureDeviceAndPipelines(ctx: MetalContext) =
     let fsBlur = fromRetained(
       newFunctionWithName(library.borrow, NSString.withUTF8String(cstring("fs_blur")))
     )
-    if vsMain.isNil or fsMain.isNil or fsMask.isNil or vsBlit.isNil or fsBlit.isNil or
-        fsBlur.isNil:
+    if vsMain.isNil or vsRectMask.isNil or fsMain.isNil or fsRectMask.isNil or
+        fsMask.isNil or vsBlit.isNil or fsBlit.isNil or fsBlur.isNil:
       raise newException(ValueError, "Failed to find Metal shader functions")
 
     proc configureBlend(att: MTLRenderPipelineColorAttachmentDescriptor) =
@@ -437,6 +473,22 @@ proc ensureDeviceAndPipelines(ctx: MetalContext) =
         if not err.isNil:
           error "Failed to create Metal main pipeline", error = $err
         raise newException(ValueError, "Failed to create Metal main pipeline")
+
+    # Main pipeline with per-vertex rect mask data (offscreen BGRA8).
+    block:
+      let pd = fromRetained(MTLRenderPipelineDescriptor.alloc().init())
+      setVertexFunction(pd.borrow, vsRectMask.borrow)
+      setFragmentFunction(pd.borrow, fsRectMask.borrow)
+      let ca0 = objectAtIndexedSubscript(colorAttachments(pd.borrow), 0)
+      setPixelFormat(ca0, MTLPixelFormatBGRA8Unorm)
+      configureBlend(ca0)
+      ctx.pipelineMainRectMask.resetRetained(
+        newRenderPipelineStateWithDescriptor(ctx.device.borrow, pd.borrow, addr err)
+      )
+      if ctx.pipelineMainRectMask.isNil:
+        if not err.isNil:
+          error "Failed to create Metal rect-mask pipeline", error = $err
+        raise newException(ValueError, "Failed to create Metal rect-mask pipeline")
 
     # Mask pipeline (R8).
     block:
@@ -508,6 +560,27 @@ proc upload(ctx: MetalContext) =
   copyToBuf(
     ctx.sdfFactors.buffer.borrow, ctx.sdfFactors.data, vertexCount * 2 * sizeof(float32)
   )
+  if ctx.batchHasRectMask:
+    copyToBuf(
+      ctx.rectMaskParams.buffer.borrow,
+      ctx.rectMaskParams.data,
+      vertexCount * 4 * sizeof(float32),
+    )
+    copyToBuf(
+      ctx.rectMaskRadii.buffer.borrow,
+      ctx.rectMaskRadii.data,
+      vertexCount * 4 * sizeof(float32),
+    )
+    copyToBuf(
+      ctx.rectMaskMatX.buffer.borrow,
+      ctx.rectMaskMatX.data,
+      vertexCount * 4 * sizeof(float32),
+    )
+    copyToBuf(
+      ctx.rectMaskMatY.buffer.borrow,
+      ctx.rectMaskMatY.data,
+      vertexCount * 4 * sizeof(float32),
+    )
 
 proc grow(ctx: MetalContext) =
   ctx.flush()
@@ -613,6 +686,99 @@ proc setVertColor(buf: var seq[uint8], i: int, color: ColorRGBA) =
   buf[i * 4 + 2] = color.b
   buf[i * 4 + 3] = color.a
 
+func roundedRadiiVec(radii: array[DirectionCorners, float32], halfExtents: Vec2): Vec4 =
+  let maxRadius = min(halfExtents.x, halfExtents.y)
+  let radiiClamped = [
+    dcTopLeft: (
+      if radii[dcTopLeft] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
+    ),
+    dcTopRight: (
+      if radii[dcTopRight] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
+    ),
+    dcBottomLeft: (
+      if radii[dcBottomLeft] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
+    ),
+    dcBottomRight: (
+      if radii[dcBottomRight] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
+    ),
+  ]
+  vec4(
+    radiiClamped[dcTopRight],
+    radiiClamped[dcBottomRight],
+    radiiClamped[dcTopLeft],
+    radiiClamped[dcBottomLeft],
+  )
+
+proc makeRectMask(
+    ctx: MetalContext, maskRect: Rect, radii: array[DirectionCorners, float32]
+): RectMask =
+  let
+    halfExtents = maskRect.wh * 0.5'f32
+    center = maskRect.xy + halfExtents
+    invMat = ctx.mat.inverse()
+  RectMask(
+    kind: rmkFast,
+    params: vec4(center.x, center.y, halfExtents.x, halfExtents.y),
+    radii: roundedRadiiVec(radii, halfExtents),
+    matX: vec4(invMat[0, 0], invMat[1, 0], invMat[3, 0], 1.0'f32),
+    matY: vec4(invMat[0, 1], invMat[1, 1], invMat[3, 1], 0.0'f32),
+  )
+
+proc setRectMaskVert4(ctx: MetalContext, offset: int, params, radii, matX, matY: Vec4) =
+  for i in 0 ..< 4:
+    ctx.rectMaskParams.data.setVert4(offset + i, params)
+    ctx.rectMaskRadii.data.setVert4(offset + i, radii)
+    ctx.rectMaskMatX.data.setVert4(offset + i, matX)
+    ctx.rectMaskMatY.data.setVert4(offset + i, matY)
+
+proc setDisabledRectMaskVerts(ctx: MetalContext, firstVertex, vertexCount: int) =
+  let
+    params = vec4(0.0'f32, 0.0'f32, -1.0'f32, -1.0'f32)
+    zero4 = vec4(0.0'f32)
+  for i in firstVertex ..< firstVertex + vertexCount:
+    ctx.rectMaskParams.data.setVert4(i, params)
+    ctx.rectMaskRadii.data.setVert4(i, zero4)
+    ctx.rectMaskMatX.data.setVert4(i, zero4)
+    ctx.rectMaskMatY.data.setVert4(i, zero4)
+
+proc setRectMaskVert4(ctx: MetalContext, offset: int) =
+  if ctx.maskBegun:
+    return
+
+  var
+    hasRectMask = false
+    params = vec4(0.0'f32)
+    radii = vec4(0.0'f32)
+    matX = vec4(0.0'f32)
+    matY = vec4(0.0'f32)
+
+  if ctx.rectMaskStack.len > 0:
+    for i in countdown(ctx.rectMaskStack.len - 1, 0):
+      let rectMask = ctx.rectMaskStack[i]
+      if rectMask.kind == rmkFast:
+        hasRectMask = true
+        params = rectMask.params
+        radii = rectMask.radii
+        matX = rectMask.matX
+        matY = rectMask.matY
+        break
+
+  if hasRectMask:
+    if not ctx.batchHasRectMask:
+      ctx.setDisabledRectMaskVerts(0, offset)
+      ctx.batchHasRectMask = true
+    ctx.setRectMaskVert4(offset, params, radii, matX, matY)
+  elif ctx.batchHasRectMask:
+    ctx.setDisabledRectMaskVerts(offset, 4)
+
+template setRectMaskVert4IfNeeded(ctx: MetalContext, offset: int) =
+  if not ctx.maskBegun and (ctx.batchHasRectMask or ctx.rectMaskStack.len > 0):
+    ctx.setRectMaskVert4(offset)
+
 func `*`*(m: Mat4, v: Vec2): Vec2 =
   (m * vec3(v.x, v.y, 0.0)).xy
 
@@ -662,6 +828,7 @@ proc drawQuad*(
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
+  ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
 
@@ -731,6 +898,7 @@ proc drawUvRectAtlasSdf(
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
+  ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
 
@@ -858,6 +1026,7 @@ proc drawUvRect(ctx: MetalContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color)
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
+  ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
 
@@ -919,6 +1088,7 @@ proc drawUvRect(
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
+  ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
 
@@ -1093,31 +1263,7 @@ method drawRoundedRectSdf*(
         vec4(
           quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x, shapeHalfExtents.y
         )
-    maxRadius = min(shapeHalfExtents.x, shapeHalfExtents.y)
-    radiiClamped = [
-      dcTopLeft: (
-        if radii[dcTopLeft] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
-      ),
-      dcTopRight: (
-        if radii[dcTopRight] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
-      ),
-      dcBottomLeft: (
-        if radii[dcBottomLeft] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
-      ),
-      dcBottomRight: (
-        if radii[dcBottomRight] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
-      ),
-    ]
-    r4 = vec4(
-      radiiClamped[dcTopRight],
-      radiiClamped[dcBottomRight],
-      radiiClamped[dcTopLeft],
-      radiiClamped[dcBottomLeft],
-    )
+    r4 = roundedRadiiVec(radii, shapeHalfExtents)
 
   assert ctx.quadCount < ctx.maxQuads
 
@@ -1177,6 +1323,7 @@ method drawRoundedRectSdf*(
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
+  ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
 
@@ -1289,6 +1436,25 @@ method popMask*(ctx: MetalContext) =
   ctx.flush()
   dec ctx.maskTextureWrite
 
+method beginRectMask*(
+    ctx: MetalContext, maskRect: Rect, radii: array[DirectionCorners, float32]
+) =
+  assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
+  assert ctx.maskBegun == false, "ctx.beginRectMask cannot start inside a mask."
+
+  if ctx.rectMaskStack.len == 0 and maskRect.w > 0.0'f32 and maskRect.h > 0.0'f32:
+    ctx.rectMaskStack.add(ctx.makeRectMask(maskRect, radii))
+  else:
+    ctx.beginMask(maskRect, radii)
+    ctx.endMask()
+    ctx.rectMaskStack.add(RectMask(kind: rmkMask))
+
+method popRectMask*(ctx: MetalContext) =
+  assert ctx.rectMaskStack.len > 0, "No rect mask has been pushed."
+  let rectMask = ctx.rectMaskStack.pop()
+  if rectMask.kind == rmkMask:
+    ctx.popMask()
+
 proc reapCompletedFrames(ctx: MetalContext) =
   if ctx.inFlightFrames.len == 0:
     return
@@ -1344,6 +1510,8 @@ proc beginFrame*(
 
   ctx.maskBegun = false
   ctx.maskTextureWrite = 0
+  ctx.rectMaskStack.setLen(0)
+  ctx.batchHasRectMask = false
 
   ctx.proj = proj
   ctx.frameSize = frameSize
@@ -1390,6 +1558,7 @@ method beginFrame*(
 method endFrame*(ctx: MetalContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame was not called first."
   assert ctx.maskTextureWrite == 0, "Not all masks have been popped."
+  assert ctx.rectMaskStack.len == 0, "Not all rect masks have been popped."
   ctx.frameBegun = false
 
   ctx.flush()
@@ -1553,8 +1722,17 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   if enc.isNil:
     raise newException(ValueError, "Metal render encoder is nil")
 
+  let useRectMaskPipeline = not ctx.maskBegun and ctx.batchHasRectMask
   setRenderPipelineState(
-    enc, (if ctx.maskBegun: ctx.pipelineMask.borrow else: ctx.pipelineMain.borrow)
+    enc,
+    (
+      if ctx.maskBegun:
+        ctx.pipelineMask.borrow
+      elif useRectMaskPipeline:
+        ctx.pipelineMainRectMask.borrow
+      else:
+        ctx.pipelineMain.borrow
+    ),
   )
 
   if ctx.activeArena < 0 or ctx.activeArena >= ctx.frameArenas.len:
@@ -1597,6 +1775,32 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   ctx.ensureFlushBufferCapacity(
     flushBuffers[].sdfFactors, flushBuffers[].sdfFactorsCapacity, sdfFactorsBytes
   )
+  if useRectMaskPipeline:
+    let
+      rectMaskParamsBytes = vertexCount * 4 * sizeof(float32)
+      rectMaskRadiiBytes = vertexCount * 4 * sizeof(float32)
+      rectMaskMatXBytes = vertexCount * 4 * sizeof(float32)
+      rectMaskMatYBytes = vertexCount * 4 * sizeof(float32)
+    ctx.ensureFlushBufferCapacity(
+      flushBuffers[].rectMaskParams,
+      flushBuffers[].rectMaskParamsCapacity,
+      rectMaskParamsBytes,
+    )
+    ctx.ensureFlushBufferCapacity(
+      flushBuffers[].rectMaskRadii,
+      flushBuffers[].rectMaskRadiiCapacity,
+      rectMaskRadiiBytes,
+    )
+    ctx.ensureFlushBufferCapacity(
+      flushBuffers[].rectMaskMatX,
+      flushBuffers[].rectMaskMatXCapacity,
+      rectMaskMatXBytes,
+    )
+    ctx.ensureFlushBufferCapacity(
+      flushBuffers[].rectMaskMatY,
+      flushBuffers[].rectMaskMatYCapacity,
+      rectMaskMatYBytes,
+    )
 
   copyToBuf(flushBuffers[].positions.borrow, ctx.positions.data, positionsBytes)
   copyToBuf(flushBuffers[].uvs.borrow, ctx.uvs.data, uvsBytes)
@@ -1605,6 +1809,24 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   copyToBuf(flushBuffers[].sdfRadii.borrow, ctx.sdfRadii.data, sdfRadiiBytes)
   copyToBuf(flushBuffers[].sdfModeAttr.borrow, ctx.sdfModeAttr.data, sdfModeBytes)
   copyToBuf(flushBuffers[].sdfFactors.borrow, ctx.sdfFactors.data, sdfFactorsBytes)
+  if useRectMaskPipeline:
+    let
+      rectMaskParamsBytes = vertexCount * 4 * sizeof(float32)
+      rectMaskRadiiBytes = vertexCount * 4 * sizeof(float32)
+      rectMaskMatXBytes = vertexCount * 4 * sizeof(float32)
+      rectMaskMatYBytes = vertexCount * 4 * sizeof(float32)
+    copyToBuf(
+      flushBuffers[].rectMaskParams.borrow, ctx.rectMaskParams.data, rectMaskParamsBytes
+    )
+    copyToBuf(
+      flushBuffers[].rectMaskRadii.borrow, ctx.rectMaskRadii.data, rectMaskRadiiBytes
+    )
+    copyToBuf(
+      flushBuffers[].rectMaskMatX.borrow, ctx.rectMaskMatX.data, rectMaskMatXBytes
+    )
+    copyToBuf(
+      flushBuffers[].rectMaskMatY.borrow, ctx.rectMaskMatY.data, rectMaskMatYBytes
+    )
 
   setVertexBuffer(enc, flushBuffers[].positions.borrow, 0, 0)
   setVertexBuffer(enc, flushBuffers[].uvs.borrow, 0, 1)
@@ -1613,12 +1835,19 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   setVertexBuffer(enc, flushBuffers[].sdfRadii.borrow, 0, 4)
   setVertexBuffer(enc, flushBuffers[].sdfModeAttr.borrow, 0, 5)
   setVertexBuffer(enc, flushBuffers[].sdfFactors.borrow, 0, 6)
+  if useRectMaskPipeline:
+    setVertexBuffer(enc, flushBuffers[].rectMaskParams.borrow, 0, 7)
+    setVertexBuffer(enc, flushBuffers[].rectMaskRadii.borrow, 0, 8)
+    setVertexBuffer(enc, flushBuffers[].rectMaskMatX.borrow, 0, 9)
+    setVertexBuffer(enc, flushBuffers[].rectMaskMatY.borrow, 0, 10)
 
   type VSUniforms = object
     proj: Mat4
 
   var vsu = VSUniforms(proj: ctx.proj)
-  setVertexBytes(enc, addr vsu, NSUInteger(sizeof(VSUniforms)), 7)
+  setVertexBytes(
+    enc, addr vsu, NSUInteger(sizeof(VSUniforms)), (if useRectMaskPipeline: 11 else: 7)
+  )
 
   type FSUniforms = object
     windowFrame: Vec2
@@ -1647,6 +1876,7 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   )
 
   ctx.quadCount = 0
+  ctx.batchHasRectMask = false
 
 proc newContext*(
     atlasSize = 1024,
@@ -1693,6 +1923,11 @@ proc newContext*(
     result.sdfRadii.data = newSeq[float32](4 * maxQuads * 4)
     result.sdfModeAttr.data = newSeq[SdfModeData](1 * maxQuads * 4)
     result.sdfFactors.data = newSeq[float32](2 * maxQuads * 4)
+    result.rectMaskParams.data = newSeq[float32](4 * maxQuads * 4)
+    result.rectMaskRadii.data = newSeq[float32](4 * maxQuads * 4)
+    result.rectMaskMatX.data = newSeq[float32](4 * maxQuads * 4)
+    result.rectMaskMatY.data = newSeq[float32](4 * maxQuads * 4)
+    result.rectMaskStack = @[]
 
     # Allocate GPU buffers.
     result.positions.buffer.resetRetained(
@@ -1741,6 +1976,34 @@ proc newContext*(
       newBufferWithLength(
         result.device.borrow,
         NSUInteger(result.sdfFactors.data.len * sizeof(float32)),
+        MTLResourceOptions(0),
+      )
+    )
+    result.rectMaskParams.buffer.resetRetained(
+      newBufferWithLength(
+        result.device.borrow,
+        NSUInteger(result.rectMaskParams.data.len * sizeof(float32)),
+        MTLResourceOptions(0),
+      )
+    )
+    result.rectMaskRadii.buffer.resetRetained(
+      newBufferWithLength(
+        result.device.borrow,
+        NSUInteger(result.rectMaskRadii.data.len * sizeof(float32)),
+        MTLResourceOptions(0),
+      )
+    )
+    result.rectMaskMatX.buffer.resetRetained(
+      newBufferWithLength(
+        result.device.borrow,
+        NSUInteger(result.rectMaskMatX.data.len * sizeof(float32)),
+        MTLResourceOptions(0),
+      )
+    )
+    result.rectMaskMatY.buffer.resetRetained(
+      newBufferWithLength(
+        result.device.borrow,
+        NSUInteger(result.rectMaskMatY.data.len * sizeof(float32)),
         MTLResourceOptions(0),
       )
     )

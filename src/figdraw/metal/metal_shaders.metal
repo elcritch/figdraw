@@ -12,6 +12,21 @@ struct VSOut {
   float2 sdfFactors;
 };
 
+struct RectMaskVSOut {
+  float4 position [[position]];
+  float2 pos;
+  float2 uv;
+  float4 color;
+  float4 sdfParams;
+  float4 sdfRadii;
+  float sdfMode;
+  float2 sdfFactors;
+  float4 rectMaskParams;
+  float4 rectMaskRadii;
+  float4 rectMaskMatX;
+  float4 rectMaskMatY;
+};
+
 struct VSUniforms {
   float4x4 proj;
 };
@@ -62,6 +77,26 @@ float shadowProfile(float sd, float blurRadius) {
   return exp(-0.5 * z * z);
 }
 
+float rectMaskAlpha(
+    float2 pos,
+    float4 params,
+    float4 radii,
+    float4 matX,
+    float4 matY,
+    float aaFactor) {
+  if (params.z < 0.0 || params.w < 0.0) {
+    return 1.0;
+  }
+
+  float2 local = float2(
+    dot(matX.xy, pos) + matX.z,
+    dot(matY.xy, pos) + matY.z
+  );
+  float2 q = local - params.xy;
+  float dist = sdRoundedBox(float2(q.x, -q.y), params.zw, radii);
+  return 1.0 - clamp(aaFactor * dist + 0.5, 0.0, 1.0);
+}
+
 vertex VSOut vs_main(
     uint vid [[vertex_id]],
     const device float2* positions [[buffer(0)]],
@@ -85,12 +120,49 @@ vertex VSOut vs_main(
   return out;
 }
 
-fragment float4 fs_main(
-    VSOut in [[stage_in]],
-    constant FSUniforms& u [[buffer(0)]],
-    texture2d<float> atlasTex [[texture(0)]],
-    texture2d<float> maskTex [[texture(1)]],
-    texture2d<float> backdropTex [[texture(2)]]) {
+vertex RectMaskVSOut vs_rect_mask(
+    uint vid [[vertex_id]],
+    const device float2* positions [[buffer(0)]],
+    const device float2* uvs [[buffer(1)]],
+    const device uchar4* colors [[buffer(2)]],
+    const device float4* sdfParams [[buffer(3)]],
+    const device float4* sdfRadii [[buffer(4)]],
+    const device ushort* sdfMode [[buffer(5)]],
+    const device float2* sdfFactors [[buffer(6)]],
+    const device float4* rectMaskParams [[buffer(7)]],
+    const device float4* rectMaskRadii [[buffer(8)]],
+    const device float4* rectMaskMatX [[buffer(9)]],
+    const device float4* rectMaskMatY [[buffer(10)]],
+    constant VSUniforms& u [[buffer(11)]]) {
+  RectMaskVSOut out;
+  float2 p = positions[vid];
+  out.position = u.proj * float4(p.x, p.y, 0.0, 1.0);
+  out.pos = p;
+  out.uv = uvs[vid];
+  out.color = float4(colors[vid]) / 255.0;
+  out.sdfParams = sdfParams[vid];
+  out.sdfRadii = sdfRadii[vid];
+  out.sdfMode = float(sdfMode[vid]);
+  out.sdfFactors = sdfFactors[vid];
+  out.rectMaskParams = rectMaskParams[vid];
+  out.rectMaskRadii = rectMaskRadii[vid];
+  out.rectMaskMatX = rectMaskMatX[vid];
+  out.rectMaskMatY = rectMaskMatY[vid];
+  return out;
+}
+
+float4 evalMainFragment(
+    float2 pos,
+    float2 uv,
+    float4 color,
+    float4 sdfParams,
+    float4 sdfRadii,
+    float sdfMode,
+    float2 sdfFactors,
+    constant FSUniforms& u,
+    texture2d<float> atlasTex,
+    texture2d<float> maskTex,
+    texture2d<float> backdropTex) {
   const int sdfModeAtlas = 0;
   const int sdfModeClipAA = 3;
   const int sdfModeDropShadow = 7;
@@ -104,30 +176,30 @@ fragment float4 fs_main(
   const int sdfModeMtsdfAnnular = 16;
   const int sdfModeBackdropBlur = 17;
 
-  int sdfModeInt = int(in.sdfMode);
-  float2 quadHalfExtents = in.sdfParams.xy;
+  int sdfModeInt = int(sdfMode);
+  float2 quadHalfExtents = sdfParams.xy;
   bool insetMode = (sdfModeInt == sdfModeInsetShadow);
-  float2 shapeHalfExtents = insetMode ? quadHalfExtents : in.sdfParams.zw;
+  float2 shapeHalfExtents = insetMode ? quadHalfExtents : sdfParams.zw;
 
   float2 p = float2(
-    (in.uv.x - 0.5) * 2.0 * quadHalfExtents.x,
-    (in.uv.y - 0.5) * 2.0 * quadHalfExtents.y
+    (uv.x - 0.5) * 2.0 * quadHalfExtents.x,
+    (uv.y - 0.5) * 2.0 * quadHalfExtents.y
   );
 
-  float dist = sdRoundedBox(float2(p.x, -p.y), shapeHalfExtents, in.sdfRadii);
+  float dist = sdRoundedBox(float2(p.x, -p.y), shapeHalfExtents, sdfRadii);
 
-  float sdfFactor = in.sdfFactors.x;
-  float sdfSpread = in.sdfFactors.y;
+  float sdfFactor = sdfFactors.x;
+  float sdfSpread = sdfFactors.y;
 
   float4 fragColor;
   float alpha = 0.0;
   if (sdfModeInt == sdfModeAtlas) {
-    float4 tex = atlasTex.sample(s, in.uv);
+    float4 tex = atlasTex.sample(s, uv);
     fragColor = float4(
-      tex.x * in.color.x,
-      tex.y * in.color.y,
-      tex.z * in.color.z,
-      tex.w * in.color.w
+      tex.x * color.x,
+      tex.y * color.y,
+      tex.z * color.z,
+      tex.w * color.w
     );
   } else if (
     sdfModeInt == sdfModeMsdf ||
@@ -135,25 +207,25 @@ fragment float4 fs_main(
     sdfModeInt == sdfModeMsdfAnnular ||
     sdfModeInt == sdfModeMtsdfAnnular
   ) {
-    float pxRange = in.sdfFactors.x;
-    float sdThreshold = in.sdfFactors.y;
+    float pxRange = sdfFactors.x;
+    float sdThreshold = sdfFactors.y;
 
-    float4 tex = atlasTex.sample(s, in.uv, level(0.0));
+    float4 tex = atlasTex.sample(s, uv, level(0.0));
     bool isMtsdf = (sdfModeInt == sdfModeMtsdf || sdfModeInt == sdfModeMtsdfAnnular);
     bool isStroke =
       (sdfModeInt == sdfModeMsdfAnnular || sdfModeInt == sdfModeMtsdfAnnular);
     float sd = isMtsdf ? tex.w : median(tex.x, tex.y, tex.z);
     float screenPxDistance =
-      msdfScreenPxRange(atlasTex, in.uv, pxRange) * (sd - sdThreshold);
+      msdfScreenPxRange(atlasTex, uv, pxRange) * (sd - sdThreshold);
 
     if (isStroke) {
-      float strokeW = max(in.sdfParams.y, 0.0);
+      float strokeW = max(sdfParams.y, 0.0);
       float halfW = strokeW * 0.5;
       alpha = clamp(halfW - abs(screenPxDistance) + 0.5, 0.0, 1.0);
     } else {
       alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
     }
-    fragColor = float4(in.color.xyz, in.color.w * alpha);
+    fragColor = float4(color.xyz, color.w * alpha);
   } else {
     switch (sdfModeInt) {
       case sdfModeAnnular: {
@@ -185,11 +257,11 @@ fragment float4 fs_main(
       }
       case sdfModeInsetShadow: {
         float2 qClip = float2(p.x, -p.y);
-        float2 shadowOffset = float2(in.sdfParams.z, -in.sdfParams.w);
+        float2 shadowOffset = float2(sdfParams.z, -sdfParams.w);
         float2 qShadow = qClip - shadowOffset;
-        float clipDist = sdRoundedBox(qClip, quadHalfExtents, in.sdfRadii);
+        float clipDist = sdRoundedBox(qClip, quadHalfExtents, sdfRadii);
         float clipAlpha = 1.0 - clamp(u.aaFactor * clipDist + 0.5, 0.0, 1.0);
-        float shadowDist = sdRoundedBox(qShadow, quadHalfExtents, in.sdfRadii);
+        float shadowDist = sdRoundedBox(qShadow, quadHalfExtents, sdfRadii);
         float sd = shadowDist + sdfSpread;
         float a = shadowProfile(sd, sdfFactor);
         float insetAlpha = (sd < 0.0) ? min(a, 1.0) : 1.0;
@@ -199,7 +271,7 @@ fragment float4 fs_main(
       case sdfModeBackdropBlur: {
         float cl = clamp(u.aaFactor * dist + 0.5, 0.0, 1.0);
         alpha = 1.0 - cl;
-        float2 normalizedPos = float2(in.pos.x / u.windowFrame.x, in.pos.y / u.windowFrame.y);
+        float2 normalizedPos = float2(pos.x / u.windowFrame.x, pos.y / u.windowFrame.y);
         float4 blur = backdropTex.sample(s, normalizedPos);
         fragColor = float4(blur.xyz, blur.w * alpha);
         break;
@@ -212,15 +284,66 @@ fragment float4 fs_main(
     }
 
     if (sdfModeInt != sdfModeBackdropBlur) {
-      fragColor = float4(in.color.x, in.color.y, in.color.z, in.color.w * alpha);
+      fragColor = float4(color.x, color.y, color.z, color.w * alpha);
     }
   }
 
   float2 normalizedPos =
-    float2(in.pos.x / u.windowFrame.x, in.pos.y / u.windowFrame.y);
+    float2(pos.x / u.windowFrame.x, pos.y / u.windowFrame.y);
   if (u.maskTexEnabled != 0) {
     fragColor.w *= maskTex.sample(s, normalizedPos).x;
   }
+  return fragColor;
+}
+
+fragment float4 fs_main(
+    VSOut in [[stage_in]],
+    constant FSUniforms& u [[buffer(0)]],
+    texture2d<float> atlasTex [[texture(0)]],
+    texture2d<float> maskTex [[texture(1)]],
+    texture2d<float> backdropTex [[texture(2)]]) {
+  return evalMainFragment(
+    in.pos,
+    in.uv,
+    in.color,
+    in.sdfParams,
+    in.sdfRadii,
+    in.sdfMode,
+    in.sdfFactors,
+    u,
+    atlasTex,
+    maskTex,
+    backdropTex
+  );
+}
+
+fragment float4 fs_rect_mask(
+    RectMaskVSOut in [[stage_in]],
+    constant FSUniforms& u [[buffer(0)]],
+    texture2d<float> atlasTex [[texture(0)]],
+    texture2d<float> maskTex [[texture(1)]],
+    texture2d<float> backdropTex [[texture(2)]]) {
+  float4 fragColor = evalMainFragment(
+    in.pos,
+    in.uv,
+    in.color,
+    in.sdfParams,
+    in.sdfRadii,
+    in.sdfMode,
+    in.sdfFactors,
+    u,
+    atlasTex,
+    maskTex,
+    backdropTex
+  );
+  fragColor.w *= rectMaskAlpha(
+    in.pos,
+    in.rectMaskParams,
+    in.rectMaskRadii,
+    in.rectMaskMatX,
+    in.rectMaskMatY,
+    u.aaFactor
+  );
   return fragColor;
 }
 

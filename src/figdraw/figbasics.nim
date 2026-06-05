@@ -48,6 +48,7 @@ type
     NfInactive
     NfSelectText
     NfInvertY
+    NfRectMaskContent
 
   ShadowStyle* = enum
     ## Supports drop and inner shadows.

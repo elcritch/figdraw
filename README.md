@@ -358,6 +358,53 @@ Notes:
 - Masks still use a separate mask shader program.
 - Current SDF modes include clip/AA fills, annular (outline) modes, and drop/inset shadow modes used by the renderer.
 
+## Fast Rect Masks
+
+Use `NfClipContent` when a node needs normal clipping semantics. It renders a mask and applies it to the node's content, which is flexible but can force the backend to flush queued draws around the mask pass.
+
+Use `NfRectMaskContent` when the mask shape is just the node's rounded rectangle and the content is small leaf-style UI content, such as cells in a list/table, clipped buttons, pills, badges, or compact panels. On Metal this is evaluated as a per-fragment rounded-rect SDF mask, so it can avoid the extra mask pass for the first active rect mask and keep more draw work batched. Other backends fall back to the normal mask behavior, so the flag is safe to use before every backend has a fast implementation.
+
+`NfRectMaskContent` also composes with `NfClipContent`: a scroll viewport can use `NfClipContent`, while each small child item inside it uses
+`NfRectMaskContent`.
+
+Example:
+
+```nim
+let viewport = result.addRoot(0.ZLevel, Fig(
+  kind: nkRectangle,
+  screenBox: rect(24, 24, w - 48, h - 48),
+  fill: rgba(235, 238, 244, 255),
+  corners: [12'u16, 12'u16, 12'u16, 12'u16],
+  flags: {NfClipContent},
+))
+
+let row = result.addChild(0.ZLevel, viewport, Fig(
+  kind: nkRectangle,
+  screenBox: rect(32, 40, w - 64, 28),
+  fill: rgba(255, 255, 255, 255),
+  corners: [6'u16, 6'u16, 6'u16, 6'u16],
+  flags: {NfRectMaskContent},
+))
+
+# These children can overflow `row`; `NfRectMaskContent` masks them to the
+# row's rounded rectangle.
+discard result.addChild(0.ZLevel, row, Fig(
+  kind: nkRectangle,
+  screenBox: rect(20, 44, w - 40, 8),
+  fill: rgba(43, 159, 234, 255),
+  corners: [3'u16, 3'u16, 3'u16, 3'u16],
+))
+```
+
+To compare the two paths on your machine:
+
+```sh
+nim r examples/windy_clip_mask_benchmark.nim
+```
+
+The benchmark renders a table-like scene and compares `clip + sub-clip` against
+`clip + rect-mask`.
+
 ## Useful Defines
 
 - `-d:figdraw.names=true`: enables `Fig.name` for debugging (enabled for tests in `tests/config.nims`)
