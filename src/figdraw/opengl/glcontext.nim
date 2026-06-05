@@ -31,8 +31,19 @@ when defined(emscripten):
 else:
   type SdfModeData = uint16
 
+type RectMaskKind = enum
+  rmkFast
+  rmkMask
+
+type RectMask = object
+  kind: RectMaskKind
+  params: Vec4
+  radii: Vec4
+  matX: Vec4
+  matY: Vec4
+
 type OpenGlContext* = ref object of figbackend.BackendContext
-  mainShader, maskShader, blurShader, activeShader: Shader
+  mainShader, rectMaskShader, maskShader, blurShader, activeShader: Shader
   atlasTexture: Texture
   backdropTexture: Texture
   backdropBlurTempTexture: Texture
@@ -48,8 +59,10 @@ type OpenGlContext* = ref object of figbackend.BackendContext
   heights: seq[uint16] ## Height map of the free space in the atlas
   proj*: Mat4
   frameSize: Vec2 ## Dimensions of the window frame
-  vertexArrayId, blurVertexArrayId, maskFramebufferId, blurFramebufferId: GLuint
+  vertexArrayId, rectMaskVertexArrayId, maskVertexArrayId, blurVertexArrayId: GLuint
+  maskFramebufferId, blurFramebufferId: GLuint
   frameBegun, maskBegun: bool
+  batchHasRectMask: bool
   pixelate*: bool ## Makes texture look pixelated, like a pixel game.
   pixelScale*: float32 ## Multiple scaling factor.
   textLcdFilteringEnabled: bool
@@ -69,6 +82,11 @@ type OpenGlContext* = ref object of figbackend.BackendContext
   sdfModeAttr: tuple[buffer: Buffer, data: seq[SdfModeData]] ## SDFMode value
   sdfFactors: tuple[buffer: Buffer, data: seq[float32]] ## Vec2: (factor, spread)
   subpixelShifts: tuple[buffer: Buffer, data: seq[float32]] ## Scalar shift in px
+  rectMaskParams: tuple[buffer: Buffer, data: seq[float32]]
+  rectMaskRadii: tuple[buffer: Buffer, data: seq[float32]]
+  rectMaskMatX: tuple[buffer: Buffer, data: seq[float32]]
+  rectMaskMatY: tuple[buffer: Buffer, data: seq[float32]]
+  rectMaskStack: seq[RectMask]
 
   # SDF shader uniforms (global)
   aaFactor: float32
@@ -106,6 +124,16 @@ proc upload(ctx: OpenGlContext) =
   bindBufferData(ctx.sdfModeAttr.buffer.addr, ctx.sdfModeAttr.data[0].addr)
   bindBufferData(ctx.sdfFactors.buffer.addr, ctx.sdfFactors.data[0].addr)
   bindBufferData(ctx.subpixelShifts.buffer.addr, ctx.subpixelShifts.data[0].addr)
+
+proc uploadRectMasks(ctx: OpenGlContext) =
+  ctx.rectMaskParams.buffer.count = ctx.quadCount * 4
+  ctx.rectMaskRadii.buffer.count = ctx.quadCount * 4
+  ctx.rectMaskMatX.buffer.count = ctx.quadCount * 4
+  ctx.rectMaskMatY.buffer.count = ctx.quadCount * 4
+  bindBufferData(ctx.rectMaskParams.buffer.addr, ctx.rectMaskParams.data[0].addr)
+  bindBufferData(ctx.rectMaskRadii.buffer.addr, ctx.rectMaskRadii.data[0].addr)
+  bindBufferData(ctx.rectMaskMatX.buffer.addr, ctx.rectMaskMatX.data[0].addr)
+  bindBufferData(ctx.rectMaskMatY.buffer.addr, ctx.rectMaskMatY.data[0].addr)
 
 proc setUpMaskFramebuffer(ctx: OpenGlContext) =
   glBindFramebuffer(GL_FRAMEBUFFER, ctx.maskFramebufferId)
@@ -239,12 +267,17 @@ proc newContext*(
       newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
     result.mainShader =
       newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/atlas.frag")
+    result.rectMaskShader = newShaderStatic(
+      "glsl/emscripten/atlas_rect_mask.vert", "glsl/emscripten/atlas_rect_mask.frag"
+    )
     result.blurShader =
       newShaderStatic("glsl/emscripten/blur.vert", "glsl/emscripten/blur.frag")
   else:
     try:
       result.maskShader = newShaderStatic("glsl/atlas.vert", "glsl/mask.frag")
       result.mainShader = newShaderStatic("glsl/atlas.vert", "glsl/atlas.frag")
+      result.rectMaskShader =
+        newShaderStatic("glsl/atlas_rect_mask.vert", "glsl/atlas_rect_mask.frag")
       result.blurShader = newShaderStatic("glsl/blur.vert", "glsl/blur.frag")
     except ShaderCompilationError:
       info "OpenGL 3.30 failed, trying GLSL ES fallback"
@@ -252,6 +285,9 @@ proc newContext*(
         newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
       result.mainShader =
         newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/atlas.frag")
+      result.rectMaskShader = newShaderStatic(
+        "glsl/emscripten/atlas_rect_mask.vert", "glsl/emscripten/atlas_rect_mask.frag"
+      )
       result.blurShader =
         newShaderStatic("glsl/emscripten/blur.vert", "glsl/emscripten/blur.frag")
 
@@ -314,6 +350,34 @@ proc newContext*(
   result.subpixelShifts.buffer.usage = GL_STREAM_DRAW
   result.subpixelShifts.data = newSeq[float32](maxQuads * 4)
 
+  result.rectMaskParams.buffer.componentType = cGL_FLOAT
+  result.rectMaskParams.buffer.kind = bkVEC4
+  result.rectMaskParams.buffer.target = GL_ARRAY_BUFFER
+  result.rectMaskParams.buffer.usage = GL_STREAM_DRAW
+  result.rectMaskParams.data =
+    newSeq[float32](result.rectMaskParams.buffer.kind.componentCount() * maxQuads * 4)
+
+  result.rectMaskRadii.buffer.componentType = cGL_FLOAT
+  result.rectMaskRadii.buffer.kind = bkVEC4
+  result.rectMaskRadii.buffer.target = GL_ARRAY_BUFFER
+  result.rectMaskRadii.buffer.usage = GL_STREAM_DRAW
+  result.rectMaskRadii.data =
+    newSeq[float32](result.rectMaskRadii.buffer.kind.componentCount() * maxQuads * 4)
+
+  result.rectMaskMatX.buffer.componentType = cGL_FLOAT
+  result.rectMaskMatX.buffer.kind = bkVEC4
+  result.rectMaskMatX.buffer.target = GL_ARRAY_BUFFER
+  result.rectMaskMatX.buffer.usage = GL_STREAM_DRAW
+  result.rectMaskMatX.data =
+    newSeq[float32](result.rectMaskMatX.buffer.kind.componentCount() * maxQuads * 4)
+
+  result.rectMaskMatY.buffer.componentType = cGL_FLOAT
+  result.rectMaskMatY.buffer.kind = bkVEC4
+  result.rectMaskMatY.buffer.target = GL_ARRAY_BUFFER
+  result.rectMaskMatY.buffer.usage = GL_STREAM_DRAW
+  result.rectMaskMatY.data =
+    newSeq[float32](result.rectMaskMatY.buffer.kind.componentCount() * maxQuads * 4)
+
   result.indices.buffer.componentType = GL_UNSIGNED_SHORT
   result.indices.buffer.kind = bkSCALAR
   result.indices.buffer.target = GL_ELEMENT_ARRAY_BUFFER
@@ -337,13 +401,13 @@ proc newContext*(
   bindBufferData(result.indices.buffer.addr, result.indices.data[0].addr)
 
   result.upload()
+  result.uploadRectMasks()
 
   result.activeShader = result.mainShader
 
+  # Main shader (atlas + SDF).
   glGenVertexArrays(1, result.vertexArrayId.addr)
   glBindVertexArray(result.vertexArrayId)
-
-  # Main shader (atlas + SDF).
   result.mainShader.bindAttrib("vertexPos", result.positions.buffer)
   result.mainShader.bindAttrib("vertexColor", result.colors.buffer)
   result.mainShader.bindAttrib("vertexUv", result.uvs.buffer)
@@ -353,7 +417,25 @@ proc newContext*(
   result.mainShader.bindAttrib("vertexSdfFactors", result.sdfFactors.buffer)
   result.mainShader.bindAttrib("vertexSubpixelShift", result.subpixelShifts.buffer)
 
+  # Main shader with per-vertex fast rect masks.
+  glGenVertexArrays(1, result.rectMaskVertexArrayId.addr)
+  glBindVertexArray(result.rectMaskVertexArrayId)
+  result.rectMaskShader.bindAttrib("vertexPos", result.positions.buffer)
+  result.rectMaskShader.bindAttrib("vertexColor", result.colors.buffer)
+  result.rectMaskShader.bindAttrib("vertexUv", result.uvs.buffer)
+  result.rectMaskShader.bindAttrib("vertexSdfParams", result.sdfParams.buffer)
+  result.rectMaskShader.bindAttrib("vertexSdfRadii", result.sdfRadii.buffer)
+  result.rectMaskShader.bindAttrib("vertexSdfMode", result.sdfModeAttr.buffer)
+  result.rectMaskShader.bindAttrib("vertexSdfFactors", result.sdfFactors.buffer)
+  result.rectMaskShader.bindAttrib("vertexSubpixelShift", result.subpixelShifts.buffer)
+  result.rectMaskShader.bindAttrib("vertexRectMaskParams", result.rectMaskParams.buffer)
+  result.rectMaskShader.bindAttrib("vertexRectMaskRadii", result.rectMaskRadii.buffer)
+  result.rectMaskShader.bindAttrib("vertexRectMaskMatX", result.rectMaskMatX.buffer)
+  result.rectMaskShader.bindAttrib("vertexRectMaskMatY", result.rectMaskMatY.buffer)
+
   # Mask shader.
+  glGenVertexArrays(1, result.maskVertexArrayId.addr)
+  glBindVertexArray(result.maskVertexArrayId)
   result.maskShader.bindAttrib("vertexPos", result.positions.buffer)
   result.maskShader.bindAttrib("vertexColor", result.colors.buffer)
   result.maskShader.bindAttrib("vertexUv", result.uvs.buffer)
@@ -514,10 +596,28 @@ proc flush(ctx: OpenGlContext, maskTextureRead: int = ctx.maskTextureWrite) =
   if ctx.quadCount == 0:
     return
 
+  let useRectMaskShader = not ctx.maskBegun and ctx.batchHasRectMask
+  ctx.activeShader =
+    if ctx.maskBegun:
+      ctx.maskShader
+    elif useRectMaskShader:
+      ctx.rectMaskShader
+    else:
+      ctx.mainShader
+
   ctx.upload()
+  if useRectMaskShader:
+    ctx.uploadRectMasks()
 
   glUseProgram(ctx.activeShader.programId)
-  glBindVertexArray(ctx.vertexArrayId)
+  glBindVertexArray(
+    if ctx.maskBegun:
+      ctx.maskVertexArrayId
+    elif useRectMaskShader:
+      ctx.rectMaskVertexArrayId
+    else:
+      ctx.vertexArrayId
+  )
 
   if ctx.activeShader.hasUniform("windowFrame"):
     ctx.activeShader.setUniform("windowFrame", ctx.frameSize.x, ctx.frameSize.y)
@@ -562,6 +662,7 @@ proc flush(ctx: OpenGlContext, maskTextureRead: int = ctx.maskTextureWrite) =
   )
 
   ctx.quadCount = 0
+  ctx.batchHasRectMask = false
 
 proc checkBatch(ctx: OpenGlContext) =
   if ctx.quadCount == ctx.maxQuads:
@@ -590,6 +691,33 @@ proc setVertColor(buf: var seq[uint8], i: int, color: ColorRGBA) =
   buf[i * 4 + 2] = color.b
   buf[i * 4 + 3] = color.a
 
+func roundedRadiiVec(radii: array[DirectionCorners, float32], halfExtents: Vec2): Vec4 =
+  let maxRadius = min(halfExtents.x, halfExtents.y)
+  let radiiClamped = [
+    dcTopLeft: (
+      if radii[dcTopLeft] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
+    ),
+    dcTopRight: (
+      if radii[dcTopRight] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
+    ),
+    dcBottomLeft: (
+      if radii[dcBottomLeft] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
+    ),
+    dcBottomRight: (
+      if radii[dcBottomRight] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
+    ),
+  ]
+  vec4(
+    radiiClamped[dcTopRight],
+    radiiClamped[dcBottomRight],
+    radiiClamped[dcTopLeft],
+    radiiClamped[dcBottomLeft],
+  )
+
 proc activeSubpixelShift(ctx: OpenGlContext): float32 =
   if not ctx.textSubpixelPositioningEnabled:
     return 0.0'f32
@@ -601,6 +729,74 @@ proc setQuadSubpixelShift(ctx: OpenGlContext, offset: int) =
   ctx.subpixelShifts.data.setVert1(offset + 1, shift)
   ctx.subpixelShifts.data.setVert1(offset + 2, shift)
   ctx.subpixelShifts.data.setVert1(offset + 3, shift)
+
+proc makeRectMask(
+    ctx: OpenGlContext, maskRect: Rect, radii: array[DirectionCorners, float32]
+): RectMask =
+  let
+    halfExtents = maskRect.wh * 0.5'f32
+    center = maskRect.xy + halfExtents
+    invMat = ctx.mat.inverse()
+  RectMask(
+    kind: rmkFast,
+    params: vec4(center.x, center.y, halfExtents.x, halfExtents.y),
+    radii: roundedRadiiVec(radii, halfExtents),
+    matX: vec4(invMat[0, 0], invMat[1, 0], invMat[3, 0], 1.0'f32),
+    matY: vec4(invMat[0, 1], invMat[1, 1], invMat[3, 1], 0.0'f32),
+  )
+
+proc setRectMaskVert4(
+    ctx: OpenGlContext, offset: int, params, radii, matX, matY: Vec4
+) =
+  for i in 0 ..< 4:
+    ctx.rectMaskParams.data.setVert4(offset + i, params)
+    ctx.rectMaskRadii.data.setVert4(offset + i, radii)
+    ctx.rectMaskMatX.data.setVert4(offset + i, matX)
+    ctx.rectMaskMatY.data.setVert4(offset + i, matY)
+
+proc setDisabledRectMaskVerts(ctx: OpenGlContext, firstVertex, vertexCount: int) =
+  let
+    params = vec4(0.0'f32, 0.0'f32, -1.0'f32, -1.0'f32)
+    zero4 = vec4(0.0'f32)
+  for i in firstVertex ..< firstVertex + vertexCount:
+    ctx.rectMaskParams.data.setVert4(i, params)
+    ctx.rectMaskRadii.data.setVert4(i, zero4)
+    ctx.rectMaskMatX.data.setVert4(i, zero4)
+    ctx.rectMaskMatY.data.setVert4(i, zero4)
+
+proc setRectMaskVert4(ctx: OpenGlContext, offset: int) =
+  if ctx.maskBegun:
+    return
+
+  var
+    hasRectMask = false
+    params = vec4(0.0'f32)
+    radii = vec4(0.0'f32)
+    matX = vec4(0.0'f32)
+    matY = vec4(0.0'f32)
+
+  if ctx.rectMaskStack.len > 0:
+    for i in countdown(ctx.rectMaskStack.len - 1, 0):
+      let rectMask = ctx.rectMaskStack[i]
+      if rectMask.kind == rmkFast:
+        hasRectMask = true
+        params = rectMask.params
+        radii = rectMask.radii
+        matX = rectMask.matX
+        matY = rectMask.matY
+        break
+
+  if hasRectMask:
+    if not ctx.batchHasRectMask:
+      ctx.setDisabledRectMaskVerts(0, offset)
+      ctx.batchHasRectMask = true
+    ctx.setRectMaskVert4(offset, params, radii, matX, matY)
+  elif ctx.batchHasRectMask:
+    ctx.setDisabledRectMaskVerts(offset, 4)
+
+template setRectMaskVert4IfNeeded(ctx: OpenGlContext, offset: int) =
+  if not ctx.maskBegun and (ctx.batchHasRectMask or ctx.rectMaskStack.len > 0):
+    ctx.setRectMaskVert4(offset)
 
 func `*`*(m: Mat4, v: Vec2): Vec2 =
   (m * vec3(v.x, v.y, 0.0)).xy
@@ -656,6 +852,7 @@ proc drawQuad*(
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
   ctx.setQuadSubpixelShift(offset)
+  ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
 
@@ -730,6 +927,7 @@ proc drawUvRectAtlasSdf(
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
   ctx.setQuadSubpixelShift(offset)
+  ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
 
@@ -863,6 +1061,7 @@ proc drawUvRect(ctx: OpenGlContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
   ctx.setQuadSubpixelShift(offset)
+  ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
 
@@ -930,6 +1129,7 @@ proc drawUvRect(
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
   ctx.setQuadSubpixelShift(offset)
+  ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
 
@@ -1112,32 +1312,7 @@ method drawRoundedRectSdf*(
         vec4(
           quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x, shapeHalfExtents.y
         )
-    maxRadius = min(shapeHalfExtents.x, shapeHalfExtents.y)
-    radiiClamped = [
-      dcTopLeft: (
-        if radii[dcTopLeft] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
-      ),
-      dcTopRight: (
-        if radii[dcTopRight] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
-      ),
-      dcBottomLeft: (
-        if radii[dcBottomLeft] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
-      ),
-      dcBottomRight: (
-        if radii[dcBottomRight] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
-      ),
-    ]
-    # (top-right, bottom-right, top-left, bottom-left)
-    r4 = vec4(
-      radiiClamped[dcTopRight],
-      radiiClamped[dcBottomRight],
-      radiiClamped[dcTopLeft],
-      radiiClamped[dcBottomLeft],
-    )
+    r4 = roundedRadiiVec(radii, shapeHalfExtents)
 
   assert ctx.quadCount < ctx.maxQuads
 
@@ -1201,6 +1376,7 @@ method drawRoundedRectSdf*(
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
   ctx.setQuadSubpixelShift(offset)
+  ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
 
@@ -1356,9 +1532,9 @@ method beginMask*(
   ## Starts drawing into a mask.
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginMask has already been called."
-  ctx.maskBegun = true
 
   ctx.flush(ctx.maskTextureWrite)
+  ctx.maskBegun = true
 
   inc ctx.maskTextureWrite
   if ctx.maskTextureWrite >= ctx.maskTextures.len:
@@ -1385,9 +1561,9 @@ method beginMask*(
 method endMask*(ctx: OpenGlContext) =
   ## Stops drawing into the mask.
   assert ctx.maskBegun == true, "ctx.maskBegun has not been called."
-  ctx.maskBegun = false
 
   ctx.flush(ctx.maskTextureWrite - 1)
+  ctx.maskBegun = false
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
@@ -1398,10 +1574,31 @@ method popMask*(ctx: OpenGlContext) =
 
   dec ctx.maskTextureWrite
 
+method beginRectMask*(
+    ctx: OpenGlContext, maskRect: Rect, radii: array[DirectionCorners, float32]
+) =
+  assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
+  assert ctx.maskBegun == false, "ctx.beginRectMask cannot start inside a mask."
+
+  if ctx.rectMaskStack.len == 0 and maskRect.w > 0.0'f32 and maskRect.h > 0.0'f32:
+    ctx.rectMaskStack.add(ctx.makeRectMask(maskRect, radii))
+  else:
+    ctx.beginMask(maskRect, radii)
+    ctx.endMask()
+    ctx.rectMaskStack.add(RectMask(kind: rmkMask))
+
+method popRectMask*(ctx: OpenGlContext) =
+  assert ctx.rectMaskStack.len > 0, "No rect mask has been pushed."
+  let rectMask = ctx.rectMaskStack.pop()
+  if rectMask.kind == rmkMask:
+    ctx.popMask()
+
 proc beginFrameProj(ctx: OpenGlContext, frameSize: Vec2, proj: Mat4) =
   ## Starts a new frame.
   assert ctx.frameBegun == false, "ctx.beginFrame has already been called."
   ctx.frameBegun = true
+  ctx.rectMaskStack.setLen(0)
+  ctx.batchHasRectMask = false
 
   ctx.proj = proj
   ctx.frameSize = frameSize
@@ -1431,6 +1628,7 @@ method endFrame*(ctx: OpenGlContext) =
   ## Ends a frame.
   assert ctx.frameBegun == true, "ctx.beginFrame was not called first."
   assert ctx.maskTextureWrite == 0, "Not all masks have been popped."
+  assert ctx.rectMaskStack.len == 0, "Not all rect masks have been popped."
   ctx.frameBegun = false
 
   ctx.flush()
