@@ -256,8 +256,8 @@ when isMainModule:
         BenchRows * BenchCols, " (", BenchRows, " rows x ", BenchCols, " cols)"
       echo "nodes: ", nodeCount
       echo "warmup frames: ", WarmupFrames, " | timed frames: ", TimedFrames
-      if renderer.backendKind() != rbMetal:
-        echo "note: NfRectMaskContent fast path is currently Metal-only; this backend uses fallback behavior."
+      if renderer.backendKind() == rbVulkan:
+        echo "note: this backend uses fallback mask-texture behavior for NfRectMaskContent."
       echo ""
       let
         caseHeader = "case"
