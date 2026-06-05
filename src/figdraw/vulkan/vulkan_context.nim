@@ -2958,6 +2958,15 @@ method popMask*(ctx: VulkanContext) =
     discard ctx.clipRects.pop()
   ctx.applyClipScissor()
 
+method beginRectMask*(
+    ctx: VulkanContext, maskRect: Rect, radii: array[DirectionCorners, float32]
+) =
+  ctx.beginMask(maskRect, radii)
+  ctx.endMask()
+
+method popRectMask*(ctx: VulkanContext) =
+  ctx.popMask()
+
 proc beginFrame*(
     ctx: VulkanContext,
     frameSize: Vec2,

@@ -33,7 +33,7 @@ type BenchStats = object
   p95Ms: float64
   maxMs: float64
 
-func elapsedMs(started: MonoTime): float64 =
+proc elapsedMs(started: MonoTime): float64 =
   (getMonoTime() - started).inNanoseconds.float64 / 1_000_000.0
 
 func percentile(sortedSamples: seq[float64], p: float64): float64 =
