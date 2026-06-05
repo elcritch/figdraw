@@ -313,20 +313,11 @@ Notes:
 
 ## Fast Rect Masks
 
-Use `NfClipContent` when a node needs normal clipping semantics. It renders a
-mask and applies it to the node's content, which is flexible but can force the
-backend to flush queued draws around the mask pass.
+Use `NfClipContent` when a node needs normal clipping semantics. It renders a mask and applies it to the node's content, which is flexible but can force the backend to flush queued draws around the mask pass.
 
-Use `NfRectMaskContent` when the mask shape is just the node's rounded
-rectangle and the content is small leaf-style UI content, such as cells in a
-list/table, clipped buttons, pills, badges, or compact panels. On Metal this is
-evaluated as a per-fragment rounded-rect SDF mask, so it can avoid the extra
-mask pass for the first active rect mask and keep more draw work batched. Other
-backends fall back to the normal mask behavior, so the flag is safe to use
-before every backend has a fast implementation.
+Use `NfRectMaskContent` when the mask shape is just the node's rounded rectangle and the content is small leaf-style UI content, such as cells in a list/table, clipped buttons, pills, badges, or compact panels. On Metal this is evaluated as a per-fragment rounded-rect SDF mask, so it can avoid the extra mask pass for the first active rect mask and keep more draw work batched. Other backends fall back to the normal mask behavior, so the flag is safe to use before every backend has a fast implementation.
 
-`NfRectMaskContent` also composes with `NfClipContent`: a scroll viewport can
-use `NfClipContent`, while each small child item inside it uses
+`NfRectMaskContent` also composes with `NfClipContent`: a scroll viewport can use `NfClipContent`, while each small child item inside it uses
 `NfRectMaskContent`.
 
 Example:
