@@ -3,14 +3,20 @@ when defined(emscripten):
 else:
   import std/[os, times, monotimes, strformat]
 import std/math
+import vmath
 
-import ../bindings/generated/fig_draw
+import ../bindings/generated/figdraw
+import siwin/window as siwinWindow
+import siwin/windowOpengl as siWindowOpengl
 
 when defined(macosx):
   {.passL: "-Wl,-rpath,@executable_path/../bindings/generated".}
   {.passL: "-Wl,-rpath,@loader_path/../bindings/generated".}
+  {.passL: "-Wl,-rpath,@executable_path/../deps/siwin/bindings".}
+  {.passL: "-Wl,-rpath,@loader_path/../deps/siwin/bindings".}
 elif defined(linux) or defined(bsd):
   {.passL: "-Wl,-rpath,$ORIGIN/../bindings/generated".}
+  {.passL: "-Wl,-rpath,$ORIGIN/../deps/siwin/bindings".}
 
 const
   Copies = 100
@@ -212,22 +218,36 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
 when isMainModule:
   when not defined(emscripten):
     let libDir = getCurrentDir() / "bindings" / "generated"
+    let siwinLibDir = getCurrentDir() / "deps" / "siwin" / "bindings"
+
+    proc ensureLib(expected, actual: string) =
+      if fileExists(expected):
+        return
+      if not fileExists(actual):
+        return
+      try:
+        removeFile(expected)
+      except OSError:
+        discard
+      try:
+        createSymlink(actual.lastPathPart(), expected)
+      except OSError:
+        discard
+
     when defined(macosx):
-      let expected = libDir / "libfig_draw.dylib"
-      let actual = libDir / "libfigdraw.dylib"
-      if not fileExists(expected) and fileExists(actual):
-        try:
-          createSymlink("libfigdraw.dylib", expected)
-        except OSError:
-          discard
+      let expected = libDir / "libfigdraw.dylib"
+      ensureLib(expected, libDir / "libfig_draw.dylib")
+      ensureLib(expected, libDir / "libfigdraw.dylib")
+
+      let siwinExpected = siwinLibDir / "siwin.dylib"
+      ensureLib(siwinExpected, siwinLibDir / "siwin.dynlib")
     elif defined(linux) or defined(bsd):
-      let expected = libDir / "libfig_draw.so"
-      let actual = libDir / "libfigdraw.so"
-      if not fileExists(expected) and fileExists(actual):
-        try:
-          createSymlink("libfigdraw.so", expected)
-        except OSError:
-          discard
+      let expected = libDir / "libfigdraw.so"
+      ensureLib(expected, libDir / "libfig_draw.so")
+      ensureLib(expected, libDir / "libfigdraw.so")
+
+      let siwinExpected = siwinLibDir / "libsiwin.so"
+      ensureLib(siwinExpected, siwinLibDir / "libsiwin.so")
     setFigDataDir(getCurrentDir() / "data")
 
   var appRunning = true
@@ -242,24 +262,27 @@ when isMainModule:
   var fpsText = "0.0 FPS"
 
   let title = "Siwin RenderList (Nim Shared Lib)"
-  let renderer = newSiwinRendererBinding(512, 1.0'f32)
+  let renderer = newFigRendererBinding(512, 1.0'f32)
   if renderer.isNil:
-    quit("Failed to create siwin renderer", 1)
-  let window = newSiwinWindowBinding(
-    800, 600, false, title, true, 0, true, false, false
+    quit("Failed to create renderer", 1)
+  let window = siWindowOpengl.newOpenglWindow(
+    size = ivec2(800, 600),
+    fullscreen = false,
+    title = title,
+    vsync = true,
+    resizable = true,
+    frameless = false,
+    transparent = false,
   )
   if window.isNil:
     quit("Failed to create siwin window", 1)
-  let autoScale = window.configureUiScaleBinding("")
+  setFigUiScale(window.uiScale())
   when TraceShared:
     echo "trace: configured ui scale"
-  renderer.setupBackendBinding(window)
-  when TraceShared:
-    echo "trace: setup backend"
-  window.firstStepWindowBinding(true)
+  window.firstStep()
   when TraceShared:
     echo "trace: first step"
-  window.makeCurrentWindowBinding()
+  window.makeCurrent()
   when TraceShared:
     echo "trace: make current"
 
@@ -274,8 +297,8 @@ when isMainModule:
     quit("Failed to create renders", 1)
 
   try:
-    while window.windowIsOpenBinding() and appRunning:
-      window.refreshUiScaleBinding(autoScale)
+    while window.opened and appRunning:
+      setFigUiScale(window.uiScale())
       when TraceShared:
         echo "trace: refresh ui scale"
 
@@ -283,11 +306,9 @@ when isMainModule:
       inc globalFrame
       inc fpsFrames
 
-      renderer.beginFrameBinding()
-      when TraceShared:
-        echo "trace: begin frame"
-      let width = window.logicalWidthBinding()
-      let height = window.logicalHeightBinding()
+      let size = window.size()
+      let width = size.x.float32
+      let height = size.y.float32
       when TraceShared:
         echo "trace: logical size ", width, "x", height
 
@@ -342,15 +363,8 @@ when isMainModule:
       when TraceShared:
         echo "trace: render frame done"
       renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
-      renderer.endFrameBinding()
-      when TraceShared:
-        echo "trace: end frame"
-      window.presentNowBinding()
-      when TraceShared:
-        echo "trace: present"
-
-      window.redrawWindowBinding()
-      window.stepWindowBinding()
+      window.redraw()
+      window.step()
       when TraceShared:
         echo "trace: step"
 
@@ -378,4 +392,4 @@ when isMainModule:
           sleep(16)
   finally:
     when not TraceShared:
-      window.closeWindowBinding()
+      window.close()

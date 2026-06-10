@@ -1,9 +1,11 @@
 import genny
 import std/tables
 import std/hashes
+import vmath
 import std/os
 import figdraw/commons
 import figdraw/fignodes as fdn
+import figdraw/figrender as fgr
 import figdraw/common/fonttypes as fnt
 import figdraw/common/fontutils as fut
 
@@ -51,6 +53,9 @@ type
 
   Renders* = ref object
     inner: fdn.Renders
+
+  FigRendererRef* = ref object
+    inner: fgr.FigRenderer[fgr.NoRendererBackendState]
 
   TypefaceRef* = ref object
     id: fnt.TypefaceId
@@ -522,6 +527,20 @@ proc getRootId(list: RenderList, rootIdx: int16): int16 =
 proc newRenders(): Renders =
   Renders(inner: fdn.Renders(layers: initOrderedTable[fdn.ZLevel, fdn.RenderList]()))
 
+proc newFigRendererBinding*(atlasSize: int, pixelScale: float32): FigRendererRef =
+  try:
+    FigRendererRef(inner: fgr.newFigRenderer(atlasSize, pixelScale))
+  except Exception:
+    nil
+
+proc renderFrameBinding*(renderer: FigRendererRef, renders: Renders, width, height: float32) =
+  if renderer.isNil or renders.isNil:
+    return
+  try:
+    renderer.inner.renderFrame(renders.inner, vec2(width, height))
+  except Exception:
+    discard
+
 proc clear(renders: Renders) =
   if renders.isNil:
     return
@@ -636,6 +655,12 @@ exportRefObject Renders:
     layerNodeCount(Renders, int8)
     layerRootCount(Renders, int8)
     getLayerNode(Renders, int8, int16)
+
+exportRefObject FigRendererRef:
+  constructor:
+    newFigRendererBinding(int, float32)
+  procs:
+    renderFrameBinding(FigRendererRef, Renders, float32, float32)
 
 exportRefObject TypefaceRef:
   discard

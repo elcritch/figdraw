@@ -1,5 +1,7 @@
+import figdraw/commons
 import figdraw/windowing/siwinshim
 import figdraw/figrender as fgr
+
 when defined(macosx) and UseMetalBackend:
   import figdraw/windowing/siwinmetal
 
@@ -14,6 +16,16 @@ when defined(macosx) and UseMetalBackend:
   type
     SiwinMetalLayerRef* = ref object
       inner: MetalLayerHandle
+
+func valid(window: SiwinWindowRef): bool {.inline.} =
+  not window.isNil and not window.inner.isNil
+
+func valid(renderer: SiwinRendererRef): bool {.inline.} =
+  not renderer.isNil and not renderer.inner.isNil
+
+when defined(macosx) and UseMetalBackend:
+  func valid(layer: SiwinMetalLayerRef): bool {.inline.} =
+    not layer.isNil
 
 var
   siwinBackendNameStorage {.threadvar.}: string
@@ -51,7 +63,7 @@ proc newSiwinRendererBinding(atlasSize: int, pixelScale: float32): SiwinRenderer
     nil
 
 proc siwinBackendNameForRendererBinding(renderer: SiwinRendererRef): string =
-  if renderer.isNil or renderer.inner.isNil:
+  if not renderer.valid:
     return ""
   try:
     siwinRendererBackendNameStorage = siwinBackendName(renderer.inner)
@@ -96,7 +108,7 @@ proc newSiwinWindowForRendererBinding(
     frameless: bool,
     transparent: bool,
 ): SiwinWindowRef =
-  if renderer.isNil or renderer.inner.isNil:
+  if not renderer.valid:
     return nil
   try:
     SiwinWindowRef(
@@ -116,7 +128,7 @@ proc newSiwinWindowForRendererBinding(
     nil
 
 proc closeWindowBinding(window: SiwinWindowRef) =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return
   try:
     window.inner.close()
@@ -124,7 +136,7 @@ proc closeWindowBinding(window: SiwinWindowRef) =
     discard
 
 proc stepWindowBinding(window: SiwinWindowRef) =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return
   try:
     window.inner.step()
@@ -132,7 +144,7 @@ proc stepWindowBinding(window: SiwinWindowRef) =
     discard
 
 proc firstStepWindowBinding(window: SiwinWindowRef, makeVisible = true) =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return
   try:
     window.inner.firstStep(makeVisible)
@@ -140,7 +152,7 @@ proc firstStepWindowBinding(window: SiwinWindowRef, makeVisible = true) =
     discard
 
 proc redrawWindowBinding(window: SiwinWindowRef) =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return
   try:
     window.inner.redraw()
@@ -148,7 +160,7 @@ proc redrawWindowBinding(window: SiwinWindowRef) =
     discard
 
 proc makeCurrentWindowBinding(window: SiwinWindowRef) =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return
   try:
     window.inner.makeCurrent()
@@ -156,12 +168,15 @@ proc makeCurrentWindowBinding(window: SiwinWindowRef) =
     discard
 
 proc windowIsOpenBinding(window: SiwinWindowRef): bool =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return false
-  window.inner.opened()
+  try:
+    window.inner.opened()
+  except Exception:
+    false
 
 proc siwinDisplayServerNameBinding(window: SiwinWindowRef): string =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return ""
   try:
     siwinDisplayNameStorage = siwinDisplayServerName(window.inner)
@@ -172,7 +187,7 @@ proc siwinDisplayServerNameBinding(window: SiwinWindowRef): string =
 proc siwinWindowTitleForRendererBinding(
     renderer: SiwinRendererRef, window: SiwinWindowRef, suffix: string
 ): string =
-  if renderer.isNil or renderer.inner.isNil or window.isNil or window.inner.isNil:
+  if not renderer.valid or not window.valid:
     return ""
   try:
     siwinRendererWindowTitleStorage =
@@ -182,7 +197,7 @@ proc siwinWindowTitleForRendererBinding(
     ""
 
 proc backingWidthBinding(window: SiwinWindowRef): int32 =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return 0'i32
   try:
     window.inner.backingSize().x
@@ -190,7 +205,7 @@ proc backingWidthBinding(window: SiwinWindowRef): int32 =
     0'i32
 
 proc backingHeightBinding(window: SiwinWindowRef): int32 =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return 0'i32
   try:
     window.inner.backingSize().y
@@ -198,7 +213,7 @@ proc backingHeightBinding(window: SiwinWindowRef): int32 =
     0'i32
 
 proc logicalWidthBinding(window: SiwinWindowRef): float32 =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return 0'f32
   try:
     window.inner.logicalSize().x
@@ -206,7 +221,7 @@ proc logicalWidthBinding(window: SiwinWindowRef): float32 =
     0'f32
 
 proc logicalHeightBinding(window: SiwinWindowRef): float32 =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return 0'f32
   try:
     window.inner.logicalSize().y
@@ -214,7 +229,7 @@ proc logicalHeightBinding(window: SiwinWindowRef): float32 =
     0'f32
 
 proc contentScaleBinding(window: SiwinWindowRef): float32 =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return 1'f32
   try:
     window.inner.contentScale()
@@ -222,7 +237,7 @@ proc contentScaleBinding(window: SiwinWindowRef): float32 =
     1'f32
 
 proc configureUiScaleBinding(window: SiwinWindowRef, envVar: string): bool =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return false
   try:
     window.inner.configureUiScale(envVar = envVar)
@@ -230,7 +245,7 @@ proc configureUiScaleBinding(window: SiwinWindowRef, envVar: string): bool =
     false
 
 proc refreshUiScaleBinding(window: SiwinWindowRef, autoScale: bool) =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return
   try:
     window.inner.refreshUiScale(autoScale)
@@ -238,7 +253,7 @@ proc refreshUiScaleBinding(window: SiwinWindowRef, autoScale: bool) =
     discard
 
 proc presentNowBinding(window: SiwinWindowRef) =
-  if window.isNil or window.inner.isNil:
+  if not window.valid:
     return
   try:
     window.inner.presentNow()
@@ -246,7 +261,7 @@ proc presentNowBinding(window: SiwinWindowRef) =
     discard
 
 proc setupBackendBinding(renderer: SiwinRendererRef, window: SiwinWindowRef) =
-  if renderer.isNil or renderer.inner.isNil or window.isNil or window.inner.isNil:
+  if not renderer.valid or not window.valid:
     return
   try:
     setupBackend(renderer.inner, window.inner)
@@ -254,7 +269,7 @@ proc setupBackendBinding(renderer: SiwinRendererRef, window: SiwinWindowRef) =
     discard
 
 proc beginFrameBinding(renderer: SiwinRendererRef) =
-  if renderer.isNil or renderer.inner.isNil:
+  if not renderer.valid:
     return
   try:
     beginFrame(renderer.inner)
@@ -262,7 +277,7 @@ proc beginFrameBinding(renderer: SiwinRendererRef) =
     discard
 
 proc endFrameBinding(renderer: SiwinRendererRef) =
-  if renderer.isNil or renderer.inner.isNil:
+  if not renderer.valid:
     return
   try:
     endFrame(renderer.inner)
@@ -272,7 +287,7 @@ proc endFrameBinding(renderer: SiwinRendererRef) =
 proc renderFrameBinding(
     renderer: SiwinRendererRef, renders: Renders, width, height: float32
 ) =
-  if renderer.isNil or renderer.inner.isNil or renders.isNil:
+  if not renderer.valid or renders.isNil:
     return
   try:
     renderer.inner.renderFrame(renders.inner, vec2(width, height))
@@ -283,7 +298,7 @@ when defined(macosx) and UseMetalBackend:
   proc attachMetalLayerBinding(
       window: SiwinWindowRef, devicePtr: uint64
   ): SiwinMetalLayerRef =
-    if window.isNil or window.inner.isNil or devicePtr == 0'u64:
+    if not window.valid or devicePtr == 0'u64:
       return nil
     try:
       SiwinMetalLayerRef(
@@ -296,7 +311,7 @@ when defined(macosx) and UseMetalBackend:
       nil
 
   proc updateMetalLayerBinding(layer: SiwinMetalLayerRef, window: SiwinWindowRef) =
-    if layer.isNil or window.isNil or window.inner.isNil:
+    if not layer.valid or not window.valid:
       return
     try:
       updateMetalLayer(layer.inner, window.inner)
@@ -304,7 +319,7 @@ when defined(macosx) and UseMetalBackend:
       discard
 
   proc setOpaqueBinding(layer: SiwinMetalLayerRef, opaque: bool) =
-    if layer.isNil:
+    if not layer.valid:
       return
     try:
       siwinshim.setOpaque(layer.inner, opaque)
