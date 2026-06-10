@@ -692,9 +692,6 @@ exportProcs:
   scaled(float32)
   descaled(float32)
 
-when ExportSiwinShim:
-  include siwinshim_bindings
-
 writeFiles(GeneratedDir, "Figdraw")
 
 include generated/internal
