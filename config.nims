@@ -69,7 +69,7 @@ task bindings, "Generate bindings":
   proc compile(libName: string, flags = "") =
     exec "nim c -f " & flags &
       siwinShimFlag &
-      " --path:src -d:release --app:lib --gc:arc --tlsEmulation:off --out:" & libName &
+      " --path:src -d:release -d:gennyNim --app:lib --gc:arc --tlsEmulation:off --out:" & libName &
       " --outdir:bindings/generated bindings/bindings.nim"
 
   when defined(windows):
