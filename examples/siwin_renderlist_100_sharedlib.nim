@@ -8,6 +8,7 @@ import vmath
 import ../bindings/generated/figdraw
 import siwin/window as siwinWindow
 import siwin/windowOpengl as siWindowOpengl
+import figdraw/utils/glutils
 
 when defined(macosx):
   {.passL: "-Wl,-rpath,@executable_path/../bindings/generated".}
@@ -262,9 +263,6 @@ when isMainModule:
   var fpsText = "0.0 FPS"
 
   let title = "Siwin RenderList (Nim Shared Lib)"
-  let renderer = newFigRendererBinding(512, 1.0'f32)
-  if renderer.isNil:
-    quit("Failed to create renderer", 1)
   let window = siWindowOpengl.newOpenglWindow(
     size = ivec2(800, 600),
     fullscreen = false,
@@ -279,10 +277,15 @@ when isMainModule:
   setFigUiScale(window.uiScale())
   when TraceShared:
     echo "trace: configured ui scale"
+  when not defined(emscripten):
+    window.makeCurrent()
+    startOpenGL(openglVersion)
+  let renderer = newFigRendererBinding(512, 1.0'f32)
+  if renderer.isNil:
+    quit("Failed to create renderer", 1)
   window.firstStep()
   when TraceShared:
     echo "trace: first step"
-  window.makeCurrent()
   when TraceShared:
     echo "trace: make current"
 
@@ -359,6 +362,8 @@ when isMainModule:
         echo "trace: hud text done"
 
       let t1 = getMonoTime()
+      when not defined(emscripten):
+        window.makeCurrent()
       renderer.renderFrameBinding(renders, width, height)
       when TraceShared:
         echo "trace: render frame done"

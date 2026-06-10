@@ -8,6 +8,8 @@ import figdraw/fignodes as fdn
 import figdraw/figrender as fgr
 import figdraw/common/fonttypes as fnt
 import figdraw/common/fontutils as fut
+when not defined(emscripten):
+  import figdraw/utils/glutils
 
 const ExportSiwinShim* {.booldefine: "figdraw.bindings.siwinshim".} = false
 const GeneratedDir = currentSourcePath().parentDir / "generated"
@@ -527,8 +529,13 @@ proc getRootId(list: RenderList, rootIdx: int16): int16 =
 proc newRenders(): Renders =
   Renders(inner: fdn.Renders(layers: initOrderedTable[fdn.ZLevel, fdn.RenderList]()))
 
+proc ensureOpenGLInitialized() =
+  when not defined(emscripten):
+    startOpenGL(openglVersion)
+
 proc newFigRendererBinding*(atlasSize: int, pixelScale: float32): FigRendererRef =
   try:
+    ensureOpenGLInitialized()
     FigRendererRef(inner: fgr.newFigRenderer(atlasSize, pixelScale))
   except Exception:
     nil
