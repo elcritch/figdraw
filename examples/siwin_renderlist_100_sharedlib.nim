@@ -5,18 +5,18 @@ else:
 import std/math
 import vmath
 
-import ../bindings/generated/figdraw
+import figdraw/bindings/generated/figdraw
 import siwin/window as siwinWindow
 import siwin/windowOpengl as siWindowOpengl
 import figdraw/utils/glutils
 
 when defined(macosx):
-  {.passL: "-Wl,-rpath,@executable_path/../bindings/generated".}
-  {.passL: "-Wl,-rpath,@loader_path/../bindings/generated".}
+  {.passL: "-Wl,-rpath,@executable_path/../src/figdraw/bindings/generated".}
+  {.passL: "-Wl,-rpath,@loader_path/../src/figdraw/bindings/generated".}
   {.passL: "-Wl,-rpath,@executable_path/../deps/siwin/bindings".}
   {.passL: "-Wl,-rpath,@loader_path/../deps/siwin/bindings".}
 elif defined(linux) or defined(bsd):
-  {.passL: "-Wl,-rpath,$ORIGIN/../bindings/generated".}
+  {.passL: "-Wl,-rpath,$ORIGIN/../src/figdraw/bindings/generated".}
   {.passL: "-Wl,-rpath,$ORIGIN/../deps/siwin/bindings".}
 
 const

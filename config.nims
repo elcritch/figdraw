@@ -64,7 +64,7 @@ task bindings, "Generate bindings":
   proc compile(libName: string, flags = "") =
     exec "nim c -f " & flags &
       " --path:src -d:release -d:figdraw.metal:off -d:gennyNim --app:lib --gc:arc --tlsEmulation:off --out:" & libName &
-      " --outdir:bindings/generated bindings/bindings.nim"
+      " --outdir:src/figdraw/bindings/generated src/figdraw/bindings/bindings.nim"
 
   when defined(windows):
     compile "figdraw.dll"
@@ -73,6 +73,6 @@ task bindings, "Generate bindings":
       "--cpu:arm64 -l:'-target arm64-apple-macos11' -t:'-target arm64-apple-macos11'"
     compile "libfigdraw.dylib.x64",
       "--cpu:amd64 -l:'-target x86_64-apple-macos10.12' -t:'-target x86_64-apple-macos10.12'"
-    exec "lipo bindings/generated/libfigdraw.dylib.arm bindings/generated/libfigdraw.dylib.x64 -output bindings/generated/libfigdraw.dylib -create"
+    exec "lipo src/figdraw/bindings/generated/libfigdraw.dylib.arm src/figdraw/bindings/generated/libfigdraw.dylib.x64 -output src/figdraw/bindings/generated/libfigdraw.dylib -create"
   else:
     compile "libfigdraw.so"
