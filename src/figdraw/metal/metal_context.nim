@@ -860,21 +860,14 @@ const
 
 func linear3FillMode(axis: FillGradientAxis): int =
   case axis
-  of fgaX:
-    SdfFillLinear3X
-  of fgaY:
-    SdfFillLinear3Y
-  of fgaDiagTLBR:
-    SdfFillLinear3DiagTLBR
-  of fgaDiagBLTR:
-    SdfFillLinear3DiagBLTR
+  of fgaX: SdfFillLinear3X
+  of fgaY: SdfFillLinear3Y
+  of fgaDiagTLBR: SdfFillLinear3DiagTLBR
+  of fgaDiagBLTR: SdfFillLinear3DiagBLTR
 
 func encodeSdfMode(mode: SdfMode, fillMode: int): SdfModeData =
   let packed = mode.int + fillMode * SdfFillModeShift
-  when SdfModeData is float32:
-    packed.float32
-  else:
-    packed.uint16
+  when SdfModeData is float32: packed.float32 else: packed.uint16
 
 proc setFillExtraColors(
     ctx: MetalContext, offset: int, midColor, stopColor: ColorRGBA
@@ -1262,9 +1255,6 @@ method drawRect*(ctx: MetalContext, rect: Rect, color: Color) =
     uvRect.xy + uvRect.wh / 2,
     color,
   )
-
-method supportsNativeLinear3Sdf*(ctx: MetalContext): bool =
-  true
 
 method drawRoundedRectSdf*(
     ctx: MetalContext,

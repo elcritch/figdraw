@@ -511,71 +511,6 @@ func gradientColors(fill: Fill): array[4, ColorRGBA] =
     result[2] = fill.sampleGradientColor(1.0'f32)
     result[3] = fill.sampleGradientColor(0.5'f32)
 
-const SquareFloatCorners = [
-  dcTopLeft: 0.0'f32, dcTopRight: 0.0'f32, dcBottomLeft: 0.0'f32, dcBottomRight: 0.0'f32
-]
-
-proc drawGradientSegment(ctx: BackendContext, box: Rect, fill: Fill) =
-  ctx.drawRoundedRectSdf(
-    rect = box,
-    colors = fill.gradientColors(),
-    radii = SquareFloatCorners,
-    mode = figbackend.SdfMode.sdfModeClipAA,
-    factor = 4.0'f32,
-    spread = 0.0'f32,
-    shapeSize = vec2(0.0'f32, 0.0'f32),
-  )
-
-proc drawLinear3Segments(ctx: BackendContext, box: Rect, fill: Fill) =
-  let midPos = gradientMidPos01(fill)
-  case fill.lin3.axis
-  of fgaX:
-    let
-      split = box.x + box.w * midPos
-      leftW = max(0.0'f32, split - box.x)
-      rightW = max(0.0'f32, box.x + box.w - split)
-    if leftW > 0.0'f32:
-      ctx.drawGradientSegment(
-        rect(box.x, box.y, leftW, box.h),
-        linear(start = fill.lin3.start, stop = fill.lin3.mid, axis = fgaX),
-      )
-    if rightW > 0.0'f32:
-      ctx.drawGradientSegment(
-        rect(split, box.y, rightW, box.h),
-        linear(start = fill.lin3.mid, stop = fill.lin3.stop, axis = fgaX),
-      )
-  of fgaY:
-    let
-      split = box.y + box.h * midPos
-      topH = max(0.0'f32, split - box.y)
-      bottomH = max(0.0'f32, box.y + box.h - split)
-    if topH > 0.0'f32:
-      ctx.drawGradientSegment(
-        rect(box.x, box.y, box.w, topH),
-        linear(start = fill.lin3.start, stop = fill.lin3.mid, axis = fgaY),
-      )
-    if bottomH > 0.0'f32:
-      ctx.drawGradientSegment(
-        rect(box.x, split, box.w, bottomH),
-        linear(start = fill.lin3.mid, stop = fill.lin3.stop, axis = fgaY),
-      )
-  of fgaDiagTLBR, fgaDiagBLTR:
-    ctx.drawGradientSegment(box, fill)
-
-proc drawMaskedLinear3Segments(
-    ctx: BackendContext, box: Rect, radii: array[DirectionCorners, float32], fill: Fill
-) =
-  if radii == SquareFloatCorners:
-    ctx.drawLinear3Segments(box, fill)
-    return
-
-  ctx.beginMask(box, radii)
-  ctx.endMask()
-  try:
-    ctx.drawLinear3Segments(box, fill)
-  finally:
-    ctx.popMask()
-
 #proc drawMasks(ctx: BackendContext, node: Fig) =
 #  ctx.setMaskRect(node.screenBox.scaled(), node.corners.scaledCorners())
 
@@ -732,29 +667,15 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
 
   if hasGradient:
     when not defined(useFigDrawTextures):
-      if ctx.supportsNativeLinear3Sdf():
-        ctx.drawRoundedRectSdf(
-          rect = box,
-          fill = node.fill.toBackendFill(),
-          radii = corners,
-          mode = figbackend.SdfMode.sdfModeClipAA,
-          factor = 4.0'f32,
-          spread = 0.0'f32,
-          shapeSize = vec2(0.0'f32, 0.0'f32),
-        )
-      elif node.fill.kind == flLinear3 and
-          (node.fill.lin3.axis == fgaX or node.fill.lin3.axis == fgaY):
-        ctx.drawMaskedLinear3Segments(box, corners, node.fill)
-      else:
-        ctx.drawRoundedRectSdf(
-          rect = box,
-          colors = node.fill.gradientColors(),
-          radii = corners,
-          mode = figbackend.SdfMode.sdfModeClipAA,
-          factor = 4.0'f32,
-          spread = 0.0'f32,
-          shapeSize = vec2(0.0'f32, 0.0'f32),
-        )
+      ctx.drawRoundedRectSdf(
+        rect = box,
+        fill = node.fill.toBackendFill(),
+        radii = corners,
+        mode = figbackend.SdfMode.sdfModeClipAA,
+        factor = 4.0'f32,
+        spread = 0.0'f32,
+        shapeSize = vec2(0.0'f32, 0.0'f32),
+      )
     else:
       let fillColor = fillCenterColor(node.fill)
       if node.corners != [0'u16, 0'u16, 0'u16, 0'u16]:

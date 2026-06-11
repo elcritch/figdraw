@@ -64,6 +64,8 @@ type
     pos: array[2, float32]
     uv: array[2, float32]
     color: array[4, uint8]
+    fillMidColor: array[4, uint8]
+    fillStopColor: array[4, uint8]
     sdfParams: array[4, float32]
     sdfRadii: array[4, float32]
     sdfMode: uint16
@@ -97,6 +99,8 @@ type
 
     positions: seq[float32]
     colors: seq[uint8]
+    fillMidColors: seq[uint8]
+    fillStopColors: seq[uint8]
     uvs: seq[float32]
     sdfParams: seq[float32]
     sdfRadii: seq[float32]
@@ -765,23 +769,35 @@ proc createPipeline(ctx: VulkanContext) =
     VkVertexInputAttributeDescription(
       location: 3,
       binding: 0,
+      format: VK_FORMAT_R8G8B8A8_UNORM,
+      offset: uint32(offsetOf(Vertex, fillMidColor)),
+    ),
+    VkVertexInputAttributeDescription(
+      location: 4,
+      binding: 0,
+      format: VK_FORMAT_R8G8B8A8_UNORM,
+      offset: uint32(offsetOf(Vertex, fillStopColor)),
+    ),
+    VkVertexInputAttributeDescription(
+      location: 5,
+      binding: 0,
       format: VK_FORMAT_R32G32B32A32_SFLOAT,
       offset: uint32(offsetOf(Vertex, sdfParams)),
     ),
     VkVertexInputAttributeDescription(
-      location: 4,
+      location: 6,
       binding: 0,
       format: VK_FORMAT_R32G32B32A32_SFLOAT,
       offset: uint32(offsetOf(Vertex, sdfRadii)),
     ),
     VkVertexInputAttributeDescription(
-      location: 5,
+      location: 7,
       binding: 0,
       format: VK_FORMAT_R16_UINT,
       offset: uint32(offsetOf(Vertex, sdfMode)),
     ),
     VkVertexInputAttributeDescription(
-      location: 6,
+      location: 8,
       binding: 0,
       format: VK_FORMAT_R32G32_SFLOAT,
       offset: uint32(offsetOf(Vertex, sdfFactors)),
@@ -1900,6 +1916,14 @@ proc flush(ctx: VulkanContext) =
     v.color[1] = ctx.colors[i * 4 + 1]
     v.color[2] = ctx.colors[i * 4 + 2]
     v.color[3] = ctx.colors[i * 4 + 3]
+    v.fillMidColor[0] = ctx.fillMidColors[i * 4 + 0]
+    v.fillMidColor[1] = ctx.fillMidColors[i * 4 + 1]
+    v.fillMidColor[2] = ctx.fillMidColors[i * 4 + 2]
+    v.fillMidColor[3] = ctx.fillMidColors[i * 4 + 3]
+    v.fillStopColor[0] = ctx.fillStopColors[i * 4 + 0]
+    v.fillStopColor[1] = ctx.fillStopColors[i * 4 + 1]
+    v.fillStopColor[2] = ctx.fillStopColors[i * 4 + 2]
+    v.fillStopColor[3] = ctx.fillStopColors[i * 4 + 3]
     v.sdfParams[0] = ctx.sdfParams[i * 4 + 0]
     v.sdfParams[1] = ctx.sdfParams[i * 4 + 1]
     v.sdfParams[2] = ctx.sdfParams[i * 4 + 2]
@@ -1996,6 +2020,37 @@ proc setVertColor(buf: var seq[uint8], i: int, color: ColorRGBA) =
   buf[i * 4 + 1] = color.g
   buf[i * 4 + 2] = color.b
   buf[i * 4 + 3] = color.a
+
+proc setFillExtraColors(
+    ctx: VulkanContext, offset: int, midColor, stopColor: ColorRGBA
+) =
+  ctx.fillMidColors.setVertColor(offset + 0, midColor)
+  ctx.fillMidColors.setVertColor(offset + 1, midColor)
+  ctx.fillMidColors.setVertColor(offset + 2, midColor)
+  ctx.fillMidColors.setVertColor(offset + 3, midColor)
+  ctx.fillStopColors.setVertColor(offset + 0, stopColor)
+  ctx.fillStopColors.setVertColor(offset + 1, stopColor)
+  ctx.fillStopColors.setVertColor(offset + 2, stopColor)
+  ctx.fillStopColors.setVertColor(offset + 3, stopColor)
+
+const
+  SdfFillSolidOrVertex = 0
+  SdfFillLinear3X = 1
+  SdfFillLinear3Y = 2
+  SdfFillLinear3DiagTLBR = 3
+  SdfFillLinear3DiagBLTR = 4
+  SdfFillModeShift = 256
+
+func linear3FillMode(axis: FillGradientAxis): int =
+  case axis
+  of fgaX: SdfFillLinear3X
+  of fgaY: SdfFillLinear3Y
+  of fgaDiagTLBR: SdfFillLinear3DiagTLBR
+  of fgaDiagBLTR: SdfFillLinear3DiagBLTR
+
+func encodeSdfMode(mode: SdfMode, fillMode: int): SdfModeData =
+  let packed = mode.int + fillMode * SdfFillModeShift
+  when SdfModeData is float32: packed.float32 else: packed.uint16
 
 proc activeTextSubpixelShift(ctx: VulkanContext): float32 =
   if not ctx.textSubpixelPositioningEnabled:
@@ -2121,6 +2176,7 @@ proc drawQuad*(
   ctx.colors.setVertColor(offset + 1, colors[1])
   ctx.colors.setVertColor(offset + 2, colors[2])
   ctx.colors.setVertColor(offset + 3, colors[3])
+  ctx.setFillExtraColors(offset, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0))
 
   ctx.sdfParams.setVert4(offset + 0, zero4)
   ctx.sdfParams.setVert4(offset + 1, zero4)
@@ -2191,6 +2247,8 @@ proc drawUvRectAtlasSdf(
   ctx.colors.setVertColor(offset + 1, rgba)
   ctx.colors.setVertColor(offset + 2, rgba)
   ctx.colors.setVertColor(offset + 3, rgba)
+  ctx.setFillExtraColors(offset, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0))
+  ctx.setFillExtraColors(offset, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0))
 
   ctx.sdfParams.setVert4(offset + 0, params)
   ctx.sdfParams.setVert4(offset + 1, params)
@@ -2396,6 +2454,7 @@ proc drawUvRect(
   ctx.colors.setVertColor(offset + 1, colors[1])
   ctx.colors.setVertColor(offset + 2, colors[2])
   ctx.colors.setVertColor(offset + 3, colors[3])
+  ctx.setFillExtraColors(offset, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0))
 
   let zero4 = vec4(0.0'f32)
   ctx.sdfParams.setVert4(offset + 0, zero4)
@@ -2563,7 +2622,7 @@ method drawRoundedRectSdf*(
     shapeSize = shapeSize,
   )
 
-method drawRoundedRectSdf*(
+proc drawRoundedRectSdfVulkan(
     ctx: VulkanContext,
     rect: Rect,
     colors: array[4, ColorRGBA],
@@ -2572,6 +2631,10 @@ method drawRoundedRectSdf*(
     factor: float32 = 4.0,
     spread: float32 = 0.0,
     shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+    fillMode: int = SdfFillSolidOrVertex,
+    fillMidColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillStopColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillMidPos: float32 = 0.5'f32,
 ) =
   if rect.w <= 0 or rect.h <= 0:
     return
@@ -2658,6 +2721,7 @@ method drawRoundedRectSdf*(
   ctx.colors.setVertColor(offset + 1, colors[1])
   ctx.colors.setVertColor(offset + 2, colors[2])
   ctx.colors.setVertColor(offset + 3, colors[3])
+  ctx.setFillExtraColors(offset, fillMidColor, fillStopColor)
 
   ctx.sdfParams.setVert4(offset + 0, params)
   ctx.sdfParams.setVert4(offset + 1, params)
@@ -2669,22 +2733,79 @@ method drawRoundedRectSdf*(
   ctx.sdfRadii.setVert4(offset + 2, r4)
   ctx.sdfRadii.setVert4(offset + 3, r4)
 
-  let factors = vec2(factor, spread)
+  let factors =
+    if fillMode == SdfFillSolidOrVertex:
+      vec2(factor, spread)
+    else:
+      vec2(factor, clamp(fillMidPos, 0.01'f32, 0.99'f32))
   ctx.sdfFactors.setVert2(offset + 0, factors)
   ctx.sdfFactors.setVert2(offset + 1, factors)
   ctx.sdfFactors.setVert2(offset + 2, factors)
   ctx.sdfFactors.setVert2(offset + 3, factors)
 
-  when defined(emscripten):
-    let modeVal = mode.int.float32
-  else:
-    let modeVal = mode.int.uint16
+  let modeVal = encodeSdfMode(mode, fillMode)
   ctx.sdfModeAttr[offset + 0] = modeVal
   ctx.sdfModeAttr[offset + 1] = modeVal
   ctx.sdfModeAttr[offset + 2] = modeVal
   ctx.sdfModeAttr[offset + 3] = modeVal
 
   inc ctx.quadCount
+
+method drawRoundedRectSdf*(
+    ctx: VulkanContext,
+    rect: Rect,
+    colors: array[4, ColorRGBA],
+    radii: array[DirectionCorners, float32],
+    mode: SdfMode = sdfModeClipAA,
+    factor: float32 = 4.0,
+    spread: float32 = 0.0,
+    shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+) =
+  ctx.drawRoundedRectSdfVulkan(
+    rect = rect,
+    colors = colors,
+    radii = radii,
+    mode = mode,
+    factor = factor,
+    spread = spread,
+    shapeSize = shapeSize,
+  )
+
+method drawRoundedRectSdf*(
+    ctx: VulkanContext,
+    rect: Rect,
+    fill: figbackend.BackendFill,
+    radii: array[DirectionCorners, float32],
+    mode: SdfMode = sdfModeClipAA,
+    factor: float32 = 4.0,
+    spread: float32 = 0.0,
+    shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+) =
+  if fill.kind == figbackend.bfLinear3 and
+      mode in {sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA}:
+    ctx.drawRoundedRectSdfVulkan(
+      rect = rect,
+      colors = [fill.lin3Start, fill.lin3Start, fill.lin3Start, fill.lin3Start],
+      radii = radii,
+      mode = mode,
+      factor = factor,
+      spread = spread,
+      shapeSize = shapeSize,
+      fillMode = linear3FillMode(fill.lin3Axis),
+      fillMidColor = fill.lin3Mid,
+      fillStopColor = fill.lin3Stop,
+      fillMidPos = fill.lin3MidPos,
+    )
+  else:
+    ctx.drawRoundedRectSdfVulkan(
+      rect = rect,
+      colors = figbackend.gradientColors(fill),
+      radii = radii,
+      mode = mode,
+      factor = factor,
+      spread = spread,
+      shapeSize = shapeSize,
+    )
 
 proc runBackdropSeparableBlur(
     ctx: VulkanContext, blurRadius: float32, blurRect: VkRect2D
@@ -3328,6 +3449,8 @@ proc newContext*(
 
   result.positions = newSeq[float32](2 * maxQuads * 4)
   result.colors = newSeq[uint8](4 * maxQuads * 4)
+  result.fillMidColors = newSeq[uint8](4 * maxQuads * 4)
+  result.fillStopColors = newSeq[uint8](4 * maxQuads * 4)
   result.uvs = newSeq[float32](2 * maxQuads * 4)
   result.sdfParams = newSeq[float32](4 * maxQuads * 4)
   result.sdfRadii = newSeq[float32](4 * maxQuads * 4)

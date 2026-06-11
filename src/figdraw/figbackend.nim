@@ -111,12 +111,9 @@ func sampleColor*(fill: BackendFill, t: float32): ColorRGBA =
 
 func fillGradientAxis(fill: BackendFill): FillGradientAxis =
   case fill.kind
-  of bfColor:
-    fgaX
-  of bfLinear2:
-    fill.lin2Axis
-  of bfLinear3:
-    fill.lin3Axis
+  of bfColor: fgaX
+  of bfLinear2: fill.lin2Axis
+  of bfLinear3: fill.lin3Axis
 
 func gradientColors*(fill: BackendFill): array[4, ColorRGBA] =
   ## Vertex order: 0=BL, 1=BR, 2=TR, 3=TL
@@ -146,9 +143,6 @@ type BackendContext* = ref object of RootObj
 
 method kind*(impl: BackendContext): RendererBackendKind {.base.} =
   raise newException(ValueError, "Backend kind unavailable")
-
-method supportsNativeLinear3Sdf*(impl: BackendContext): bool {.base.} =
-  false
 
 method entriesPtr*(impl: BackendContext): ptr Table[Hash, Rect] {.base.} =
   raise newException(ValueError, "Backend entries unavailable")
