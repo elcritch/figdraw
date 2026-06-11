@@ -19,9 +19,6 @@ type
   CornerRadii* = object
     values*: array[DirectionCorners, uint16]
 
-  BorderSize* = object
-    width*: float32
-
   Fig* = ref object
     inner: fdn.Fig
 
@@ -51,9 +48,6 @@ proc initRgba(r, g, b, a: uint8): ColorRGBA =
 
 proc cornerRadii(topLeft, topRight, bottomLeft, bottomRight: float32): CornerRadii =
   CornerRadii(values: [topLeft, topRight, bottomLeft, bottomRight])
-
-proc newBorderSize(width: float32): BorderSize =
-  BorderSize(width: width)
 
 func toFigKind(kind: int8): fdn.FigKind =
   let raw = kind.int
@@ -347,11 +341,11 @@ proc setStrokeRaw(fig: Fig, weight: float32, color: ColorRGBA) =
   fig.ensureRectangle()
   fig.inner.stroke = RenderStroke(weight: weight, fill: fill(color))
 
-proc setStroke(fig: Fig, border: BorderSize, color: ColorRGBA) =
+proc setStroke(fig: Fig, weight: float32, color: ColorRGBA) =
   if fig.isNil:
     return
   fig.ensureRectangle()
-  fig.inner.stroke = RenderStroke(weight: border.width, fill: fill(color))
+  fig.inner.stroke = RenderStroke(weight: weight, fill: fill(color))
 
 proc clearShadows(fig: Fig) =
   if fig.isNil:
@@ -545,10 +539,6 @@ exportObject CornerRadii:
   constructor:
     cornerRadii(float32, float32, float32, float32)
 
-exportObject BorderSize:
-  constructor:
-    newBorderSize(float32)
-
 exportRefObject Fig:
   constructor:
     newFig()
@@ -569,7 +559,7 @@ exportRefObject Fig:
     setFillLinear3(Fig, ColorRGBA, ColorRGBA, ColorRGBA, FillGradientAxis, uint8)
     setRotation(Fig, float32)
     setCorners(Fig, CornerRadii)
-    setStroke(Fig, BorderSize, ColorRGBA)
+    setStroke(Fig, float32, ColorRGBA)
     clearShadows(Fig)
     setShadow(Fig, int8, ShadowStyle, float32, float32, float32, float32, ColorRGBA)
 

@@ -54,8 +54,8 @@ BLUE_GRAD_STOP = fd.RgbaColor(118, 168, 255, 255)
 WHITE_STROKE = fd.RgbaColor(255, 255, 255, 210)
 BLACK_SHADOW = fd.RgbaColor(0, 0, 0, 155)
 BLUE_INNER_SHADOW = fd.RgbaColor(40, 40, 60, 150)
-RED_BORDER = fd.BorderSize(5.0)
-BLUE_BORDER = fd.BorderSize(4.0)
+RED_BORDER = 5.0
+BLUE_BORDER = 4.0
 
 
 def make_render_tree(width: float, height: float, frame: int) -> fd.Renders:

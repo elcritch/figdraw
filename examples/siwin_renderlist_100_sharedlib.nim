@@ -39,8 +39,8 @@ let
   whiteStroke = ColorRGBA(r: 255, g: 255, b: 255, a: 210)
   blackShadow = ColorRGBA(r: 0, g: 0, b: 0, a: 155)
   blueInnerShadow = ColorRGBA(r: 40, g: 40, b: 60, a: 150)
-  redBorder = BorderSize(width: 5.0)
-  blueBorder = BorderSize(width: 4.0)
+  redBorder = 5.0'f32
+  blueBorder = 4.0'f32
 
 proc fract(x: float64): float64 {.inline.} =
   x - floor(x)
