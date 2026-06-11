@@ -9,10 +9,10 @@ import pkg/chroma
 export chroma
 
 type
-  TypefaceId* = Hash
-  FontId* = Hash
-  GlyphId* = Hash
-  FontName* = string
+  TypefaceId* = distinct Hash
+  FontId* = distinct Hash
+  GlyphId* = distinct Hash
+  FontName* = distinct string
 
   FontCase* = enum
     NormalCase
@@ -67,6 +67,19 @@ type
     maxSize*: Vec2
     minSize*: Vec2
     bounding*: Rect
+
+proc hash*(id: TypefaceId): Hash {.borrow.}
+proc `==`*(a, b: TypefaceId): bool {.borrow.}
+
+proc hash*(id: FontId): Hash {.borrow.}
+proc `==`*(a, b: FontId): bool {.borrow.}
+
+proc hash*(id: GlyphId): Hash {.borrow.}
+proc `==`*(a, b: GlyphId): bool {.borrow.}
+
+proc hash*(name: FontName): Hash {.borrow.}
+proc `==`*(a, b: FontName): bool {.borrow.}
+proc `$`*(name: FontName): string {.borrow.}
 
 proc hash*(fnt: FigFont): Hash =
   var h = Hash(0)

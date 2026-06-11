@@ -1,6 +1,7 @@
 import std/math
 
 import pkg/chroma
+import equtils
 
 type
   FillGradientAxis* = enum
@@ -34,6 +35,9 @@ type
       lin2*: Linear2
     of flLinear3:
       lin3*: Linear3
+
+proc `==`*(a, b: Fill): bool =
+  equalsImpl(a, b)
 
 proc fill*(color: ColorRGBA): Fill =
   Fill(kind: flColor, color: color)
