@@ -356,20 +356,36 @@ proc containsLayer(renders: Renders, zLevel: int8): bool =
 proc addRoot(renders: Renders, zLevel: int8, root: FigRef): int16 {.raises: [FigDrawError].} =
   if renders.isNil or root.isNil:
     return -1'i16
-  try:
+  withFigDrawError:
     var nodes = renders
     result = nodes.addRoot(fdn.ZLevel(zLevel), root.inner).int16
-  except Exception as e:
-    raiseFigDrawError(e)
+
+proc insertRoot(
+    renders: Renders, zLevel: int8, rootPos: int, root: FigRef
+): int16 {.raises: [FigDrawError].} =
+  if renders.isNil or root.isNil:
+    return -1'i16
+  withFigDrawError:
+    var nodes = renders
+    result = nodes.insertRoot(fdn.ZLevel(zLevel), root.inner, rootPos.Natural).int16
 
 proc addChild(renders: Renders, zLevel: int8, parentIdx: int16, child: FigRef): int16 {.raises: [FigDrawError].} =
   if renders.isNil or child.isNil:
     return -1'i16
-  try:
+  withFigDrawError:
     var nodes = renders
     result = nodes.addChild(fdn.ZLevel(zLevel), fdn.FigIdx(parentIdx), child.inner).int16
-  except Exception as e:
-    raiseFigDrawError(e)
+
+proc insertChild(
+    renders: Renders, zLevel: int8, parentIdx: int16, childPos: int, child: FigRef
+): int16 {.raises: [FigDrawError].} =
+  if renders.isNil or child.isNil:
+    return -1'i16
+  withFigDrawError:
+    var nodes = renders
+    result = nodes.insertChild(
+      fdn.ZLevel(zLevel), fdn.FigIdx(parentIdx), child.inner, childPos.Natural
+    ).int16
 
 proc layerNodeCount(renders: Renders, zLevel: int8): int {.raises: [FigDrawError].} =
   if renders.isNil:
@@ -448,7 +464,9 @@ exportRefObject Renders:
     clear(Renders)
     containsLayer(Renders, int8)
     addRoot(Renders, int8, FigRef)
+    insertRoot(Renders, int8, int, FigRef)
     addChild(Renders, int8, int16, FigRef)
+    insertChild(Renders, int8, int16, int, FigRef)
     layerNodeCount(Renders, int8)
     layerRootCount(Renders, int8)
     getLayerNode(Renders, int8, int16)
