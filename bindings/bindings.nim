@@ -16,12 +16,6 @@ const ExportSiwinShim* {.booldefine: "figdraw.bindings.siwinshim".} = false
 const GeneratedDir = currentSourcePath().parentDir / "generated"
 
 type
-  RgbaColor* = object
-    r*: uint8
-    g*: uint8
-    b*: uint8
-    a*: uint8
-
   CornerRadii* = object
     topLeft*: float32
     topRight*: float32
@@ -55,8 +49,8 @@ type
 proc newFig(): Fig =
   Fig(inner: fdn.Fig(kind: fdn.nkFrame))
 
-proc newRgbaColor(r, g, b, a: uint8): RgbaColor =
-  RgbaColor(r: r, g: g, b: b, a: a)
+proc initRgba(r, g, b, a: uint8): ColorRGBA =
+  rgba(r, g, b, a)
 
 proc newCornerRadii(topLeft, topRight, bottomLeft, bottomRight: float32): CornerRadii =
   CornerRadii(
@@ -275,10 +269,10 @@ proc setFillColor(fig: Fig, r, g, b, a: uint8) =
     return
   fig.inner.fill = fill(rgba(r, g, b, a))
 
-proc setFillColorRgba(fig: Fig, color: RgbaColor) =
+proc setFillColorRgba(fig: Fig, color: ColorRGBA) =
   if fig.isNil:
     return
-  fig.inner.fill = fill(rgba(color.r, color.g, color.b, color.a))
+  fig.inner.fill = fill(color)
 
 proc setFillLinear2Raw(
     fig: Fig, sr, sg, sb, sa: uint8, er, eg, eb, ea: uint8, axis: FillGradientAxis
@@ -291,12 +285,12 @@ proc setFillLinear2Raw(
     axis = axis,
   )
 
-proc setFillLinear2(fig: Fig, startColor, endColor: RgbaColor, axis: FillGradientAxis) =
+proc setFillLinear2(fig: Fig, startColor, endColor: ColorRGBA, axis: FillGradientAxis) =
   if fig.isNil:
     return
   fig.inner.fill = linear(
-    rgba(startColor.r, startColor.g, startColor.b, startColor.a),
-    rgba(endColor.r, endColor.g, endColor.b, endColor.a),
+    startColor,
+    endColor,
     axis = axis,
   )
 
@@ -320,16 +314,16 @@ proc setFillLinear3Raw(
 
 proc setFillLinear3(
     fig: Fig,
-    startColor, midColor, endColor: RgbaColor,
+    startColor, midColor, endColor: ColorRGBA,
     axis: FillGradientAxis,
     midPos: uint8,
 ) =
   if fig.isNil:
     return
   fig.inner.fill = linear(
-    rgba(startColor.r, startColor.g, startColor.b, startColor.a),
-    rgba(midColor.r, midColor.g, midColor.b, midColor.a),
-    rgba(endColor.r, endColor.g, endColor.b, endColor.a),
+    startColor,
+    midColor,
+    endColor,
     axis = axis,
     midPos = midPos,
   )
@@ -356,20 +350,17 @@ proc setStrokeRaw(fig: Fig, weight: float32, r, g, b, a: uint8) =
   fig.ensureRectangle()
   fig.inner.stroke = RenderStroke(weight: weight, fill: fill(rgba(r, g, b, a)))
 
-proc setStrokeRaw(fig: Fig, weight: float32, color: RgbaColor) =
+proc setStrokeRaw(fig: Fig, weight: float32, color: ColorRGBA) =
   if fig.isNil:
     return
   fig.ensureRectangle()
-  fig.inner.stroke =
-    RenderStroke(weight: weight, fill: fill(rgba(color.r, color.g, color.b, color.a)))
+  fig.inner.stroke = RenderStroke(weight: weight, fill: fill(color))
 
-proc setStroke(fig: Fig, border: BorderSize, color: RgbaColor) =
+proc setStroke(fig: Fig, border: BorderSize, color: ColorRGBA) =
   if fig.isNil:
     return
   fig.ensureRectangle()
-  fig.inner.stroke = RenderStroke(
-    weight: border.width, fill: fill(rgba(color.r, color.g, color.b, color.a))
-  )
+  fig.inner.stroke = RenderStroke(weight: border.width, fill: fill(color))
 
 proc clearShadows(fig: Fig) =
   if fig.isNil:
@@ -404,7 +395,7 @@ proc setShadow(
     shadowIndex: int8,
     style: ShadowStyle,
     blur, spread, x, y: float32,
-    color: RgbaColor,
+    color: ColorRGBA,
 ) =
   if fig.isNil:
     return
@@ -418,7 +409,7 @@ proc setShadow(
     spread: spread,
     x: x,
     y: y,
-    fill: fill(rgba(color.r, color.g, color.b, color.a)),
+    fill: fill(color),
   )
 
 proc newRenderList(): RenderList =
@@ -549,9 +540,9 @@ proc getLayerNode(renders: Renders, zLevel: int8, nodeIdx: int16): Fig =
   except CatchableError:
     nil
 
-exportObject RgbaColor:
+exportObject chroma.ColorRGBA:
   constructor:
-    newRgbaColor(uint8, uint8, uint8, uint8)
+    initRgba(uint8, uint8, uint8, uint8)
 
 exportObject CornerRadii:
   constructor:
@@ -581,14 +572,14 @@ exportRefObject Fig:
     height(Fig)
     setScreenBox(Fig, float32, float32, float32, float32)
     setFillColor(Fig, uint8, uint8, uint8, uint8)
-    setFillColorRgba(Fig, RgbaColor)
-    setFillLinear2(Fig, RgbaColor, RgbaColor, FillGradientAxis)
-    setFillLinear3(Fig, RgbaColor, RgbaColor, RgbaColor, FillGradientAxis, uint8)
+    setFillColorRgba(Fig, ColorRGBA)
+    setFillLinear2(Fig, ColorRGBA, ColorRGBA, FillGradientAxis)
+    setFillLinear3(Fig, ColorRGBA, ColorRGBA, ColorRGBA, FillGradientAxis, uint8)
     setRotation(Fig, float32)
     setCorners(Fig, CornerRadii)
-    setStroke(Fig, BorderSize, RgbaColor)
+    setStroke(Fig, BorderSize, ColorRGBA)
     clearShadows(Fig)
-    setShadow(Fig, int8, ShadowStyle, float32, float32, float32, float32, RgbaColor)
+    setShadow(Fig, int8, ShadowStyle, float32, float32, float32, float32, ColorRGBA)
 
 exportRefObject RenderList:
   constructor:

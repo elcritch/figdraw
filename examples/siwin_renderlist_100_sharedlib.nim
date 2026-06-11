@@ -26,19 +26,19 @@ const
   TraceShared {.booldefine: "figdraw.traceSharedLib".}: bool = false
 
 let
-  redFill = RgbaColor(r: 220, g: 40, b: 40, a: 155)
-  redStroke = RgbaColor(r: 0, g: 0, b: 0, a: 155)
-  greenSolid = RgbaColor(r: 40, g: 180, b: 90, a: 155)
-  greenGradStart = RgbaColor(r: 18, g: 112, b: 64, a: 255)
-  greenGradMid = RgbaColor(r: 40, g: 180, b: 90, a: 255)
-  greenGradStop = RgbaColor(r: 78, g: 224, b: 188, a: 255)
-  blueSolid = RgbaColor(r: 60, g: 90, b: 220, a: 155)
-  blueGradStart = RgbaColor(r: 44, g: 72, b: 186, a: 255)
-  blueGradMid = RgbaColor(r: 60, g: 90, b: 220, a: 255)
-  blueGradStop = RgbaColor(r: 118, g: 168, b: 255, a: 255)
-  whiteStroke = RgbaColor(r: 255, g: 255, b: 255, a: 210)
-  blackShadow = RgbaColor(r: 0, g: 0, b: 0, a: 155)
-  blueInnerShadow = RgbaColor(r: 40, g: 40, b: 60, a: 150)
+  redFill = ColorRGBA(r: 220, g: 40, b: 40, a: 155)
+  redStroke = ColorRGBA(r: 0, g: 0, b: 0, a: 155)
+  greenSolid = ColorRGBA(r: 40, g: 180, b: 90, a: 155)
+  greenGradStart = ColorRGBA(r: 18, g: 112, b: 64, a: 255)
+  greenGradMid = ColorRGBA(r: 40, g: 180, b: 90, a: 255)
+  greenGradStop = ColorRGBA(r: 78, g: 224, b: 188, a: 255)
+  blueSolid = ColorRGBA(r: 60, g: 90, b: 220, a: 155)
+  blueGradStart = ColorRGBA(r: 44, g: 72, b: 186, a: 255)
+  blueGradMid = ColorRGBA(r: 60, g: 90, b: 220, a: 255)
+  blueGradStop = ColorRGBA(r: 118, g: 168, b: 255, a: 255)
+  whiteStroke = ColorRGBA(r: 255, g: 255, b: 255, a: 210)
+  blackShadow = ColorRGBA(r: 0, g: 0, b: 0, a: 155)
+  blueInnerShadow = ColorRGBA(r: 40, g: 40, b: 60, a: 150)
   redBorder = BorderSize(width: 5.0)
   blueBorder = BorderSize(width: 4.0)
 
@@ -57,7 +57,7 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
     quit("makeRenderTree: newRectangleFig returned nil", 1)
   when TraceShared:
     echo "trace: background created"
-  background.setFillColorRgba(RgbaColor(r: 255, g: 255, b: 255, a: 155))
+  background.setFillColorRgba(ColorRGBA(r: 255, g: 255, b: 255, a: 155))
   when TraceShared:
     echo "trace: background fill set"
   discard renders.addRoot(0, background)
@@ -346,7 +346,7 @@ when isMainModule:
         hudY = hudMargin
       let hudRect = newRectangleFig(hudX, hudY, hudW, hudH)
       GC_ref(hudRect)
-      hudRect.setFillColorRgba(RgbaColor(r: 0, g: 0, b: 0, a: 155))
+      hudRect.setFillColorRgba(ColorRGBA(r: 0, g: 0, b: 0, a: 155))
       hudRect.setCorners(CornerRadii(topLeft: 8, topRight: 8, bottomLeft: 8, bottomRight: 8))
       discard renders.addRoot(0, hudRect)
 
@@ -371,7 +371,7 @@ when isMainModule:
       if not fpsLayout.isNil:
         let hudText = newTextFig(hudTextX, hudTextY, hudTextW, hudTextH)
         GC_ref(hudText)
-        hudText.setFillColorRgba(RgbaColor(r: 0, g: 0, b: 0, a: 0))
+        hudText.setFillColorRgba(ColorRGBA(r: 0, g: 0, b: 0, a: 0))
         setFigTextLayoutBinding(hudText, fpsLayout)
         discard renders.addRoot(0, hudText)
       when TraceShared:
