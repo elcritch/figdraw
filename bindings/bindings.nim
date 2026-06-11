@@ -7,6 +7,7 @@ import figdraw/commons
 import figdraw/fignodes as fdn
 import figdraw/figrender as fgr
 import figdraw/common/fonttypes as fnt
+from figdraw/common/fonttypes import FontCase
 import figdraw/common/fontutils as fut
 when not defined(emscripten):
   import figdraw/utils/glutils
@@ -15,23 +16,6 @@ const ExportSiwinShim* {.booldefine: "figdraw.bindings.siwinshim".} = false
 const GeneratedDir = currentSourcePath().parentDir / "generated"
 
 type
-  BindingFillAxis {.pure.} = enum
-    x
-    y
-    diagTlBr
-    diagBlTr
-
-  BindingFontCase {.pure.} = enum
-    normal
-    upper
-    lower
-    title
-
-  BindingShadowStyle {.pure.} = enum
-    none
-    drop
-    inner
-
   RgbaColor* = object
     r*: uint8
     g*: uint8
@@ -92,46 +76,6 @@ func toFigKind(kind: int8): fdn.FigKind =
   else:
     fdn.FigKind(raw)
 
-func toBindingFillAxis(axis: int8): BindingFillAxis =
-  case axis
-  of 1'i8: BindingFillAxis.y
-  of 2'i8: BindingFillAxis.diagTlBr
-  of 3'i8: BindingFillAxis.diagBlTr
-  else: BindingFillAxis.x
-
-func toFillGradientAxis(axis: BindingFillAxis): FillGradientAxis =
-  case axis
-  of BindingFillAxis.y: fgaY
-  of BindingFillAxis.diagTlBr: fgaDiagTLBR
-  of BindingFillAxis.diagBlTr: fgaDiagBLTR
-  of BindingFillAxis.x: fgaX
-
-func toBindingFontCase(fontCase: int8): BindingFontCase =
-  case fontCase
-  of 1'i8: BindingFontCase.upper
-  of 2'i8: BindingFontCase.lower
-  of 3'i8: BindingFontCase.title
-  else: BindingFontCase.normal
-
-func toFontCase(fontCase: BindingFontCase): fnt.FontCase =
-  case fontCase
-  of BindingFontCase.upper: fnt.FontCase.UpperCase
-  of BindingFontCase.lower: fnt.FontCase.LowerCase
-  of BindingFontCase.title: fnt.FontCase.TitleCase
-  of BindingFontCase.normal: fnt.FontCase.NormalCase
-
-func toBindingShadowStyle(style: int8): BindingShadowStyle =
-  case style
-  of 1'i8: BindingShadowStyle.drop
-  of 2'i8: BindingShadowStyle.inner
-  else: BindingShadowStyle.none
-
-func toShadowStyle(style: BindingShadowStyle): ShadowStyle =
-  case style
-  of BindingShadowStyle.drop: ShadowStyle.DropShadow
-  of BindingShadowStyle.inner: ShadowStyle.InnerShadow
-  of BindingShadowStyle.none: ShadowStyle.NoShadow
-
 proc newRectangleFig(x, y, w, h: float32): Fig =
   Fig(
     inner: fdn.Fig(
@@ -190,10 +134,10 @@ proc setFigFontLineHeightBinding(font: FigFontRef, lineHeight: float32) =
     return
   font.inner.lineHeight = lineHeight
 
-proc setFigFontCaseBinding(font: FigFontRef, fontCase: int8) =
+proc setFigFontCaseBinding(font: FigFontRef, fontCase: FontCase) =
   if font.isNil:
     return
-  font.inner.fontCase = fontCase.toBindingFontCase().toFontCase()
+  font.inner.fontCase = fontCase
 
 proc typesetTextBinding(
     width, height: float32,
@@ -337,23 +281,23 @@ proc setFillColorRgba(fig: Fig, color: RgbaColor) =
   fig.inner.fill = fill(rgba(color.r, color.g, color.b, color.a))
 
 proc setFillLinear2Raw(
-    fig: Fig, sr, sg, sb, sa: uint8, er, eg, eb, ea: uint8, axis: int8
+    fig: Fig, sr, sg, sb, sa: uint8, er, eg, eb, ea: uint8, axis: FillGradientAxis
 ) =
   if fig.isNil:
     return
   fig.inner.fill = linear(
     rgba(sr, sg, sb, sa),
     rgba(er, eg, eb, ea),
-    axis = axis.toBindingFillAxis().toFillGradientAxis(),
+    axis = axis,
   )
 
-proc setFillLinear2(fig: Fig, startColor, endColor: RgbaColor, axis: int8) =
+proc setFillLinear2(fig: Fig, startColor, endColor: RgbaColor, axis: FillGradientAxis) =
   if fig.isNil:
     return
   fig.inner.fill = linear(
     rgba(startColor.r, startColor.g, startColor.b, startColor.a),
     rgba(endColor.r, endColor.g, endColor.b, endColor.a),
-    axis = axis.toBindingFillAxis().toFillGradientAxis(),
+    axis = axis,
   )
 
 proc setFillLinear3Raw(
@@ -361,7 +305,7 @@ proc setFillLinear3Raw(
     sr, sg, sb, sa: uint8,
     mr, mg, mb, ma: uint8,
     er, eg, eb, ea: uint8,
-    axis: int8,
+    axis: FillGradientAxis,
     midPos: uint8,
 ) =
   if fig.isNil:
@@ -370,12 +314,15 @@ proc setFillLinear3Raw(
     rgba(sr, sg, sb, sa),
     rgba(mr, mg, mb, ma),
     rgba(er, eg, eb, ea),
-    axis = axis.toBindingFillAxis().toFillGradientAxis(),
+    axis = axis,
     midPos = midPos,
   )
 
 proc setFillLinear3(
-    fig: Fig, startColor, midColor, endColor: RgbaColor, axis: int8, midPos: uint8
+    fig: Fig,
+    startColor, midColor, endColor: RgbaColor,
+    axis: FillGradientAxis,
+    midPos: uint8,
 ) =
   if fig.isNil:
     return
@@ -383,7 +330,7 @@ proc setFillLinear3(
     rgba(startColor.r, startColor.g, startColor.b, startColor.a),
     rgba(midColor.r, midColor.g, midColor.b, midColor.a),
     rgba(endColor.r, endColor.g, endColor.b, endColor.a),
-    axis = axis.toBindingFillAxis().toFillGradientAxis(),
+    axis = axis,
     midPos = midPos,
   )
 
@@ -433,7 +380,7 @@ proc clearShadows(fig: Fig) =
 proc setShadowRaw(
     fig: Fig,
     shadowIndex: int8,
-    style: int8,
+    style: ShadowStyle,
     blur, spread, x, y: float32,
     r, g, b, a: uint8,
 ) =
@@ -444,7 +391,7 @@ proc setShadowRaw(
     return
 
   fig.inner.shadows[shadowIndex.int] = RenderShadow(
-    style: style.toBindingShadowStyle().toShadowStyle(),
+    style: style,
     blur: blur,
     spread: spread,
     x: x,
@@ -455,7 +402,7 @@ proc setShadowRaw(
 proc setShadow(
     fig: Fig,
     shadowIndex: int8,
-    style: int8,
+    style: ShadowStyle,
     blur, spread, x, y: float32,
     color: RgbaColor,
 ) =
@@ -466,7 +413,7 @@ proc setShadow(
     return
 
   fig.inner.shadows[shadowIndex.int] = RenderShadow(
-    style: style.toBindingShadowStyle().toShadowStyle(),
+    style: style,
     blur: blur,
     spread: spread,
     x: x,
@@ -614,6 +561,11 @@ exportObject BorderSize:
   constructor:
     newBorderSize(float32)
 
+exportEnums:
+  FillGradientAxis
+  FontCase
+  ShadowStyle
+
 exportRefObject Fig:
   constructor:
     newFig()
@@ -630,13 +582,13 @@ exportRefObject Fig:
     setScreenBox(Fig, float32, float32, float32, float32)
     setFillColor(Fig, uint8, uint8, uint8, uint8)
     setFillColorRgba(Fig, RgbaColor)
-    setFillLinear2(Fig, RgbaColor, RgbaColor, int8)
-    setFillLinear3(Fig, RgbaColor, RgbaColor, RgbaColor, int8, uint8)
+    setFillLinear2(Fig, RgbaColor, RgbaColor, FillGradientAxis)
+    setFillLinear3(Fig, RgbaColor, RgbaColor, RgbaColor, FillGradientAxis, uint8)
     setRotation(Fig, float32)
     setCorners(Fig, CornerRadii)
     setStroke(Fig, BorderSize, RgbaColor)
     clearShadows(Fig)
-    setShadow(Fig, int8, int8, float32, float32, float32, float32, RgbaColor)
+    setShadow(Fig, int8, ShadowStyle, float32, float32, float32, float32, RgbaColor)
 
 exportRefObject RenderList:
   constructor:
@@ -677,7 +629,7 @@ exportRefObject FigFontRef:
     newFigFontBinding(TypefaceRef, float32)
   procs:
     setFigFontLineHeightBinding(FigFontRef, float32)
-    setFigFontCaseBinding(FigFontRef, int8)
+    setFigFontCaseBinding(FigFontRef, FontCase)
 
 exportRefObject GlyphLayoutRef:
   procs:
