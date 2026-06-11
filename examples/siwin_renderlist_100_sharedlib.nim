@@ -319,7 +319,7 @@ when isMainModule:
       buildRenderTree(renders, width, height, globalFrame)
       when TraceShared:
         echo "trace: make render tree done"
-      makeRenderTreeMsSum += float((getMonoTime() - t0).inMilliseconds)
+      makeRenderTreeMsSum += float((getMonoTime() - t0).inMicroseconds)
       lastElementCount = renders.layerNodeCount(0)
 
       let
@@ -367,7 +367,7 @@ when isMainModule:
       renderer.renderFrameBinding(renders, width, height)
       when TraceShared:
         echo "trace: render frame done"
-      renderFrameMsSum += float((getMonoTime() - t1).inMilliseconds)
+      renderFrameMsSum += float((getMonoTime() - t1).inMicroseconds)
       window.redraw()
       window.step()
       when TraceShared:
@@ -381,8 +381,9 @@ when isMainModule:
         let avgMake = makeRenderTreeMsSum / max(1, fpsFrames).float
         let avgRender = renderFrameMsSum / max(1, fpsFrames).float
         echo "fps: ",
-          fps, " | elems: ", lastElementCount, " | makeRenderTree avg(ms): ", avgMake,
-          " | renderFrame avg(ms): ", avgRender
+          fps, " | elems: ", lastElementCount,
+          " | makeRenderTree avg(us): ", avgMake,
+          " | renderFrame avg(us): ", avgRender
         fpsFrames = 0
         fpsStart = now
         makeRenderTreeMsSum = 0.0
