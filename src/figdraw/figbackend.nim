@@ -1,4 +1,4 @@
-import std/[hashes, tables]
+import std/[hashes, math, tables]
 export tables
 
 from pkg/pixie import Image
@@ -44,10 +44,111 @@ type SdfMode* {.pure.} = enum
   sdfModeMtsdfAnnular = 16
   sdfModeBackdropBlur = 17
 
+type
+  BackendFillKind* = enum
+    bfColor
+    bfLinear2
+    bfLinear3
+
+  BackendFill* = object
+    case kind*: BackendFillKind
+    of bfColor:
+      color*: ColorRGBA
+    of bfLinear2:
+      lin2Axis*: FillGradientAxis
+      lin2Start*, lin2Stop*: ColorRGBA
+    of bfLinear3:
+      lin3Axis*: FillGradientAxis
+      lin3Start*, lin3Mid*, lin3Stop*: ColorRGBA
+      lin3MidPos*: float32
+
+func toBackendFill*(fill: Fill): BackendFill =
+  case fill.kind
+  of flColor:
+    BackendFill(kind: bfColor, color: fill.color)
+  of flLinear2:
+    BackendFill(
+      kind: bfLinear2,
+      lin2Axis: fill.lin2.axis,
+      lin2Start: fill.lin2.start,
+      lin2Stop: fill.lin2.stop,
+    )
+  of flLinear3:
+    BackendFill(
+      kind: bfLinear3,
+      lin3Axis: fill.lin3.axis,
+      lin3Start: fill.lin3.start,
+      lin3Mid: fill.lin3.mid,
+      lin3Stop: fill.lin3.stop,
+      lin3MidPos: clamp(fill.lin3.midPos.float32 / 255.0'f32, 0.01'f32, 0.99'f32),
+    )
+
+func lerpColor(a, b: ColorRGBA, t: float32): ColorRGBA =
+  let
+    clampedT = clamp(t, 0.0'f32, 1.0'f32)
+    invT = 1.0'f32 - clampedT
+  result.r = (a.r.float32 * invT + b.r.float32 * clampedT).round().uint8
+  result.g = (a.g.float32 * invT + b.g.float32 * clampedT).round().uint8
+  result.b = (a.b.float32 * invT + b.b.float32 * clampedT).round().uint8
+  result.a = (a.a.float32 * invT + b.a.float32 * clampedT).round().uint8
+
+func sampleColor*(fill: BackendFill, t: float32): ColorRGBA =
+  case fill.kind
+  of bfColor:
+    fill.color
+  of bfLinear2:
+    lerpColor(fill.lin2Start, fill.lin2Stop, t)
+  of bfLinear3:
+    let clampedT = clamp(t, 0.0'f32, 1.0'f32)
+    if clampedT <= fill.lin3MidPos:
+      lerpColor(fill.lin3Start, fill.lin3Mid, clampedT / fill.lin3MidPos)
+    else:
+      lerpColor(
+        fill.lin3Mid,
+        fill.lin3Stop,
+        (clampedT - fill.lin3MidPos) / (1.0'f32 - fill.lin3MidPos),
+      )
+
+func fillGradientAxis(fill: BackendFill): FillGradientAxis =
+  case fill.kind
+  of bfColor:
+    fgaX
+  of bfLinear2:
+    fill.lin2Axis
+  of bfLinear3:
+    fill.lin3Axis
+
+func gradientColors*(fill: BackendFill): array[4, ColorRGBA] =
+  ## Vertex order: 0=BL, 1=BR, 2=TR, 3=TL
+  case fill.fillGradientAxis()
+  of fgaX:
+    result[0] = fill.sampleColor(0.0'f32)
+    result[1] = fill.sampleColor(1.0'f32)
+    result[2] = fill.sampleColor(1.0'f32)
+    result[3] = fill.sampleColor(0.0'f32)
+  of fgaY:
+    result[0] = fill.sampleColor(1.0'f32)
+    result[1] = fill.sampleColor(1.0'f32)
+    result[2] = fill.sampleColor(0.0'f32)
+    result[3] = fill.sampleColor(0.0'f32)
+  of fgaDiagTLBR:
+    result[0] = fill.sampleColor(0.5'f32)
+    result[1] = fill.sampleColor(1.0'f32)
+    result[2] = fill.sampleColor(0.5'f32)
+    result[3] = fill.sampleColor(0.0'f32)
+  of fgaDiagBLTR:
+    result[0] = fill.sampleColor(0.0'f32)
+    result[1] = fill.sampleColor(0.5'f32)
+    result[2] = fill.sampleColor(1.0'f32)
+    result[3] = fill.sampleColor(0.5'f32)
+
 type BackendContext* = ref object of RootObj
 
 method kind*(impl: BackendContext): RendererBackendKind {.base.} =
   raise newException(ValueError, "Backend kind unavailable")
+
+method supportsNativeLinear3Sdf*(impl: BackendContext): bool {.base.} =
+  false
 
 method entriesPtr*(impl: BackendContext): ptr Table[Hash, Rect] {.base.} =
   raise newException(ValueError, "Backend entries unavailable")
@@ -120,6 +221,26 @@ method drawRoundedRectSdf*(
     shapeSize: Vec2,
 ) {.base.} =
   raise newException(ValueError, "Backend drawRoundedRectSdf unavailable")
+
+method drawRoundedRectSdf*(
+    impl: BackendContext,
+    rect: Rect,
+    fill: BackendFill,
+    radii: array[DirectionCorners, float32],
+    mode: SdfMode,
+    factor: float32,
+    spread: float32,
+    shapeSize: Vec2,
+) {.base.} =
+  impl.drawRoundedRectSdf(
+    rect = rect,
+    colors = fill.gradientColors(),
+    radii = radii,
+    mode = mode,
+    factor = factor,
+    spread = spread,
+    shapeSize = shapeSize,
+  )
 
 method drawRoundedRectSdf*(
     impl: BackendContext,

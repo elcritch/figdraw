@@ -52,6 +52,10 @@ type FlushBuffers = object
   positionsCapacity: int
   colors: ObjcOwned[MTLBuffer]
   colorsCapacity: int
+  fillMidColors: ObjcOwned[MTLBuffer]
+  fillMidColorsCapacity: int
+  fillStopColors: ObjcOwned[MTLBuffer]
+  fillStopColorsCapacity: int
   uvs: ObjcOwned[MTLBuffer]
   uvsCapacity: int
   sdfParams: ObjcOwned[MTLBuffer]
@@ -124,6 +128,8 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   indices: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[uint16]]
   positions: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
   colors: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[uint8]]
+  fillMidColors: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[uint8]]
+  fillStopColors: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[uint8]]
   uvs: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
   sdfParams: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
   sdfRadii: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
@@ -547,6 +553,16 @@ proc upload(ctx: MetalContext) =
   copyToBuf(ctx.uvs.buffer.borrow, ctx.uvs.data, vertexCount * 2 * sizeof(float32))
   copyToBuf(ctx.colors.buffer.borrow, ctx.colors.data, vertexCount * 4 * sizeof(uint8))
   copyToBuf(
+    ctx.fillMidColors.buffer.borrow,
+    ctx.fillMidColors.data,
+    vertexCount * 4 * sizeof(uint8),
+  )
+  copyToBuf(
+    ctx.fillStopColors.buffer.borrow,
+    ctx.fillStopColors.data,
+    vertexCount * 4 * sizeof(uint8),
+  )
+  copyToBuf(
     ctx.sdfParams.buffer.borrow, ctx.sdfParams.data, vertexCount * 4 * sizeof(float32)
   )
   copyToBuf(
@@ -833,6 +849,44 @@ proc drawQuad*(
   inc ctx.quadCount
 
 type SdfMode* = figbackend.SdfMode
+
+const
+  SdfFillSolidOrVertex = 0
+  SdfFillLinear3X = 1
+  SdfFillLinear3Y = 2
+  SdfFillLinear3DiagTLBR = 3
+  SdfFillLinear3DiagBLTR = 4
+  SdfFillModeShift = 256
+
+func linear3FillMode(axis: FillGradientAxis): int =
+  case axis
+  of fgaX:
+    SdfFillLinear3X
+  of fgaY:
+    SdfFillLinear3Y
+  of fgaDiagTLBR:
+    SdfFillLinear3DiagTLBR
+  of fgaDiagBLTR:
+    SdfFillLinear3DiagBLTR
+
+func encodeSdfMode(mode: SdfMode, fillMode: int): SdfModeData =
+  let packed = mode.int + fillMode * SdfFillModeShift
+  when SdfModeData is float32:
+    packed.float32
+  else:
+    packed.uint16
+
+proc setFillExtraColors(
+    ctx: MetalContext, offset: int, midColor, stopColor: ColorRGBA
+) =
+  ctx.fillMidColors.data.setVertColor(offset + 0, midColor)
+  ctx.fillMidColors.data.setVertColor(offset + 1, midColor)
+  ctx.fillMidColors.data.setVertColor(offset + 2, midColor)
+  ctx.fillMidColors.data.setVertColor(offset + 3, midColor)
+  ctx.fillStopColors.data.setVertColor(offset + 0, stopColor)
+  ctx.fillStopColors.data.setVertColor(offset + 1, stopColor)
+  ctx.fillStopColors.data.setVertColor(offset + 2, stopColor)
+  ctx.fillStopColors.data.setVertColor(offset + 3, stopColor)
 
 proc drawUvRectAtlasSdf(
     ctx: MetalContext,
@@ -1209,6 +1263,9 @@ method drawRect*(ctx: MetalContext, rect: Rect, color: Color) =
     color,
   )
 
+method supportsNativeLinear3Sdf*(ctx: MetalContext): bool =
+  true
+
 method drawRoundedRectSdf*(
     ctx: MetalContext,
     rect: Rect,
@@ -1230,7 +1287,7 @@ method drawRoundedRectSdf*(
     shapeSize = shapeSize,
   )
 
-method drawRoundedRectSdf*(
+proc drawRoundedRectSdfMetal(
     ctx: MetalContext,
     rect: Rect,
     colors: array[4, ColorRGBA],
@@ -1239,6 +1296,10 @@ method drawRoundedRectSdf*(
     factor: float32 = 4.0,
     spread: float32 = 0.0,
     shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+    fillMode: int = SdfFillSolidOrVertex,
+    fillMidColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillStopColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillMidPos: float32 = 0.5'f32,
 ) =
   if rect.w <= 0 or rect.h <= 0:
     return
@@ -1301,6 +1362,7 @@ method drawRoundedRectSdf*(
   ctx.colors.data.setVertColor(offset + 1, colors[1])
   ctx.colors.data.setVertColor(offset + 2, colors[2])
   ctx.colors.data.setVertColor(offset + 3, colors[3])
+  ctx.setFillExtraColors(offset, fillMidColor, fillStopColor)
 
   ctx.sdfParams.data.setVert4(offset + 0, params)
   ctx.sdfParams.data.setVert4(offset + 1, params)
@@ -1312,13 +1374,17 @@ method drawRoundedRectSdf*(
   ctx.sdfRadii.data.setVert4(offset + 2, r4)
   ctx.sdfRadii.data.setVert4(offset + 3, r4)
 
-  let factors = vec2(factor, spread)
+  let factors =
+    if fillMode == SdfFillSolidOrVertex:
+      vec2(factor, spread)
+    else:
+      vec2(factor, clamp(fillMidPos, 0.01'f32, 0.99'f32))
   ctx.sdfFactors.data.setVert2(offset + 0, factors)
   ctx.sdfFactors.data.setVert2(offset + 1, factors)
   ctx.sdfFactors.data.setVert2(offset + 2, factors)
   ctx.sdfFactors.data.setVert2(offset + 3, factors)
 
-  let modeVal = mode.int.uint16
+  let modeVal = encodeSdfMode(mode, fillMode)
   ctx.sdfModeAttr.data[offset + 0] = modeVal
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
@@ -1326,6 +1392,62 @@ method drawRoundedRectSdf*(
   ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
+
+method drawRoundedRectSdf*(
+    ctx: MetalContext,
+    rect: Rect,
+    colors: array[4, ColorRGBA],
+    radii: array[DirectionCorners, float32],
+    mode: SdfMode = sdfModeClipAA,
+    factor: float32 = 4.0,
+    spread: float32 = 0.0,
+    shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+) =
+  ctx.drawRoundedRectSdfMetal(
+    rect = rect,
+    colors = colors,
+    radii = radii,
+    mode = mode,
+    factor = factor,
+    spread = spread,
+    shapeSize = shapeSize,
+  )
+
+method drawRoundedRectSdf*(
+    ctx: MetalContext,
+    rect: Rect,
+    fill: figbackend.BackendFill,
+    radii: array[DirectionCorners, float32],
+    mode: SdfMode = sdfModeClipAA,
+    factor: float32 = 4.0,
+    spread: float32 = 0.0,
+    shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+) =
+  if fill.kind == figbackend.bfLinear3 and
+      mode in {sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA}:
+    ctx.drawRoundedRectSdfMetal(
+      rect = rect,
+      colors = [fill.lin3Start, fill.lin3Start, fill.lin3Start, fill.lin3Start],
+      radii = radii,
+      mode = mode,
+      factor = factor,
+      spread = spread,
+      shapeSize = shapeSize,
+      fillMode = linear3FillMode(fill.lin3Axis),
+      fillMidColor = fill.lin3Mid,
+      fillStopColor = fill.lin3Stop,
+      fillMidPos = fill.lin3MidPos,
+    )
+  else:
+    ctx.drawRoundedRectSdfMetal(
+      rect = rect,
+      colors = figbackend.gradientColors(fill),
+      radii = radii,
+      mode = mode,
+      factor = factor,
+      spread = spread,
+      shapeSize = shapeSize,
+    )
 
 method drawBackdropBlur*(
     ctx: MetalContext,
@@ -1743,6 +1865,8 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   let positionsBytes = vertexCount * 2 * sizeof(float32)
   let uvsBytes = vertexCount * 2 * sizeof(float32)
   let colorsBytes = vertexCount * 4 * sizeof(uint8)
+  let fillMidColorsBytes = vertexCount * 4 * sizeof(uint8)
+  let fillStopColorsBytes = vertexCount * 4 * sizeof(uint8)
   let sdfParamsBytes = vertexCount * 4 * sizeof(float32)
   let sdfRadiiBytes = vertexCount * 4 * sizeof(float32)
   let sdfModeBytes = vertexCount * sizeof(SdfModeData)
@@ -1762,6 +1886,16 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   )
   ctx.ensureFlushBufferCapacity(
     flushBuffers[].colors, flushBuffers[].colorsCapacity, colorsBytes
+  )
+  ctx.ensureFlushBufferCapacity(
+    flushBuffers[].fillMidColors,
+    flushBuffers[].fillMidColorsCapacity,
+    fillMidColorsBytes,
+  )
+  ctx.ensureFlushBufferCapacity(
+    flushBuffers[].fillStopColors,
+    flushBuffers[].fillStopColorsCapacity,
+    fillStopColorsBytes,
   )
   ctx.ensureFlushBufferCapacity(
     flushBuffers[].sdfParams, flushBuffers[].sdfParamsCapacity, sdfParamsBytes
@@ -1805,6 +1939,12 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   copyToBuf(flushBuffers[].positions.borrow, ctx.positions.data, positionsBytes)
   copyToBuf(flushBuffers[].uvs.borrow, ctx.uvs.data, uvsBytes)
   copyToBuf(flushBuffers[].colors.borrow, ctx.colors.data, colorsBytes)
+  copyToBuf(
+    flushBuffers[].fillMidColors.borrow, ctx.fillMidColors.data, fillMidColorsBytes
+  )
+  copyToBuf(
+    flushBuffers[].fillStopColors.borrow, ctx.fillStopColors.data, fillStopColorsBytes
+  )
   copyToBuf(flushBuffers[].sdfParams.borrow, ctx.sdfParams.data, sdfParamsBytes)
   copyToBuf(flushBuffers[].sdfRadii.borrow, ctx.sdfRadii.data, sdfRadiiBytes)
   copyToBuf(flushBuffers[].sdfModeAttr.borrow, ctx.sdfModeAttr.data, sdfModeBytes)
@@ -1835,18 +1975,20 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   setVertexBuffer(enc, flushBuffers[].sdfRadii.borrow, 0, 4)
   setVertexBuffer(enc, flushBuffers[].sdfModeAttr.borrow, 0, 5)
   setVertexBuffer(enc, flushBuffers[].sdfFactors.borrow, 0, 6)
+  setVertexBuffer(enc, flushBuffers[].fillMidColors.borrow, 0, 7)
+  setVertexBuffer(enc, flushBuffers[].fillStopColors.borrow, 0, 8)
   if useRectMaskPipeline:
-    setVertexBuffer(enc, flushBuffers[].rectMaskParams.borrow, 0, 7)
-    setVertexBuffer(enc, flushBuffers[].rectMaskRadii.borrow, 0, 8)
-    setVertexBuffer(enc, flushBuffers[].rectMaskMatX.borrow, 0, 9)
-    setVertexBuffer(enc, flushBuffers[].rectMaskMatY.borrow, 0, 10)
+    setVertexBuffer(enc, flushBuffers[].rectMaskParams.borrow, 0, 9)
+    setVertexBuffer(enc, flushBuffers[].rectMaskRadii.borrow, 0, 10)
+    setVertexBuffer(enc, flushBuffers[].rectMaskMatX.borrow, 0, 11)
+    setVertexBuffer(enc, flushBuffers[].rectMaskMatY.borrow, 0, 12)
 
   type VSUniforms = object
     proj: Mat4
 
   var vsu = VSUniforms(proj: ctx.proj)
   setVertexBytes(
-    enc, addr vsu, NSUInteger(sizeof(VSUniforms)), (if useRectMaskPipeline: 11 else: 7)
+    enc, addr vsu, NSUInteger(sizeof(VSUniforms)), (if useRectMaskPipeline: 13 else: 9)
   )
 
   type FSUniforms = object
@@ -1918,6 +2060,8 @@ proc newContext*(
     # Allocate CPU-side arrays.
     result.positions.data = newSeq[float32](2 * maxQuads * 4)
     result.colors.data = newSeq[uint8](4 * maxQuads * 4)
+    result.fillMidColors.data = newSeq[uint8](4 * maxQuads * 4)
+    result.fillStopColors.data = newSeq[uint8](4 * maxQuads * 4)
     result.uvs.data = newSeq[float32](2 * maxQuads * 4)
     result.sdfParams.data = newSeq[float32](4 * maxQuads * 4)
     result.sdfRadii.data = newSeq[float32](4 * maxQuads * 4)
@@ -1941,6 +2085,20 @@ proc newContext*(
       newBufferWithLength(
         result.device.borrow,
         NSUInteger(result.colors.data.len * sizeof(uint8)),
+        MTLResourceOptions(0),
+      )
+    )
+    result.fillMidColors.buffer.resetRetained(
+      newBufferWithLength(
+        result.device.borrow,
+        NSUInteger(result.fillMidColors.data.len * sizeof(uint8)),
+        MTLResourceOptions(0),
+      )
+    )
+    result.fillStopColors.buffer.resetRetained(
+      newBufferWithLength(
+        result.device.borrow,
+        NSUInteger(result.fillStopColors.data.len * sizeof(uint8)),
         MTLResourceOptions(0),
       )
     )

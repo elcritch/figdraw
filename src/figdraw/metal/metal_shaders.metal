@@ -6,6 +6,8 @@ struct VSOut {
   float2 pos;
   float2 uv;
   float4 color;
+  float4 fillMidColor;
+  float4 fillStopColor;
   float4 sdfParams;
   float4 sdfRadii;
   float sdfMode;
@@ -17,6 +19,8 @@ struct RectMaskVSOut {
   float2 pos;
   float2 uv;
   float4 color;
+  float4 fillMidColor;
+  float4 fillStopColor;
   float4 sdfParams;
   float4 sdfRadii;
   float sdfMode;
@@ -97,6 +101,40 @@ float rectMaskAlpha(
   return 1.0 - clamp(aaFactor * dist + 0.5, 0.0, 1.0);
 }
 
+float linear3T(int fillMode, float2 uv) {
+  switch (fillMode) {
+    case 1:
+      return uv.x;
+    case 2:
+      return uv.y;
+    case 3:
+      return 0.5 * (uv.x + uv.y);
+    case 4:
+      return 0.5 * (uv.x + (1.0 - uv.y));
+    default:
+      return 0.0;
+  }
+}
+
+float4 evalFillColor(
+    float4 color,
+    float4 midColor,
+    float4 stopColor,
+    int fillMode,
+    float midPos,
+    float2 uv) {
+  if (fillMode == 0) {
+    return color;
+  }
+
+  float t = clamp(linear3T(fillMode, uv), 0.0, 1.0);
+  float mid = clamp(midPos, 0.01, 0.99);
+  if (t <= mid) {
+    return mix(color, midColor, t / mid);
+  }
+  return mix(midColor, stopColor, (t - mid) / (1.0 - mid));
+}
+
 vertex VSOut vs_main(
     uint vid [[vertex_id]],
     const device float2* positions [[buffer(0)]],
@@ -106,13 +144,17 @@ vertex VSOut vs_main(
     const device float4* sdfRadii [[buffer(4)]],
     const device ushort* sdfMode [[buffer(5)]],
     const device float2* sdfFactors [[buffer(6)]],
-    constant VSUniforms& u [[buffer(7)]]) {
+    const device uchar4* fillMidColors [[buffer(7)]],
+    const device uchar4* fillStopColors [[buffer(8)]],
+    constant VSUniforms& u [[buffer(9)]]) {
   VSOut out;
   float2 p = positions[vid];
   out.position = u.proj * float4(p.x, p.y, 0.0, 1.0);
   out.pos = p;
   out.uv = uvs[vid];
   out.color = float4(colors[vid]) / 255.0;
+  out.fillMidColor = float4(fillMidColors[vid]) / 255.0;
+  out.fillStopColor = float4(fillStopColors[vid]) / 255.0;
   out.sdfParams = sdfParams[vid];
   out.sdfRadii = sdfRadii[vid];
   out.sdfMode = float(sdfMode[vid]);
@@ -129,17 +171,21 @@ vertex RectMaskVSOut vs_rect_mask(
     const device float4* sdfRadii [[buffer(4)]],
     const device ushort* sdfMode [[buffer(5)]],
     const device float2* sdfFactors [[buffer(6)]],
-    const device float4* rectMaskParams [[buffer(7)]],
-    const device float4* rectMaskRadii [[buffer(8)]],
-    const device float4* rectMaskMatX [[buffer(9)]],
-    const device float4* rectMaskMatY [[buffer(10)]],
-    constant VSUniforms& u [[buffer(11)]]) {
+    const device uchar4* fillMidColors [[buffer(7)]],
+    const device uchar4* fillStopColors [[buffer(8)]],
+    const device float4* rectMaskParams [[buffer(9)]],
+    const device float4* rectMaskRadii [[buffer(10)]],
+    const device float4* rectMaskMatX [[buffer(11)]],
+    const device float4* rectMaskMatY [[buffer(12)]],
+    constant VSUniforms& u [[buffer(13)]]) {
   RectMaskVSOut out;
   float2 p = positions[vid];
   out.position = u.proj * float4(p.x, p.y, 0.0, 1.0);
   out.pos = p;
   out.uv = uvs[vid];
   out.color = float4(colors[vid]) / 255.0;
+  out.fillMidColor = float4(fillMidColors[vid]) / 255.0;
+  out.fillStopColor = float4(fillStopColors[vid]) / 255.0;
   out.sdfParams = sdfParams[vid];
   out.sdfRadii = sdfRadii[vid];
   out.sdfMode = float(sdfMode[vid]);
@@ -155,6 +201,8 @@ float4 evalMainFragment(
     float2 pos,
     float2 uv,
     float4 color,
+    float4 fillMidColor,
+    float4 fillStopColor,
     float4 sdfParams,
     float4 sdfRadii,
     float sdfMode,
@@ -176,7 +224,9 @@ float4 evalMainFragment(
   const int sdfModeMtsdfAnnular = 16;
   const int sdfModeBackdropBlur = 17;
 
-  int sdfModeInt = int(sdfMode);
+  int packedSdfMode = int(sdfMode);
+  int fillMode = packedSdfMode / 256;
+  int sdfModeInt = packedSdfMode - fillMode * 256;
   float2 quadHalfExtents = sdfParams.xy;
   bool insetMode = (sdfModeInt == sdfModeInsetShadow);
   float2 shapeHalfExtents = insetMode ? quadHalfExtents : sdfParams.zw;
@@ -189,7 +239,9 @@ float4 evalMainFragment(
   float dist = sdRoundedBox(float2(p.x, -p.y), shapeHalfExtents, sdfRadii);
 
   float sdfFactor = sdfFactors.x;
-  float sdfSpread = sdfFactors.y;
+  float sdfSpread = (fillMode == 0) ? sdfFactors.y : 0.0;
+  float4 fillColor =
+    evalFillColor(color, fillMidColor, fillStopColor, fillMode, sdfFactors.y, uv);
 
   float4 fragColor;
   float alpha = 0.0;
@@ -225,7 +277,7 @@ float4 evalMainFragment(
     } else {
       alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
     }
-    fragColor = float4(color.xyz, color.w * alpha);
+    fragColor = float4(fillColor.xyz, fillColor.w * alpha);
   } else {
     switch (sdfModeInt) {
       case sdfModeAnnular: {
@@ -284,7 +336,7 @@ float4 evalMainFragment(
     }
 
     if (sdfModeInt != sdfModeBackdropBlur) {
-      fragColor = float4(color.x, color.y, color.z, color.w * alpha);
+      fragColor = float4(fillColor.x, fillColor.y, fillColor.z, fillColor.w * alpha);
     }
   }
 
@@ -306,6 +358,8 @@ fragment float4 fs_main(
     in.pos,
     in.uv,
     in.color,
+    in.fillMidColor,
+    in.fillStopColor,
     in.sdfParams,
     in.sdfRadii,
     in.sdfMode,
@@ -327,6 +381,8 @@ fragment float4 fs_rect_mask(
     in.pos,
     in.uv,
     in.color,
+    in.fillMidColor,
+    in.fillStopColor,
     in.sdfParams,
     in.sdfRadii,
     in.sdfMode,
