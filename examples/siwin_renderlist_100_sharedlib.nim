@@ -131,7 +131,7 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
     let useGreenGradient = (i mod 2) == 0
     when not TraceShared:
       if useGreenGradient:
-        let axis = (if (i mod 4) < 2: 0'i8 else: 2'i8)
+        let axis = (if (i mod 4) < 2: fgaX else: fgaDiagTLBR)
         greenFig.setFillLinear3(greenGradStart, greenGradMid, greenGradStop, axis, 128'u8)
       else:
         greenFig.setFillColorRgba(greenSolid)
@@ -164,7 +164,15 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
       if i == 0:
         echo "trace: green clear shadows"
     when not TraceShared:
-      greenFig.setShadow(0, 1, shadowBlur, shadowSpread, shadowX, shadowY, blackShadow)
+      greenFig.setShadow(
+        0,
+        DropShadow,
+        shadowBlur,
+        shadowSpread,
+        shadowX,
+        shadowY,
+        blackShadow,
+      )
     when TraceShared:
       if i == 0:
         echo "trace: green shadow"
@@ -181,7 +189,7 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
     let useBlueGradient = (i mod 3) == 0
     when not TraceShared:
       if useBlueGradient:
-        let axis = (if (i mod 2) == 0: 1'i8 else: 3'i8)
+        let axis = (if (i mod 2) == 0: fgaY else: fgaDiagBLTR)
         blueFig.setFillLinear3(blueGradStart, blueGradMid, blueGradStop, axis, 132'u8)
       else:
         blueFig.setFillColorRgba(blueSolid)
@@ -207,7 +215,15 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
       if i == 0:
         echo "trace: blue clear shadows"
     when not TraceShared:
-      blueFig.setShadow(0, 2, insetBlur, insetSpread, insetX, insetY, blueInnerShadow)
+      blueFig.setShadow(
+        0,
+        InnerShadow,
+        insetBlur,
+        insetSpread,
+        insetX,
+        insetY,
+        blueInnerShadow,
+      )
     when TraceShared:
       if i == 0:
         echo "trace: blue shadow"
