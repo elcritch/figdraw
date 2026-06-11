@@ -96,7 +96,7 @@ jobs:
     - name: Build Bindings
       run: |
         nim bindings
-        nim c examples/siwin_renderlist_100_sharedlib.nim
+        nim c examples/siwin_shared.nim
 
     - name: Build Tests
       if: runner.os == 'Linux'

@@ -223,8 +223,7 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
 
 when isMainModule:
   when not defined(emscripten):
-    let libDir = getCurrentDir() / "bindings" / "generated"
-    let siwinLibDir = getCurrentDir() / "deps" / "siwin" / "bindings"
+    let libDir = getCurrentDir() / "src" / "figdraw" / "bindings" / "generated"
 
     proc ensureLib(expected, actual: string) =
       if fileExists(expected):
@@ -244,16 +243,10 @@ when isMainModule:
       let expected = libDir / "libfigdraw.dylib"
       ensureLib(expected, libDir / "libfig_draw.dylib")
       ensureLib(expected, libDir / "libfigdraw.dylib")
-
-      let siwinExpected = siwinLibDir / "siwin.dylib"
-      ensureLib(siwinExpected, siwinLibDir / "siwin.dynlib")
     elif defined(linux) or defined(bsd):
       let expected = libDir / "libfigdraw.so"
       ensureLib(expected, libDir / "libfig_draw.so")
       ensureLib(expected, libDir / "libfigdraw.so")
-
-      let siwinExpected = siwinLibDir / "libsiwin.so"
-      ensureLib(siwinExpected, siwinLibDir / "libsiwin.so")
     setFigDataDir(getCurrentDir() / "data")
 
   var appRunning = true
