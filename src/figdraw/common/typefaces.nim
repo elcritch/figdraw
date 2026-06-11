@@ -65,11 +65,11 @@ proc hash*(tp: Typeface): Hash =
 proc getId*(typeface: Typeface): TypefaceId =
   result = TypefaceId typeface.hash()
   for i in 1 .. 100:
-    if result.int == 0:
+    if Hash(result).int == 0:
       result = TypefaceId(typeface.hash() !& hash(i))
     else:
       break
-  doAssert result.int != 0, "Typeface hash results in invalid id"
+  doAssert Hash(result).int != 0, "Typeface hash results in invalid id"
 
 proc readTypefaceImpl(
     name, data: string, kind: TypeFaceKinds
@@ -89,7 +89,7 @@ proc readTypefaceImpl(
 
   result.filePath = name
 
-proc loadTypeface*(name: string, fallbackNames: openArray[string] = []): FontId =
+proc loadTypeface*(name: string, fallbackNames: openArray[string] = []): TypefaceId =
   ## loads a font from a file and adds it to the font index
 
   proc resolveTypefacePath(name: string): string =
@@ -151,13 +151,13 @@ proc loadTypeface*(name: string, fallbackNames: openArray[string] = []): FontId 
 
   let id = typeface.getId()
 
-  doAssert id != 0
+  doAssert Hash(id) != 0
   if id in typefaceTable:
     doAssert typefaceTable[id] == typeface
   typefaceTable[id] = typeface
   result = id
 
-proc loadTypeface*(name, data: string, kind: TypeFaceKinds): FontId =
+proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId =
   ## loads a font from buffer and adds it to the font index
 
   let
