@@ -6,6 +6,12 @@
 import std/strutils
 import std/os
 
+when defined(macosx) and defined(figdraw.moltenvkBrew):
+  let moltenVkPrefix = gorgeEx("brew --prefix molten-vk").output.strip()
+  if moltenVkPrefix.len == 0:
+    quit "figdraw.moltenvkBrew requires Homebrew molten-vk"
+  switch("passL", "-Wl,-rpath," & moltenVkPrefix & "/lib")
+
 proc nimExec(subcmd, file: string, extraFlags = "", platform = "") =
   let nimFlags = getEnv("NIMFLAGS").strip()
   var cmd: string

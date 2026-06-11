@@ -135,6 +135,8 @@ type
     swapchainFramebuffers: seq[VkFramebuffer]
     swapchainFormat: VkFormat
     swapchainExtent: VkExtent2D
+    swapchainRequestedWidth: int32
+    swapchainRequestedHeight: int32
     swapchainOutOfDate: bool
     swapchainTransferSrcSupported: bool
     presentReady: bool
@@ -980,6 +982,8 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
 
   ctx.swapchainFormat = surfaceFormat.format
   ctx.swapchainExtent = extent
+  ctx.swapchainRequestedWidth = width
+  ctx.swapchainRequestedHeight = height
   ctx.swapchainOutOfDate = false
 
   ctx.createPipeline()
@@ -1021,14 +1025,12 @@ proc ensureSwapchain(ctx: VulkanContext, width, height: int32) =
 
   let needsRecreate =
     ctx.swapchain == vkNullSwapchain or ctx.swapchainOutOfDate or
-    ctx.swapchainExtent.width != width.uint32 or
-    ctx.swapchainExtent.height != height.uint32
+    ctx.swapchainRequestedWidth != width or ctx.swapchainRequestedHeight != height
   if not needsRecreate:
     return
 
   if ctx.device != vkNullDevice:
     discard vkDeviceWaitIdle(ctx.device)
-    ctx.clearFrameVertexUploads()
     ctx.clearFrameVertexUploads()
   ctx.createSwapchain(width, height)
 
@@ -1621,7 +1623,38 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
       ctx.queue
 
   if wantPresent:
-    loadVK_KHR_swapchain()
+    let loadSwapchainProc = proc(name: cstring): pointer =
+      result = cast[pointer](vkGetDeviceProcAddr(ctx.device, name))
+      if result.isNil:
+        raise
+          newException(LibraryError, "could not load Vulkan swapchain symbol: " & $name)
+
+    vkCreateSwapchainKHR = cast[proc(
+      device: VkDevice,
+      pCreateInfo: ptr VkSwapchainCreateInfoKHR,
+      pAllocator: ptr VkAllocationCallbacks,
+      pSwapchain: ptr VkSwapchainKHR,
+    ): VkResult {.stdcall.}](loadSwapchainProc("vkCreateSwapchainKHR"))
+    vkDestroySwapchainKHR = cast[proc(
+      device: VkDevice, swapchain: VkSwapchainKHR, pAllocator: ptr VkAllocationCallbacks
+    ) {.stdcall.}](loadSwapchainProc("vkDestroySwapchainKHR"))
+    vkGetSwapchainImagesKHR = cast[proc(
+      device: VkDevice,
+      swapchain: VkSwapchainKHR,
+      pSwapchainImageCount: ptr uint32,
+      pSwapchainImages: ptr VkImage,
+    ): VkResult {.stdcall.}](loadSwapchainProc("vkGetSwapchainImagesKHR"))
+    vkAcquireNextImageKHR = cast[proc(
+      device: VkDevice,
+      swapchain: VkSwapchainKHR,
+      timeout: uint64,
+      semaphore: VkSemaphore,
+      fence: VkFence,
+      pImageIndex: ptr uint32,
+    ): VkResult {.stdcall.}](loadSwapchainProc("vkAcquireNextImageKHR"))
+    vkQueuePresentKHR = cast[proc(
+      queue: VkQueue, pPresentInfo: ptr VkPresentInfoKHR
+    ): VkResult {.stdcall.}](loadSwapchainProc("vkQueuePresentKHR"))
 
   let poolInfo = newVkCommandPoolCreateInfo(
     queueFamilyIndex = ctx.queueFamily,
@@ -3013,11 +3046,14 @@ proc beginFrame*(
     VkFence(0),
     ctx.acquiredImageIndex.addr,
   )
-  if acquireResult in [VkErrorOutOfDateKhr, VkSuboptimalKhr]:
+  if acquireResult == VkErrorOutOfDateKhr:
     ctx.swapchainOutOfDate = true
-    debug "Acquire returned out-of-date/suboptimal", result = $acquireResult
+    debug "Acquire returned out-of-date", result = $acquireResult
     return
-  checkVkResult acquireResult
+  if acquireResult == VkSuboptimalKhr:
+    debug "Acquire returned suboptimal", result = $acquireResult
+  else:
+    checkVkResult acquireResult
   checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
 
   checkVkResult vkResetCommandBuffer(ctx.commandBuffer, 0.VkCommandBufferResetFlags)
@@ -3080,9 +3116,11 @@ method endFrame*(ctx: VulkanContext) =
     results = @[],
   )
   let presentResult = vkQueuePresentKHR(ctx.presentQueue, presentInfo.addr)
-  if presentResult in [VkErrorOutOfDateKhr, VkSuboptimalKhr]:
+  if presentResult == VkErrorOutOfDateKhr:
     ctx.swapchainOutOfDate = true
-    debug "Present returned out-of-date/suboptimal", result = $presentResult
+    debug "Present returned out-of-date", result = $presentResult
+  elif presentResult == VkSuboptimalKhr:
+    debug "Present returned suboptimal", result = $presentResult
   elif presentResult != VkSuccess:
     checkVkResult presentResult
 
@@ -3241,6 +3279,8 @@ proc destroyGpu(ctx: VulkanContext) =
   ctx.frameNeedsClear = false
   ctx.swapchainOutOfDate = false
   ctx.swapchainTransferSrcSupported = false
+  ctx.swapchainRequestedWidth = 0
+  ctx.swapchainRequestedHeight = 0
   ctx.atlasLayoutReady = false
   ctx.backdropLayoutReady = false
   ctx.backdropBlurTempLayoutReady = false
@@ -3325,6 +3365,8 @@ proc newContext*(
   result.swapchainFramebuffers = @[]
   result.swapchainFormat = VK_FORMAT_UNDEFINED
   result.swapchainExtent = VkExtent2D(width: 0, height: 0)
+  result.swapchainRequestedWidth = 0
+  result.swapchainRequestedHeight = 0
   result.swapchainOutOfDate = false
   result.swapchainTransferSrcSupported = false
   result.presentReady = false
