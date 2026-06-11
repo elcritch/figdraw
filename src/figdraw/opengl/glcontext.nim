@@ -10,6 +10,7 @@ import pkg/chronicles
 
 import ../commons
 import ../figbackend as figbackend
+import ../common/filltypes
 import ../common/formatflippy
 import ../fignodes
 import ../utils/drawextras
@@ -74,6 +75,8 @@ type OpenGlContext* = ref object of figbackend.BackendContext
   indices: tuple[buffer: Buffer, data: seq[uint16]]
   positions: tuple[buffer: Buffer, data: seq[float32]]
   colors: tuple[buffer: Buffer, data: seq[uint8]]
+  fillMidColors: tuple[buffer: Buffer, data: seq[uint8]]
+  fillStopColors: tuple[buffer: Buffer, data: seq[uint8]]
   uvs: tuple[buffer: Buffer, data: seq[float32]]
   sdfParams: tuple[buffer: Buffer, data: seq[float32]]
     ## Vec4: (halfExtents.xy, strokeWidth, unused)
@@ -109,10 +112,14 @@ proc upload(ctx: OpenGlContext) =
   ## When buffers change, uploads them to GPU.
   ctx.positions.buffer.count = ctx.quadCount * 4
   ctx.colors.buffer.count = ctx.quadCount * 4
+  ctx.fillMidColors.buffer.count = ctx.quadCount * 4
+  ctx.fillStopColors.buffer.count = ctx.quadCount * 4
   ctx.uvs.buffer.count = ctx.quadCount * 4
   ctx.indices.buffer.count = ctx.quadCount * 6
   bindBufferData(ctx.positions.buffer.addr, ctx.positions.data[0].addr)
   bindBufferData(ctx.colors.buffer.addr, ctx.colors.data[0].addr)
+  bindBufferData(ctx.fillMidColors.buffer.addr, ctx.fillMidColors.data[0].addr)
+  bindBufferData(ctx.fillStopColors.buffer.addr, ctx.fillStopColors.data[0].addr)
   bindBufferData(ctx.uvs.buffer.addr, ctx.uvs.data[0].addr)
   ctx.sdfParams.buffer.count = ctx.quadCount * 4
   ctx.sdfRadii.buffer.count = ctx.quadCount * 4
@@ -306,6 +313,22 @@ proc newContext*(
   result.colors.data =
     newSeq[uint8](result.colors.buffer.kind.componentCount() * maxQuads * 4)
 
+  result.fillMidColors.buffer.componentType = GL_UNSIGNED_BYTE
+  result.fillMidColors.buffer.kind = bkVEC4
+  result.fillMidColors.buffer.target = GL_ARRAY_BUFFER
+  result.fillMidColors.buffer.normalized = true
+  result.fillMidColors.buffer.usage = GL_STREAM_DRAW
+  result.fillMidColors.data =
+    newSeq[uint8](result.fillMidColors.buffer.kind.componentCount() * maxQuads * 4)
+
+  result.fillStopColors.buffer.componentType = GL_UNSIGNED_BYTE
+  result.fillStopColors.buffer.kind = bkVEC4
+  result.fillStopColors.buffer.target = GL_ARRAY_BUFFER
+  result.fillStopColors.buffer.normalized = true
+  result.fillStopColors.buffer.usage = GL_STREAM_DRAW
+  result.fillStopColors.data =
+    newSeq[uint8](result.fillStopColors.buffer.kind.componentCount() * maxQuads * 4)
+
   result.uvs.buffer.componentType = cGL_FLOAT
   result.uvs.buffer.kind = bkVEC2
   result.uvs.buffer.target = GL_ARRAY_BUFFER
@@ -410,6 +433,8 @@ proc newContext*(
   glBindVertexArray(result.vertexArrayId)
   result.mainShader.bindAttrib("vertexPos", result.positions.buffer)
   result.mainShader.bindAttrib("vertexColor", result.colors.buffer)
+  result.mainShader.bindAttrib("vertexFillMidColor", result.fillMidColors.buffer)
+  result.mainShader.bindAttrib("vertexFillStopColor", result.fillStopColors.buffer)
   result.mainShader.bindAttrib("vertexUv", result.uvs.buffer)
   result.mainShader.bindAttrib("vertexSdfParams", result.sdfParams.buffer)
   result.mainShader.bindAttrib("vertexSdfRadii", result.sdfRadii.buffer)
@@ -422,6 +447,8 @@ proc newContext*(
   glBindVertexArray(result.rectMaskVertexArrayId)
   result.rectMaskShader.bindAttrib("vertexPos", result.positions.buffer)
   result.rectMaskShader.bindAttrib("vertexColor", result.colors.buffer)
+  result.rectMaskShader.bindAttrib("vertexFillMidColor", result.fillMidColors.buffer)
+  result.rectMaskShader.bindAttrib("vertexFillStopColor", result.fillStopColors.buffer)
   result.rectMaskShader.bindAttrib("vertexUv", result.uvs.buffer)
   result.rectMaskShader.bindAttrib("vertexSdfParams", result.sdfParams.buffer)
   result.rectMaskShader.bindAttrib("vertexSdfRadii", result.sdfRadii.buffer)
@@ -858,6 +885,44 @@ proc drawQuad*(
 
 type SdfMode* = figbackend.SdfMode
 
+const
+  SdfFillSolidOrVertex = 0
+  SdfFillLinear3X = 1
+  SdfFillLinear3Y = 2
+  SdfFillLinear3DiagTLBR = 3
+  SdfFillLinear3DiagBLTR = 4
+  SdfFillModeShift = 256
+
+func linear3FillMode(axis: FillGradientAxis): int =
+  case axis
+  of fgaX:
+    SdfFillLinear3X
+  of fgaY:
+    SdfFillLinear3Y
+  of fgaDiagTLBR:
+    SdfFillLinear3DiagTLBR
+  of fgaDiagBLTR:
+    SdfFillLinear3DiagBLTR
+
+func encodeSdfMode(mode: SdfMode, fillMode: int): SdfModeData =
+  let packed = mode.int + fillMode * SdfFillModeShift
+  when SdfModeData is float32:
+    packed.float32
+  else:
+    packed.uint16
+
+proc setFillExtraColors(
+    ctx: OpenGlContext, offset: int, midColor, stopColor: ColorRGBA
+) =
+  ctx.fillMidColors.data.setVertColor(offset + 0, midColor)
+  ctx.fillMidColors.data.setVertColor(offset + 1, midColor)
+  ctx.fillMidColors.data.setVertColor(offset + 2, midColor)
+  ctx.fillMidColors.data.setVertColor(offset + 3, midColor)
+  ctx.fillStopColors.data.setVertColor(offset + 0, stopColor)
+  ctx.fillStopColors.data.setVertColor(offset + 1, stopColor)
+  ctx.fillStopColors.data.setVertColor(offset + 2, stopColor)
+  ctx.fillStopColors.data.setVertColor(offset + 3, stopColor)
+
 proc drawUvRectAtlasSdf(
     ctx: OpenGlContext,
     at, to: Vec2,
@@ -1257,6 +1322,9 @@ method drawRect*(ctx: OpenGlContext, rect: Rect, color: Color) =
     color,
   )
 
+method supportsNativeLinear3Sdf*(ctx: OpenGlContext): bool =
+  true
+
 method drawRoundedRectSdf*(
     ctx: OpenGlContext,
     rect: Rect,
@@ -1278,7 +1346,7 @@ method drawRoundedRectSdf*(
     shapeSize = shapeSize,
   )
 
-method drawRoundedRectSdf*(
+proc drawRoundedRectSdfOpenGl(
     ctx: OpenGlContext,
     rect: Rect,
     colors: array[4, ColorRGBA],
@@ -1287,6 +1355,10 @@ method drawRoundedRectSdf*(
     factor: float32 = 4.0,
     spread: float32 = 0.0,
     shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+    fillMode: int = SdfFillSolidOrVertex,
+    fillMidColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillStopColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillMidPos: float32 = 0.5'f32,
 ) =
   if rect.w <= 0 or rect.h <= 0:
     return
@@ -1350,6 +1422,7 @@ method drawRoundedRectSdf*(
   ctx.colors.data.setVertColor(offset + 1, colors[1])
   ctx.colors.data.setVertColor(offset + 2, colors[2])
   ctx.colors.data.setVertColor(offset + 3, colors[3])
+  ctx.setFillExtraColors(offset, fillMidColor, fillStopColor)
 
   ctx.sdfParams.data.setVert4(offset + 0, params)
   ctx.sdfParams.data.setVert4(offset + 1, params)
@@ -1361,16 +1434,20 @@ method drawRoundedRectSdf*(
   ctx.sdfRadii.data.setVert4(offset + 2, r4)
   ctx.sdfRadii.data.setVert4(offset + 3, r4)
 
-  let factors = vec2(factor, spread)
+  let factors =
+    if fillMode == SdfFillSolidOrVertex:
+      vec2(factor, spread)
+    else:
+      vec2(factor, clamp(fillMidPos, 0.01'f32, 0.99'f32))
   ctx.sdfFactors.data.setVert2(offset + 0, factors)
   ctx.sdfFactors.data.setVert2(offset + 1, factors)
   ctx.sdfFactors.data.setVert2(offset + 2, factors)
   ctx.sdfFactors.data.setVert2(offset + 3, factors)
 
   when defined(emscripten):
-    let modeVal = mode.int.float32
+    let modeVal = encodeSdfMode(mode, fillMode)
   else:
-    let modeVal = mode.int.uint16
+    let modeVal = encodeSdfMode(mode, fillMode)
   ctx.sdfModeAttr.data[offset + 0] = modeVal
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
@@ -1379,6 +1456,62 @@ method drawRoundedRectSdf*(
   ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
+
+method drawRoundedRectSdf*(
+    ctx: OpenGlContext,
+    rect: Rect,
+    colors: array[4, ColorRGBA],
+    radii: array[DirectionCorners, float32],
+    mode: SdfMode = sdfModeClipAA,
+    factor: float32 = 4.0,
+    spread: float32 = 0.0,
+    shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+) =
+  ctx.drawRoundedRectSdfOpenGl(
+    rect = rect,
+    colors = colors,
+    radii = radii,
+    mode = mode,
+    factor = factor,
+    spread = spread,
+    shapeSize = shapeSize,
+  )
+
+method drawRoundedRectSdf*(
+    ctx: OpenGlContext,
+    rect: Rect,
+    fill: figbackend.BackendFill,
+    radii: array[DirectionCorners, float32],
+    mode: SdfMode = sdfModeClipAA,
+    factor: float32 = 4.0,
+    spread: float32 = 0.0,
+    shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+) =
+  if fill.kind == figbackend.bfLinear3 and
+      mode in {sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA}:
+    ctx.drawRoundedRectSdfOpenGl(
+      rect = rect,
+      colors = [fill.lin3Start, fill.lin3Start, fill.lin3Start, fill.lin3Start],
+      radii = radii,
+      mode = mode,
+      factor = factor,
+      spread = spread,
+      shapeSize = shapeSize,
+      fillMode = linear3FillMode(fill.lin3Axis),
+      fillMidColor = fill.lin3Mid,
+      fillStopColor = fill.lin3Stop,
+      fillMidPos = fill.lin3MidPos,
+    )
+  else:
+    ctx.drawRoundedRectSdfOpenGl(
+      rect = rect,
+      colors = figbackend.gradientColors(fill),
+      radii = radii,
+      mode = mode,
+      factor = factor,
+      spread = spread,
+      shapeSize = shapeSize,
+    )
 
 proc runBackdropSeparableBlur(ctx: OpenGlContext, blurRadius: float32) =
   if blurRadius <= 0.5'f32:

@@ -6,6 +6,8 @@ precision highp float;
 varying vec2 pos;
 varying vec2 uv;
 varying vec4 color;
+varying vec4 fillMidColor;
+varying vec4 fillStopColor;
 varying vec4 sdfParams;
 varying vec4 sdfRadii;
 varying float sdfMode;
@@ -90,8 +92,43 @@ float rectMaskAlpha(vec2 pixelPos) {
   return 1.0 - clamp(aaFactor * dist + 0.5, 0.0, 1.0);
 }
 
+float linear3T(int fillMode, vec2 uv) {
+  if (fillMode == 1) {
+    return uv.x;
+  } else if (fillMode == 2) {
+    return uv.y;
+  } else if (fillMode == 3) {
+    return 0.5 * (uv.x + uv.y);
+  } else if (fillMode == 4) {
+    return 0.5 * (uv.x + (1.0 - uv.y));
+  }
+  return 0.0;
+}
+
+vec4 evalFillColor(
+    vec4 color,
+    vec4 midColor,
+    vec4 stopColor,
+    int fillMode,
+    float midPos,
+    vec2 uv) {
+  if (fillMode == 0) {
+    return color;
+  }
+
+  float t = clamp(linear3T(fillMode, uv), 0.0, 1.0);
+  float mid = clamp(midPos, 0.01, 0.99);
+  if (t <= mid) {
+    return mix(color, midColor, t / mid);
+  }
+  return mix(midColor, stopColor, (t - mid) / (1.0 - mid));
+}
+
 void main() {
-  int sdfModeInt = int(sdfMode);
+  float packedSdfMode = sdfMode;
+  float fillModeFloat = floor(packedSdfMode / 256.0);
+  int fillMode = int(fillModeFloat);
+  int sdfModeInt = int(packedSdfMode - fillModeFloat * 256.0);
   vec2 quadHalfExtents = sdfParams.xy;
   bool insetMode = (sdfModeInt == sdfModeInsetShadow);
   vec2 shapeHalfExtents = insetMode ? quadHalfExtents : sdfParams.zw;
@@ -104,7 +141,9 @@ void main() {
   float dist = sdRoundedBox(vec2(p.x, -p.y), shapeHalfExtents, sdfRadii);
 
   float sdfFactor = sdfFactors.x;
-  float sdfSpread = sdfFactors.y;
+  float sdfSpread = (fillMode == 0) ? sdfFactors.y : 0.0;
+  vec4 fillColor =
+    evalFillColor(color, fillMidColor, fillStopColor, fillMode, sdfFactors.y, uv);
 
   float alpha = 0.0;
   vec4 fragColor;
@@ -142,7 +181,7 @@ void main() {
     } else {
       alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
     }
-    fragColor = vec4(color.rgb, color.a * alpha);
+    fragColor = vec4(fillColor.rgb, fillColor.a * alpha);
   } else {
     if (sdfModeInt == sdfModeAnnular) {
       float f = sdfFactor * 0.5;
@@ -186,7 +225,7 @@ void main() {
     }
 
     if (sdfModeInt != sdfModeBackdropBlur) {
-      fragColor = vec4(color.x, color.y, color.z, color.w * alpha);
+      fragColor = vec4(fillColor.x, fillColor.y, fillColor.z, fillColor.w * alpha);
     }
   }
 
