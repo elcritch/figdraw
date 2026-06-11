@@ -9,6 +9,7 @@ import figdraw/figrender as fgr
 import figdraw/common/fonttypes as fnt
 from figdraw/fignodes import Renders
 from figdraw/common/fonttypes import FontCase
+from figdraw/common/shared import FigDrawError
 import figdraw/common/fontutils as fut
 when not defined(emscripten):
   import figdraw/utils/glutils
@@ -16,11 +17,27 @@ when not defined(emscripten):
 const ExportSiwinShim* {.booldefine: "figdraw.bindings.siwinshim".} = false
 const GeneratedDir = currentSourcePath().parentDir / "generated"
 
+var lastError: ref FigDrawError
+
+proc raiseFigDrawError(e: ref Exception) {.raises: [FigDrawError].} =
+  if e.isNil:
+    raise newException(FigDrawError, "Unknown FigDraw binding error")
+  raise newException(FigDrawError, e.msg, e)
+
+proc takeError(): string =
+  if lastError.isNil:
+    return ""
+  result = lastError.msg
+  lastError = nil
+
+proc checkError(): bool =
+  result = lastError != nil
+
 type
   CornerRadii* = object
     values*: array[DirectionCorners, uint16]
 
-  Fig* = ref object
+  FigRef* = ref object
     inner: fdn.Fig
 
   RenderListRef* = ref object
@@ -38,8 +55,8 @@ type
   GlyphLayoutRef* = ref object
     inner: fnt.GlyphArrangement
 
-proc newFig(): Fig =
-  Fig(inner: fdn.Fig(kind: fdn.nkFrame))
+proc newFig(): FigRef =
+  FigRef(inner: fdn.Fig(kind: fdn.nkFrame))
 
 proc initRgba(r, g, b, a: uint8): ColorRGBA =
   rgba(r, g, b, a)
@@ -54,8 +71,8 @@ func toFigKind(kind: int8): fdn.FigKind =
   else:
     fdn.FigKind(raw)
 
-proc newRectangleFig(x, y, w, h: float32): Fig =
-  Fig(
+proc newRectangleFig(x, y, w, h: float32): FigRef =
+  FigRef(
     inner: fdn.Fig(
       kind: fdn.nkRectangle,
       screenBox: rect(x, y, w, h),
@@ -63,8 +80,8 @@ proc newRectangleFig(x, y, w, h: float32): Fig =
     )
   )
 
-proc newTextFig(x, y, w, h: float32): Fig =
-  Fig(
+proc newTextFig(x, y, w, h: float32): FigRef =
+  FigRef(
     inner: fdn.Fig(
       kind: fdn.nkText,
       screenBox: rect(x, y, w, h),
@@ -73,8 +90,8 @@ proc newTextFig(x, y, w, h: float32): Fig =
     )
   )
 
-proc newImageFig(x, y, w, h: float32, imageId: int64): Fig =
-  Fig(
+proc newImageFig(x, y, w, h: float32, imageId: int64): FigRef =
+  FigRef(
     inner: fdn.Fig(
       kind: fdn.nkImage,
       screenBox: rect(x, y, w, h),
@@ -85,8 +102,8 @@ proc newImageFig(x, y, w, h: float32, imageId: int64): Fig =
     )
   )
 
-proc newTransformFig(x, y, w, h: float32, tx, ty: float32): Fig =
-  Fig(
+proc newTransformFig(x, y, w, h: float32, tx, ty: float32): FigRef =
+  FigRef(
     inner: fdn.Fig(
       kind: fdn.nkTransform,
       screenBox: rect(x, y, w, h),
@@ -95,12 +112,12 @@ proc newTransformFig(x, y, w, h: float32, tx, ty: float32): Fig =
     )
   )
 
-proc loadTypefaceBinding(name: string): TypefaceRef =
+proc loadTypefaceBinding(name: string): TypefaceRef {.raises: [FigDrawError].} =
   try:
     let fontId = fut.loadTypeface(name)
-    TypefaceRef(id: cast[fnt.TypefaceId](fontId))
-  except CatchableError:
-    nil
+    result = TypefaceRef(id: cast[fnt.TypefaceId](fontId))
+  except Exception as e:
+    raiseFigDrawError(e)
 
 proc newFigFontBinding(typeface: TypefaceRef, size: float32): FigFontRef =
   if typeface.isNil:
@@ -125,7 +142,7 @@ proc typesetTextBinding(
     vAlign: int8 = 0,
     minContent = false,
     wrap = false,
-): GlyphLayoutRef =
+): GlyphLayoutRef {.raises: [FigDrawError].} =
   if font.isNil:
     return nil
   var h = fnt.FontHorizontal.Left
@@ -155,21 +172,21 @@ proc typesetTextBinding(
       minContent = minContent,
       wrap = wrap,
     )
-    GlyphLayoutRef(inner: layout)
-  except CatchableError:
-    nil
+    result = GlyphLayoutRef(inner: layout)
+  except Exception as e:
+    raiseFigDrawError(e)
 
-proc figWithKind(src: fdn.Fig, kind: fdn.FigKind): fdn.Fig
+proc figWithKind(src: fdn.Fig, kind: fdn.FigKind): fdn.Fig {.raises: [].}
 
-proc setFigTextLayoutBinding(fig: Fig, layout: GlyphLayoutRef) =
+proc setFigTextLayoutBinding(fig: FigRef, layout: GlyphLayoutRef) {.raises: [FigDrawError].} =
   if fig.isNil or layout.isNil:
     return
   try:
     if fig.inner.kind != fdn.nkText:
       fig.inner = figWithKind(fig.inner, fdn.nkText)
     fig.inner.textLayout = layout.inner
-  except Exception:
-    discard
+  except Exception as e:
+    raiseFigDrawError(e)
 
 proc textLayoutWidthBinding(layout: GlyphLayoutRef): float32 =
   if layout.isNil:
@@ -181,12 +198,12 @@ proc textLayoutHeightBinding(layout: GlyphLayoutRef): float32 =
     return 0'f32
   layout.inner.bounding.h
 
-proc copy(fig: Fig): Fig =
+proc copy(fig: FigRef): FigRef =
   if fig.isNil:
     return nil
-  Fig(inner: fig.inner)
+  FigRef(inner: fig.inner)
 
-proc figWithKind(src: fdn.Fig, kind: fdn.FigKind): fdn.Fig =
+proc figWithKind(src: fdn.Fig, kind: fdn.FigKind): fdn.Fig {.raises: [].} =
   result = fdn.Fig(kind: kind)
   result.zlevel = src.zlevel
   result.parent = src.parent
@@ -197,69 +214,69 @@ proc figWithKind(src: fdn.Fig, kind: fdn.FigKind): fdn.Fig =
   result.fill = src.fill
   result.corners = src.corners
 
-proc ensureRectangle(fig: Fig) =
+proc ensureRectangle(fig: FigRef) =
   if fig.isNil:
     return
   if fig.inner.kind != fdn.nkRectangle:
     fig.inner = figWithKind(fig.inner, fdn.nkRectangle)
 
-proc kind(fig: Fig): int8 =
+proc kind(fig: FigRef): int8 =
   if fig.isNil:
     return fdn.nkFrame.int8
   fig.inner.kind.int8
 
-proc setKind(fig: Fig, kind: int8) =
+proc setKind(fig: FigRef, kind: int8) =
   if fig.isNil:
     return
   fig.inner = figWithKind(fig.inner, kind.toFigKind())
 
-proc zLevel(fig: Fig): int8 =
+proc zLevel(fig: FigRef): int8 =
   if fig.isNil:
     return 0'i8
   fig.inner.zlevel.int8
 
-proc setZLevel(fig: Fig, zLevel: int8) =
+proc setZLevel(fig: FigRef, zLevel: int8) =
   if fig.isNil:
     return
   fig.inner.zlevel = fdn.ZLevel(zLevel)
 
-proc x(fig: Fig): float32 =
+proc x(fig: FigRef): float32 =
   if fig.isNil:
     return 0'f32
   fig.inner.screenBox.x
 
-proc y(fig: Fig): float32 =
+proc y(fig: FigRef): float32 =
   if fig.isNil:
     return 0'f32
   fig.inner.screenBox.y
 
-proc width(fig: Fig): float32 =
+proc width(fig: FigRef): float32 =
   if fig.isNil:
     return 0'f32
   fig.inner.screenBox.w
 
-proc height(fig: Fig): float32 =
+proc height(fig: FigRef): float32 =
   if fig.isNil:
     return 0'f32
   fig.inner.screenBox.h
 
-proc setScreenBox(fig: Fig, x, y, w, h: float32) =
+proc setScreenBox(fig: FigRef, x, y, w, h: float32) =
   if fig.isNil:
     return
   fig.inner.screenBox = rect(x, y, w, h)
 
-proc setFillColor(fig: Fig, r, g, b, a: uint8) =
+proc setFillColor(fig: FigRef, r, g, b, a: uint8) =
   if fig.isNil:
     return
   fig.inner.fill = fill(rgba(r, g, b, a))
 
-proc setFillColorRgba(fig: Fig, color: ColorRGBA) =
+proc setFillColorRgba(fig: FigRef, color: ColorRGBA) =
   if fig.isNil:
     return
   fig.inner.fill = fill(color)
 
 proc setFillLinear2Raw(
-    fig: Fig, sr, sg, sb, sa: uint8, er, eg, eb, ea: uint8, axis: FillGradientAxis
+    fig: FigRef, sr, sg, sb, sa: uint8, er, eg, eb, ea: uint8, axis: FillGradientAxis
 ) =
   if fig.isNil:
     return
@@ -269,7 +286,7 @@ proc setFillLinear2Raw(
     axis = axis,
   )
 
-proc setFillLinear2(fig: Fig, startColor, endColor: ColorRGBA, axis: FillGradientAxis) =
+proc setFillLinear2(fig: FigRef, startColor, endColor: ColorRGBA, axis: FillGradientAxis) =
   if fig.isNil:
     return
   fig.inner.fill = linear(
@@ -279,7 +296,7 @@ proc setFillLinear2(fig: Fig, startColor, endColor: ColorRGBA, axis: FillGradien
   )
 
 proc setFillLinear3Raw(
-    fig: Fig,
+    fig: FigRef,
     sr, sg, sb, sa: uint8,
     mr, mg, mb, ma: uint8,
     er, eg, eb, ea: uint8,
@@ -297,7 +314,7 @@ proc setFillLinear3Raw(
   )
 
 proc setFillLinear3(
-    fig: Fig,
+    fig: FigRef,
     startColor, midColor, endColor: ColorRGBA,
     axis: FillGradientAxis,
     midPos: uint8,
@@ -312,47 +329,47 @@ proc setFillLinear3(
     midPos = midPos,
   )
 
-proc setRotation(fig: Fig, rotation: float32) =
+proc setRotation(fig: FigRef, rotation: float32) =
   if fig.isNil:
     return
   fig.inner.rotation = rotation
 
-proc setCornersRaw(fig: Fig, topLeft, topRight, bottomLeft, bottomRight: float32) =
+proc setCornersRaw(fig: FigRef, topLeft, topRight, bottomLeft, bottomRight: float32) =
   if fig.isNil:
     return
   fig.inner.corners = [topLeft, topRight, bottomLeft, bottomRight]
 
-proc setCorners(fig: Fig, radii: CornerRadii) =
+proc setCorners(fig: FigRef, radii: CornerRadii) =
   if fig.isNil:
     return
   fig.inner.corners = radii.values
 
-proc setStrokeRaw(fig: Fig, weight: float32, r, g, b, a: uint8) =
+proc setStrokeRaw(fig: FigRef, weight: float32, r, g, b, a: uint8) =
   if fig.isNil:
     return
   fig.ensureRectangle()
   fig.inner.stroke = RenderStroke(weight: weight, fill: fill(rgba(r, g, b, a)))
 
-proc setStrokeRaw(fig: Fig, weight: float32, color: ColorRGBA) =
+proc setStrokeRaw(fig: FigRef, weight: float32, color: ColorRGBA) =
   if fig.isNil:
     return
   fig.ensureRectangle()
   fig.inner.stroke = RenderStroke(weight: weight, fill: fill(color))
 
-proc setStroke(fig: Fig, weight: float32, color: ColorRGBA) =
+proc setStroke(fig: FigRef, weight: float32, color: ColorRGBA) =
   if fig.isNil:
     return
   fig.ensureRectangle()
   fig.inner.stroke = RenderStroke(weight: weight, fill: fill(color))
 
-proc clearShadows(fig: Fig) =
+proc clearShadows(fig: FigRef) =
   if fig.isNil:
     return
   fig.ensureRectangle()
   fig.inner.shadows = [RenderShadow(), RenderShadow(), RenderShadow(), RenderShadow()]
 
 proc setShadowRaw(
-    fig: Fig,
+    fig: FigRef,
     shadowIndex: int8,
     style: ShadowStyle,
     blur, spread, x, y: float32,
@@ -374,7 +391,7 @@ proc setShadowRaw(
   )
 
 proc setShadow(
-    fig: Fig,
+    fig: FigRef,
     shadowIndex: int8,
     style: ShadowStyle,
     blur, spread, x, y: float32,
@@ -418,34 +435,34 @@ proc rootCount(list: RenderListRef): int =
     return 0
   list.inner.rootIds.len
 
-proc addRoot(list: RenderListRef, root: Fig): int16 =
+proc addRoot(list: RenderListRef, root: FigRef): int16 =
   if list.isNil or root.isNil:
     return -1'i16
   list.inner.addRoot(root.inner).int16
 
-proc addChild(list: RenderListRef, parentIdx: int16, child: Fig): int16 =
+proc addChild(list: RenderListRef, parentIdx: int16, child: FigRef): int16 {.raises: [FigDrawError].} =
   if list.isNil or child.isNil:
     return -1'i16
   try:
-    list.inner.addChild(fdn.FigIdx(parentIdx), child.inner).int16
-  except ValueError:
-    -1'i16
+    result = list.inner.addChild(fdn.FigIdx(parentIdx), child.inner).int16
+  except Exception as e:
+    raiseFigDrawError(e)
 
-proc getNode(list: RenderListRef, nodeIdx: int16): Fig =
+proc getNode(list: RenderListRef, nodeIdx: int16): FigRef {.raises: [FigDrawError].} =
   if list.isNil:
     return nil
   try:
-    Fig(inner: list.inner.nodes[nodeIdx.int])
-  except CatchableError:
-    nil
+    result = FigRef(inner: list.inner.nodes[nodeIdx.int])
+  except Exception as e:
+    raiseFigDrawError(e)
 
-proc getRootId(list: RenderListRef, rootIdx: int16): int16 =
+proc getRootId(list: RenderListRef, rootIdx: int16): int16 {.raises: [FigDrawError].} =
   if list.isNil:
     return -1'i16
   try:
-    list.inner.rootIds[rootIdx.int].int16
-  except CatchableError:
-    -1'i16
+    result = list.inner.rootIds[rootIdx.int].int16
+  except Exception as e:
+    raiseFigDrawError(e)
 
 proc newRenders(): Renders =
   Renders(layers: initOrderedTable[fdn.ZLevel, fdn.RenderList]())
@@ -454,21 +471,21 @@ proc ensureOpenGLInitialized() =
   when not defined(emscripten):
     startOpenGL(openglVersion)
 
-proc newFigRendererBinding*(atlasSize: int, pixelScale: float32): FigRendererRef =
+proc newFigRendererBinding*(atlasSize: int, pixelScale: float32): FigRendererRef {.raises: [FigDrawError].} =
   try:
     ensureOpenGLInitialized()
-    FigRendererRef(inner: fgr.newFigRenderer(atlasSize, pixelScale))
-  except Exception:
-    nil
+    result = FigRendererRef(inner: fgr.newFigRenderer(atlasSize, pixelScale))
+  except Exception as e:
+    raiseFigDrawError(e)
 
-proc renderFrameBinding*(renderer: FigRendererRef, renders: Renders, width, height: float32) =
+proc renderFrameBinding*(renderer: FigRendererRef, renders: Renders, width, height: float32) {.raises: [FigDrawError].} =
   if renderer.isNil or renders.isNil:
     return
   try:
     var nodes = renders
     renderer.inner.renderFrame(nodes, vec2(width, height))
-  except Exception:
-    discard
+  except Exception as e:
+    raiseFigDrawError(e)
 
 proc clear(renders: Renders) =
   if renders.isNil:
@@ -480,51 +497,55 @@ proc containsLayer(renders: Renders, zLevel: int8): bool =
     return false
   renders.contains(fdn.ZLevel(zLevel))
 
-proc addRoot(renders: Renders, zLevel: int8, root: Fig): int16 =
+proc addRoot(renders: Renders, zLevel: int8, root: FigRef): int16 {.raises: [FigDrawError].} =
   if renders.isNil or root.isNil:
     return -1'i16
   try:
     var nodes = renders
-    nodes.addRoot(fdn.ZLevel(zLevel), root.inner).int16
-  except CatchableError:
-    -1'i16
+    result = nodes.addRoot(fdn.ZLevel(zLevel), root.inner).int16
+  except Exception as e:
+    raiseFigDrawError(e)
 
-proc addChild(renders: Renders, zLevel: int8, parentIdx: int16, child: Fig): int16 =
+proc addChild(renders: Renders, zLevel: int8, parentIdx: int16, child: FigRef): int16 {.raises: [FigDrawError].} =
   if renders.isNil or child.isNil:
     return -1'i16
   try:
     var nodes = renders
-    nodes.addChild(fdn.ZLevel(zLevel), fdn.FigIdx(parentIdx), child.inner).int16
-  except CatchableError:
-    -1'i16
+    result = nodes.addChild(fdn.ZLevel(zLevel), fdn.FigIdx(parentIdx), child.inner).int16
+  except Exception as e:
+    raiseFigDrawError(e)
 
-proc layerNodeCount(renders: Renders, zLevel: int8): int =
+proc layerNodeCount(renders: Renders, zLevel: int8): int {.raises: [FigDrawError].} =
   if renders.isNil:
     return 0
   try:
     if not renders.containsLayer(zLevel):
       return 0
-    renders[fdn.ZLevel(zLevel)].nodes.len
-  except CatchableError:
-    0
+    result = renders[fdn.ZLevel(zLevel)].nodes.len
+  except Exception as e:
+    raiseFigDrawError(e)
 
-proc layerRootCount(renders: Renders, zLevel: int8): int =
+proc layerRootCount(renders: Renders, zLevel: int8): int {.raises: [FigDrawError].} =
   if renders.isNil:
     return 0
   try:
     if not renders.containsLayer(zLevel):
       return 0
-    renders[fdn.ZLevel(zLevel)].rootIds.len
-  except CatchableError:
-    0
+    result = renders[fdn.ZLevel(zLevel)].rootIds.len
+  except Exception as e:
+    raiseFigDrawError(e)
 
-proc getLayerNode(renders: Renders, zLevel: int8, nodeIdx: int16): Fig =
+proc getLayerNode(renders: Renders, zLevel: int8, nodeIdx: int16): FigRef {.raises: [FigDrawError].} =
   if renders.isNil:
     return nil
   try:
-    Fig(inner: renders[fdn.ZLevel(zLevel)].nodes[nodeIdx.int])
-  except CatchableError:
-    nil
+    result = FigRef(inner: renders[fdn.ZLevel(zLevel)].nodes[nodeIdx.int])
+  except Exception as e:
+    raiseFigDrawError(e)
+
+exportProcs:
+  checkError
+  takeError
 
 exportEnums:
   FillGradientAxis
@@ -540,29 +561,29 @@ exportObject CornerRadii:
   constructor:
     cornerRadii(float32, float32, float32, float32)
 
-exportRefObject Fig:
+exportRefObject FigRef:
   constructor:
     newFig()
   procs:
-    copy(Fig)
-    kind(Fig)
-    setKind(Fig, int8)
-    zLevel(Fig)
-    setZLevel(Fig, int8)
-    x(Fig)
-    y(Fig)
-    width(Fig)
-    height(Fig)
-    setScreenBox(Fig, float32, float32, float32, float32)
-    setFillColor(Fig, uint8, uint8, uint8, uint8)
-    setFillColorRgba(Fig, ColorRGBA)
-    setFillLinear2(Fig, ColorRGBA, ColorRGBA, FillGradientAxis)
-    setFillLinear3(Fig, ColorRGBA, ColorRGBA, ColorRGBA, FillGradientAxis, uint8)
-    setRotation(Fig, float32)
-    setCorners(Fig, CornerRadii)
-    setStroke(Fig, float32, ColorRGBA)
-    clearShadows(Fig)
-    setShadow(Fig, int8, ShadowStyle, float32, float32, float32, float32, ColorRGBA)
+    copy(FigRef)
+    kind(FigRef)
+    setKind(FigRef, int8)
+    zLevel(FigRef)
+    setZLevel(FigRef, int8)
+    x(FigRef)
+    y(FigRef)
+    width(FigRef)
+    height(FigRef)
+    setScreenBox(FigRef, float32, float32, float32, float32)
+    setFillColor(FigRef, uint8, uint8, uint8, uint8)
+    setFillColorRgba(FigRef, ColorRGBA)
+    setFillLinear2(FigRef, ColorRGBA, ColorRGBA, FillGradientAxis)
+    setFillLinear3(FigRef, ColorRGBA, ColorRGBA, ColorRGBA, FillGradientAxis, uint8)
+    setRotation(FigRef, float32)
+    setCorners(FigRef, CornerRadii)
+    setStroke(FigRef, float32, ColorRGBA)
+    clearShadows(FigRef)
+    setShadow(FigRef, int8, ShadowStyle, float32, float32, float32, float32, ColorRGBA)
 
 exportRefObject RenderListRef:
   constructor:
@@ -572,8 +593,8 @@ exportRefObject RenderListRef:
     clear(RenderListRef)
     nodeCount(RenderListRef)
     rootCount(RenderListRef)
-    addRoot(RenderListRef, Fig)
-    addChild(RenderListRef, int16, Fig)
+    addRoot(RenderListRef, FigRef)
+    addChild(RenderListRef, int16, FigRef)
     getNode(RenderListRef, int16)
     getRootId(RenderListRef, int16)
 
@@ -583,8 +604,8 @@ exportRefObject Renders:
   procs:
     clear(Renders)
     containsLayer(Renders, int8)
-    addRoot(Renders, int8, Fig)
-    addChild(Renders, int8, int16, Fig)
+    addRoot(Renders, int8, FigRef)
+    addChild(Renders, int8, int16, FigRef)
     layerNodeCount(Renders, int8)
     layerRootCount(Renders, int8)
     getLayerNode(Renders, int8, int16)
