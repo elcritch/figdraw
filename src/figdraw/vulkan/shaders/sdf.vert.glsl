@@ -13,6 +13,10 @@ layout(location = 5) in vec4 vertexSdfParams;
 layout(location = 6) in vec4 vertexSdfRadii;
 layout(location = 7) in uint vertexSdfMode;
 layout(location = 8) in vec2 vertexSdfFactors;
+layout(location = 9) in vec4 vertexRectMaskParams;
+layout(location = 10) in vec4 vertexRectMaskRadii;
+layout(location = 11) in vec4 vertexRectMaskMatX;
+layout(location = 12) in vec4 vertexRectMaskMatY;
 
 layout(location = 0) out vec2 vPos;
 layout(location = 1) out vec2 vUv;
@@ -23,6 +27,10 @@ layout(location = 5) out vec4 vSdfParams;
 layout(location = 6) out vec4 vSdfRadii;
 layout(location = 7) flat out uint vSdfMode;
 layout(location = 8) out vec2 vSdfFactors;
+layout(location = 9) out vec4 vRectMaskParams;
+layout(location = 10) out vec4 vRectMaskRadii;
+layout(location = 11) out vec4 vRectMaskMatX;
+layout(location = 12) out vec4 vRectMaskMatY;
 
 void main() {
   vPos = vertexPos;
@@ -34,6 +42,10 @@ void main() {
   vSdfRadii = vertexSdfRadii;
   vSdfMode = vertexSdfMode;
   vSdfFactors = vertexSdfFactors;
+  vRectMaskParams = vertexRectMaskParams;
+  vRectMaskRadii = vertexRectMaskRadii;
+  vRectMaskMatX = vertexRectMaskMatX;
+  vRectMaskMatY = vertexRectMaskMatY;
 
   vec4 p = uVS.proj * vec4(vertexPos.xy, 0.0, 1.0);
   p.y = -p.y;

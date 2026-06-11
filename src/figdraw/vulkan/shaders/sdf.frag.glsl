@@ -19,6 +19,10 @@ layout(location = 5) in vec4 vSdfParams;
 layout(location = 6) in vec4 vSdfRadii;
 layout(location = 7) flat in uint vSdfMode;
 layout(location = 8) in vec2 vSdfFactors;
+layout(location = 9) in vec4 vRectMaskParams;
+layout(location = 10) in vec4 vRectMaskRadii;
+layout(location = 11) in vec4 vRectMaskMatX;
+layout(location = 12) in vec4 vRectMaskMatY;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -55,6 +59,20 @@ float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
 
   vec2 q = abs(p) - b + vec2(rr, rr);
   return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - rr;
+}
+
+float rectMaskAlpha(vec2 pixelPos) {
+  if (vRectMaskParams.z <= 0.0 || vRectMaskParams.w <= 0.0) {
+    return 1.0;
+  }
+
+  vec2 local = vec2(
+    dot(vRectMaskMatX.xy, pixelPos) + vRectMaskMatX.z,
+    dot(vRectMaskMatY.xy, pixelPos) + vRectMaskMatY.z
+  );
+  vec2 q = local - vRectMaskParams.xy;
+  float dist = sdRoundedBox(vec2(q.x, -q.y), vRectMaskParams.zw, vRectMaskRadii);
+  return 1.0 - clamp(uFS.aaFactor * dist + 0.5, 0.0, 1.0);
 }
 
 float shadowProfile(float sd, float blurRadius) {
@@ -205,6 +223,8 @@ void main() {
       fragColor = vec4(fillColor.rgb, fillColor.a * alpha);
     }
   }
+
+  fragColor.a *= rectMaskAlpha(vPos);
 
   if (uFS.maskTexEnabled != 0u) {
     vec2 normalizedPos = vec2(vPos.x / uFS.windowFrame.x, 1.0 - vPos.y / uFS.windowFrame.y);
