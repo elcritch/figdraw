@@ -17,10 +17,7 @@ const GeneratedDir = currentSourcePath().parentDir / "generated"
 
 type
   CornerRadii* = object
-    topLeft*: float32
-    topRight*: float32
-    bottomLeft*: float32
-    bottomRight*: float32
+    values*: array[DirectionCorners, uint16]
 
   BorderSize* = object
     width*: float32
@@ -52,13 +49,8 @@ proc newFig(): Fig =
 proc initRgba(r, g, b, a: uint8): ColorRGBA =
   rgba(r, g, b, a)
 
-proc newCornerRadii(topLeft, topRight, bottomLeft, bottomRight: float32): CornerRadii =
-  CornerRadii(
-    topLeft: topLeft,
-    topRight: topRight,
-    bottomLeft: bottomLeft,
-    bottomRight: bottomRight,
-  )
+proc cornerRadii(topLeft, topRight, bottomLeft, bottomRight: float32): CornerRadii =
+  CornerRadii(values: [topLeft, topRight, bottomLeft, bottomRight])
 
 proc newBorderSize(width: float32): BorderSize =
   BorderSize(width: width)
@@ -341,8 +333,7 @@ proc setCornersRaw(fig: Fig, topLeft, topRight, bottomLeft, bottomRight: float32
 proc setCorners(fig: Fig, radii: CornerRadii) =
   if fig.isNil:
     return
-  fig.inner.corners =
-    [radii.topLeft, radii.topRight, radii.bottomLeft, radii.bottomRight]
+  fig.inner.corners = radii.values
 
 proc setStrokeRaw(fig: Fig, weight: float32, r, g, b, a: uint8) =
   if fig.isNil:
@@ -540,22 +531,23 @@ proc getLayerNode(renders: Renders, zLevel: int8, nodeIdx: int16): Fig =
   except CatchableError:
     nil
 
+exportEnums:
+  FillGradientAxis
+  FontCase
+  DirectionCorners
+  ShadowStyle
+
 exportObject chroma.ColorRGBA:
   constructor:
     initRgba(uint8, uint8, uint8, uint8)
 
 exportObject CornerRadii:
   constructor:
-    newCornerRadii(float32, float32, float32, float32)
+    cornerRadii(float32, float32, float32, float32)
 
 exportObject BorderSize:
   constructor:
     newBorderSize(float32)
-
-exportEnums:
-  FillGradientAxis
-  FontCase
-  ShadowStyle
 
 exportRefObject Fig:
   constructor:

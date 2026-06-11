@@ -111,9 +111,7 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
       c2 = 8.0'f32 + 18.0'f32 * (0.5'f32 + 0.5'f32 * sin((t * 0.7'f32 + i.float32 * 0.05'f32).float64).float32)
       c3 = 10.0'f32 + 16.0'f32 * (0.5'f32 + 0.5'f32 * cos((t * 0.8'f32 + i.float32 * 0.06'f32).float64).float32)
     when not TraceShared:
-      redFig.setCorners(
-        CornerRadii(topLeft: c0, topRight: c1, bottomLeft: c2, bottomRight: c3)
-      )
+      redFig.setCorners(cornerRadii(c0, c1, c2, c3))
       redFig.setStroke(redBorder, redStroke)
     when TraceShared:
       if i == 0:
@@ -152,9 +150,7 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
       shadowX = 6.0'f32 + 10.0'f32 * sin((t * 0.9'f32 + i.float32 * 0.03'f32).float64).float32
       shadowY = 6.0'f32 + 10.0'f32 * cos((t * 0.9'f32 + i.float32 * 0.03'f32).float64).float32
     when not TraceShared:
-      greenFig.setCorners(
-        CornerRadii(topLeft: g0, topRight: g1, bottomLeft: g2, bottomRight: g3)
-      )
+      greenFig.setCorners(cornerRadii(g0, g1, g2, g3))
     when TraceShared:
       if i == 0:
         echo "trace: green corners"
@@ -347,7 +343,7 @@ when isMainModule:
       let hudRect = newRectangleFig(hudX, hudY, hudW, hudH)
       GC_ref(hudRect)
       hudRect.setFillColorRgba(ColorRGBA(r: 0, g: 0, b: 0, a: 155))
-      hudRect.setCorners(CornerRadii(topLeft: 8, topRight: 8, bottomLeft: 8, bottomRight: 8))
+      hudRect.setCorners(cornerRadii(8, 8, 8, 8))
       discard renders.addRoot(0, hudRect)
 
       let
