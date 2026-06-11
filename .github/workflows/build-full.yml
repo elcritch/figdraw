@@ -93,6 +93,11 @@ jobs:
     - name: Install Deps
       run: atlas install -t:8 --features:windy,sdl2,siwin
 
+    - name: Build Bindings
+      run: |
+        nim bindings
+        nim c examples/siwin_renderlist_100_sharedlib.nim
+
     - name: Build Tests
       if: runner.os == 'Linux'
       env:
