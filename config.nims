@@ -63,7 +63,9 @@ task test_emscripten, "build emscripten examples":
 task bindings, "Generate bindings":
   proc compile(libName: string, flags = "") =
     exec "nim c -f " & flags &
-      " --path:src -d:release -d:gennyNim --app:lib --gc:arc --tlsEmulation:off --out:" & libName &
+      " --path:src -d:release " &
+      " -d:gennyNim " &
+      " --app:lib --gc:arc --tlsEmulation:off --out:" & libName &
       " --outdir:src/figdraw/bindings/generated src/figdraw/bindings/bindings.nim"
 
   when defined(windows):
