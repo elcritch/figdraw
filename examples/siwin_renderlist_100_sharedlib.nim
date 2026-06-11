@@ -3,21 +3,14 @@ when defined(emscripten):
 else:
   import std/[os, times, monotimes, strformat]
 import std/math
-import vmath
 
 import figdraw/bindings/generated/figdraw
-import siwin/window as siwinWindow
-import siwin/windowOpengl as siWindowOpengl
-import figdraw/utils/glutils
 
 when defined(macosx):
   {.passL: "-Wl,-rpath,@executable_path/../src/figdraw/bindings/generated".}
   {.passL: "-Wl,-rpath,@loader_path/../src/figdraw/bindings/generated".}
-  {.passL: "-Wl,-rpath,@executable_path/../deps/siwin/bindings".}
-  {.passL: "-Wl,-rpath,@loader_path/../deps/siwin/bindings".}
 elif defined(linux) or defined(bsd):
   {.passL: "-Wl,-rpath,$ORIGIN/../src/figdraw/bindings/generated".}
-  {.passL: "-Wl,-rpath,$ORIGIN/../deps/siwin/bindings".}
 
 const
   Copies = 100
@@ -275,31 +268,27 @@ when isMainModule:
   var fpsText = "0.0 FPS"
 
   let title = "Siwin RenderList (Nim Shared Lib)"
-  let window = siWindowOpengl.newOpenglWindow(
-    size = ivec2(800, 600),
-    fullscreen = false,
-    title = title,
-    vsync = true,
-    resizable = true,
-    frameless = false,
-    transparent = false,
+  let app = newFigSiwinAppBinding(
+    800'i32,
+    600'i32,
+    title,
+    512,
+    1.0'f32,
+    false,
+    true,
+    0'i32,
+    true,
+    false,
+    false,
   )
-  if window.isNil:
-    quit("Failed to create siwin window", 1)
-  setFigUiScale(window.uiScale())
+  if app.isNil:
+    quit("Failed to create siwin app", 1)
   when TraceShared:
-    echo "trace: configured ui scale"
-  when not defined(emscripten):
-    window.makeCurrent()
-    startOpenGL(openglVersion)
-  let renderer = newFigRendererBinding(512, 1.0'f32)
-  if renderer.isNil:
-    quit("Failed to create renderer", 1)
-  window.firstStep()
+    echo "trace: created siwin app backend=", app.siwinBackendName(),
+      " display=", app.siwinDisplayServerName()
+  app.siwinFirstStep()
   when TraceShared:
     echo "trace: first step"
-  when TraceShared:
-    echo "trace: make current"
 
   var frames = 0
   var fpsFrames = 0
@@ -312,8 +301,8 @@ when isMainModule:
     quit("Failed to create renders", 1)
 
   try:
-    while window.opened and appRunning:
-      setFigUiScale(window.uiScale())
+    while app.siwinOpened() and appRunning:
+      app.siwinRefreshUiScale()
       when TraceShared:
         echo "trace: refresh ui scale"
 
@@ -321,9 +310,9 @@ when isMainModule:
       inc globalFrame
       inc fpsFrames
 
-      let size = window.size()
-      let width = size.x.float32
-      let height = size.y.float32
+      let size = app.siwinWindowSize()
+      let width = size.w.float32
+      let height = size.h.float32
       when TraceShared:
         echo "trace: logical size ", width, "x", height
 
@@ -374,14 +363,12 @@ when isMainModule:
         echo "trace: hud text done"
 
       let t1 = getMonoTime()
-      when not defined(emscripten):
-        window.makeCurrent()
-      renderer.renderFrameBinding(renders, width, height)
+      app.renderSiwinFrameBinding(renders, width, height)
       when TraceShared:
         echo "trace: render frame done"
       renderFrameMsSum += float((getMonoTime() - t1).inMicroseconds)
-      window.redraw()
-      window.step()
+      app.siwinRedraw()
+      app.siwinStep()
       when TraceShared:
         echo "trace: step"
 
@@ -410,4 +397,4 @@ when isMainModule:
           sleep(16)
   finally:
     when not TraceShared:
-      window.close()
+      app.siwinClose()

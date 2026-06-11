@@ -14,8 +14,11 @@ import figdraw/common/fontutils as fut
 when not defined(emscripten):
   import figdraw/utils/glutils
 
-const ExportSiwinShim* {.booldefine: "figdraw.bindings.siwinshim".} = false
+const ExportSiwinShim* {.booldefine: "figdraw.bindings.siwinshim".} = true
 const GeneratedDir = currentSourcePath().parentDir / "generated"
+
+when ExportSiwinShim and not defined(emscripten):
+  import figdraw/windowing/siwinshim as siwinshim
 
 var lastError: ref FigDrawError
 
@@ -50,6 +53,9 @@ type
   ScreenBox* = object
     x*, y*, w*, h*: float32
 
+  WindowSize* = object
+    w*, h*: int32
+
   FigRef* = ref object
     inner: fdn.Fig
 
@@ -64,6 +70,13 @@ type
 
   GlyphLayoutRef* = ref object
     inner: fnt.GlyphArrangement
+
+when ExportSiwinShim and not defined(emscripten):
+  type
+    FigSiwinAppRef* = ref object
+      window: siwinshim.Window
+      renderer: fgr.FigRenderer[siwinshim.SiwinRenderBackend]
+      autoScale: bool
 
 proc newFig(): FigRef =
   FigRef(inner: fdn.Fig(kind: fdn.nkFrame))
@@ -344,6 +357,143 @@ proc renderFrameBinding*(renderer: FigRendererRef, renders: Renders, width, heig
     var nodes = renders
     renderer.inner.renderFrame(nodes, vec2(width, height))
 
+when ExportSiwinShim and not defined(emscripten):
+  proc newFigSiwinAppBinding*(
+      width, height: int32,
+      title: string,
+      atlasSize: int,
+      pixelScale: float32,
+      fullscreen: bool,
+      vsync: bool,
+      msaa: int32,
+      resizable: bool,
+      frameless: bool,
+      transparent: bool,
+  ): FigSiwinAppRef {.raises: [FigDrawError].} =
+    withFigDrawError:
+      when UseVulkanBackend:
+        let renderer =
+          fgr.newFigRenderer(atlasSize, siwinshim.SiwinRenderBackend(), pixelScale)
+        let window = siwinshim.newSiwinWindow(
+          renderer,
+          ivec2(width, height),
+          fullscreen = fullscreen,
+          title = title,
+          vsync = vsync,
+          msaa = msaa,
+          resizable = resizable,
+          frameless = frameless,
+          transparent = transparent,
+        )
+        renderer.setupBackend(window)
+        result = FigSiwinAppRef(window: window, renderer: renderer)
+      else:
+        let window = siwinshim.newSiwinWindow(
+          ivec2(width, height),
+          fullscreen = fullscreen,
+          title = title,
+          vsync = vsync,
+          msaa = msaa,
+          resizable = resizable,
+          frameless = frameless,
+          transparent = transparent,
+        )
+        let renderer = fgr.newFigRenderer(
+          atlasSize, siwinshim.SiwinRenderBackend(window: window), pixelScale
+        )
+        renderer.setupBackend(window)
+        result = FigSiwinAppRef(window: window, renderer: renderer)
+      result.autoScale = result.window.configureUiScale()
+
+  proc siwinFirstStep(app: FigSiwinAppRef) {.raises: [FigDrawError].} =
+    if app.isNil or app.window.isNil:
+      return
+    withFigDrawError:
+      app.window.firstStep()
+
+  proc siwinStep(app: FigSiwinAppRef) {.raises: [FigDrawError].} =
+    if app.isNil or app.window.isNil:
+      return
+    withFigDrawError:
+      app.window.step()
+
+  proc siwinRedraw(app: FigSiwinAppRef) {.raises: [FigDrawError].} =
+    if app.isNil or app.window.isNil:
+      return
+    withFigDrawError:
+      app.window.redraw()
+
+  proc siwinClose(app: FigSiwinAppRef) {.raises: [FigDrawError].} =
+    if app.isNil or app.window.isNil:
+      return
+    withFigDrawError:
+      app.window.close()
+
+  proc siwinOpened(app: FigSiwinAppRef): bool {.raises: [FigDrawError].} =
+    if app.isNil or app.window.isNil:
+      return false
+    withFigDrawError:
+      result = app.window.opened
+
+  proc siwinWindowSize(app: FigSiwinAppRef): WindowSize {.raises: [FigDrawError].} =
+    if app.isNil or app.window.isNil:
+      return WindowSize()
+    withFigDrawError:
+      let size = app.window.size
+      result = WindowSize(w: size.x, h: size.y)
+
+  proc siwinBackingSize(app: FigSiwinAppRef): WindowSize {.raises: [FigDrawError].} =
+    if app.isNil or app.window.isNil:
+      return WindowSize()
+    withFigDrawError:
+      let size = app.window.backingSize()
+      result = WindowSize(w: size.x, h: size.y)
+
+  proc siwinContentScale(app: FigSiwinAppRef): float32 {.raises: [FigDrawError].} =
+    if app.isNil or app.window.isNil:
+      return 1.0'f32
+    withFigDrawError:
+      result = app.window.contentScale()
+
+  proc siwinRefreshUiScale(app: FigSiwinAppRef) {.raises: [FigDrawError].} =
+    if app.isNil or app.window.isNil:
+      return
+    withFigDrawError:
+      app.window.refreshUiScale(app.autoScale)
+
+  proc siwinBackendName(app: FigSiwinAppRef): string {.raises: [FigDrawError].} =
+    if app.isNil or app.renderer.isNil:
+      return ""
+    withFigDrawError:
+      result = app.renderer.siwinBackendName()
+
+  proc siwinDisplayServerName(app: FigSiwinAppRef): string {.raises: [FigDrawError].} =
+    if app.isNil or app.window.isNil:
+      return ""
+    withFigDrawError:
+      result = app.window.siwinDisplayServerName()
+
+  proc renderSiwinFrameBinding*(
+      app: FigSiwinAppRef, renders: Renders, width, height: float32
+  ) {.raises: [FigDrawError].} =
+    if app.isNil or app.renderer.isNil or renders.isNil:
+      return
+    withFigDrawError:
+      app.window.refreshUiScale(app.autoScale)
+      app.renderer.beginFrame()
+      var nodes = renders
+      app.renderer.renderFrame(nodes, vec2(width, height))
+      app.renderer.endFrame()
+
+  proc renderSiwinFrameBinding*(
+      app: FigSiwinAppRef, renders: Renders
+  ) {.raises: [FigDrawError].} =
+    if app.isNil or app.window.isNil or renders.isNil:
+      return
+    withFigDrawError:
+      let size = app.window.backingSize()
+      renderSiwinFrameBinding(app, renders, size.x.float32, size.y.float32)
+
 proc clear(renders: Renders) =
   returnIfNil renders
   renders.layers.clear()
@@ -436,6 +586,9 @@ exportObject CornerRadii:
 exportObject ScreenBox:
   discard
 
+exportObject WindowSize:
+  discard
+
 exportRefObject FigRef:
   constructor:
     newFig()
@@ -476,6 +629,27 @@ exportRefObject FigRendererRef:
     newFigRendererBinding(int, float32)
   procs:
     renderFrameBinding(FigRendererRef, Renders, float32, float32)
+
+when ExportSiwinShim and not defined(emscripten):
+  exportRefObject FigSiwinAppRef:
+    constructor:
+      newFigSiwinAppBinding(
+        int32, int32, string, int, float32, bool, bool, int32, bool, bool, bool
+      )
+    procs:
+      siwinFirstStep(FigSiwinAppRef)
+      siwinStep(FigSiwinAppRef)
+      siwinRedraw(FigSiwinAppRef)
+      siwinClose(FigSiwinAppRef)
+      siwinOpened(FigSiwinAppRef)
+      siwinWindowSize(FigSiwinAppRef)
+      siwinBackingSize(FigSiwinAppRef)
+      siwinContentScale(FigSiwinAppRef)
+      siwinRefreshUiScale(FigSiwinAppRef)
+      siwinBackendName(FigSiwinAppRef)
+      siwinDisplayServerName(FigSiwinAppRef)
+      renderSiwinFrameBinding(FigSiwinAppRef, Renders, float32, float32)
+      renderSiwinFrameBinding(FigSiwinAppRef, Renders)
 
 exportRefObject TypefaceRef:
   discard
