@@ -7,6 +7,7 @@ import figdraw/commons
 import figdraw/fignodes as fdn
 import figdraw/figrender as fgr
 import figdraw/common/fonttypes as fnt
+from figdraw/fignodes import Renders
 from figdraw/common/fonttypes import FontCase
 import figdraw/common/fontutils as fut
 when not defined(emscripten):
@@ -22,11 +23,8 @@ type
   Fig* = ref object
     inner: fdn.Fig
 
-  RenderList* = ref object
+  RenderListRef* = ref object
     inner: fdn.RenderList
-
-  Renders* = ref object
-    inner: fdn.Renders
 
   FigRendererRef* = ref object
     inner: fgr.FigRenderer[fgr.NoRendererBackendState]
@@ -397,35 +395,35 @@ proc setShadow(
     fill: fill(color),
   )
 
-proc newRenderList(): RenderList =
-  RenderList(inner: fdn.RenderList())
+proc newRenderListRef(): RenderListRef =
+  RenderListRef(inner: fdn.RenderList())
 
-proc copy(list: RenderList): RenderList =
+proc copy(list: RenderListRef): RenderListRef =
   if list.isNil:
     return nil
-  RenderList(inner: list.inner)
+  RenderListRef(inner: list.inner)
 
-proc clear(list: RenderList) =
+proc clear(list: RenderListRef) =
   if list.isNil:
     return
   list.inner = fdn.RenderList()
 
-proc nodeCount(list: RenderList): int =
+proc nodeCount(list: RenderListRef): int =
   if list.isNil:
     return 0
   list.inner.nodes.len
 
-proc rootCount(list: RenderList): int =
+proc rootCount(list: RenderListRef): int =
   if list.isNil:
     return 0
   list.inner.rootIds.len
 
-proc addRoot(list: RenderList, root: Fig): int16 =
+proc addRoot(list: RenderListRef, root: Fig): int16 =
   if list.isNil or root.isNil:
     return -1'i16
   list.inner.addRoot(root.inner).int16
 
-proc addChild(list: RenderList, parentIdx: int16, child: Fig): int16 =
+proc addChild(list: RenderListRef, parentIdx: int16, child: Fig): int16 =
   if list.isNil or child.isNil:
     return -1'i16
   try:
@@ -433,7 +431,7 @@ proc addChild(list: RenderList, parentIdx: int16, child: Fig): int16 =
   except ValueError:
     -1'i16
 
-proc getNode(list: RenderList, nodeIdx: int16): Fig =
+proc getNode(list: RenderListRef, nodeIdx: int16): Fig =
   if list.isNil:
     return nil
   try:
@@ -441,7 +439,7 @@ proc getNode(list: RenderList, nodeIdx: int16): Fig =
   except CatchableError:
     nil
 
-proc getRootId(list: RenderList, rootIdx: int16): int16 =
+proc getRootId(list: RenderListRef, rootIdx: int16): int16 =
   if list.isNil:
     return -1'i16
   try:
@@ -450,7 +448,7 @@ proc getRootId(list: RenderList, rootIdx: int16): int16 =
     -1'i16
 
 proc newRenders(): Renders =
-  Renders(inner: fdn.Renders(layers: initOrderedTable[fdn.ZLevel, fdn.RenderList]()))
+  Renders(layers: initOrderedTable[fdn.ZLevel, fdn.RenderList]())
 
 proc ensureOpenGLInitialized() =
   when not defined(emscripten):
@@ -467,25 +465,27 @@ proc renderFrameBinding*(renderer: FigRendererRef, renders: Renders, width, heig
   if renderer.isNil or renders.isNil:
     return
   try:
-    renderer.inner.renderFrame(renders.inner, vec2(width, height))
+    var nodes = renders
+    renderer.inner.renderFrame(nodes, vec2(width, height))
   except Exception:
     discard
 
 proc clear(renders: Renders) =
   if renders.isNil:
     return
-  renders.inner.layers.clear()
+  renders.layers.clear()
 
 proc containsLayer(renders: Renders, zLevel: int8): bool =
   if renders.isNil:
     return false
-  renders.inner.contains(fdn.ZLevel(zLevel))
+  renders.contains(fdn.ZLevel(zLevel))
 
 proc addRoot(renders: Renders, zLevel: int8, root: Fig): int16 =
   if renders.isNil or root.isNil:
     return -1'i16
   try:
-    renders.inner.addRoot(fdn.ZLevel(zLevel), root.inner).int16
+    var nodes = renders
+    nodes.addRoot(fdn.ZLevel(zLevel), root.inner).int16
   except CatchableError:
     -1'i16
 
@@ -493,7 +493,8 @@ proc addChild(renders: Renders, zLevel: int8, parentIdx: int16, child: Fig): int
   if renders.isNil or child.isNil:
     return -1'i16
   try:
-    renders.inner.addChild(fdn.ZLevel(zLevel), fdn.FigIdx(parentIdx), child.inner).int16
+    var nodes = renders
+    nodes.addChild(fdn.ZLevel(zLevel), fdn.FigIdx(parentIdx), child.inner).int16
   except CatchableError:
     -1'i16
 
@@ -503,7 +504,7 @@ proc layerNodeCount(renders: Renders, zLevel: int8): int =
   try:
     if not renders.containsLayer(zLevel):
       return 0
-    renders.inner[fdn.ZLevel(zLevel)].nodes.len
+    renders[fdn.ZLevel(zLevel)].nodes.len
   except CatchableError:
     0
 
@@ -513,7 +514,7 @@ proc layerRootCount(renders: Renders, zLevel: int8): int =
   try:
     if not renders.containsLayer(zLevel):
       return 0
-    renders.inner[fdn.ZLevel(zLevel)].rootIds.len
+    renders[fdn.ZLevel(zLevel)].rootIds.len
   except CatchableError:
     0
 
@@ -521,7 +522,7 @@ proc getLayerNode(renders: Renders, zLevel: int8, nodeIdx: int16): Fig =
   if renders.isNil:
     return nil
   try:
-    Fig(inner: renders.inner[fdn.ZLevel(zLevel)].nodes[nodeIdx.int])
+    Fig(inner: renders[fdn.ZLevel(zLevel)].nodes[nodeIdx.int])
   except CatchableError:
     nil
 
@@ -563,18 +564,18 @@ exportRefObject Fig:
     clearShadows(Fig)
     setShadow(Fig, int8, ShadowStyle, float32, float32, float32, float32, ColorRGBA)
 
-exportRefObject RenderList:
+exportRefObject RenderListRef:
   constructor:
-    newRenderList()
+    newRenderListRef()
   procs:
-    copy(RenderList)
-    clear(RenderList)
-    nodeCount(RenderList)
-    rootCount(RenderList)
-    addRoot(RenderList, Fig)
-    addChild(RenderList, int16, Fig)
-    getNode(RenderList, int16)
-    getRootId(RenderList, int16)
+    copy(RenderListRef)
+    clear(RenderListRef)
+    nodeCount(RenderListRef)
+    rootCount(RenderListRef)
+    addRoot(RenderListRef, Fig)
+    addChild(RenderListRef, int16, Fig)
+    getNode(RenderListRef, int16)
+    getRootId(RenderListRef, int16)
 
 exportRefObject Renders:
   constructor:
