@@ -48,7 +48,7 @@ template withFigDrawError(body: untyped) =
 
 type
   CornerRadii* = object
-    values*: array[DirectionCorners, uint16]
+    topLeft*, topRight*, bottomLeft*, bottomRight*: uint16
 
   ScreenBox* = object
     x*, y*, w*, h*: float32
@@ -85,7 +85,12 @@ proc initRgba(r, g, b, a: uint8): ColorRGBA =
   rgba(r, g, b, a)
 
 proc cornerRadii(topLeft, topRight, bottomLeft, bottomRight: float32): CornerRadii =
-  CornerRadii(values: [topLeft, topRight, bottomLeft, bottomRight])
+  CornerRadii(
+    topLeft: topLeft.uint16,
+    topRight: topRight.uint16,
+    bottomLeft: bottomLeft.uint16,
+    bottomRight: bottomRight.uint16,
+  )
 
 func toFigKind(kind: int8): fdn.FigKind =
   let raw = kind.int
@@ -305,7 +310,12 @@ proc setRotation(fig: FigRef, rotation: float32) =
 
 proc setCorners(fig: FigRef, radii: CornerRadii) =
   returnIfNil fig
-  fig.inner.corners = radii.values
+  fig.inner.corners = [
+    radii.topLeft,
+    radii.topRight,
+    radii.bottomLeft,
+    radii.bottomRight,
+  ]
 
 proc setStroke(fig: FigRef, weight: float32, color: ColorRGBA) =
   returnIfNil fig

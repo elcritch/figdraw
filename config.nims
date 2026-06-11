@@ -64,7 +64,7 @@ task bindings, "Generate bindings":
   proc compile(libName: string, flags = "") =
     exec "nim c -f " & flags &
       " --path:src -d:release " &
-      " -d:gennyNim " &
+      " -d:gennyNim -d:gennyC -d:gennyPython " &
       " --app:lib --gc:arc --tlsEmulation:off --out:" & libName &
       " --outdir:src/figdraw/bindings/generated src/figdraw/bindings/bindings.nim"
 
