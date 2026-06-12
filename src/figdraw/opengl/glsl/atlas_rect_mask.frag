@@ -8,12 +8,16 @@ in vec4 fillStopColor;
 in vec4 sdfParams;
 in vec4 sdfRadii;
 in float sdfMode;
-in vec2 sdfFactors;
-in float subpixelShift;
+in vec4 sdfFactors;
 in vec4 rectMaskParams;
 in vec4 rectMaskRadii;
 in vec4 rectMaskMatX;
 in vec4 rectMaskMatY;
+#if FIGDRAW_FAST_RECT_MASK_LIMIT >= 2
+in vec4 rectMaskParams2;
+in vec4 rectMaskRadii2;
+in vec4 rectMaskMat2;
+#endif
 
 uniform vec2 windowFrame;
 uniform sampler2D atlasTex;
@@ -76,18 +80,33 @@ float shadowProfile(float sd, float blurRadius) {
   return exp(-0.5 * z * z);
 }
 
-float rectMaskAlpha(vec2 pixelPos) {
-  if (rectMaskParams.z < 0.0 || rectMaskParams.w < 0.0) {
+float rectMaskAlphaOne(
+    vec2 pixelPos,
+    vec4 params,
+    vec4 radii,
+    vec4 matX,
+    vec4 matY) {
+  if (params.z < 0.0 || params.w < 0.0) {
     return 1.0;
   }
 
   vec2 local = vec2(
-    dot(rectMaskMatX.xy, pixelPos) + rectMaskMatX.z,
-    dot(rectMaskMatY.xy, pixelPos) + rectMaskMatY.z
+    dot(matX.xy, pixelPos) + matX.z,
+    dot(matY.xy, pixelPos) + matY.z
   );
-  vec2 q = local - rectMaskParams.xy;
-  float dist = sdRoundedBox(vec2(q.x, -q.y), rectMaskParams.zw, rectMaskRadii);
+  vec2 q = local - params.xy;
+  float dist = sdRoundedBox(vec2(q.x, -q.y), params.zw, radii);
   return 1.0 - clamp(aaFactor * dist + 0.5, 0.0, 1.0);
+}
+
+float rectMaskAlpha(vec2 pixelPos) {
+  float alpha =
+    rectMaskAlphaOne(pixelPos, rectMaskParams, rectMaskRadii, rectMaskMatX, rectMaskMatY);
+#if FIGDRAW_FAST_RECT_MASK_LIMIT >= 2
+  vec4 matY2 = vec4(rectMaskMat2.w, rectMaskMatX.w, rectMaskMatY.w, 0.0);
+  alpha *= rectMaskAlphaOne(pixelPos, rectMaskParams2, rectMaskRadii2, rectMaskMat2, matY2);
+#endif
+  return alpha;
 }
 
 float linear3T(int fillMode, vec2 uv) {
@@ -148,7 +167,7 @@ void main() {
   if (sdfModeInt == sdfModeAtlas) {
     vec2 atlasUv = uv;
     if (subpixelPositioningEnabled) {
-      atlasUv.x -= subpixelShift * atlasTexelSize.x;
+      atlasUv.x -= sdfFactors.z * atlasTexelSize.x;
     }
     vec4 tex = texture(atlasTex, atlasUv);
     fragColor = vec4(

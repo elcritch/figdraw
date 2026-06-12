@@ -10,12 +10,16 @@ attribute vec4 vertexFillStopColor;
 attribute vec4 vertexSdfParams;
 attribute vec4 vertexSdfRadii;
 attribute float vertexSdfMode;
-attribute vec2 vertexSdfFactors;
-attribute float vertexSubpixelShift;
+attribute vec4 vertexSdfFactors;
 attribute vec4 vertexRectMaskParams;
 attribute vec4 vertexRectMaskRadii;
 attribute vec4 vertexRectMaskMatX;
 attribute vec4 vertexRectMaskMatY;
+#if FIGDRAW_FAST_RECT_MASK_LIMIT >= 2
+attribute vec4 vertexRectMaskParams2;
+attribute vec4 vertexRectMaskRadii2;
+attribute vec4 vertexRectMaskMat2;
+#endif
 
 uniform mat4 proj;
 
@@ -27,12 +31,16 @@ varying vec4 fillStopColor;
 varying vec4 sdfParams;
 varying vec4 sdfRadii;
 varying float sdfMode;
-varying vec2 sdfFactors;
-varying float subpixelShift;
+varying vec4 sdfFactors;
 varying vec4 rectMaskParams;
 varying vec4 rectMaskRadii;
 varying vec4 rectMaskMatX;
 varying vec4 rectMaskMatY;
+#if FIGDRAW_FAST_RECT_MASK_LIMIT >= 2
+varying vec4 rectMaskParams2;
+varying vec4 rectMaskRadii2;
+varying vec4 rectMaskMat2;
+#endif
 
 void main() {
   pos = vertexPos;
@@ -44,10 +52,14 @@ void main() {
   sdfRadii = vertexSdfRadii;
   sdfMode = vertexSdfMode;
   sdfFactors = vertexSdfFactors;
-  subpixelShift = vertexSubpixelShift;
   rectMaskParams = vertexRectMaskParams;
   rectMaskRadii = vertexRectMaskRadii;
   rectMaskMatX = vertexRectMaskMatX;
   rectMaskMatY = vertexRectMaskMatY;
+#if FIGDRAW_FAST_RECT_MASK_LIMIT >= 2
+  rectMaskParams2 = vertexRectMaskParams2;
+  rectMaskRadii2 = vertexRectMaskRadii2;
+  rectMaskMat2 = vertexRectMaskMat2;
+#endif
   gl_Position = proj * vec4(vertexPos.x, vertexPos.y, 0.0, 1.0);
 }

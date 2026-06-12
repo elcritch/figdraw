@@ -22,10 +22,22 @@ logScope:
 
 const
   quadLimit = 10_921
-  sdfVertSpv = staticRead("shaders/sdf.vert.spv")
-  sdfFragSpv = staticRead("shaders/sdf.frag.spv")
+  fastRectMaskLimit = figbackend.FigDrawFastRectMaskLimit
   blurVertSpv = staticRead("shaders/blur.vert.spv")
   blurFragSpv = staticRead("shaders/blur.frag.spv")
+
+when fastRectMaskLimit == 0:
+  const
+    sdfVertSpv = staticRead("shaders/sdf.rectmask0.vert.spv")
+    sdfFragSpv = staticRead("shaders/sdf.rectmask0.frag.spv")
+elif fastRectMaskLimit == 1:
+  const
+    sdfVertSpv = staticRead("shaders/sdf.rectmask1.vert.spv")
+    sdfFragSpv = staticRead("shaders/sdf.rectmask1.frag.spv")
+else:
+  const
+    sdfVertSpv = staticRead("shaders/sdf.vert.spv")
+    sdfFragSpv = staticRead("shaders/sdf.frag.spv")
 
 when defined(emscripten):
   type SdfModeData = float32
@@ -86,6 +98,11 @@ type
     rectMaskRadii: array[4, float32]
     rectMaskMatX: array[4, float32]
     rectMaskMatY: array[4, float32]
+    when fastRectMaskLimit >= 2:
+      rectMaskParams2: array[4, float32]
+      rectMaskRadii2: array[4, float32]
+      rectMaskMatX2: array[4, float32]
+      rectMaskMatY2: array[4, float32]
 
   VulkanContext* = ref object of figbackend.BackendContext
     atlasSize: int
@@ -125,6 +142,11 @@ type
     rectMaskRadii: seq[float32]
     rectMaskMatX: seq[float32]
     rectMaskMatY: seq[float32]
+    when fastRectMaskLimit >= 2:
+      rectMaskParams2: seq[float32]
+      rectMaskRadii2: seq[float32]
+      rectMaskMatX2: seq[float32]
+      rectMaskMatY2: seq[float32]
     rectMaskStack: seq[RectMask]
     batchHasRectMask: bool
     indices: seq[uint16]
@@ -768,86 +790,120 @@ proc createPipeline(ctx: VulkanContext) =
     binding: 0, stride: uint32(sizeof(Vertex)), inputRate: VK_VERTEX_INPUT_RATE_VERTEX
   )
 
-  let attrDescs = [
-    VkVertexInputAttributeDescription(
-      location: 0,
-      binding: 0,
-      format: VK_FORMAT_R32G32_SFLOAT,
-      offset: uint32(offsetOf(Vertex, pos)),
-    ),
-    VkVertexInputAttributeDescription(
-      location: 1,
-      binding: 0,
-      format: VK_FORMAT_R32G32_SFLOAT,
-      offset: uint32(offsetOf(Vertex, uv)),
-    ),
-    VkVertexInputAttributeDescription(
-      location: 2,
-      binding: 0,
-      format: VK_FORMAT_R8G8B8A8_UNORM,
-      offset: uint32(offsetOf(Vertex, color)),
-    ),
-    VkVertexInputAttributeDescription(
-      location: 3,
-      binding: 0,
-      format: VK_FORMAT_R8G8B8A8_UNORM,
-      offset: uint32(offsetOf(Vertex, fillMidColor)),
-    ),
-    VkVertexInputAttributeDescription(
-      location: 4,
-      binding: 0,
-      format: VK_FORMAT_R8G8B8A8_UNORM,
-      offset: uint32(offsetOf(Vertex, fillStopColor)),
-    ),
-    VkVertexInputAttributeDescription(
-      location: 5,
-      binding: 0,
-      format: VK_FORMAT_R32G32B32A32_SFLOAT,
-      offset: uint32(offsetOf(Vertex, sdfParams)),
-    ),
-    VkVertexInputAttributeDescription(
-      location: 6,
-      binding: 0,
-      format: VK_FORMAT_R32G32B32A32_SFLOAT,
-      offset: uint32(offsetOf(Vertex, sdfRadii)),
-    ),
-    VkVertexInputAttributeDescription(
-      location: 7,
-      binding: 0,
-      format: VK_FORMAT_R16_UINT,
-      offset: uint32(offsetOf(Vertex, sdfMode)),
-    ),
-    VkVertexInputAttributeDescription(
-      location: 8,
-      binding: 0,
-      format: VK_FORMAT_R32G32_SFLOAT,
-      offset: uint32(offsetOf(Vertex, sdfFactors)),
-    ),
-    VkVertexInputAttributeDescription(
-      location: 9,
-      binding: 0,
-      format: VK_FORMAT_R32G32B32A32_SFLOAT,
-      offset: uint32(offsetOf(Vertex, rectMaskParams)),
-    ),
-    VkVertexInputAttributeDescription(
-      location: 10,
-      binding: 0,
-      format: VK_FORMAT_R32G32B32A32_SFLOAT,
-      offset: uint32(offsetOf(Vertex, rectMaskRadii)),
-    ),
-    VkVertexInputAttributeDescription(
-      location: 11,
-      binding: 0,
-      format: VK_FORMAT_R32G32B32A32_SFLOAT,
-      offset: uint32(offsetOf(Vertex, rectMaskMatX)),
-    ),
-    VkVertexInputAttributeDescription(
-      location: 12,
-      binding: 0,
-      format: VK_FORMAT_R32G32B32A32_SFLOAT,
-      offset: uint32(offsetOf(Vertex, rectMaskMatY)),
-    ),
-  ]
+  var attrDescs =
+    @[
+      VkVertexInputAttributeDescription(
+        location: 0,
+        binding: 0,
+        format: VK_FORMAT_R32G32_SFLOAT,
+        offset: uint32(offsetOf(Vertex, pos)),
+      ),
+      VkVertexInputAttributeDescription(
+        location: 1,
+        binding: 0,
+        format: VK_FORMAT_R32G32_SFLOAT,
+        offset: uint32(offsetOf(Vertex, uv)),
+      ),
+      VkVertexInputAttributeDescription(
+        location: 2,
+        binding: 0,
+        format: VK_FORMAT_R8G8B8A8_UNORM,
+        offset: uint32(offsetOf(Vertex, color)),
+      ),
+      VkVertexInputAttributeDescription(
+        location: 3,
+        binding: 0,
+        format: VK_FORMAT_R8G8B8A8_UNORM,
+        offset: uint32(offsetOf(Vertex, fillMidColor)),
+      ),
+      VkVertexInputAttributeDescription(
+        location: 4,
+        binding: 0,
+        format: VK_FORMAT_R8G8B8A8_UNORM,
+        offset: uint32(offsetOf(Vertex, fillStopColor)),
+      ),
+      VkVertexInputAttributeDescription(
+        location: 5,
+        binding: 0,
+        format: VK_FORMAT_R32G32B32A32_SFLOAT,
+        offset: uint32(offsetOf(Vertex, sdfParams)),
+      ),
+      VkVertexInputAttributeDescription(
+        location: 6,
+        binding: 0,
+        format: VK_FORMAT_R32G32B32A32_SFLOAT,
+        offset: uint32(offsetOf(Vertex, sdfRadii)),
+      ),
+      VkVertexInputAttributeDescription(
+        location: 7,
+        binding: 0,
+        format: VK_FORMAT_R16_UINT,
+        offset: uint32(offsetOf(Vertex, sdfMode)),
+      ),
+      VkVertexInputAttributeDescription(
+        location: 8,
+        binding: 0,
+        format: VK_FORMAT_R32G32_SFLOAT,
+        offset: uint32(offsetOf(Vertex, sdfFactors)),
+      ),
+      VkVertexInputAttributeDescription(
+        location: 9,
+        binding: 0,
+        format: VK_FORMAT_R32G32B32A32_SFLOAT,
+        offset: uint32(offsetOf(Vertex, rectMaskParams)),
+      ),
+      VkVertexInputAttributeDescription(
+        location: 10,
+        binding: 0,
+        format: VK_FORMAT_R32G32B32A32_SFLOAT,
+        offset: uint32(offsetOf(Vertex, rectMaskRadii)),
+      ),
+      VkVertexInputAttributeDescription(
+        location: 11,
+        binding: 0,
+        format: VK_FORMAT_R32G32B32A32_SFLOAT,
+        offset: uint32(offsetOf(Vertex, rectMaskMatX)),
+      ),
+      VkVertexInputAttributeDescription(
+        location: 12,
+        binding: 0,
+        format: VK_FORMAT_R32G32B32A32_SFLOAT,
+        offset: uint32(offsetOf(Vertex, rectMaskMatY)),
+      ),
+    ]
+  when fastRectMaskLimit >= 2:
+    attrDescs.add(
+      VkVertexInputAttributeDescription(
+        location: 13,
+        binding: 0,
+        format: VK_FORMAT_R32G32B32A32_SFLOAT,
+        offset: uint32(offsetOf(Vertex, rectMaskParams2)),
+      )
+    )
+    attrDescs.add(
+      VkVertexInputAttributeDescription(
+        location: 14,
+        binding: 0,
+        format: VK_FORMAT_R32G32B32A32_SFLOAT,
+        offset: uint32(offsetOf(Vertex, rectMaskRadii2)),
+      )
+    )
+    attrDescs.add(
+      VkVertexInputAttributeDescription(
+        location: 15,
+        binding: 0,
+        format: VK_FORMAT_R32G32B32A32_SFLOAT,
+        offset: uint32(offsetOf(Vertex, rectMaskMatX2)),
+      )
+    )
+    attrDescs.add(
+      VkVertexInputAttributeDescription(
+        location: 16,
+        binding: 0,
+        format: VK_FORMAT_R32G32B32A32_SFLOAT,
+        offset: uint32(offsetOf(Vertex, rectMaskMatY2)),
+      )
+    )
 
   let vertexInputInfo = newVkPipelineVertexInputStateCreateInfo(
     vertexBindingDescriptions = [bindingDesc], vertexAttributeDescriptions = attrDescs
@@ -2001,6 +2057,23 @@ proc flush(ctx: VulkanContext) =
     v.rectMaskMatY[1] = ctx.rectMaskMatY[i * 4 + 1]
     v.rectMaskMatY[2] = ctx.rectMaskMatY[i * 4 + 2]
     v.rectMaskMatY[3] = ctx.rectMaskMatY[i * 4 + 3]
+    when fastRectMaskLimit >= 2:
+      v.rectMaskParams2[0] = ctx.rectMaskParams2[i * 4 + 0]
+      v.rectMaskParams2[1] = ctx.rectMaskParams2[i * 4 + 1]
+      v.rectMaskParams2[2] = ctx.rectMaskParams2[i * 4 + 2]
+      v.rectMaskParams2[3] = ctx.rectMaskParams2[i * 4 + 3]
+      v.rectMaskRadii2[0] = ctx.rectMaskRadii2[i * 4 + 0]
+      v.rectMaskRadii2[1] = ctx.rectMaskRadii2[i * 4 + 1]
+      v.rectMaskRadii2[2] = ctx.rectMaskRadii2[i * 4 + 2]
+      v.rectMaskRadii2[3] = ctx.rectMaskRadii2[i * 4 + 3]
+      v.rectMaskMatX2[0] = ctx.rectMaskMatX2[i * 4 + 0]
+      v.rectMaskMatX2[1] = ctx.rectMaskMatX2[i * 4 + 1]
+      v.rectMaskMatX2[2] = ctx.rectMaskMatX2[i * 4 + 2]
+      v.rectMaskMatX2[3] = ctx.rectMaskMatX2[i * 4 + 3]
+      v.rectMaskMatY2[0] = ctx.rectMaskMatY2[i * 4 + 0]
+      v.rectMaskMatY2[1] = ctx.rectMaskMatY2[i * 4 + 1]
+      v.rectMaskMatY2[2] = ctx.rectMaskMatY2[i * 4 + 2]
+      v.rectMaskMatY2[3] = ctx.rectMaskMatY2[i * 4 + 3]
 
   let uploadBytes = VkDeviceSize(vertexCount * sizeof(Vertex))
   let vertexAlloc = ctx.createBuffer(
@@ -2175,6 +2248,16 @@ proc setRectMaskVert4(
     ctx.rectMaskMatX.setVert4(offset + i, matX)
     ctx.rectMaskMatY.setVert4(offset + i, matY)
 
+when fastRectMaskLimit >= 2:
+  proc setRectMask2Vert4(
+      ctx: VulkanContext, offset: int, params, radii, matX, matY: Vec4
+  ) =
+    for i in 0 ..< 4:
+      ctx.rectMaskParams2.setVert4(offset + i, params)
+      ctx.rectMaskRadii2.setVert4(offset + i, radii)
+      ctx.rectMaskMatX2.setVert4(offset + i, matX)
+      ctx.rectMaskMatY2.setVert4(offset + i, matY)
+
 proc setDisabledRectMaskVerts(ctx: VulkanContext, firstVertex, vertexCount: int) =
   let
     params = vec4(0.0'f32, 0.0'f32, -1.0'f32, -1.0'f32)
@@ -2184,40 +2267,77 @@ proc setDisabledRectMaskVerts(ctx: VulkanContext, firstVertex, vertexCount: int)
     ctx.rectMaskRadii.setVert4(i, zero4)
     ctx.rectMaskMatX.setVert4(i, zero4)
     ctx.rectMaskMatY.setVert4(i, zero4)
+    when fastRectMaskLimit >= 2:
+      ctx.rectMaskParams2.setVert4(i, params)
+      ctx.rectMaskRadii2.setVert4(i, zero4)
+      ctx.rectMaskMatX2.setVert4(i, zero4)
+      ctx.rectMaskMatY2.setVert4(i, zero4)
+
+proc fastRectMaskCount(ctx: VulkanContext): int =
+  for rectMask in ctx.rectMaskStack:
+    if rectMask.kind == rmkFast:
+      inc result
 
 proc setRectMaskVert4(ctx: VulkanContext, offset: int) =
-  if ctx.maskBegun:
+  when fastRectMaskLimit == 0:
     return
+  else:
+    if ctx.maskBegun:
+      return
 
-  var
-    hasRectMask = false
-    params = vec4(0.0'f32)
-    radii = vec4(0.0'f32)
-    matX = vec4(0.0'f32)
-    matY = vec4(0.0'f32)
+    var
+      maskCount = 0
+      params = vec4(0.0'f32)
+      radii = vec4(0.0'f32)
+      matX = vec4(0.0'f32)
+      matY = vec4(0.0'f32)
+    when fastRectMaskLimit >= 2:
+      var
+        params2 = vec4(0.0'f32)
+        radii2 = vec4(0.0'f32)
+        matX2 = vec4(0.0'f32)
+        matY2 = vec4(0.0'f32)
 
-  if ctx.rectMaskStack.len > 0:
-    for i in countdown(ctx.rectMaskStack.len - 1, 0):
-      let rectMask = ctx.rectMaskStack[i]
-      if rectMask.kind == rmkFast:
-        hasRectMask = true
-        params = rectMask.params
-        radii = rectMask.radii
-        matX = rectMask.matX
-        matY = rectMask.matY
-        break
+    if ctx.rectMaskStack.len > 0:
+      for i in countdown(ctx.rectMaskStack.len - 1, 0):
+        let rectMask = ctx.rectMaskStack[i]
+        if rectMask.kind == rmkFast:
+          if maskCount == 0:
+            params = rectMask.params
+            radii = rectMask.radii
+            matX = rectMask.matX
+            matY = rectMask.matY
+            inc maskCount
+          elif fastRectMaskLimit >= 2 and maskCount == 1:
+            when fastRectMaskLimit >= 2:
+              params2 = rectMask.params
+              radii2 = rectMask.radii
+              matX2 = rectMask.matX
+              matY2 = rectMask.matY
+            inc maskCount
+          if maskCount >= fastRectMaskLimit:
+            break
 
-  if hasRectMask:
-    if not ctx.batchHasRectMask:
-      ctx.setDisabledRectMaskVerts(0, offset)
-      ctx.batchHasRectMask = true
-    ctx.setRectMaskVert4(offset, params, radii, matX, matY)
-  elif ctx.batchHasRectMask:
-    ctx.setDisabledRectMaskVerts(offset, 4)
+    if maskCount > 0:
+      if not ctx.batchHasRectMask:
+        ctx.setDisabledRectMaskVerts(0, offset)
+        ctx.batchHasRectMask = true
+      ctx.setRectMaskVert4(offset, params, radii, matX, matY)
+      when fastRectMaskLimit >= 2:
+        if maskCount >= 2:
+          ctx.setRectMask2Vert4(offset, params2, radii2, matX2, matY2)
+        else:
+          let
+            disabledParams = vec4(0.0'f32, 0.0'f32, -1.0'f32, -1.0'f32)
+            zero4 = vec4(0.0'f32)
+          ctx.setRectMask2Vert4(offset, disabledParams, zero4, zero4, zero4)
+    elif ctx.batchHasRectMask:
+      ctx.setDisabledRectMaskVerts(offset, 4)
 
 template setRectMaskVert4IfNeeded(ctx: VulkanContext, offset: int) =
-  if not ctx.maskBegun and (ctx.batchHasRectMask or ctx.rectMaskStack.len > 0):
-    ctx.setRectMaskVert4(offset)
+  when fastRectMaskLimit > 0:
+    if not ctx.maskBegun and (ctx.batchHasRectMask or ctx.rectMaskStack.len > 0):
+      ctx.setRectMaskVert4(offset)
 
 proc copyIntoAtlas(atlas: Image, atX, atY: int, image: Image) =
   for y in 0 ..< image.height:
@@ -3282,7 +3402,8 @@ method beginRectMask*(
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginRectMask cannot start inside a mask."
 
-  if ctx.rectMaskStack.len == 0 and maskRect.w > 0.0'f32 and maskRect.h > 0.0'f32:
+  if fastRectMaskLimit > 0 and ctx.fastRectMaskCount() < fastRectMaskLimit and
+      maskRect.w > 0.0'f32 and maskRect.h > 0.0'f32:
     ctx.rectMaskStack.add(ctx.makeRectMask(maskRect, radii))
   else:
     ctx.beginMask(maskRect, radii)
@@ -3637,6 +3758,11 @@ proc newContext*(
   result.rectMaskRadii = newSeq[float32](4 * maxQuads * 4)
   result.rectMaskMatX = newSeq[float32](4 * maxQuads * 4)
   result.rectMaskMatY = newSeq[float32](4 * maxQuads * 4)
+  when fastRectMaskLimit >= 2:
+    result.rectMaskParams2 = newSeq[float32](4 * maxQuads * 4)
+    result.rectMaskRadii2 = newSeq[float32](4 * maxQuads * 4)
+    result.rectMaskMatX2 = newSeq[float32](4 * maxQuads * 4)
+    result.rectMaskMatY2 = newSeq[float32](4 * maxQuads * 4)
   result.vertexScratch = newSeq[Vertex](maxQuads * 4)
 
   result.indices = newSeq[uint16](maxQuads * 6)

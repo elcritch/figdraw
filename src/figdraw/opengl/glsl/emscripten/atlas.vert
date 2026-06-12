@@ -10,8 +10,7 @@ attribute vec4 vertexFillStopColor;
 attribute vec4 vertexSdfParams;
 attribute vec4 vertexSdfRadii;
 attribute float vertexSdfMode;
-attribute vec2 vertexSdfFactors;
-attribute float vertexSubpixelShift;
+attribute vec4 vertexSdfFactors;
 
 uniform mat4 proj;
 
@@ -23,8 +22,7 @@ varying vec4 fillStopColor;
 varying vec4 sdfParams;
 varying vec4 sdfRadii;
 varying float sdfMode;
-varying vec2 sdfFactors;
-varying float subpixelShift;
+varying vec4 sdfFactors;
 
 void main() {
   pos = vertexPos;
@@ -36,6 +34,5 @@ void main() {
   sdfRadii = vertexSdfRadii;
   sdfMode = vertexSdfMode;
   sdfFactors = vertexSdfFactors;
-  subpixelShift = vertexSubpixelShift;
   gl_Position = proj * vec4(vertexPos.x, vertexPos.y, 0.0, 1.0);
 }
