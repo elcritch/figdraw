@@ -29,6 +29,12 @@ struct RectMaskVSOut {
   float4 rectMaskRadii;
   float4 rectMaskMatX;
   float4 rectMaskMatY;
+#if FIGDRAW_FAST_RECT_MASK_LIMIT >= 2
+  float4 rectMaskParams2;
+  float4 rectMaskRadii2;
+  float4 rectMaskMatX2;
+  float4 rectMaskMatY2;
+#endif
 };
 
 struct VSUniforms {
@@ -177,7 +183,16 @@ vertex RectMaskVSOut vs_rect_mask(
     const device float4* rectMaskRadii [[buffer(10)]],
     const device float4* rectMaskMatX [[buffer(11)]],
     const device float4* rectMaskMatY [[buffer(12)]],
-    constant VSUniforms& u [[buffer(13)]]) {
+#if FIGDRAW_FAST_RECT_MASK_LIMIT >= 2
+    const device float4* rectMaskParams2 [[buffer(13)]],
+    const device float4* rectMaskRadii2 [[buffer(14)]],
+    const device float4* rectMaskMatX2 [[buffer(15)]],
+    const device float4* rectMaskMatY2 [[buffer(16)]],
+    constant VSUniforms& u [[buffer(17)]]
+#else
+    constant VSUniforms& u [[buffer(13)]]
+#endif
+    ) {
   RectMaskVSOut out;
   float2 p = positions[vid];
   out.position = u.proj * float4(p.x, p.y, 0.0, 1.0);
@@ -194,6 +209,12 @@ vertex RectMaskVSOut vs_rect_mask(
   out.rectMaskRadii = rectMaskRadii[vid];
   out.rectMaskMatX = rectMaskMatX[vid];
   out.rectMaskMatY = rectMaskMatY[vid];
+#if FIGDRAW_FAST_RECT_MASK_LIMIT >= 2
+  out.rectMaskParams2 = rectMaskParams2[vid];
+  out.rectMaskRadii2 = rectMaskRadii2[vid];
+  out.rectMaskMatX2 = rectMaskMatX2[vid];
+  out.rectMaskMatY2 = rectMaskMatY2[vid];
+#endif
   return out;
 }
 
@@ -400,6 +421,16 @@ fragment float4 fs_rect_mask(
     in.rectMaskMatY,
     u.aaFactor
   );
+#if FIGDRAW_FAST_RECT_MASK_LIMIT >= 2
+  fragColor.w *= rectMaskAlpha(
+    in.pos,
+    in.rectMaskParams2,
+    in.rectMaskRadii2,
+    in.rectMaskMatX2,
+    in.rectMaskMatY2,
+    u.aaFactor
+  );
+#endif
   return fragColor;
 }
 

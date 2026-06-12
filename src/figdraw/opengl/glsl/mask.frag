@@ -6,7 +6,6 @@ in vec4 color;
 in vec4 sdfParams;
 in vec4 sdfRadii;
 in float sdfMode;
-in float subpixelShift;
 
 uniform vec2 windowFrame;
 uniform sampler2D atlasTex;

@@ -44,6 +44,11 @@ type SdfMode* {.pure.} = enum
   sdfModeMtsdfAnnular = 16
   sdfModeBackdropBlur = 17
 
+const FigDrawFastRectMaskLimit* {.intdefine.}: int = 2
+static:
+  doAssert FigDrawFastRectMaskLimit in 0 .. 2,
+    "FigDrawFastRectMaskLimit must be 0, 1, or 2"
+
 type
   BackendFillKind* = enum
     bfColor

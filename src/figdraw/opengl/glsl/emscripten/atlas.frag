@@ -11,8 +11,7 @@ varying vec4 fillStopColor;
 varying vec4 sdfParams;
 varying vec4 sdfRadii;
 varying float sdfMode;
-varying vec2 sdfFactors;
-varying float subpixelShift;
+varying vec4 sdfFactors;
 
 uniform vec2 windowFrame;
 uniform sampler2D atlasTex;
@@ -132,7 +131,7 @@ void main() {
   if (sdfModeInt == sdfModeAtlas) {
     vec2 atlasUv = uv;
     if (subpixelPositioningEnabled) {
-      atlasUv.x -= subpixelShift * atlasTexelSize.x;
+      atlasUv.x -= sdfFactors.z * atlasTexelSize.x;
     }
     vec4 tex = texture2D(atlasTex, atlasUv);
     fragColor = vec4(

@@ -225,6 +225,17 @@ proc newShader*(vertPath, fragPath: string): Shader =
     fragPathFull = dir / fragPath
   newShader((vertPathFull, vertCode), (fragPathFull, fragCode))
 
+func injectGlslDefines(source, defines: string): string =
+  if defines.len == 0:
+    return source
+
+  if source.startsWith("#version"):
+    let lineEnd = source.find('\n')
+    if lineEnd >= 0:
+      return source[0 .. lineEnd] & defines & source[lineEnd + 1 ..^ 1]
+
+  defines & source
+
 template newShaderStatic*(vertPath, fragPath: string): Shader =
   ## Creates a new shader but also statically reads vertPath and fragPath
   ## so they are compiled into the binary.
@@ -235,6 +246,22 @@ template newShaderStatic*(vertPath, fragPath: string): Shader =
     vertPathFull = dir / vertPath
     fragPathFull = dir / fragPath
   newShader((vertPathFull, vertCode), (fragPathFull, fragCode))
+
+template newShaderStaticWithDefines*(
+    vertPath, fragPath: string, defines: static[string]
+): Shader =
+  ## Creates a new shader from static sources with GLSL defines inserted after
+  ## the #version line.
+  const
+    vertCode = staticRead(vertPath)
+    fragCode = staticRead(fragPath)
+    dir = getProjectPath()
+    vertPathFull = dir / vertPath
+    fragPathFull = dir / fragPath
+  newShader(
+    (vertPathFull, injectGlslDefines(vertCode, defines)),
+    (fragPathFull, injectGlslDefines(fragCode, defines)),
+  )
 
 proc hasUniform*(shader: Shader, name: string): bool =
   for uniform in shader.uniforms:
@@ -413,8 +440,7 @@ proc bindAttrib*(shader: Shader, name: string, buffer: Buffer) =
       # integer data. Other scalar formats (e.g. u16 enum values) should flow
       # through the float attribute path for GLSL ES compatibility.
       let useIntegerPointer =
-        not buffer.normalized and
-        buffer.kind == bkSCALAR and
+        not buffer.normalized and buffer.kind == bkSCALAR and
         (buffer.componentType == cGL_INT or buffer.componentType == GL_UNSIGNED_INT)
 
       if not useIntegerPointer:
