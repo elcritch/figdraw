@@ -3,6 +3,8 @@
 in vec2 pos;
 in vec2 uv;
 in vec4 color;
+in vec4 fillMidColor;
+in vec4 fillStopColor;
 in vec4 sdfParams;
 in vec4 sdfRadii;
 in float sdfMode;
@@ -70,8 +72,44 @@ float shadowProfile(float sd, float blurRadius) {
   return exp(-0.5 * z * z);
 }
 
+float linear3T(int fillMode, vec2 uv) {
+  switch (fillMode) {
+    case 1:
+      return uv.x;
+    case 2:
+      return uv.y;
+    case 3:
+      return 0.5 * (uv.x + uv.y);
+    case 4:
+      return 0.5 * (uv.x + (1.0 - uv.y));
+    default:
+      return 0.0;
+  }
+}
+
+vec4 evalFillColor(
+    vec4 color,
+    vec4 midColor,
+    vec4 stopColor,
+    int fillMode,
+    float midPos,
+    vec2 uv) {
+  if (fillMode == 0) {
+    return color;
+  }
+
+  float t = clamp(linear3T(fillMode, uv), 0.0, 1.0);
+  float mid = clamp(midPos, 0.01, 0.99);
+  if (t <= mid) {
+    return mix(color, midColor, t / mid);
+  }
+  return mix(midColor, stopColor, (t - mid) / (1.0 - mid));
+}
+
 void main() {
-  int sdfModeInt = int(sdfMode);
+  int packedSdfMode = int(sdfMode);
+  int fillMode = packedSdfMode / 256;
+  int sdfModeInt = packedSdfMode - fillMode * 256;
   vec2 quadHalfExtents = sdfParams.xy;
   bool insetMode = (sdfModeInt == sdfModeInsetShadow);
   vec2 shapeHalfExtents = insetMode ? quadHalfExtents : sdfParams.zw;
@@ -84,7 +122,9 @@ void main() {
   float dist = sdRoundedBox(vec2(p.x, -p.y), shapeHalfExtents, sdfRadii);
 
   float sdfFactor = sdfFactors.x;
-  float sdfSpread = sdfFactors.y;
+  float sdfSpread = (fillMode == 0) ? sdfFactors.y : 0.0;
+  vec4 fillColor =
+    evalFillColor(color, fillMidColor, fillStopColor, fillMode, sdfFactors.y, uv);
 
   float alpha = 0.0;
   if (sdfModeInt == sdfModeAtlas) {
@@ -121,7 +161,7 @@ void main() {
     } else {
       alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
     }
-    fragColor = vec4(color.xyz, color.w * alpha);
+    fragColor = vec4(fillColor.xyz, fillColor.w * alpha);
   } else {
     switch (sdfModeInt) {
       case sdfModeAnnular: {
@@ -180,7 +220,7 @@ void main() {
     }
 
     if (sdfModeInt != sdfModeBackdropBlur) {
-      fragColor = vec4(color.x, color.y, color.z, color.w * alpha);
+      fragColor = vec4(fillColor.x, fillColor.y, fillColor.z, fillColor.w * alpha);
     }
   }
 

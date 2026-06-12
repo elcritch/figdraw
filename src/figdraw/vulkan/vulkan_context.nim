@@ -34,6 +34,17 @@ else:
 
 type SdfMode* = figbackend.SdfMode
 
+type RectMaskKind = enum
+  rmkFast
+  rmkMask
+
+type RectMask = object
+  kind: RectMaskKind
+  params: Vec4
+  radii: Vec4
+  matX: Vec4
+  matY: Vec4
+
 type PresentTargetKind* = enum
   presentTargetNone
   presentTargetXlib
@@ -64,11 +75,17 @@ type
     pos: array[2, float32]
     uv: array[2, float32]
     color: array[4, uint8]
+    fillMidColor: array[4, uint8]
+    fillStopColor: array[4, uint8]
     sdfParams: array[4, float32]
     sdfRadii: array[4, float32]
     sdfMode: uint16
     sdfPad: uint16
     sdfFactors: array[2, float32]
+    rectMaskParams: array[4, float32]
+    rectMaskRadii: array[4, float32]
+    rectMaskMatX: array[4, float32]
+    rectMaskMatY: array[4, float32]
 
   VulkanContext* = ref object of figbackend.BackendContext
     atlasSize: int
@@ -97,11 +114,19 @@ type
 
     positions: seq[float32]
     colors: seq[uint8]
+    fillMidColors: seq[uint8]
+    fillStopColors: seq[uint8]
     uvs: seq[float32]
     sdfParams: seq[float32]
     sdfRadii: seq[float32]
     sdfModeAttr: seq[SdfModeData]
     sdfFactors: seq[float32]
+    rectMaskParams: seq[float32]
+    rectMaskRadii: seq[float32]
+    rectMaskMatX: seq[float32]
+    rectMaskMatY: seq[float32]
+    rectMaskStack: seq[RectMask]
+    batchHasRectMask: bool
     indices: seq[uint16]
     vertexScratch: seq[Vertex]
 
@@ -135,6 +160,8 @@ type
     swapchainFramebuffers: seq[VkFramebuffer]
     swapchainFormat: VkFormat
     swapchainExtent: VkExtent2D
+    swapchainRequestedWidth: int32
+    swapchainRequestedHeight: int32
     swapchainOutOfDate: bool
     swapchainTransferSrcSupported: bool
     presentReady: bool
@@ -763,26 +790,62 @@ proc createPipeline(ctx: VulkanContext) =
     VkVertexInputAttributeDescription(
       location: 3,
       binding: 0,
+      format: VK_FORMAT_R8G8B8A8_UNORM,
+      offset: uint32(offsetOf(Vertex, fillMidColor)),
+    ),
+    VkVertexInputAttributeDescription(
+      location: 4,
+      binding: 0,
+      format: VK_FORMAT_R8G8B8A8_UNORM,
+      offset: uint32(offsetOf(Vertex, fillStopColor)),
+    ),
+    VkVertexInputAttributeDescription(
+      location: 5,
+      binding: 0,
       format: VK_FORMAT_R32G32B32A32_SFLOAT,
       offset: uint32(offsetOf(Vertex, sdfParams)),
     ),
     VkVertexInputAttributeDescription(
-      location: 4,
+      location: 6,
       binding: 0,
       format: VK_FORMAT_R32G32B32A32_SFLOAT,
       offset: uint32(offsetOf(Vertex, sdfRadii)),
     ),
     VkVertexInputAttributeDescription(
-      location: 5,
+      location: 7,
       binding: 0,
       format: VK_FORMAT_R16_UINT,
       offset: uint32(offsetOf(Vertex, sdfMode)),
     ),
     VkVertexInputAttributeDescription(
-      location: 6,
+      location: 8,
       binding: 0,
       format: VK_FORMAT_R32G32_SFLOAT,
       offset: uint32(offsetOf(Vertex, sdfFactors)),
+    ),
+    VkVertexInputAttributeDescription(
+      location: 9,
+      binding: 0,
+      format: VK_FORMAT_R32G32B32A32_SFLOAT,
+      offset: uint32(offsetOf(Vertex, rectMaskParams)),
+    ),
+    VkVertexInputAttributeDescription(
+      location: 10,
+      binding: 0,
+      format: VK_FORMAT_R32G32B32A32_SFLOAT,
+      offset: uint32(offsetOf(Vertex, rectMaskRadii)),
+    ),
+    VkVertexInputAttributeDescription(
+      location: 11,
+      binding: 0,
+      format: VK_FORMAT_R32G32B32A32_SFLOAT,
+      offset: uint32(offsetOf(Vertex, rectMaskMatX)),
+    ),
+    VkVertexInputAttributeDescription(
+      location: 12,
+      binding: 0,
+      format: VK_FORMAT_R32G32B32A32_SFLOAT,
+      offset: uint32(offsetOf(Vertex, rectMaskMatY)),
     ),
   ]
 
@@ -980,6 +1043,8 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
 
   ctx.swapchainFormat = surfaceFormat.format
   ctx.swapchainExtent = extent
+  ctx.swapchainRequestedWidth = width
+  ctx.swapchainRequestedHeight = height
   ctx.swapchainOutOfDate = false
 
   ctx.createPipeline()
@@ -1021,14 +1086,12 @@ proc ensureSwapchain(ctx: VulkanContext, width, height: int32) =
 
   let needsRecreate =
     ctx.swapchain == vkNullSwapchain or ctx.swapchainOutOfDate or
-    ctx.swapchainExtent.width != width.uint32 or
-    ctx.swapchainExtent.height != height.uint32
+    ctx.swapchainRequestedWidth != width or ctx.swapchainRequestedHeight != height
   if not needsRecreate:
     return
 
   if ctx.device != vkNullDevice:
     discard vkDeviceWaitIdle(ctx.device)
-    ctx.clearFrameVertexUploads()
     ctx.clearFrameVertexUploads()
   ctx.createSwapchain(width, height)
 
@@ -1621,7 +1684,38 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
       ctx.queue
 
   if wantPresent:
-    loadVK_KHR_swapchain()
+    let loadSwapchainProc = proc(name: cstring): pointer =
+      result = cast[pointer](vkGetDeviceProcAddr(ctx.device, name))
+      if result.isNil:
+        raise
+          newException(LibraryError, "could not load Vulkan swapchain symbol: " & $name)
+
+    vkCreateSwapchainKHR = cast[proc(
+      device: VkDevice,
+      pCreateInfo: ptr VkSwapchainCreateInfoKHR,
+      pAllocator: ptr VkAllocationCallbacks,
+      pSwapchain: ptr VkSwapchainKHR,
+    ): VkResult {.stdcall.}](loadSwapchainProc("vkCreateSwapchainKHR"))
+    vkDestroySwapchainKHR = cast[proc(
+      device: VkDevice, swapchain: VkSwapchainKHR, pAllocator: ptr VkAllocationCallbacks
+    ) {.stdcall.}](loadSwapchainProc("vkDestroySwapchainKHR"))
+    vkGetSwapchainImagesKHR = cast[proc(
+      device: VkDevice,
+      swapchain: VkSwapchainKHR,
+      pSwapchainImageCount: ptr uint32,
+      pSwapchainImages: ptr VkImage,
+    ): VkResult {.stdcall.}](loadSwapchainProc("vkGetSwapchainImagesKHR"))
+    vkAcquireNextImageKHR = cast[proc(
+      device: VkDevice,
+      swapchain: VkSwapchainKHR,
+      timeout: uint64,
+      semaphore: VkSemaphore,
+      fence: VkFence,
+      pImageIndex: ptr uint32,
+    ): VkResult {.stdcall.}](loadSwapchainProc("vkAcquireNextImageKHR"))
+    vkQueuePresentKHR = cast[proc(
+      queue: VkQueue, pPresentInfo: ptr VkPresentInfoKHR
+    ): VkResult {.stdcall.}](loadSwapchainProc("vkQueuePresentKHR"))
 
   let poolInfo = newVkCommandPoolCreateInfo(
     queueFamilyIndex = ctx.queueFamily,
@@ -1848,6 +1942,7 @@ proc flush(ctx: VulkanContext) =
     # No active command buffer (e.g. no present-capable swapchain this frame):
     # drop queued quads so they don't accumulate into overflow asserts.
     ctx.quadCount = 0
+    ctx.batchHasRectMask = false
     return
   if ctx.atlasDirty:
     if ctx.renderPassBegun:
@@ -1867,6 +1962,14 @@ proc flush(ctx: VulkanContext) =
     v.color[1] = ctx.colors[i * 4 + 1]
     v.color[2] = ctx.colors[i * 4 + 2]
     v.color[3] = ctx.colors[i * 4 + 3]
+    v.fillMidColor[0] = ctx.fillMidColors[i * 4 + 0]
+    v.fillMidColor[1] = ctx.fillMidColors[i * 4 + 1]
+    v.fillMidColor[2] = ctx.fillMidColors[i * 4 + 2]
+    v.fillMidColor[3] = ctx.fillMidColors[i * 4 + 3]
+    v.fillStopColor[0] = ctx.fillStopColors[i * 4 + 0]
+    v.fillStopColor[1] = ctx.fillStopColors[i * 4 + 1]
+    v.fillStopColor[2] = ctx.fillStopColors[i * 4 + 2]
+    v.fillStopColor[3] = ctx.fillStopColors[i * 4 + 3]
     v.sdfParams[0] = ctx.sdfParams[i * 4 + 0]
     v.sdfParams[1] = ctx.sdfParams[i * 4 + 1]
     v.sdfParams[2] = ctx.sdfParams[i * 4 + 2]
@@ -1882,6 +1985,22 @@ proc flush(ctx: VulkanContext) =
     v.sdfPad = 0'u16
     v.sdfFactors[0] = ctx.sdfFactors[i * 2 + 0]
     v.sdfFactors[1] = ctx.sdfFactors[i * 2 + 1]
+    v.rectMaskParams[0] = ctx.rectMaskParams[i * 4 + 0]
+    v.rectMaskParams[1] = ctx.rectMaskParams[i * 4 + 1]
+    v.rectMaskParams[2] = ctx.rectMaskParams[i * 4 + 2]
+    v.rectMaskParams[3] = ctx.rectMaskParams[i * 4 + 3]
+    v.rectMaskRadii[0] = ctx.rectMaskRadii[i * 4 + 0]
+    v.rectMaskRadii[1] = ctx.rectMaskRadii[i * 4 + 1]
+    v.rectMaskRadii[2] = ctx.rectMaskRadii[i * 4 + 2]
+    v.rectMaskRadii[3] = ctx.rectMaskRadii[i * 4 + 3]
+    v.rectMaskMatX[0] = ctx.rectMaskMatX[i * 4 + 0]
+    v.rectMaskMatX[1] = ctx.rectMaskMatX[i * 4 + 1]
+    v.rectMaskMatX[2] = ctx.rectMaskMatX[i * 4 + 2]
+    v.rectMaskMatX[3] = ctx.rectMaskMatX[i * 4 + 3]
+    v.rectMaskMatY[0] = ctx.rectMaskMatY[i * 4 + 0]
+    v.rectMaskMatY[1] = ctx.rectMaskMatY[i * 4 + 1]
+    v.rectMaskMatY[2] = ctx.rectMaskMatY[i * 4 + 2]
+    v.rectMaskMatY[3] = ctx.rectMaskMatY[i * 4 + 3]
 
   let uploadBytes = VkDeviceSize(vertexCount * sizeof(Vertex))
   let vertexAlloc = ctx.createBuffer(
@@ -1939,11 +2058,13 @@ proc flush(ctx: VulkanContext) =
   let indexCount = uint32(ctx.quadCount * 6)
   vkCmdDrawIndexed(ctx.commandBuffer, indexCount, 1, 0, 0, 0)
   ctx.quadCount = 0
+  ctx.batchHasRectMask = false
 
 proc checkBatch(ctx: VulkanContext) =
   if not ctx.commandRecording:
     # Keep CPU-side batch empty when Vulkan recording is unavailable.
     ctx.quadCount = 0
+    ctx.batchHasRectMask = false
     return
   if ctx.quadCount >= ctx.maxQuads:
     ctx.flush()
@@ -1964,6 +2085,64 @@ proc setVertColor(buf: var seq[uint8], i: int, color: ColorRGBA) =
   buf[i * 4 + 2] = color.b
   buf[i * 4 + 3] = color.a
 
+proc setFillExtraColors(
+    ctx: VulkanContext, offset: int, midColor, stopColor: ColorRGBA
+) =
+  ctx.fillMidColors.setVertColor(offset + 0, midColor)
+  ctx.fillMidColors.setVertColor(offset + 1, midColor)
+  ctx.fillMidColors.setVertColor(offset + 2, midColor)
+  ctx.fillMidColors.setVertColor(offset + 3, midColor)
+  ctx.fillStopColors.setVertColor(offset + 0, stopColor)
+  ctx.fillStopColors.setVertColor(offset + 1, stopColor)
+  ctx.fillStopColors.setVertColor(offset + 2, stopColor)
+  ctx.fillStopColors.setVertColor(offset + 3, stopColor)
+
+func roundedRadiiVec(radii: array[DirectionCorners, float32], halfExtents: Vec2): Vec4 =
+  let maxRadius = min(halfExtents.x, halfExtents.y)
+  let radiiClamped = [
+    dcTopLeft: (
+      if radii[dcTopLeft] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
+    ),
+    dcTopRight: (
+      if radii[dcTopRight] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
+    ),
+    dcBottomLeft: (
+      if radii[dcBottomLeft] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
+    ),
+    dcBottomRight: (
+      if radii[dcBottomRight] <= 0.0'f32: 0.0'f32
+      else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
+    ),
+  ]
+  vec4(
+    radiiClamped[dcTopRight],
+    radiiClamped[dcBottomRight],
+    radiiClamped[dcTopLeft],
+    radiiClamped[dcBottomLeft],
+  )
+
+const
+  SdfFillSolidOrVertex = 0
+  SdfFillLinear3X = 1
+  SdfFillLinear3Y = 2
+  SdfFillLinear3DiagTLBR = 3
+  SdfFillLinear3DiagBLTR = 4
+  SdfFillModeShift = 256
+
+func linear3FillMode(axis: FillGradientAxis): int =
+  case axis
+  of fgaX: SdfFillLinear3X
+  of fgaY: SdfFillLinear3Y
+  of fgaDiagTLBR: SdfFillLinear3DiagTLBR
+  of fgaDiagBLTR: SdfFillLinear3DiagBLTR
+
+func encodeSdfMode(mode: SdfMode, fillMode: int): SdfModeData =
+  let packed = mode.int + fillMode * SdfFillModeShift
+  when SdfModeData is float32: packed.float32 else: packed.uint16
+
 proc activeTextSubpixelShift(ctx: VulkanContext): float32 =
   if not ctx.textSubpixelPositioningEnabled:
     return 0.0'f32
@@ -1971,6 +2150,74 @@ proc activeTextSubpixelShift(ctx: VulkanContext): float32 =
 
 func `*`*(m: Mat4, v: Vec2): Vec2 =
   (m * vec3(v.x, v.y, 0.0)).xy
+
+proc makeRectMask(
+    ctx: VulkanContext, maskRect: Rect, radii: array[DirectionCorners, float32]
+): RectMask =
+  let
+    halfExtents = maskRect.wh * 0.5'f32
+    center = maskRect.xy + halfExtents
+    invMat = ctx.mat.inverse()
+  RectMask(
+    kind: rmkFast,
+    params: vec4(center.x, center.y, halfExtents.x, halfExtents.y),
+    radii: roundedRadiiVec(radii, halfExtents),
+    matX: vec4(invMat[0, 0], invMat[1, 0], invMat[3, 0], 1.0'f32),
+    matY: vec4(invMat[0, 1], invMat[1, 1], invMat[3, 1], 0.0'f32),
+  )
+
+proc setRectMaskVert4(
+    ctx: VulkanContext, offset: int, params, radii, matX, matY: Vec4
+) =
+  for i in 0 ..< 4:
+    ctx.rectMaskParams.setVert4(offset + i, params)
+    ctx.rectMaskRadii.setVert4(offset + i, radii)
+    ctx.rectMaskMatX.setVert4(offset + i, matX)
+    ctx.rectMaskMatY.setVert4(offset + i, matY)
+
+proc setDisabledRectMaskVerts(ctx: VulkanContext, firstVertex, vertexCount: int) =
+  let
+    params = vec4(0.0'f32, 0.0'f32, -1.0'f32, -1.0'f32)
+    zero4 = vec4(0.0'f32)
+  for i in firstVertex ..< firstVertex + vertexCount:
+    ctx.rectMaskParams.setVert4(i, params)
+    ctx.rectMaskRadii.setVert4(i, zero4)
+    ctx.rectMaskMatX.setVert4(i, zero4)
+    ctx.rectMaskMatY.setVert4(i, zero4)
+
+proc setRectMaskVert4(ctx: VulkanContext, offset: int) =
+  if ctx.maskBegun:
+    return
+
+  var
+    hasRectMask = false
+    params = vec4(0.0'f32)
+    radii = vec4(0.0'f32)
+    matX = vec4(0.0'f32)
+    matY = vec4(0.0'f32)
+
+  if ctx.rectMaskStack.len > 0:
+    for i in countdown(ctx.rectMaskStack.len - 1, 0):
+      let rectMask = ctx.rectMaskStack[i]
+      if rectMask.kind == rmkFast:
+        hasRectMask = true
+        params = rectMask.params
+        radii = rectMask.radii
+        matX = rectMask.matX
+        matY = rectMask.matY
+        break
+
+  if hasRectMask:
+    if not ctx.batchHasRectMask:
+      ctx.setDisabledRectMaskVerts(0, offset)
+      ctx.batchHasRectMask = true
+    ctx.setRectMaskVert4(offset, params, radii, matX, matY)
+  elif ctx.batchHasRectMask:
+    ctx.setDisabledRectMaskVerts(offset, 4)
+
+template setRectMaskVert4IfNeeded(ctx: VulkanContext, offset: int) =
+  if not ctx.maskBegun and (ctx.batchHasRectMask or ctx.rectMaskStack.len > 0):
+    ctx.setRectMaskVert4(offset)
 
 proc copyIntoAtlas(atlas: Image, atX, atY: int, image: Image) =
   for y in 0 ..< image.height:
@@ -2088,6 +2335,7 @@ proc drawQuad*(
   ctx.colors.setVertColor(offset + 1, colors[1])
   ctx.colors.setVertColor(offset + 2, colors[2])
   ctx.colors.setVertColor(offset + 3, colors[3])
+  ctx.setFillExtraColors(offset, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0))
 
   ctx.sdfParams.setVert4(offset + 0, zero4)
   ctx.sdfParams.setVert4(offset + 1, zero4)
@@ -2114,6 +2362,7 @@ proc drawQuad*(
   ctx.sdfModeAttr[offset + 2] = modeVal
   ctx.sdfModeAttr[offset + 3] = modeVal
 
+  ctx.setRectMaskVert4IfNeeded(offset)
   inc ctx.quadCount
 
 proc drawUvRectAtlasSdf(
@@ -2158,6 +2407,8 @@ proc drawUvRectAtlasSdf(
   ctx.colors.setVertColor(offset + 1, rgba)
   ctx.colors.setVertColor(offset + 2, rgba)
   ctx.colors.setVertColor(offset + 3, rgba)
+  ctx.setFillExtraColors(offset, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0))
+  ctx.setFillExtraColors(offset, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0))
 
   ctx.sdfParams.setVert4(offset + 0, params)
   ctx.sdfParams.setVert4(offset + 1, params)
@@ -2184,6 +2435,7 @@ proc drawUvRectAtlasSdf(
   ctx.sdfModeAttr[offset + 2] = modeVal
   ctx.sdfModeAttr[offset + 3] = modeVal
 
+  ctx.setRectMaskVert4IfNeeded(offset)
   inc ctx.quadCount
 
 proc imageUvBounds(rect: Rect, flipY: bool): tuple[uvAt: Vec2, uvTo: Vec2]
@@ -2320,6 +2572,7 @@ proc drawUvRect(ctx: VulkanContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color
   ctx.sdfModeAttr[offset + 2] = modeVal
   ctx.sdfModeAttr[offset + 3] = modeVal
 
+  ctx.setRectMaskVert4IfNeeded(offset)
   inc ctx.quadCount
 
 proc drawUvRect(
@@ -2363,6 +2616,7 @@ proc drawUvRect(
   ctx.colors.setVertColor(offset + 1, colors[1])
   ctx.colors.setVertColor(offset + 2, colors[2])
   ctx.colors.setVertColor(offset + 3, colors[3])
+  ctx.setFillExtraColors(offset, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0))
 
   let zero4 = vec4(0.0'f32)
   ctx.sdfParams.setVert4(offset + 0, zero4)
@@ -2390,6 +2644,7 @@ proc drawUvRect(
   ctx.sdfModeAttr[offset + 2] = modeVal
   ctx.sdfModeAttr[offset + 3] = modeVal
 
+  ctx.setRectMaskVert4IfNeeded(offset)
   inc ctx.quadCount
 
 proc drawUvRect(ctx: VulkanContext, rect, uvRect: Rect, color: Color) =
@@ -2530,7 +2785,7 @@ method drawRoundedRectSdf*(
     shapeSize = shapeSize,
   )
 
-method drawRoundedRectSdf*(
+proc drawRoundedRectSdfVulkan(
     ctx: VulkanContext,
     rect: Rect,
     colors: array[4, ColorRGBA],
@@ -2539,6 +2794,10 @@ method drawRoundedRectSdf*(
     factor: float32 = 4.0,
     spread: float32 = 0.0,
     shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+    fillMode: int = SdfFillSolidOrVertex,
+    fillMidColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillStopColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillMidPos: float32 = 0.5'f32,
 ) =
   if rect.w <= 0 or rect.h <= 0:
     return
@@ -2625,6 +2884,7 @@ method drawRoundedRectSdf*(
   ctx.colors.setVertColor(offset + 1, colors[1])
   ctx.colors.setVertColor(offset + 2, colors[2])
   ctx.colors.setVertColor(offset + 3, colors[3])
+  ctx.setFillExtraColors(offset, fillMidColor, fillStopColor)
 
   ctx.sdfParams.setVert4(offset + 0, params)
   ctx.sdfParams.setVert4(offset + 1, params)
@@ -2636,22 +2896,80 @@ method drawRoundedRectSdf*(
   ctx.sdfRadii.setVert4(offset + 2, r4)
   ctx.sdfRadii.setVert4(offset + 3, r4)
 
-  let factors = vec2(factor, spread)
+  let factors =
+    if fillMode == SdfFillSolidOrVertex:
+      vec2(factor, spread)
+    else:
+      vec2(factor, clamp(fillMidPos, 0.01'f32, 0.99'f32))
   ctx.sdfFactors.setVert2(offset + 0, factors)
   ctx.sdfFactors.setVert2(offset + 1, factors)
   ctx.sdfFactors.setVert2(offset + 2, factors)
   ctx.sdfFactors.setVert2(offset + 3, factors)
 
-  when defined(emscripten):
-    let modeVal = mode.int.float32
-  else:
-    let modeVal = mode.int.uint16
+  let modeVal = encodeSdfMode(mode, fillMode)
   ctx.sdfModeAttr[offset + 0] = modeVal
   ctx.sdfModeAttr[offset + 1] = modeVal
   ctx.sdfModeAttr[offset + 2] = modeVal
   ctx.sdfModeAttr[offset + 3] = modeVal
 
+  ctx.setRectMaskVert4IfNeeded(offset)
   inc ctx.quadCount
+
+method drawRoundedRectSdf*(
+    ctx: VulkanContext,
+    rect: Rect,
+    colors: array[4, ColorRGBA],
+    radii: array[DirectionCorners, float32],
+    mode: SdfMode = sdfModeClipAA,
+    factor: float32 = 4.0,
+    spread: float32 = 0.0,
+    shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+) =
+  ctx.drawRoundedRectSdfVulkan(
+    rect = rect,
+    colors = colors,
+    radii = radii,
+    mode = mode,
+    factor = factor,
+    spread = spread,
+    shapeSize = shapeSize,
+  )
+
+method drawRoundedRectSdf*(
+    ctx: VulkanContext,
+    rect: Rect,
+    fill: figbackend.BackendFill,
+    radii: array[DirectionCorners, float32],
+    mode: SdfMode = sdfModeClipAA,
+    factor: float32 = 4.0,
+    spread: float32 = 0.0,
+    shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
+) =
+  if fill.kind == figbackend.bfLinear3 and
+      mode in {sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA}:
+    ctx.drawRoundedRectSdfVulkan(
+      rect = rect,
+      colors = [fill.lin3Start, fill.lin3Start, fill.lin3Start, fill.lin3Start],
+      radii = radii,
+      mode = mode,
+      factor = factor,
+      spread = spread,
+      shapeSize = shapeSize,
+      fillMode = linear3FillMode(fill.lin3Axis),
+      fillMidColor = fill.lin3Mid,
+      fillStopColor = fill.lin3Stop,
+      fillMidPos = fill.lin3MidPos,
+    )
+  else:
+    ctx.drawRoundedRectSdfVulkan(
+      rect = rect,
+      colors = figbackend.gradientColors(fill),
+      radii = radii,
+      mode = mode,
+      factor = factor,
+      spread = spread,
+      shapeSize = shapeSize,
+    )
 
 proc runBackdropSeparableBlur(
     ctx: VulkanContext, blurRadius: float32, blurRect: VkRect2D
@@ -2961,11 +3279,21 @@ method popMask*(ctx: VulkanContext) =
 method beginRectMask*(
     ctx: VulkanContext, maskRect: Rect, radii: array[DirectionCorners, float32]
 ) =
-  ctx.beginMask(maskRect, radii)
-  ctx.endMask()
+  assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
+  assert ctx.maskBegun == false, "ctx.beginRectMask cannot start inside a mask."
+
+  if ctx.rectMaskStack.len == 0 and maskRect.w > 0.0'f32 and maskRect.h > 0.0'f32:
+    ctx.rectMaskStack.add(ctx.makeRectMask(maskRect, radii))
+  else:
+    ctx.beginMask(maskRect, radii)
+    ctx.endMask()
+    ctx.rectMaskStack.add(RectMask(kind: rmkMask))
 
 method popRectMask*(ctx: VulkanContext) =
-  ctx.popMask()
+  assert ctx.rectMaskStack.len > 0, "No rect mask has been pushed."
+  let rectMask = ctx.rectMaskStack.pop()
+  if rectMask.kind == rmkMask:
+    ctx.popMask()
 
 proc beginFrame*(
     ctx: VulkanContext,
@@ -2982,6 +3310,8 @@ proc beginFrame*(
   ctx.maskDepth = 0
   ctx.pendingMaskValid = false
   ctx.clipRects.setLen(0)
+  ctx.rectMaskStack.setLen(0)
+  ctx.batchHasRectMask = false
   ctx.frameSize = frameSize
   ctx.proj = proj
   ctx.frameNeedsClear = true
@@ -3013,11 +3343,14 @@ proc beginFrame*(
     VkFence(0),
     ctx.acquiredImageIndex.addr,
   )
-  if acquireResult in [VkErrorOutOfDateKhr, VkSuboptimalKhr]:
+  if acquireResult == VkErrorOutOfDateKhr:
     ctx.swapchainOutOfDate = true
-    debug "Acquire returned out-of-date/suboptimal", result = $acquireResult
+    debug "Acquire returned out-of-date", result = $acquireResult
     return
-  checkVkResult acquireResult
+  if acquireResult == VkSuboptimalKhr:
+    debug "Acquire returned suboptimal", result = $acquireResult
+  else:
+    checkVkResult acquireResult
   checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
 
   checkVkResult vkResetCommandBuffer(ctx.commandBuffer, 0.VkCommandBufferResetFlags)
@@ -3045,6 +3378,7 @@ method beginFrame*(
 method endFrame*(ctx: VulkanContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame was not called first."
   assert ctx.maskDepth == 0, "Not all masks have been popped."
+  assert ctx.rectMaskStack.len == 0, "Not all rect masks have been popped."
   ctx.frameBegun = false
 
   if ctx.swapchain == vkNullSwapchain or not ctx.commandRecording:
@@ -3080,9 +3414,11 @@ method endFrame*(ctx: VulkanContext) =
     results = @[],
   )
   let presentResult = vkQueuePresentKHR(ctx.presentQueue, presentInfo.addr)
-  if presentResult in [VkErrorOutOfDateKhr, VkSuboptimalKhr]:
+  if presentResult == VkErrorOutOfDateKhr:
     ctx.swapchainOutOfDate = true
-    debug "Present returned out-of-date/suboptimal", result = $presentResult
+    debug "Present returned out-of-date", result = $presentResult
+  elif presentResult == VkSuboptimalKhr:
+    debug "Present returned suboptimal", result = $presentResult
   elif presentResult != VkSuccess:
     checkVkResult presentResult
 
@@ -3241,6 +3577,8 @@ proc destroyGpu(ctx: VulkanContext) =
   ctx.frameNeedsClear = false
   ctx.swapchainOutOfDate = false
   ctx.swapchainTransferSrcSupported = false
+  ctx.swapchainRequestedWidth = 0
+  ctx.swapchainRequestedHeight = 0
   ctx.atlasLayoutReady = false
   ctx.backdropLayoutReady = false
   ctx.backdropBlurTempLayoutReady = false
@@ -3288,11 +3626,17 @@ proc newContext*(
 
   result.positions = newSeq[float32](2 * maxQuads * 4)
   result.colors = newSeq[uint8](4 * maxQuads * 4)
+  result.fillMidColors = newSeq[uint8](4 * maxQuads * 4)
+  result.fillStopColors = newSeq[uint8](4 * maxQuads * 4)
   result.uvs = newSeq[float32](2 * maxQuads * 4)
   result.sdfParams = newSeq[float32](4 * maxQuads * 4)
   result.sdfRadii = newSeq[float32](4 * maxQuads * 4)
   result.sdfModeAttr = newSeq[SdfModeData](maxQuads * 4)
   result.sdfFactors = newSeq[float32](2 * maxQuads * 4)
+  result.rectMaskParams = newSeq[float32](4 * maxQuads * 4)
+  result.rectMaskRadii = newSeq[float32](4 * maxQuads * 4)
+  result.rectMaskMatX = newSeq[float32](4 * maxQuads * 4)
+  result.rectMaskMatY = newSeq[float32](4 * maxQuads * 4)
   result.vertexScratch = newSeq[Vertex](maxQuads * 4)
 
   result.indices = newSeq[uint16](maxQuads * 6)
@@ -3325,6 +3669,8 @@ proc newContext*(
   result.swapchainFramebuffers = @[]
   result.swapchainFormat = VK_FORMAT_UNDEFINED
   result.swapchainExtent = VkExtent2D(width: 0, height: 0)
+  result.swapchainRequestedWidth = 0
+  result.swapchainRequestedHeight = 0
   result.swapchainOutOfDate = false
   result.swapchainTransferSrcSupported = false
   result.presentReady = false

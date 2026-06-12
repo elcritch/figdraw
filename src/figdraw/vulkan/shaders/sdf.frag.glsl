@@ -13,10 +13,16 @@ layout(set = 0, binding = 4) uniform sampler2D backdropTex;
 layout(location = 0) in vec2 vPos;
 layout(location = 1) in vec2 vUv;
 layout(location = 2) in vec4 vColor;
-layout(location = 3) in vec4 vSdfParams;
-layout(location = 4) in vec4 vSdfRadii;
-layout(location = 5) flat in uint vSdfMode;
-layout(location = 6) in vec2 vSdfFactors;
+layout(location = 3) in vec4 vFillMidColor;
+layout(location = 4) in vec4 vFillStopColor;
+layout(location = 5) in vec4 vSdfParams;
+layout(location = 6) in vec4 vSdfRadii;
+layout(location = 7) flat in uint vSdfMode;
+layout(location = 8) in vec2 vSdfFactors;
+layout(location = 9) in vec4 vRectMaskParams;
+layout(location = 10) in vec4 vRectMaskRadii;
+layout(location = 11) in vec4 vRectMaskMatX;
+layout(location = 12) in vec4 vRectMaskMatY;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -31,6 +37,7 @@ const uint sdfModeMtsdf = 14u;
 const uint sdfModeMsdfAnnular = 15u;
 const uint sdfModeMtsdfAnnular = 16u;
 const uint sdfModeBackdropBlur = 17u;
+const uint sdfFillModeShift = 256u;
 
 float median(float a, float b, float c) {
   return max(min(a, b), min(max(a, b), c));
@@ -54,6 +61,20 @@ float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
   return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - rr;
 }
 
+float rectMaskAlpha(vec2 pixelPos) {
+  if (vRectMaskParams.z <= 0.0 || vRectMaskParams.w <= 0.0) {
+    return 1.0;
+  }
+
+  vec2 local = vec2(
+    dot(vRectMaskMatX.xy, pixelPos) + vRectMaskMatX.z,
+    dot(vRectMaskMatY.xy, pixelPos) + vRectMaskMatY.z
+  );
+  vec2 q = local - vRectMaskParams.xy;
+  float dist = sdRoundedBox(vec2(q.x, -q.y), vRectMaskParams.zw, vRectMaskRadii);
+  return 1.0 - clamp(uFS.aaFactor * dist + 0.5, 0.0, 1.0);
+}
+
 float shadowProfile(float sd, float blurRadius) {
   // CSS-like calibration: sigma ~= blurRadius / 2
   float sigma = max(0.5 * blurRadius, 0.5);
@@ -61,8 +82,43 @@ float shadowProfile(float sd, float blurRadius) {
   return exp(-0.5 * z * z);
 }
 
+float linear3T(uint fillMode, vec2 uv) {
+  switch (fillMode) {
+    case 1u:
+      return uv.x;
+    case 2u:
+      return uv.y;
+    case 3u:
+      return 0.5 * (uv.x + uv.y);
+    case 4u:
+      return 0.5 * (uv.x + (1.0 - uv.y));
+    default:
+      return 0.0;
+  }
+}
+
+vec4 evalFillColor(
+    vec4 color,
+    vec4 midColor,
+    vec4 stopColor,
+    uint fillMode,
+    float midPos,
+    vec2 uv) {
+  if (fillMode == 0u) {
+    return color;
+  }
+
+  float t = clamp(linear3T(fillMode, uv), 0.0, 1.0);
+  float mid = clamp(midPos, 0.01, 0.99);
+  if (t <= mid) {
+    return mix(color, midColor, t / mid);
+  }
+  return mix(midColor, stopColor, (t - mid) / (1.0 - mid));
+}
+
 void main() {
-  uint sdfModeInt = vSdfMode;
+  uint fillMode = vSdfMode / sdfFillModeShift;
+  uint sdfModeInt = vSdfMode - fillMode * sdfFillModeShift;
   vec2 quadHalfExtents = vSdfParams.xy;
   bool insetMode = (sdfModeInt == sdfModeInsetShadow);
   vec2 shapeHalfExtents = insetMode ? quadHalfExtents : vSdfParams.zw;
@@ -161,9 +217,14 @@ void main() {
     }
 
     if (sdfModeInt != sdfModeBackdropBlur) {
-      fragColor = vec4(vColor.rgb, vColor.a * alpha);
+      vec4 fillColor = evalFillColor(
+        vColor, vFillMidColor, vFillStopColor, fillMode, vSdfFactors.y, vUv
+      );
+      fragColor = vec4(fillColor.rgb, fillColor.a * alpha);
     }
   }
+
+  fragColor.a *= rectMaskAlpha(vPos);
 
   if (uFS.maskTexEnabled != 0u) {
     vec2 normalizedPos = vec2(vPos.x / uFS.windowFrame.x, 1.0 - vPos.y / uFS.windowFrame.y);

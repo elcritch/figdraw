@@ -15,7 +15,7 @@ const NeedSiwinOpenGLContext = UseSiwinOpenGL or UseOpenGlFallback
 when defined(macosx):
   import darwin/app_kit/[nsview]
   import siwin/platforms/cocoa/window as siCocoaWindow
-  when UseMetalBackend:
+  when UseMetalBackend or UseVulkanBackend:
     import ./siwinmetal as siwinmetal
 when defined(linux) or defined(bsd):
   import siwin/platforms/x11/window as siX11Window
@@ -192,34 +192,45 @@ proc newSiwinWindow*(
   let forceOpenGl = runtimeForceOpenGlRequested() or renderer.forceOpenGlByEnv()
   when UseVulkanBackend:
     if not forceOpenGl and renderer.backendKind() == rbVulkan:
-      let globals = sharedSiwinGlobals()
-      let vkCtx = renderer.ctx.VulkanContext
-      when defined(linux) or defined(bsd):
-        case defaultPreferedPlatform()
-        of Platform.wayland:
-          vkCtx.setInstanceSurfaceHint(presentTargetWayland)
-        of Platform.x11:
-          vkCtx.setInstanceSurfaceHint(presentTargetXlib)
-        else:
-          discard
-      elif defined(windows):
-        vkCtx.setInstanceSurfaceHint(presentTargetWin32)
-      elif defined(macosx):
-        vkCtx.setInstanceSurfaceHint(presentTargetMetal)
-      vkCtx.ensureInstance()
-      result = siWindowVulkan.newVulkanWindow(
-        globals,
-        vkCtx.instanceHandle(),
-        size = size,
-        title = title,
-        resizable = resizable,
-        fullscreen = fullscreen,
-        frameless = frameless,
-        transparent = transparent,
-      )
-      if fullscreen:
-        result.fullscreen = true
-      return
+      when defined(macosx):
+        return newSiwinWindow(
+          size = size,
+          fullscreen = fullscreen,
+          title = title,
+          vsync = vsync,
+          msaa = msaa,
+          resizable = resizable,
+          frameless = frameless,
+          transparent = transparent,
+        )
+      else:
+        let
+          vkCtx = renderer.ctx.VulkanContext
+          globals = sharedSiwinGlobals()
+        when defined(linux) or defined(bsd):
+          case defaultPreferedPlatform()
+          of Platform.wayland:
+            vkCtx.setInstanceSurfaceHint(presentTargetWayland)
+          of Platform.x11:
+            vkCtx.setInstanceSurfaceHint(presentTargetXlib)
+          else:
+            discard
+        elif defined(windows):
+          vkCtx.setInstanceSurfaceHint(presentTargetWin32)
+        vkCtx.ensureInstance()
+        result = siWindowVulkan.newVulkanWindow(
+          globals,
+          vkCtx.instanceHandle(),
+          size = size,
+          title = title,
+          resizable = resizable,
+          fullscreen = fullscreen,
+          frameless = frameless,
+          transparent = transparent,
+        )
+        if fullscreen:
+          result.fullscreen = true
+        return
 
   discard renderer
   result = newSiwinWindow(
@@ -306,7 +317,7 @@ proc presentNow*(window: Window) =
     if window of WindowCocoaOpengl:
       WindowCocoaOpengl(window).swapBuffers()
 
-when UseMetalBackend and defined(macosx):
+when (UseMetalBackend or UseVulkanBackend) and defined(macosx):
   type MetalLayerHandle* = siwinmetal.SiwinMetalLayerHandle
 
   proc attachMetalLayer*(
@@ -334,6 +345,8 @@ type SiwinRenderBackend* = object
   window*: Window
   when UseMetalBackend and defined(macosx):
     metalLayer*: MetalLayerHandle
+  when UseVulkanBackend and defined(macosx):
+    vulkanMetalLayer*: MetalLayerHandle
 
 proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a siwin window and FigDraw renderer.
@@ -367,14 +380,26 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
       try:
         let vkCtx = renderer.ctx.VulkanContext
         var hasPresentTarget = false
-        when defined(linux) or defined(bsd):
+        when defined(macosx):
+          let device = siwinmetal.MTLCreateSystemDefaultDevice()
+          if device.isNil:
+            raise newException(ValueError, "Failed to create Metal device for Vulkan")
+          renderer.backendState.vulkanMetalLayer = siwinmetal.attachMetalLayerToWindowPtr(
+            WindowCocoa(window).nativeWindowHandle(),
+            window.backingSize().x,
+            window.backingSize().y,
+            device,
+          )
+          vkCtx.setPresentMetalLayer(renderer.backendState.vulkanMetalLayer.layer)
+          hasPresentTarget = true
+        elif defined(linux) or defined(bsd):
+          var surface: pointer = nil
           if window of siX11Window.WindowX11SoftwareRendering:
             siX11Window.WindowX11SoftwareRendering(window).setSoftwarePresentEnabled(
               false
             )
-        let surface = window.vulkanSurface()
-        if not surface.isNil:
-          when defined(linux) or defined(bsd):
+          surface = window.vulkanSurface()
+          if not surface.isNil:
             if window of siWaylandWindow.WindowWayland:
               vkCtx.setExternalSurface(
                 surface, presentTargetWayland, ownedByContext = true
@@ -385,11 +410,10 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
                 surface, presentTargetXlib, ownedByContext = true
               )
               hasPresentTarget = true
-          elif defined(windows):
+        elif defined(windows):
+          let surface = window.vulkanSurface()
+          if not surface.isNil:
             vkCtx.setExternalSurface(surface, presentTargetWin32, ownedByContext = true)
-            hasPresentTarget = true
-          elif defined(macosx):
-            vkCtx.setExternalSurface(surface, presentTargetMetal, ownedByContext = true)
             hasPresentTarget = true
         when defined(linux) or defined(bsd):
           if surface.isNil and window of siX11Window.WindowX11:
@@ -420,6 +444,10 @@ proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
     if renderer.backendKind() == rbMetal:
       let window = renderer.backendState.window
       renderer.backendState.metalLayer.updateMetalLayer(window)
+  when UseVulkanBackend and defined(macosx):
+    if renderer.backendKind() == rbVulkan:
+      let window = renderer.backendState.window
+      renderer.backendState.vulkanMetalLayer.updateMetalLayer(window)
   when NeedSiwinOpenGLContext:
     if renderer.backendKind() == rbOpenGL:
       renderer.backendState.window.makeCurrent()
