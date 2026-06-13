@@ -405,6 +405,10 @@ nim r examples/windy_clip_mask_benchmark.nim
 The benchmark renders a table-like scene and compares `clip + sub-clip` against
 `clip + rect-mask`.
 
+## Debug Helpers
+
+Import `figdraw/debugtools` for lightweight render-tree inspection helpers. `figVisibility` reports whether a `Fig` is disabled, clipped out, covered by a later opaque rectangle, or visible; `hitsAtPoint` and `topFigAtPoint` inspect clipped bounding-box hits in render order; `colorAt` samples a rendered `Image` or reads one pixel from a backend framebuffer. These helpers are intentionally conservative: clipping and hits use axis-aligned rectangles, and coverage detection handles simple later opaque rectangle covers rather than arbitrary partial overdraw.
+
 ## Useful Defines
 
 - `-d:figdraw.names=true`: enables `Fig.name` for debugging (enabled for tests in `tests/config.nims`)
