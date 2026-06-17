@@ -25,6 +25,9 @@ when defined(macosx):
 when defined(linux) or defined(bsd) or defined(windows):
   requires "https://github.com/planetis-m/vulkan#b223dc9"
 
+feature "harfbuzz":
+  requires "harfbuzzy"
+
 feature "lottie":
   requires "jsony"
 
