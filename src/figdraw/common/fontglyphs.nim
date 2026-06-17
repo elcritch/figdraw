@@ -1,17 +1,16 @@
-import std/[os, unicode, sequtils, tables, strutils, sets, hashes]
-import std/isolation
+import std/[hashes, sequtils, unicode]
 
 import pkg/vmath
 import pkg/pixie
 import pkg/pixie/fonts
-import pkg/chronicles
 
-import ./rchannels
 import ./imgutils
 import ./shared
 
 import ./fonttypes
-import ./typefaces
+import ./textrasters/pixie_raster
+
+export applyLcdFilter
 
 type GlyphPosition* = ref object ## Represents a glyph position after typesetting.
   fontId*: FontId
@@ -26,9 +25,7 @@ type GlyphPosition* = ref object ## Represents a glyph position after typesettin
   lineHeight*: float32
   fill*: Fill
 
-const
-  lcdFilterWeights = [8'i32, 77'i32, 86'i32, 77'i32, 8'i32] # FT_LCD_FILTER_DEFAULT
-  glyphVariantSubpixelSteps* = 10
+const glyphVariantSubpixelSteps* = 10
 
 proc clampGlyphVariantSubpixelStep*(subpixelVariant: int): int {.inline.} =
   if subpixelVariant <= 0:
@@ -38,36 +35,6 @@ proc clampGlyphVariantSubpixelStep*(subpixelVariant: int): int {.inline.} =
 proc toGlyphVariantSubpixelStep*(fractionalX: float32): int {.inline.} =
   let clamped = max(0.0'f32, min(fractionalX, 0.999'f32))
   clampGlyphVariantSubpixelStep((clamped * glyphVariantSubpixelSteps.float32).int)
-
-proc applyLcdFilter*(image: var Image) =
-  ## Applies FreeType's default 5-tap LCD filter horizontally.
-  if image.width <= 0 or image.height <= 0:
-    return
-
-  let src = image.data
-  var filtered = newSeq[type(src[0])](src.len)
-  let maxX = image.width - 1
-
-  for y in 0 ..< image.height:
-    let rowStart = y * image.width
-    for x in 0 ..< image.width:
-      var sumR, sumG, sumB, sumA: int32
-      for i, weight in lcdFilterWeights:
-        let sx = min(max(x + i - 2, 0), maxX)
-        let px = src[rowStart + sx]
-        sumR += px.r.int32 * weight
-        sumG += px.g.int32 * weight
-        sumB += px.b.int32 * weight
-        sumA += px.a.int32 * weight
-
-      let idx = rowStart + x
-      filtered[idx] = src[idx]
-      filtered[idx].r = uint8((sumR + 128'i32) shr 8)
-      filtered[idx].g = uint8((sumG + 128'i32) shr 8)
-      filtered[idx].b = uint8((sumB + 128'i32) shr 8)
-      filtered[idx].a = uint8((sumA + 128'i32) shr 8)
-
-  image.data = move(filtered)
 
 proc hash*(
     glyph: GlyphPosition, lcdFiltering = false, subpixelVariant = 0
@@ -93,47 +60,16 @@ proc generateGlyph*(
   if (not force) and hasImage(hashFill.ImageId):
     return nil
 
-  let
-    fontId = glyph.fontId
-    font = getPixieFont(fontId)
-
-  var
-    text = $glyph.rune
-    arrangement = pixie.typeset(
-      @[newSpan(text, font)],
-      bounds = glyph.rect.wh.scaled(),
-      hAlign = CenterAlign,
-      vAlign = TopAlign,
-      wrap = false,
-    )
-  if variant > 0:
-    let subpixelOffset = variant.float32 / glyphVariantSubpixelSteps.float32
-    for i in 0 ..< arrangement.positions.len:
-      arrangement.positions[i].x += subpixelOffset
-
-  let snappedBounds = arrangement.computeBounds().snapToPixels()
-
-  let
-    lh = font.defaultLineHeight()
-    bounds = rect(0, 0, scaled(snappedBounds.w + snappedBounds.x), scaled(lh))
-
-  if bounds.w == 0 or bounds.h == 0:
-    debug "GEN IMG: ", rune = $glyph.rune, wh = repr wh, snapped = repr snappedBounds
-    return nil
-
-  try:
-    font.paint = parseHex"FFFFFF"
-    var image = newImage(bounds.w.int, bounds.h.int)
-    image.fillText(arrangement)
-    if lcdFiltering:
-      image.applyLcdFilter()
-
-    # put into cache
-    if upload:
-      loadImage(hashFill.ImageId, image)
-    return image
-  except PixieError:
-    return nil
+  renderPixieGlyph(
+    hashFill.ImageId,
+    glyph.fontId,
+    glyph.rune,
+    glyph.rect,
+    lcdFiltering = lcdFiltering,
+    subpixelVariant = variant,
+    subpixelSteps = glyphVariantSubpixelSteps,
+    upload = upload,
+  )
 
 proc sourceRangesFor(runes: openArray[Rune]): seq[GlyphSourceRange] =
   result = newSeq[GlyphSourceRange](runes.len)

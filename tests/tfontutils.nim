@@ -12,6 +12,7 @@ import figdraw/extras/systemfonts
 proc resetFontState() =
   typefaceTable = initTable[TypefaceId, Typeface]()
   fontTable = initTable[FontId, FigFont]()
+  typefaceSourceTable = initTable[TypefaceId, TypefaceSource]()
   staticTypefaceTable =
     initTable[string, tuple[name: string, data: string, kind: TypeFaceKinds]]()
   #withLock imageCachedLock:
@@ -30,6 +31,8 @@ suite "fontutils":
     check id1.int != 0
     check id1 == id2
     check id1 in typefaceTable
+    check id1 in typefaceSourceTable
+    check typefaceSourceTable[id1].data == fontData
 
   test "convertFont caches pixie font":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
@@ -86,7 +89,10 @@ suite "fontutils":
       check arranged.rune == arrangement.runes[i]
       check arranged.pos == arrangement.positions[i]
       check arranged.rect == arrangement.selectionRects[i]
-      check arranged.glyphId == syntheticFontGlyphId(arranged.fontId, arranged.rune)
+      when figdrawTextBackend == "pixie":
+        check arranged.glyphId == syntheticFontGlyphId(arranged.fontId, arranged.rune)
+      else:
+        check arranged.glyphId != FontGlyphId(0)
       check arrangement.sourceRune(i) == arrangement.runes[i]
       check arrangement.sourceRuneRange(i) == i .. i
 
@@ -100,12 +106,39 @@ suite "fontutils":
     for glyph in arrangement.glyphs():
       if not glyph.rune.isWhiteSpace:
         foundNonWhitespace = true
-        check glyph.glyphId == syntheticFontGlyphId(glyph.fontId, glyph.rune)
+        when figdrawTextBackend == "pixie":
+          check glyph.glyphId == syntheticFontGlyphId(glyph.fontId, glyph.rune)
+        else:
+          check glyph.glyphId != FontGlyphId(0)
         check glyph.source.runeStart >= 0
         check glyph.source.runeEnd == glyph.source.runeStart + 1
-        check hasImage(glyph.hash().ImageId)
+        when figdrawTextBackend != "harfbuzzy":
+          check hasImage(glyph.hash().ImageId)
         break
     check foundNonWhitespace
+
+  when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
+    test "harfbuzzy backend emits shaped glyph ids and source ranges":
+      let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+      let box = rect(0, 0, 240, 60)
+      let spans = [(fs(uiFont), "Hello")]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
+      )
+
+      check arrangement.sourceRunes.len == 5
+      check arrangement.arrangedGlyphs.len == 5
+
+      var foundShapedId = false
+      for i, glyph in arrangement.arrangedGlyphs:
+        check glyph.source.runeStart == i
+        check glyph.source.runeEnd == i + 1
+        if glyph.glyphId != syntheticFontGlyphId(glyph.fontId, glyph.rune):
+          foundShapedId = true
+      check foundShapedId
 
   test "glyph hash separates lcd filtering variants":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")

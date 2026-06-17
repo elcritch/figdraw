@@ -40,10 +40,19 @@ Implemented in the first FigDraw-local slice:
   `fontId + rune`.
 - The renderer skips whitespace through `glyph.isWhitespace`.
 
+Implemented in the backend wiring slice:
+
+- The public `fontutils.typeset` entry point now dispatches through
+  `common/textbackends/pixie.nim` or `common/textbackends/harfbuzzy.nim`.
+- `typefaces.nim` keeps FigDraw-owned source font bytes so adapters are not
+  limited to path-backed fonts.
+- The Harfbuzzy backend converts shaped glyph codepoints into `FontGlyphId`
+  values and populates source byte/rune ranges.
+- Pixie's rune-based glyph rendering now lives behind
+  `common/textrasters/pixie_raster.nim` as the compatibility raster provider.
+
 Still pending:
 
-- Moving the current Pixie implementation behind `textbackends/pixie.nim`.
-- Adding the Harfbuzzy text backend.
 - Adding a glyph-id raster provider so shaped glyph ids can render correctly.
 - Moving selection and hit testing from glyph-index assumptions toward source
   ranges.
@@ -102,9 +111,10 @@ else:
 `fontutils.typeset` should stay as the stable public entry point and delegate to
 the selected backend.
 
-Current status: only `pixie` is implemented. `harfbuzzy` and `hybrid` are
-accepted as reserved switch values, but `fontutils` raises a compile-time error
-for those modes until the adapters land.
+Current status: `pixie`, `hybrid`, and `harfbuzzy` compile through the backend
+facade. `hybrid` uses Harfbuzzy shaping with Pixie-compatible rune rastering for
+diagnostics. `harfbuzzy` produces shaped glyph-id arrangements, but visual
+rendering is not a correctness target until the glyph-id raster provider lands.
 
 ## Module Layout
 
@@ -321,9 +331,10 @@ selection rectangles.
 
 ## Wrapping And Selection
 
-The first Harfbuzzy backend can keep the current whitespace-based wrapping
-behavior. Later, line breaking should use shaped-run metadata such as cluster
-boundaries and unsafe-to-break flags.
+The first Harfbuzzy backend is a shaping adapter, not a full paragraph layout
+replacement. Line breaking still needs to move onto shaped-run metadata such as
+cluster boundaries and unsafe-to-break flags before Harfbuzzy mode should be
+treated as wrapping-correct.
 
 Selection should move toward source ranges:
 
@@ -345,10 +356,11 @@ Selection should move toward source ranges:
    Keep logs, whitespace checks, tests, and compatibility helpers using
    `rune`.
 
-4. Move the current Pixie implementation behind `textbackends/pixie.nim`.
-   Add `pixie_raster.nim` as the explicit compatibility raster provider.
+4. Done: move the current Pixie implementation behind `textbackends/pixie.nim`
+   and the Pixie compatibility raster path behind `textrasters/pixie_raster.nim`.
+   `fontutils.typeset` delegates through the compile-time backend facade.
 
-5. Add `textbackends/harfbuzzy.nim` for shaped unidirectional runs.
+5. Done: add `textbackends/harfbuzzy.nim` for shaped runs.
    Convert Harfbuzzy glyph ids and positions into `ArrangedGlyph`.
 
 6. Add a glyph-id raster provider.
@@ -363,16 +375,17 @@ Selection should move toward source ranges:
 Focused tests now cover:
 
 - Existing Pixie backend behavior under default build flags.
+- `-d:figdrawTextBackend=harfbuzzy` and `hybrid` compile/smoke coverage for
+  `tfontutils`.
 - `GlyphPosition.glyphId` cache separation by LCD filtering and subpixel
   variant.
 - `GlyphPosition.rune` and `sourceRune` remaining cheap and populated.
-- `sourceRunes(arrangement, glyphIndex)` for current one-rune Pixie mappings.
+- Static font registry loading through the backend-specific `tfontutils` runs.
+- `sourceRunes(arrangement, glyphIndex)` for current one-rune Pixie mappings
+  and the current Harfbuzzy smoke shape.
 
 Remaining tests should cover:
 
-- `-d:figdrawTextBackend=harfbuzzy` compile and smoke tests once the backend
-  exists.
-- Static font registry loading through both selected backend modes.
 - Arabic shaping with a font such as Noto Naskh Arabic.
 - Hebrew marks with a font such as Noto Sans Hebrew.
 - Ligature clusters and selection rectangles.
