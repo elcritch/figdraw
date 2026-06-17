@@ -15,7 +15,11 @@ import ./typefaces
 
 type GlyphPosition* = ref object ## Represents a glyph position after typesetting.
   fontId*: FontId
+  glyphId*: FontGlyphId
+  cluster*: uint32
+  source*: GlyphSourceRange
   rune*: Rune
+  isWhitespace*: bool
   pos*: Vec2 # Where to draw the image character.
   rect*: Rect
   descent*: float32
@@ -70,7 +74,7 @@ proc hash*(
 ): Hash {.inline.} =
   #result = hash((2344, glyph.fontId, glyph.rune, app.uiScale))
   let variant = clampGlyphVariantSubpixelStep(subpixelVariant)
-  result = hash((2344, glyph.fontId, glyph.rune, lcdFiltering, variant))
+  result = hash((2344, glyph.fontId, glyph.glyphId, lcdFiltering, variant))
 
 proc generateGlyph*(
     glyph: GlyphPosition,
@@ -79,7 +83,7 @@ proc generateGlyph*(
     force = false,
     upload = true,
 ): Image {.discardable.} =
-  if unicode.isWhiteSpace(glyph.rune):
+  if glyph.isWhitespace:
     return nil
 
   let
@@ -131,8 +135,70 @@ proc generateGlyph*(
   except PixieError:
     return nil
 
+proc sourceRangesFor(runes: openArray[Rune]): seq[GlyphSourceRange] =
+  result = newSeq[GlyphSourceRange](runes.len)
+  var byteOffset = 0
+  for i, rune in runes:
+    let byteLen = ($rune).len
+    result[i] = GlyphSourceRange(
+      byteStart: byteOffset, byteEnd: byteOffset + byteLen, runeStart: i, runeEnd: i + 1
+    )
+    byteOffset += byteLen
+
+proc buildArrangedGlyphs*(
+    runes: openArray[Rune],
+    positions: openArray[Vec2],
+    selectionRects: openArray[Rect],
+    spans: openArray[Slice[int]],
+    fonts: openArray[GlyphFont],
+): seq[ArrangedGlyph] =
+  ## Builds Pixie-compatible arranged glyph records from parallel glyph arrays.
+  let sourceRanges = sourceRangesFor(runes)
+  result = newSeq[ArrangedGlyph](runes.len)
+
+  for spanIndex, span in spans:
+    if spanIndex >= fonts.len:
+      continue
+    let
+      font = fonts[spanIndex]
+      start = max(span.a, 0)
+      stop = min(span.b, runes.len - 1)
+    if start > stop:
+      continue
+
+    for idx in start .. stop:
+      let
+        rune = runes[idx]
+        pos =
+          if idx < positions.len:
+            positions[idx]
+          else:
+            vec2(0, 0)
+        selection =
+          if idx < selectionRects.len:
+            selectionRects[idx]
+          else:
+            rect(pos.x, pos.y, 0, 0)
+      result[idx] = ArrangedGlyph(
+        fontId: font.fontId,
+        glyphId: syntheticFontGlyphId(font.fontId, rune),
+        cluster: uint32(idx),
+        source: sourceRanges[idx],
+        rune: rune,
+        isWhitespace: unicode.isWhiteSpace(rune),
+        pos: pos,
+        advance: vec2(selection.w, 0),
+        offset: vec2(0, 0),
+        rect: selection,
+      )
+
 iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
   var idx = 0
+  let arrangedGlyphCount =
+    if arrangement.arrangedGlyphs.len > 0:
+      arrangement.arrangedGlyphs.len
+    else:
+      arrangement.runes.len
 
   block:
     for i, span in arrangement.spans:
@@ -142,21 +208,36 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
           arrangement.spanColors[i]
         else:
           fill(rgba(0, 0, 0, 255))
-      while idx < arrangement.runes.len():
-        let
-          pos = arrangement.positions[idx]
-          rune = arrangement.runes[idx]
-          selection = arrangement.selectionRects[idx]
+      while idx < arrangedGlyphCount:
+        let arranged =
+          if arrangement.arrangedGlyphs.len > 0:
+            arrangement.arrangedGlyphs[idx]
+          else:
+            let rune = arrangement.runes[idx]
+            ArrangedGlyph(
+              fontId: gfont.fontId,
+              glyphId: syntheticFontGlyphId(gfont.fontId, rune),
+              cluster: uint32(idx),
+              source: GlyphSourceRange(runeStart: idx, runeEnd: idx + 1),
+              rune: rune,
+              isWhitespace: unicode.isWhiteSpace(rune),
+              pos: arrangement.positions[idx],
+              rect: arrangement.selectionRects[idx],
+            )
 
         # Pixie arrangement positions are baseline positions; descentAdj stores
         # the baseline offset needed to convert to glyph image top-left.
         let descent = gfont.descentAdj
 
         yield GlyphPosition(
-          fontId: gfont.fontId,
-          rune: rune,
-          pos: pos,
-          rect: selection,
+          fontId: arranged.fontId,
+          glyphId: arranged.glyphId,
+          cluster: arranged.cluster,
+          source: arranged.source,
+          rune: arranged.rune,
+          isWhitespace: arranged.isWhitespace,
+          pos: arranged.pos,
+          rect: arranged.rect,
           descent: descent,
           lineHeight: gfont.lineHeight,
           fill: spanColor,
@@ -205,6 +286,10 @@ proc convertArrangement*(
     spans: spanSlices,
     fonts: gfonts,
     spanColors: uiSpans.mapIt(it[0].color),
+    sourceRunes: arrangement.runes,
+    arrangedGlyphs: buildArrangedGlyphs(
+      arrangement.runes, arrangement.positions, selectionRects, spanSlices, gfonts
+    ),
     runes: arrangement.runes,
     positions: arrangement.positions,
     selectionRects: selectionRects,

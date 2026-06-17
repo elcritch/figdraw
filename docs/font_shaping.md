@@ -22,14 +22,39 @@ should not depend on runes.
 - Implement required adapters in FigDraw, even if they wrap Pixie or Harfbuzzy
   APIs that are not shaped exactly for FigDraw.
 
+## Implementation Status
+
+Implemented in the first FigDraw-local slice:
+
+- `FontGlyphId`, `GlyphSourceRange`, and `ArrangedGlyph` are public
+  backend-neutral data types in `common/fonttypes.nim`.
+- `GlyphArrangement` now carries `sourceRunes` and `arrangedGlyphs` while
+  keeping the legacy `runes`, `positions`, and `selectionRects` arrays.
+- `sourceRune`, `sourceRuneRange`, and `sourceRunes` provide cheap source-rune
+  access from a glyph index.
+- The Pixie path populates arranged glyphs using a Pixie-compatible synthetic
+  glyph id scoped by `FontId`.
+- `GlyphPosition` carries `glyphId`, `cluster`, `source`, `rune`, and
+  `isWhitespace`.
+- Glyph image cache hashing now uses `fontId + glyphId` instead of
+  `fontId + rune`.
+- The renderer skips whitespace through `glyph.isWhitespace`.
+
+Still pending:
+
+- Moving the current Pixie implementation behind `textbackends/pixie.nim`.
+- Adding the Harfbuzzy text backend.
+- Adding a glyph-id raster provider so shaped glyph ids can render correctly.
+- Moving selection and hit testing from glyph-index assumptions toward source
+  ranges.
+
 ## Current Design
 
-FigDraw currently uses Pixie for three separate jobs:
+FigDraw currently still uses Pixie for three separate jobs:
 
 - Font loading and metrics in `src/figdraw/common/typefaces.nim`.
 - Text layout in `src/figdraw/common/fontutils.nim` via `pixie.typeset`.
-- Glyph image generation in `src/figdraw/common/fontglyphs.nim`, keyed by
-  `(fontId, rune, filtering, subpixelVariant)`.
+- Glyph image generation in `src/figdraw/common/fontglyphs.nim`.
 
 That works for simple Unicode glyph lookup, but shaped text needs glyph identity
 from the selected font. Arabic joining, ligatures, Hebrew marks, and OpenType
@@ -39,6 +64,10 @@ Pixie's public API is also rune/text based. It does not currently expose a
 public glyph-id raster path to FigDraw, so the default Pixie backend may need a
 compatibility adapter that uses stable synthetic glyph ids while continuing to
 raster through Pixie's source-rune APIs.
+
+The current Pixie compatibility path now hashes cache entries by
+`(fontId, glyphId, filtering, subpixelVariant)`, but the Pixie raster step still
+uses `glyph.rune` internally.
 
 ## Backend Selection
 
@@ -72,6 +101,10 @@ else:
 
 `fontutils.typeset` should stay as the stable public entry point and delegate to
 the selected backend.
+
+Current status: only `pixie` is implemented. `harfbuzzy` and `hybrid` are
+accepted as reserved switch values, but `fontutils` raises a compile-time error
+for those modes until the adapters land.
 
 ## Module Layout
 
@@ -301,19 +334,19 @@ Selection should move toward source ranges:
 
 ## Migration Phases
 
-1. Add `FontGlyphId`, `GlyphSourceRange`, and `ArrangedGlyph`.
+1. Done: add `FontGlyphId`, `GlyphSourceRange`, and `ArrangedGlyph`.
    Populate them from the existing Pixie backend with no behavior change.
 
-2. Keep cheap rune compatibility.
+2. Done: keep cheap rune compatibility.
    Keep `GlyphPosition.rune`, add `GlyphPosition.glyphId`, and add
    `sourceRune`/`sourceRunes` helpers.
 
-3. Move the current Pixie implementation behind `textbackends/pixie.nim`.
-   Add `pixie_raster.nim` as the explicit compatibility raster provider.
-
-4. Change glyph cache and renderer code to use `glyphId`.
+3. Done: change glyph cache and renderer code to use `glyphId`.
    Keep logs, whitespace checks, tests, and compatibility helpers using
    `rune`.
+
+4. Move the current Pixie implementation behind `textbackends/pixie.nim`.
+   Add `pixie_raster.nim` as the explicit compatibility raster provider.
 
 5. Add `textbackends/harfbuzzy.nim` for shaped unidirectional runs.
    Convert Harfbuzzy glyph ids and positions into `ArrangedGlyph`.
@@ -327,19 +360,23 @@ Selection should move toward source ranges:
 
 ## Tests
 
-Focused tests should cover:
+Focused tests now cover:
 
 - Existing Pixie backend behavior under default build flags.
-- `-d:figdrawTextBackend=harfbuzzy` compile and smoke tests once the backend
-  exists.
 - `GlyphPosition.glyphId` cache separation by LCD filtering and subpixel
   variant.
 - `GlyphPosition.rune` and `sourceRune` remaining cheap and populated.
-- `sourceRunes(arrangement, glyphIndex)` for ligatures and combining marks.
+- `sourceRunes(arrangement, glyphIndex)` for current one-rune Pixie mappings.
+
+Remaining tests should cover:
+
+- `-d:figdrawTextBackend=harfbuzzy` compile and smoke tests once the backend
+  exists.
 - Static font registry loading through both selected backend modes.
 - Arabic shaping with a font such as Noto Naskh Arabic.
 - Hebrew marks with a font such as Noto Sans Hebrew.
 - Ligature clusters and selection rectangles.
+- `sourceRunes(arrangement, glyphIndex)` for ligatures and combining marks.
 - Mixed LTR/RTL text after bidi support is added.
 
 ## Open Questions

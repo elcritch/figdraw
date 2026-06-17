@@ -351,7 +351,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
             )
 
     for glyph in node.textLayout.glyphs():
-      if unicode.isWhiteSpace(glyph.rune):
+      if glyph.isWhitespace:
         continue
 
       var

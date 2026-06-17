@@ -74,15 +74,35 @@ suite "fontutils":
     check arrangement.spanColors.len == spans.len
     check arrangement.runes.len == arrangement.positions.len
     check arrangement.runes.len == arrangement.selectionRects.len
+    check arrangement.sourceRunes == arrangement.runes
+    check arrangement.arrangedGlyphs.len == arrangement.runes.len
     check arrangement.maxSize.x >= arrangement.minSize.x
     check arrangement.maxSize.y >= arrangement.minSize.y
     check arrangement.bounding.w > 0'f32
     check arrangement.bounding.h > 0'f32
 
+    for i in 0 ..< arrangement.arrangedGlyphs.len:
+      let arranged = arrangement.arrangedGlyphs[i]
+      check arranged.rune == arrangement.runes[i]
+      check arranged.pos == arrangement.positions[i]
+      check arranged.rect == arrangement.selectionRects[i]
+      check arranged.glyphId == syntheticFontGlyphId(arranged.fontId, arranged.rune)
+      check arrangement.sourceRune(i) == arrangement.runes[i]
+      check arrangement.sourceRuneRange(i) == i .. i
+
+      var sourceCount = 0
+      for sourceRune in sourceRunes(arrangement, i):
+        check sourceRune == arrangement.runes[i]
+        inc sourceCount
+      check sourceCount == 1
+
     var foundNonWhitespace = false
     for glyph in arrangement.glyphs():
       if not glyph.rune.isWhiteSpace:
         foundNonWhitespace = true
+        check glyph.glyphId == syntheticFontGlyphId(glyph.fontId, glyph.rune)
+        check glyph.source.runeStart >= 0
+        check glyph.source.runeEnd == glyph.source.runeStart + 1
         check hasImage(glyph.hash().ImageId)
         break
     check foundNonWhitespace
@@ -119,6 +139,34 @@ suite "fontutils":
       if glyph.rune.isWhiteSpace:
         continue
       check glyph.hash(subpixelVariant = 0) != glyph.hash(subpixelVariant = 1)
+      checked = true
+      break
+    check checked
+
+  test "glyph hash uses glyph id for cache identity":
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+    let box = rect(0, 0, 240, 60)
+    let spans = [(fs(uiFont), "A")]
+    let arrangement =
+      typeset(box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false)
+
+    let b = "B".runeAt(0)
+    var checked = false
+    for glyph in arrangement.glyphs():
+      if glyph.rune.isWhiteSpace:
+        continue
+      let sameGlyphDifferentRune =
+        GlyphPosition(fontId: glyph.fontId, glyphId: glyph.glyphId, rune: b)
+      let differentGlyphSameRune = GlyphPosition(
+        fontId: glyph.fontId,
+        glyphId: syntheticFontGlyphId(glyph.fontId, b),
+        rune: glyph.rune,
+      )
+
+      check glyph.hash() == sameGlyphDifferentRune.hash()
+      check glyph.hash() != differentGlyphSameRune.hash()
       checked = true
       break
     check checked
@@ -178,6 +226,8 @@ suite "fontutils":
     let arrangement = placeGlyphs(uiFont, positions, origin = GlyphTopLeft)
 
     check arrangement.runes.len == positions.len
+    check arrangement.sourceRunes == arrangement.runes
+    check arrangement.arrangedGlyphs.len == positions.len
     check arrangement.spans.len == 1
     check arrangement.fonts.len == 1
 
@@ -187,6 +237,9 @@ suite "fontutils":
       let charPos = vec2(glyph.pos.x, glyph.pos.y - glyph.descent)
       check abs(charPos.x - expected.x) < 0.01'f32
       check abs(charPos.y - expected.y) < 0.01'f32
+      check glyph.glyphId == syntheticFontGlyphId(glyph.fontId, glyph.rune)
+      check arrangement.sourceRune(idx) == positions[idx][0]
+      check arrangement.sourceRuneRange(idx) == idx .. idx
       if not glyph.rune.isWhiteSpace:
         check hasImage(glyph.hash().ImageId)
       inc idx

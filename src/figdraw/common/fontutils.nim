@@ -16,6 +16,13 @@ import ./fontglyphs
 
 export loadTypeface, convertFont, registerStaticTypeface
 
+when figdrawTextBackend != "pixie":
+  {.
+    error:
+      "figdrawTextBackend=" & figdrawTextBackend &
+      " is reserved but not implemented yet; use pixie for this build"
+  .}
+
 proc calcMinMaxContent(
     textLayout: GlyphArrangement
 ): tuple[maxSize, minSize: Vec2, bounding: Rect] =
@@ -99,7 +106,11 @@ proc typeset*(
     pfs.add(pf)
     spans.add(newSpan(txt, pf))
     assert not pf.typeface.isNil
-    let lineHeight = if pf.lineHeight >= 0: pf.lineHeight else: pf.defaultLineHeight()
+    let lineHeight =
+      if pf.lineHeight >= 0:
+        pf.lineHeight
+      else:
+        pf.defaultLineHeight()
     let lineGap = (lineHeight / pf.scale) - pf.typeface.ascent + pf.typeface.descent
     let baselineOffset = round((pf.typeface.ascent + lineGap / 2) * pf.scale)
     gfonts.add GlyphFont(
@@ -236,6 +247,9 @@ proc placeGlyphs*(
   result.spans = @[0 .. glyphs.len - 1]
   result.fonts = @[cachedFont.glyph]
   result.spanColors = @[style.color]
+  result.sourceRunes = runes
+  result.arrangedGlyphs =
+    buildArrangedGlyphs(runes, positions, selectionRects, result.spans, result.fonts)
   result.runes = runes
   result.positions = positions
   result.selectionRects = selectionRects
