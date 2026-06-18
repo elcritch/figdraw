@@ -91,7 +91,7 @@ jobs:
         key: ${{ runner.os }}-${{ hashFiles('figdraw.nimble') }}
 
     - name: Install Deps
-      run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib
+      run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib,harfbuzz
 
     - name: Build Bindings
       run: |
