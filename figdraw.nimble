@@ -26,7 +26,7 @@ when defined(linux) or defined(bsd) or defined(windows):
   requires "https://github.com/planetis-m/vulkan#b223dc9"
 
 feature "harfbuzz":
-  requires "gh:elcritch/harfbuzzy"
+  requires "gh:elcritch/harfbuzzy >= 0.2.0"
 
 feature "lottie":
   requires "jsony"
