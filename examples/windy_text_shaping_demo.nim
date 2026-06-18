@@ -22,6 +22,7 @@ const
   HebrewFontFile = ExampleDir / "fonts" / "NotoSansHebrew-wdth-wght.ttf"
   DevanagariFontFile = ExampleDir / "fonts" / "NotoSansDevanagari-wdth-wght.ttf"
   ChineseFontFile = ExampleDir / "fonts" / "NotoSerifTC-wght.ttf"
+  CodeFontFile = ExampleDir / "fonts" / "FiraCode-wght.ttf"
 
 const
   ArabicBody =
@@ -41,6 +42,7 @@ type DemoFonts = object
   title: FigFont
   body: FigFont
   metric: FigFont
+  code: FigFont
   arabic: FigFont
   hebrew: FigFont
   devanagari: FigFont
@@ -57,7 +59,8 @@ proc requireFile(path: string) =
 
 proc initDemoFonts(): DemoFonts =
   for path in [
-    UbuntuFontFile, ArabicFontFile, HebrewFontFile, DevanagariFontFile, ChineseFontFile
+    UbuntuFontFile, ArabicFontFile, HebrewFontFile, DevanagariFontFile, ChineseFontFile,
+    CodeFontFile,
   ]:
     requireFile(path)
 
@@ -67,7 +70,9 @@ proc initDemoFonts(): DemoFonts =
     hebrew = loadTypeface(HebrewFontFile)
     devanagari = loadTypeface(DevanagariFontFile)
     chinese = loadTypeface(ChineseFontFile)
+    code = loadTypeface(CodeFontFile)
     commonFeatures = @[fontFeature("kern"), fontFeature("liga")]
+    codeFeatures = @[fontFeature("kern"), fontFeature("liga"), fontFeature("calt")]
     fallbackTypefaces = @[arabic, hebrew, devanagari, chinese]
 
   result = DemoFonts(
@@ -88,6 +93,13 @@ proc initDemoFonts(): DemoFonts =
       size: 13.0'f32,
       fallbackTypefaceIds: fallbackTypefaces,
       features: commonFeatures,
+    ),
+    code: FigFont(
+      typefaceId: code,
+      size: 18.0'f32,
+      fallbackTypefaceIds: fallbackTypefaces,
+      features: codeFeatures,
+      variations: @[fontVariation("wght", 520.0'f32)],
     ),
     arabic: FigFont(
       typefaceId: arabic,
@@ -428,7 +440,7 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
     scriptCount = 4
     scriptRows = (scriptCount + columnCount - 1) div columnCount
     cardW = (usableW - gap * (columnCount.float32 - 1.0'f32)) / columnCount.float32
-    mixedMinH = 130.0'f32
+    mixedMinH = 200.0'f32
     availableH = max(0.0'f32, h - pad * 2 - titleHeight - mixedMinH - gap)
     topCardH =
       max(190.0'f32, (availableH - gap * scriptRows.float32) / scriptRows.float32)
@@ -544,18 +556,43 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
     rgba(40, 45, 50, 255),
   )
 
-  let mixedTextBox =
-    rect(mixedCard.x + 22, mixedCard.y + 60, mixedCard.w - 44, mixedCard.h - 88)
+  let
+    mixedContentBox =
+      rect(mixedCard.x + 22, mixedCard.y + 58, mixedCard.w - 44, mixedCard.h - 80)
+    fallbackBox = rect(mixedContentBox.x, mixedContentBox.y, mixedContentBox.w, 44)
+    codeLabelBox = rect(mixedContentBox.x, fallbackBox.y + 50, mixedContentBox.w, 18)
+    codeBox = rect(mixedContentBox.x, codeLabelBox.y + 22, mixedContentBox.w, 52)
   let mixedText =
     "FigDraw fallback: العربية + עברית + देवनागरी + 漢文 + English\n" &
     "glyph ids, source ranges, wrapping, and caret positions"
   let mixedLayout = textLayout(
-    mixedTextBox,
+    fallbackBox,
     [(fs(fonts.body, rgba(20, 22, 24, 255)), mixedText)],
     hAlign = Left,
     wrap = true,
   )
-  result.addTextLayout(mixed, mixedTextBox, mixedLayout)
+  result.addTextLayout(mixed, fallbackBox, mixedLayout)
+  result.addText(
+    mixed, codeLabelBox, fonts.metric, "Coding ligatures", rgba(74, 84, 94, 235)
+  )
+  result.addRect(
+    mixed,
+    codeBox,
+    linear(rgba(245, 247, 248, 255), rgba(231, 236, 239, 255), axis = fgaY),
+    corners = 5.0'f32,
+    stroke = RenderStroke(weight: 1.0'f32, fill: rgba(0, 0, 0, 22).color),
+  )
+  let codeText =
+    "if value != nil && count >= 10 -> result => ok\n" &
+    "a === b  a !== c  x <= y  z >= y  map |> filter"
+  let codeTextBox = rect(codeBox.x + 12, codeBox.y + 6, codeBox.w - 24, codeBox.h - 12)
+  let codeLayout = textLayout(
+    codeTextBox,
+    [(fs(fonts.code, rgba(22, 28, 34, 255)), codeText)],
+    hAlign = Left,
+    wrap = false,
+  )
+  result.addTextLayout(mixed, codeTextBox, codeLayout)
 
 when isMainModule:
   var appRunning = true
