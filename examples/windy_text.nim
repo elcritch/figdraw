@@ -438,7 +438,7 @@ when isMainModule:
   let monoTypefaceId = loadTypeface("HackNerdFont-Regular.ttf")
   let monoFont = FigFont(typefaceId: monoTypefaceId, size: MonoFontSize)
 
-  let size = ivec2(900, 600)
+  let size = ivec2(900, 690)
 
   var frames = 0
   var fpsFrames = 0
@@ -459,9 +459,6 @@ when isMainModule:
   proc redraw() =
     renderer.beginFrame()
     let sz = window.logicalSize()
-    let szOrig = window.size()
-    let factor = round(szOrig.x.float32 / size.x.float32, 1)
-    setFigUiScale factor
 
     let modeLine = textStatusLine(textSubpixelMode, lcdFilteringEnabled)
     var renders = makeRenderTree(sz.x, sz.y, uiFont, monoFont, modeLine)
