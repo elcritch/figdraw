@@ -197,6 +197,12 @@ proc getTypefaceSource*(id: TypefaceId): TypefaceSource =
     )
   typefaceSourceTable[id]
 
+proc getFigFont*(fontId: FontId): FigFont =
+  withLock(fontLock):
+    if fontId notin fontTable:
+      raise newException(ValueError, "font is not available for id " & $Hash(fontId))
+    result = fontTable[fontId]
+
 proc pixieFont(font: FigFont): (FontId, Font) =
   let
     id = FontId(hash((font.getId(), figUiScale())))

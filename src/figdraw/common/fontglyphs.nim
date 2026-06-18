@@ -8,6 +8,8 @@ import ./imgutils
 import ./shared
 
 import ./fonttypes
+when figdrawTextBackend == "harfbuzzy":
+  import ./textrasters/glyphid_raster
 import ./textrasters/pixie_raster
 
 export applyLcdFilter
@@ -20,6 +22,7 @@ type GlyphPosition* = ref object ## Represents a glyph position after typesettin
   rune*: Rune
   isWhitespace*: bool
   pos*: Vec2 # Where to draw the image character.
+  imageOffset*: Vec2
   rect*: Rect
   descent*: float32
   lineHeight*: float32
@@ -60,16 +63,30 @@ proc generateGlyph*(
   if (not force) and hasImage(hashFill.ImageId):
     return nil
 
-  renderPixieGlyph(
-    hashFill.ImageId,
-    glyph.fontId,
-    glyph.rune,
-    glyph.rect,
-    lcdFiltering = lcdFiltering,
-    subpixelVariant = variant,
-    subpixelSteps = glyphVariantSubpixelSteps,
-    upload = upload,
-  )
+  when figdrawTextBackend == "harfbuzzy":
+    renderGlyphIdGlyph(
+      hashFill.ImageId,
+      glyph.fontId,
+      glyph.glyphId,
+      glyph.rect,
+      glyph.descent,
+      glyph.imageOffset,
+      lcdFiltering = lcdFiltering,
+      subpixelVariant = variant,
+      subpixelSteps = glyphVariantSubpixelSteps,
+      upload = upload,
+    )
+  else:
+    renderPixieGlyph(
+      hashFill.ImageId,
+      glyph.fontId,
+      glyph.rune,
+      glyph.rect,
+      lcdFiltering = lcdFiltering,
+      subpixelVariant = variant,
+      subpixelSteps = glyphVariantSubpixelSteps,
+      upload = upload,
+    )
 
 proc sourceRangesFor(runes: openArray[Rune]): seq[GlyphSourceRange] =
   result = newSeq[GlyphSourceRange](runes.len)
@@ -125,6 +142,7 @@ proc buildArrangedGlyphs*(
         pos: pos,
         advance: vec2(selection.w, 0),
         offset: vec2(0, 0),
+        imageOffset: vec2(0, 0),
         rect: selection,
       )
 
@@ -158,6 +176,7 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
               rune: rune,
               isWhitespace: unicode.isWhiteSpace(rune),
               pos: arrangement.positions[idx],
+              imageOffset: vec2(0, 0),
               rect: arrangement.selectionRects[idx],
             )
 
@@ -173,6 +192,7 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
           rune: arranged.rune,
           isWhitespace: arranged.isWhitespace,
           pos: arranged.pos,
+          imageOffset: arranged.imageOffset,
           rect: arranged.rect,
           descent: descent,
           lineHeight: gfont.lineHeight,

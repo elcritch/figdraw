@@ -355,7 +355,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
         continue
 
       var
-        glyphPos = glyphLocalPos(glyph.pos, glyph.descent)
+        glyphPos = glyphLocalPos(glyph.pos, glyph.descent) + glyph.imageOffset.scaled()
         subpixelShift = 0.0'f32
         subpixelVariant = 0
       if subpixelPositioning:

@@ -1,4 +1,4 @@
-import std/[algorithm, hashes, sequtils, strutils, unicode]
+import std/[algorithm, hashes, math, sequtils, strutils, unicode]
 
 import pkg/harfbuzzy as hb
 import pkg/vmath
@@ -70,6 +70,20 @@ proc sourceIsWhitespace(decoded: DecodedSource, source: GlyphSourceRange): bool 
     if i >= decoded.runes.len or not decoded.runes[i].isWhiteSpace:
       return false
   true
+
+proc imageOffsetForGlyph(
+    typeface: hb.Typeface, glyphId: hb.Codepoint, font: GlyphFont, scale: float32
+): Vec2 =
+  try:
+    let extents = typeface.font.glyphExtents(glyphId)
+    let
+      x0 = extents.xBearing.float32 * scale
+      x1 = x0 + extents.width.float32 * scale
+      y0 = font.descentAdj - extents.yBearing.float32 * scale
+      y1 = y0 - extents.height.float32 * scale
+    result = vec2(floor(min(0.0'f32, min(x0, x1))), floor(min(0.0'f32, min(y0, y1))))
+  except ValueError:
+    result = vec2(0, 0)
 
 proc initHarfbuzzTypeface(font: FigFont): hb.Typeface =
   let source = getTypefaceSource(font.typefaceId)
@@ -163,6 +177,8 @@ proc appendShapedSpan(
         selectionWidth = max(abs(advance.x), 0.0'f32)
         selection =
           rect(drawPos.x, drawPos.y, selectionWidth, fontInfo.glyph.lineHeight)
+        imageOffset =
+          hbTypeface.imageOffsetForGlyph(glyph.codepoint, fontInfo.glyph, scale)
 
       arrangement.arrangedGlyphs.add ArrangedGlyph(
         fontId: fontInfo.id,
@@ -174,6 +190,7 @@ proc appendShapedSpan(
         pos: pos,
         advance: advance,
         offset: offset,
+        imageOffset: imageOffset,
         rect: selection,
       )
       arrangement.runes.add rune

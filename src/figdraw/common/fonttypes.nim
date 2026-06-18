@@ -72,6 +72,7 @@ type
     pos*: Vec2
     advance*: Vec2
     offset*: Vec2
+    imageOffset*: Vec2 ## Offset from baseline top-left to the raster image origin.
     rect*: Rect
 
   GlyphArrangement* = object
@@ -145,6 +146,129 @@ iterator sourceRunes*(arrangement: GlyphArrangement, glyphIndex: int): Rune =
     else:
       for i in sourceRange:
         yield arrangement.runes[i]
+
+func sourceIntersects(
+    source: GlyphSourceRange, runeStart, runeEnd: int
+): bool {.inline.} =
+  source.runeStart < runeEnd and runeStart < source.runeEnd
+
+func byteSourceIntersects(
+    source: GlyphSourceRange, byteStart, byteEnd: int
+): bool {.inline.} =
+  source.byteStart < byteEnd and byteStart < source.byteEnd
+
+func glyphSource(
+    arrangement: GlyphArrangement, glyphIndex: int
+): GlyphSourceRange {.inline.} =
+  if arrangement.arrangedGlyphs.len > 0:
+    arrangement.arrangedGlyphs[glyphIndex].source
+  else:
+    GlyphSourceRange(
+      runeStart: glyphIndex,
+      runeEnd: glyphIndex + 1,
+      byteStart: glyphIndex,
+      byteEnd: glyphIndex + 1,
+    )
+
+func glyphRangeForSourceRunes*(
+    arrangement: GlyphArrangement, sourceRange: Slice[int]
+): Slice[int] =
+  ## Returns the inclusive glyph range touching an inclusive source-rune range.
+  ## Returns `0 .. -1` when no glyph intersects the source range.
+  if sourceRange.a > sourceRange.b:
+    return 0 .. -1
+
+  let
+    runeStart = max(sourceRange.a, 0)
+    runeEnd = sourceRange.b + 1
+    glyphCount =
+      if arrangement.arrangedGlyphs.len > 0:
+        arrangement.arrangedGlyphs.len
+      else:
+        arrangement.runes.len
+
+  result = 0 .. -1
+  for glyphIndex in 0 ..< glyphCount:
+    if arrangement.glyphSource(glyphIndex).sourceIntersects(runeStart, runeEnd):
+      if result.a > result.b:
+        result = glyphIndex .. glyphIndex
+      else:
+        result.b = glyphIndex
+
+func glyphRangeForSourceBytes*(
+    arrangement: GlyphArrangement, byteRange: Slice[int]
+): Slice[int] =
+  ## Returns the inclusive glyph range touching an inclusive source-byte range.
+  ## Returns `0 .. -1` when no glyph intersects the source range.
+  if byteRange.a > byteRange.b:
+    return 0 .. -1
+
+  let
+    byteStart = max(byteRange.a, 0)
+    byteEnd = byteRange.b + 1
+    glyphCount =
+      if arrangement.arrangedGlyphs.len > 0:
+        arrangement.arrangedGlyphs.len
+      else:
+        arrangement.runes.len
+
+  result = 0 .. -1
+  for glyphIndex in 0 ..< glyphCount:
+    if arrangement.glyphSource(glyphIndex).byteSourceIntersects(byteStart, byteEnd):
+      if result.a > result.b:
+        result = glyphIndex .. glyphIndex
+      else:
+        result.b = glyphIndex
+
+func rectForGlyph(arrangement: GlyphArrangement, glyphIndex: int): Rect {.inline.} =
+  if arrangement.arrangedGlyphs.len > 0:
+    arrangement.arrangedGlyphs[glyphIndex].rect
+  else:
+    arrangement.selectionRects[glyphIndex]
+
+func selectionRectsForSourceRunes*(
+    arrangement: GlyphArrangement, sourceRange: Slice[int]
+): seq[Rect] =
+  ## Returns selection rectangles for glyphs touching a source-rune range.
+  let glyphRange = arrangement.glyphRangeForSourceRunes(sourceRange)
+  if glyphRange.a > glyphRange.b:
+    return
+  for glyphIndex in glyphRange:
+    result.add arrangement.rectForGlyph(glyphIndex)
+
+func selectionRectsForSourceBytes*(
+    arrangement: GlyphArrangement, byteRange: Slice[int]
+): seq[Rect] =
+  ## Returns selection rectangles for glyphs touching a source-byte range.
+  let glyphRange = arrangement.glyphRangeForSourceBytes(byteRange)
+  if glyphRange.a > glyphRange.b:
+    return
+  for glyphIndex in glyphRange:
+    result.add arrangement.rectForGlyph(glyphIndex)
+
+func containsPoint(rect: Rect, point: Vec2): bool {.inline.} =
+  point.x >= rect.x and point.y >= rect.y and point.x < rect.x + rect.w and
+    point.y < rect.y + rect.h
+
+func glyphIndexAt*(arrangement: GlyphArrangement, point: Vec2): int =
+  ## Returns the glyph index at a local text-layout point, or `-1`.
+  let glyphCount =
+    if arrangement.arrangedGlyphs.len > 0:
+      arrangement.arrangedGlyphs.len
+    else:
+      arrangement.selectionRects.len
+
+  for glyphIndex in 0 ..< glyphCount:
+    if arrangement.rectForGlyph(glyphIndex).containsPoint(point):
+      return glyphIndex
+  -1
+
+func sourceRuneRangeAt*(arrangement: GlyphArrangement, point: Vec2): Slice[int] =
+  ## Returns the source-rune range at a local text-layout point, or `0 .. -1`.
+  let glyphIndex = arrangement.glyphIndexAt(point)
+  if glyphIndex < 0:
+    return 0 .. -1
+  arrangement.sourceRuneRange(glyphIndex)
 
 proc hash*(fnt: FigFont): Hash =
   var h = Hash(0)

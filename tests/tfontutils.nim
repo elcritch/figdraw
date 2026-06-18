@@ -140,6 +140,66 @@ suite "fontutils":
           foundShapedId = true
       check foundShapedId
 
+    test "source range helpers map ligatures back to source runes":
+      let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
+      let box = rect(0, 0, 300, 80)
+      let spans = [(fs(uiFont), "office")]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
+      )
+
+      check arrangement.sourceRunes.len == 6
+      check arrangement.arrangedGlyphs.len < arrangement.sourceRunes.len
+
+      let ligatureGlyphRange = arrangement.glyphRangeForSourceRunes(1 .. 3)
+      check ligatureGlyphRange.a == ligatureGlyphRange.b
+
+      let ligatureGlyph = ligatureGlyphRange.a
+      check arrangement.sourceRuneRange(ligatureGlyph) == 1 .. 3
+
+      var source = ""
+      for rune in sourceRunes(arrangement, ligatureGlyph):
+        source.add $rune
+      check source == "ffi"
+
+      let rects = arrangement.selectionRectsForSourceRunes(2 .. 2)
+      check rects.len == 1
+      check rects[0] == arrangement.arrangedGlyphs[ligatureGlyph].rect
+
+      let hitPoint = vec2(rects[0].x + rects[0].w / 2, rects[0].y + rects[0].h / 2)
+      check arrangement.glyphIndexAt(hitPoint) == ligatureGlyph
+      check arrangement.sourceRuneRangeAt(hitPoint) == 1 .. 3
+
+  when figdrawTextBackend == "harfbuzzy":
+    test "harfbuzzy glyph id raster provider renders shaped glyph images":
+      let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
+      let box = rect(0, 0, 300, 80)
+      let spans = [(fs(uiFont), "office")]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
+      )
+      let glyphIndex = arrangement.glyphRangeForSourceRunes(1 .. 3).a
+
+      var glyphs = newSeq[GlyphPosition]()
+      for glyph in arrangement.glyphs():
+        glyphs.add glyph
+
+      check glyphIndex >= 0
+      check glyphIndex < glyphs.len
+      let image = glyphs[glyphIndex].generateGlyph(force = true, upload = false)
+
+      check image != nil
+      check image.width > 0
+      check image.height > 0
+      check image.opaqueBounds().w > 0
+      check image.opaqueBounds().h > 0
+
   test "glyph hash separates lcd filtering variants":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
