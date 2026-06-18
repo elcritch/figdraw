@@ -20,6 +20,8 @@ const
   UbuntuFontFile = RepoDir / "data" / "Ubuntu.ttf"
   ArabicFontFile = ExampleDir / "fonts" / "NotoNaskhArabic-wght.ttf"
   HebrewFontFile = ExampleDir / "fonts" / "NotoSansHebrew-wdth-wght.ttf"
+  DevanagariFontFile = ExampleDir / "fonts" / "NotoSansDevanagari-wdth-wght.ttf"
+  ChineseFontFile = ExampleDir / "fonts" / "NotoSerifTC-wght.ttf"
 
 const
   ArabicBody =
@@ -28,6 +30,12 @@ const
   HebrewBody =
     "שָׁלוֹם עוֹלָם וּבְרוּכִים הַבָּאִים\n" &
     "טֶקְסְט עִבְרִי צָרִיךְ נִקּוּד, כִּוּוּן נָכוֹן וּשְׁבִירַת שׁוּרוֹת יַצִּיבָה."
+  DevanagariBody =
+    "नमस्ते दुनिया और आपका स्वागत है\n" &
+    "देवनागरी पाठ को मात्रा, संयुक्ताक्षर और स्थिर पंक्ति-विन्यास चाहिए."
+  ChineseBody =
+    "學而時習之，不亦說乎？有朋自遠方來，不亦樂乎？\n" &
+    "古文排版需要可靠的字形、標點與換行。"
 
 type DemoFonts = object
   title: FigFont
@@ -35,53 +43,74 @@ type DemoFonts = object
   metric: FigFont
   arabic: FigFont
   hebrew: FigFont
+  devanagari: FigFont
+  chinese: FigFont
 
 proc requireFile(path: string) =
   if not fileExists(path):
     raise newException(IOError, "Missing demo asset: " & path)
 
 proc initDemoFonts(): DemoFonts =
-  for path in [UbuntuFontFile, ArabicFontFile, HebrewFontFile]:
+  for path in [
+    UbuntuFontFile, ArabicFontFile, HebrewFontFile, DevanagariFontFile, ChineseFontFile
+  ]:
     requireFile(path)
 
   let
     ubuntu = loadTypeface(UbuntuFontFile)
     arabic = loadTypeface(ArabicFontFile)
     hebrew = loadTypeface(HebrewFontFile)
+    devanagari = loadTypeface(DevanagariFontFile)
+    chinese = loadTypeface(ChineseFontFile)
     commonFeatures = @[fontFeature("kern"), fontFeature("liga")]
+    fallbackTypefaces = @[arabic, hebrew, devanagari, chinese]
 
   result = DemoFonts(
     title: FigFont(
       typefaceId: ubuntu,
       size: 22.0'f32,
-      fallbackTypefaceIds: @[arabic, hebrew],
+      fallbackTypefaceIds: fallbackTypefaces,
       features: commonFeatures,
     ),
     body: FigFont(
       typefaceId: ubuntu,
       size: 18.0'f32,
-      fallbackTypefaceIds: @[arabic, hebrew],
+      fallbackTypefaceIds: fallbackTypefaces,
       features: commonFeatures,
     ),
     metric: FigFont(
       typefaceId: ubuntu,
       size: 13.0'f32,
-      fallbackTypefaceIds: @[arabic, hebrew],
+      fallbackTypefaceIds: fallbackTypefaces,
       features: commonFeatures,
     ),
     arabic: FigFont(
       typefaceId: arabic,
       size: 36.0'f32,
-      fallbackTypefaceIds: @[hebrew, ubuntu],
+      fallbackTypefaceIds: @[hebrew, devanagari, chinese, ubuntu],
       features: commonFeatures,
       variations: @[fontVariation("wght", 520.0'f32)],
     ),
     hebrew: FigFont(
       typefaceId: hebrew,
       size: 34.0'f32,
-      fallbackTypefaceIds: @[arabic, ubuntu],
+      fallbackTypefaceIds: @[arabic, devanagari, chinese, ubuntu],
       features: commonFeatures,
       variations: @[fontVariation("wght", 560.0'f32), fontVariation("wdth", 96.0'f32)],
+    ),
+    devanagari: FigFont(
+      typefaceId: devanagari,
+      size: 32.0'f32,
+      fallbackTypefaceIds: @[arabic, hebrew, chinese, ubuntu],
+      features: commonFeatures,
+      variations: @[fontVariation("wght", 560.0'f32), fontVariation("wdth", 100.0'f32)],
+    ),
+    chinese: FigFont(
+      typefaceId: chinese,
+      size: 28.0'f32,
+      fallbackTypefaceIds: @[arabic, hebrew, devanagari, ubuntu],
+      features: commonFeatures,
+      variations: @[fontVariation("wght", 560.0'f32)],
     ),
   )
 
@@ -305,30 +334,35 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
     titleHeight = 66.0'f32
     gap = 18.0'f32
     usableW = max(360.0'f32, w - pad * 2)
-    twoColumns = usableW >= 760.0'f32
-    cardW =
-      if twoColumns:
-        (usableW - gap) / 2
+    columnCount =
+      if usableW >= 1460.0'f32:
+        4
+      elif usableW >= 1120.0'f32:
+        3
+      elif usableW >= 760.0'f32:
+        2
       else:
-        usableW
-    baseTopCardH =
-      if twoColumns:
-        max(250.0'f32, (h - pad * 2 - titleHeight - gap) * 0.56'f32)
-      else:
-        max(220.0'f32, (h - pad * 2 - titleHeight - gap * 2) / 3)
-    topCardH = baseTopCardH * 1.25'f32
-    topGrowth = topCardH - baseTopCardH
-    baseLowerH =
-      if twoColumns:
-        max(190.0'f32, h - (pad + titleHeight + baseTopCardH + gap) - pad)
-      else:
-        baseTopCardH
-    lowerY = pad + titleHeight + topCardH + gap
-    lowerH =
-      if twoColumns:
-        max(0.0'f32, baseLowerH - topGrowth)
-      else:
-        max(0.0'f32, baseLowerH - topGrowth * 2)
+        1
+    scriptCount = 4
+    scriptRows = (scriptCount + columnCount - 1) div columnCount
+    cardW = (usableW - gap * (columnCount.float32 - 1.0'f32)) / columnCount.float32
+    mixedMinH = 130.0'f32
+    availableH = max(0.0'f32, h - pad * 2 - titleHeight - mixedMinH - gap)
+    topCardH =
+      max(190.0'f32, (availableH - gap * scriptRows.float32) / scriptRows.float32)
+    lowerY = pad + titleHeight + (topCardH + gap) * scriptRows.float32
+    lowerH = max(0.0'f32, h - lowerY - pad)
+
+  proc cardRect(index: int): Rect =
+    let
+      col = index mod columnCount
+      row = index div columnCount
+    rect(
+      pad + (cardW + gap) * col.float32,
+      pad + titleHeight + (topCardH + gap) * row.float32,
+      cardW,
+      topCardH,
+    )
 
   let titleBox = rect(pad, pad, usableW, 34)
   result.addText(
@@ -348,7 +382,7 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
     rgba(74, 84, 94, 255),
   )
 
-  let arabicCard = rect(pad, pad + titleHeight, cardW, topCardH)
+  let arabicCard = cardRect(0)
   result.addSampleCard(
     root,
     arabicCard,
@@ -362,11 +396,7 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
     Right,
   )
 
-  let hebrewCard =
-    if twoColumns:
-      rect(pad + cardW + gap, pad + titleHeight, cardW, topCardH)
-    else:
-      rect(pad, pad + titleHeight + topCardH + gap, cardW, topCardH)
+  let hebrewCard = cardRect(1)
   result.addSampleCard(
     root,
     hebrewCard,
@@ -380,11 +410,35 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
     Right,
   )
 
-  let mixedCard =
-    if twoColumns:
-      rect(pad, lowerY, usableW, lowerH)
-    else:
-      rect(pad, pad + titleHeight + (topCardH + gap) * 2, cardW, topCardH)
+  let devanagariCard = cardRect(2)
+  result.addSampleCard(
+    root,
+    devanagariCard,
+    "Devanagari",
+    DevanagariBody,
+    "देवनागरी",
+    fonts.devanagari,
+    fonts.body,
+    fonts.metric,
+    linear(rgba(185, 96, 34, 235), rgba(118, 113, 34, 235), axis = fgaX),
+    Left,
+  )
+
+  let chineseCard = cardRect(3)
+  result.addSampleCard(
+    root,
+    chineseCard,
+    "Classical Chinese",
+    ChineseBody,
+    "學而時習之",
+    fonts.chinese,
+    fonts.body,
+    fonts.metric,
+    linear(rgba(132, 78, 54, 235), rgba(58, 91, 98, 235), axis = fgaX),
+    Left,
+  )
+
+  let mixedCard = rect(pad, lowerY, usableW, lowerH)
   let mixed = result.addRect(
     root,
     mixedCard,
@@ -403,7 +457,7 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
   let mixedTextBox =
     rect(mixedCard.x + 22, mixedCard.y + 60, mixedCard.w - 44, mixedCard.h - 88)
   let mixedText =
-    "FigDraw fallback: العربية + עברית + English\n" &
+    "FigDraw fallback: العربية + עברית + देवनागरी + 漢文 + English\n" &
     "glyph ids, source ranges, wrapping, and caret positions"
   let mixedLayout = textLayout(
     mixedTextBox,
@@ -417,7 +471,7 @@ when isMainModule:
   var appRunning = true
   let
     title = windyWindowTitle("FigDraw Text Shaping")
-    size = ivec2(980, 680)
+    size = ivec2(1600, 720)
     window = newWindyWindow(size = size, fullscreen = false, title = title)
 
   if getEnv("HDI") != "":
