@@ -42,6 +42,7 @@ type DemoFonts = object
   title: FigFont
   body: FigFont
   metric: FigFont
+  codePlain: FigFont
   code: FigFont
   arabic: FigFont
   hebrew: FigFont
@@ -72,6 +73,8 @@ proc initDemoFonts(): DemoFonts =
     chinese = loadTypeface(ChineseFontFile)
     code = loadTypeface(CodeFontFile)
     commonFeatures = @[fontFeature("kern"), fontFeature("liga")]
+    codePlainFeatures =
+      @[fontFeature("kern"), fontFeature("liga", 0), fontFeature("calt", 0)]
     codeFeatures = @[fontFeature("kern"), fontFeature("liga"), fontFeature("calt")]
     fallbackTypefaces = @[arabic, hebrew, devanagari, chinese]
 
@@ -94,9 +97,16 @@ proc initDemoFonts(): DemoFonts =
       fallbackTypefaceIds: fallbackTypefaces,
       features: commonFeatures,
     ),
+    codePlain: FigFont(
+      typefaceId: code,
+      size: 24.0'f32,
+      fallbackTypefaceIds: fallbackTypefaces,
+      features: codePlainFeatures,
+      variations: @[fontVariation("wght", 520.0'f32)],
+    ),
     code: FigFont(
       typefaceId: code,
-      size: 18.0'f32,
+      size: 24.0'f32,
       fallbackTypefaceIds: fallbackTypefaces,
       features: codeFeatures,
       variations: @[fontVariation("wght", 520.0'f32)],
@@ -559,9 +569,16 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
   let
     mixedContentBox =
       rect(mixedCard.x + 22, mixedCard.y + 58, mixedCard.w - 44, mixedCard.h - 80)
-    fallbackBox = rect(mixedContentBox.x, mixedContentBox.y, mixedContentBox.w, 44)
-    codeLabelBox = rect(mixedContentBox.x, fallbackBox.y + 50, mixedContentBox.w, 18)
-    codeBox = rect(mixedContentBox.x, codeLabelBox.y + 22, mixedContentBox.w, 52)
+    fallbackBox = rect(mixedContentBox.x, mixedContentBox.y, mixedContentBox.w, 40)
+    codeLabelBox =
+      rect(mixedContentBox.x, fallbackBox.y + fallbackBox.h + 10, mixedContentBox.w, 18)
+    codeBoxY = codeLabelBox.y + 22
+    codeBox = rect(
+      mixedContentBox.x,
+      codeBoxY,
+      mixedContentBox.w,
+      max(64.0'f32, mixedContentBox.y + mixedContentBox.h - codeBoxY),
+    )
   let mixedText =
     "FigDraw fallback: العربية + עברית + देवनागरी + 漢文 + English\n" &
     "glyph ids, source ranges, wrapping, and caret positions"
@@ -582,17 +599,31 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
     corners = 5.0'f32,
     stroke = RenderStroke(weight: 1.0'f32, fill: rgba(0, 0, 0, 22).color),
   )
-  let codeText =
-    "if value != nil && count >= 10 -> result => ok\n" &
-    "a === b  a !== c  x <= y  z >= y  map |> filter"
-  let codeTextBox = rect(codeBox.x + 12, codeBox.y + 6, codeBox.w - 24, codeBox.h - 12)
-  let codeLayout = textLayout(
-    codeTextBox,
+  let
+    codeText = "!=  ===  !==  <=  >=  ->  =>  |>  &&"
+    codeGap = 16.0'f32
+    codeColW = max(80.0'f32, (codeBox.w - 24.0'f32 - codeGap) / 2.0'f32)
+    plainLabelBox = rect(codeBox.x + 12, codeBox.y + 8, codeColW, 16)
+    fusedLabelBox =
+      rect(plainLabelBox.x + codeColW + codeGap, codeBox.y + 8, codeColW, 16)
+    plainTextBox = rect(codeBox.x + 12, codeBox.y + 25, codeColW, codeBox.h - 31)
+    fusedTextBox = rect(fusedLabelBox.x, plainTextBox.y, codeColW, plainTextBox.h)
+  result.addText(mixed, plainLabelBox, fonts.metric, "unfused", rgba(98, 106, 114, 225))
+  result.addText(mixed, fusedLabelBox, fonts.metric, "fused", rgba(98, 106, 114, 225))
+  let plainCodeLayout = textLayout(
+    plainTextBox,
+    [(fs(fonts.codePlain, rgba(22, 28, 34, 255)), codeText)],
+    hAlign = Left,
+    wrap = false,
+  )
+  result.addTextLayout(mixed, plainTextBox, plainCodeLayout)
+  let fusedCodeLayout = textLayout(
+    fusedTextBox,
     [(fs(fonts.code, rgba(22, 28, 34, 255)), codeText)],
     hAlign = Left,
     wrap = false,
   )
-  result.addTextLayout(mixed, codeTextBox, codeLayout)
+  result.addTextLayout(mixed, fusedTextBox, fusedCodeLayout)
 
 when isMainModule:
   var appRunning = true
