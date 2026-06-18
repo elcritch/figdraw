@@ -46,6 +46,11 @@ type DemoFonts = object
   devanagari: FigFont
   chinese: FigFont
 
+type LigatureSample = object
+  label: string
+  unfused: string
+  fused: string
+
 proc requireFile(path: string) =
   if not fileExists(path):
     raise newException(IOError, "Missing demo asset: " & path)
@@ -251,6 +256,19 @@ proc addText(
   )
   renders.addTextLayout(parent, box, layout)
 
+proc addCenteredText(
+    renders: var Renders,
+    parent: FigIdx,
+    box: Rect,
+    font: FigFont,
+    text: string,
+    fill: Fill,
+) =
+  let layout = textLayout(
+    box, [(fs(font, fill), text)], hAlign = Center, vAlign = Middle, wrap = false
+  )
+  renders.addTextLayout(parent, box, layout)
+
 proc addSampleCard(
     renders: var Renders,
     root: FigIdx,
@@ -263,6 +281,7 @@ proc addSampleCard(
     metricFont: FigFont,
     accent: Fill,
     hAlign: FontHorizontal,
+    ligatures: seq[LigatureSample] = @[],
 ) =
   let card = renders.addRect(
     root,
@@ -288,7 +307,22 @@ proc addSampleCard(
   let titleBox = rect(box.x + 22, box.y + 18, box.w - 44, 30)
   renders.addText(card, titleBox, labelFont, title, rgba(40, 45, 50, 255))
 
-  let textBox = rect(box.x + 22, box.y + 62, box.w - 44, box.h - 112)
+  let hasLigatures = ligatures.len > 0
+  let
+    metricBox = rect(box.x + 22, box.y + box.h - 43, box.w - 44, 30)
+    ligatureH = 36.0'f32 + 38.0'f32 * ligatures.len.float32
+    ligatureBox =
+      if hasLigatures:
+        rect(box.x + 22, metricBox.y - ligatureH - 14.0'f32, box.w - 44, ligatureH)
+      else:
+        rect(0, 0, 0, 0)
+    textBottom =
+      if hasLigatures:
+        ligatureBox.y - 12
+      else:
+        metricBox.y - 12
+    textBox =
+      rect(box.x + 22, box.y + 62, box.w - 44, max(24.0'f32, textBottom - box.y - 62))
   let layout = textLayout(
     textBox, [(fs(font, rgba(18, 20, 24, 255)), body)], hAlign = hAlign, wrap = true
   )
@@ -305,7 +339,55 @@ proc addSampleCard(
   )
   renders.addTextLayout(card, textBox, layout)
 
-  let metricBox = rect(box.x + 22, box.y + box.h - 43, box.w - 44, 30)
+  if hasLigatures:
+    renders.addRect(
+      card,
+      ligatureBox,
+      linear(rgba(246, 248, 249, 255), rgba(231, 236, 239, 255), axis = fgaY),
+      corners = 5.0'f32,
+      stroke = RenderStroke(weight: 1.0'f32, fill: rgba(0, 0, 0, 22).color),
+    )
+    let
+      labelW = min(86.0'f32, ligatureBox.w * 0.28'f32)
+      sampleW = max(44.0'f32, (ligatureBox.w - labelW - 32.0'f32) / 2.0'f32)
+      labelHeaderBox = rect(ligatureBox.x + 10, ligatureBox.y + 8, labelW, 16)
+      unfusedLabelBox =
+        rect(ligatureBox.x + labelW + 12, ligatureBox.y + 8, sampleW, 16)
+      fusedLabelBox =
+        rect(unfusedLabelBox.x + sampleW + 12, ligatureBox.y + 8, sampleW, 16)
+      sampleFont = FigFont(
+        typefaceId: font.typefaceId,
+        size: max(22.0'f32, min(font.size * 0.82'f32, 30.0'f32)),
+        fallbackTypefaceIds: font.fallbackTypefaceIds,
+        features: font.features,
+        variations: font.variations,
+      )
+    renders.addText(card, labelHeaderBox, metricFont, "form", rgba(98, 106, 114, 225))
+    renders.addText(
+      card, unfusedLabelBox, metricFont, "unfused", rgba(98, 106, 114, 225)
+    )
+    renders.addText(card, fusedLabelBox, metricFont, "fused", rgba(98, 106, 114, 225))
+    for i, ligature in ligatures:
+      let
+        rowY = ligatureBox.y + 27.0'f32 + 38.0'f32 * i.float32
+        labelBox = rect(labelHeaderBox.x, rowY, labelW, 38)
+        unfusedBox = rect(unfusedLabelBox.x, rowY, sampleW, 38)
+        fusedBox = rect(fusedLabelBox.x, rowY, sampleW, 38)
+      renders.addText(
+        card,
+        labelBox,
+        metricFont,
+        ligature.label,
+        rgba(78, 86, 94, 235),
+        vAlign = Middle,
+      )
+      renders.addCenteredText(
+        card, unfusedBox, sampleFont, ligature.unfused, rgba(24, 28, 32, 255)
+      )
+      renders.addCenteredText(
+        card, fusedBox, sampleFont, ligature.fused, rgba(24, 28, 32, 255)
+      )
+
   renders.addRect(card, metricBox, accent, corners = 5.0'f32)
   renders.addText(
     card,
@@ -394,6 +476,10 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
     fonts.metric,
     linear(rgba(21, 135, 115, 235), rgba(25, 92, 145, 235), axis = fgaX),
     Right,
+    @[
+      LigatureSample(label: "la", unfused: "ل + ا", fused: "لا"),
+      LigatureSample(label: "lm", unfused: "ل + م", fused: "لم"),
+    ],
   )
 
   let hebrewCard = cardRect(1)
@@ -422,6 +508,10 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
     fonts.metric,
     linear(rgba(185, 96, 34, 235), rgba(118, 113, 34, 235), axis = fgaX),
     Left,
+    @[
+      LigatureSample(label: "ksha", unfused: "क् + ष", fused: "क्ष"),
+      LigatureSample(label: "rta", unfused: "र् + ट", fused: "र्ट"),
+    ],
   )
 
   let chineseCard = cardRect(3)
@@ -471,7 +561,7 @@ when isMainModule:
   var appRunning = true
   let
     title = windyWindowTitle("FigDraw Text Shaping")
-    size = ivec2(1600, 720)
+    size = ivec2(1600, 792)
     window = newWindyWindow(size = size, fullscreen = false, title = title)
 
   if getEnv("HDI") != "":
