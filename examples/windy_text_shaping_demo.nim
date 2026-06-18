@@ -21,7 +21,6 @@ const
   ArabicFontFile = ExampleDir / "fonts" / "NotoNaskhArabic-wght.ttf"
   HebrewFontFile = ExampleDir / "fonts" / "NotoSansHebrew-wdth-wght.ttf"
   DevanagariFontFile = ExampleDir / "fonts" / "NotoSansDevanagari-wdth-wght.ttf"
-  ChineseFontFile = ExampleDir / "fonts" / "NotoSerifTC-wght.ttf"
   CodeFontFile = ExampleDir / "fonts" / "FiraCode-wght.ttf"
 
 const
@@ -34,9 +33,6 @@ const
   DevanagariBody =
     "नमस्ते दुनिया और आपका स्वागत है\n" &
     "देवनागरी पाठ को मात्रा, संयुक्ताक्षर और स्थिर पंक्ति-विन्यास चाहिए."
-  ChineseBody =
-    "學而時習之，不亦說乎？有朋自遠方來，不亦樂乎？\n" &
-    "古文排版需要可靠的字形、標點與換行。"
 
 type DemoFonts = object
   title: FigFont
@@ -47,7 +43,6 @@ type DemoFonts = object
   arabic: FigFont
   hebrew: FigFont
   devanagari: FigFont
-  chinese: FigFont
 
 type LigatureSample = object
   label: string
@@ -60,8 +55,7 @@ proc requireFile(path: string) =
 
 proc initDemoFonts(): DemoFonts =
   for path in [
-    UbuntuFontFile, ArabicFontFile, HebrewFontFile, DevanagariFontFile, ChineseFontFile,
-    CodeFontFile,
+    UbuntuFontFile, ArabicFontFile, HebrewFontFile, DevanagariFontFile, CodeFontFile
   ]:
     requireFile(path)
 
@@ -70,13 +64,12 @@ proc initDemoFonts(): DemoFonts =
     arabic = loadTypeface(ArabicFontFile)
     hebrew = loadTypeface(HebrewFontFile)
     devanagari = loadTypeface(DevanagariFontFile)
-    chinese = loadTypeface(ChineseFontFile)
     code = loadTypeface(CodeFontFile)
     commonFeatures = @[fontFeature("kern"), fontFeature("liga")]
     codePlainFeatures =
       @[fontFeature("kern"), fontFeature("liga", 0), fontFeature("calt", 0)]
     codeFeatures = @[fontFeature("kern"), fontFeature("liga"), fontFeature("calt")]
-    fallbackTypefaces = @[arabic, hebrew, devanagari, chinese]
+    fallbackTypefaces = @[arabic, hebrew, devanagari]
 
   result = DemoFonts(
     title: FigFont(
@@ -114,30 +107,23 @@ proc initDemoFonts(): DemoFonts =
     arabic: FigFont(
       typefaceId: arabic,
       size: 36.0'f32,
-      fallbackTypefaceIds: @[hebrew, devanagari, chinese, ubuntu],
+      fallbackTypefaceIds: @[hebrew, devanagari, ubuntu],
       features: commonFeatures,
       variations: @[fontVariation("wght", 520.0'f32)],
     ),
     hebrew: FigFont(
       typefaceId: hebrew,
       size: 34.0'f32,
-      fallbackTypefaceIds: @[arabic, devanagari, chinese, ubuntu],
+      fallbackTypefaceIds: @[arabic, devanagari, ubuntu],
       features: commonFeatures,
       variations: @[fontVariation("wght", 560.0'f32), fontVariation("wdth", 96.0'f32)],
     ),
     devanagari: FigFont(
       typefaceId: devanagari,
       size: 32.0'f32,
-      fallbackTypefaceIds: @[arabic, hebrew, chinese, ubuntu],
+      fallbackTypefaceIds: @[arabic, hebrew, ubuntu],
       features: commonFeatures,
       variations: @[fontVariation("wght", 560.0'f32), fontVariation("wdth", 100.0'f32)],
-    ),
-    chinese: FigFont(
-      typefaceId: chinese,
-      size: 28.0'f32,
-      fallbackTypefaceIds: @[arabic, hebrew, devanagari, ubuntu],
-      features: commonFeatures,
-      variations: @[fontVariation("wght", 560.0'f32)],
     ),
   )
 
@@ -447,7 +433,7 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
         2
       else:
         1
-    scriptCount = 4
+    scriptCount = 3
     scriptRows = (scriptCount + columnCount - 1) div columnCount
     cardW = (usableW - gap * (columnCount.float32 - 1.0'f32)) / columnCount.float32
     mixedMinH = 200.0'f32
@@ -536,20 +522,6 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
     ],
   )
 
-  let chineseCard = cardRect(3)
-  result.addSampleCard(
-    root,
-    chineseCard,
-    "Classical Chinese",
-    ChineseBody,
-    "學而時習之",
-    fonts.chinese,
-    fonts.body,
-    fonts.metric,
-    linear(rgba(132, 78, 54, 235), rgba(58, 91, 98, 235), axis = fgaX),
-    Left,
-  )
-
   let mixedCard = rect(pad, lowerY, usableW, lowerH)
   let mixed = result.addRect(
     root,
@@ -580,7 +552,7 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
       max(64.0'f32, mixedContentBox.y + mixedContentBox.h - codeBoxY),
     )
   let mixedText =
-    "FigDraw fallback: العربية + עברית + देवनागरी + 漢文 + English\n" &
+    "FigDraw fallback: العربية + עברית + देवनागरी + English\n" &
     "glyph ids, source ranges, wrapping, and caret positions"
   let mixedLayout = textLayout(
     fallbackBox,
