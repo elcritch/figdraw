@@ -19,19 +19,19 @@ const
   TraceShared {.booldefine: "figdraw.traceSharedLib".}: bool = false
 
 let
-  redFill = ColorRGBA(r: 220, g: 40, b: 40, a: 155)
-  redStroke = ColorRGBA(r: 0, g: 0, b: 0, a: 155)
-  greenSolid = ColorRGBA(r: 40, g: 180, b: 90, a: 155)
-  greenGradStart = ColorRGBA(r: 18, g: 112, b: 64, a: 255)
-  greenGradMid = ColorRGBA(r: 40, g: 180, b: 90, a: 255)
-  greenGradStop = ColorRGBA(r: 78, g: 224, b: 188, a: 255)
-  blueSolid = ColorRGBA(r: 60, g: 90, b: 220, a: 155)
-  blueGradStart = ColorRGBA(r: 44, g: 72, b: 186, a: 255)
-  blueGradMid = ColorRGBA(r: 60, g: 90, b: 220, a: 255)
-  blueGradStop = ColorRGBA(r: 118, g: 168, b: 255, a: 255)
-  whiteStroke = ColorRGBA(r: 255, g: 255, b: 255, a: 210)
-  blackShadow = ColorRGBA(r: 0, g: 0, b: 0, a: 155)
-  blueInnerShadow = ColorRGBA(r: 40, g: 40, b: 60, a: 150)
+  redFill = colorRgba(220, 40, 40, 155)
+  redStroke = colorRgba(0, 0, 0, 155)
+  greenSolid = colorRgba(40, 180, 90, 155)
+  greenGradStart = colorRgba(18, 112, 64, 255)
+  greenGradMid = colorRgba(40, 180, 90, 255)
+  greenGradStop = colorRgba(78, 224, 188, 255)
+  blueSolid = colorRgba(60, 90, 220, 155)
+  blueGradStart = colorRgba(44, 72, 186, 255)
+  blueGradMid = colorRgba(60, 90, 220, 255)
+  blueGradStop = colorRgba(118, 168, 255, 255)
+  whiteStroke = colorRgba(255, 255, 255, 210)
+  blackShadow = colorRgba(0, 0, 0, 155)
+  blueInnerShadow = colorRgba(40, 40, 60, 150)
   redBorder = 5.0'f32
   blueBorder = 4.0'f32
 
@@ -50,7 +50,7 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
     quit("makeRenderTree: newRectangleFig returned nil", 1)
   when TraceShared:
     echo "trace: background created"
-  background.setFillColorRgba(ColorRGBA(r: 255, g: 255, b: 255, a: 155))
+  background.setFillColorRgba(colorRgba(255, 255, 255, 155))
   when TraceShared:
     echo "trace: background fill set"
   discard renders.addRoot(0, background)
@@ -82,8 +82,10 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
       jitterY = cos((t * 0.9'f32 + i.float32 * 0.2'f32).float64).float32 * 20
       offsetX = min(max(baseX + jitterX, 0'f32), maxX)
       offsetY = min(max(baseY + jitterY, 0'f32), maxY)
-      sizePulseW = 0.5'f32 + 0.5'f32 * sin((t * 0.8'f32 + i.float32 * 0.07'f32).float64).float32
-      sizePulseH = 0.5'f32 + 0.5'f32 * cos((t * 0.65'f32 + i.float32 * 0.09'f32).float64).float32
+      sizePulseW =
+        0.5'f32 + 0.5'f32 * sin((t * 0.8'f32 + i.float32 * 0.07'f32).float64).float32
+      sizePulseH =
+        0.5'f32 + 0.5'f32 * cos((t * 0.65'f32 + i.float32 * 0.09'f32).float64).float32
       redW = 160.0'f32 + 100.0'f32 * sizePulseW
       redH = 110.0'f32 + 70.0'f32 * sizePulseH
       greenW = 160.0'f32 + 100.0'f32 * sizePulseH
@@ -98,11 +100,18 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
         echo "trace: red created"
     redFig.setFillColorRgba(redFill)
     let
-      cornerPulse = 0.5'f32 + 0.5'f32 * sin((t * 1.25'f32 + i.float32 * 0.11'f32).float64).float32
+      cornerPulse =
+        0.5'f32 + 0.5'f32 * sin((t * 1.25'f32 + i.float32 * 0.11'f32).float64).float32
       c0 = 4.0'f32 + 26.0'f32 * cornerPulse
       c1 = 6.0'f32 + 22.0'f32 * (1.0'f32 - cornerPulse)
-      c2 = 8.0'f32 + 18.0'f32 * (0.5'f32 + 0.5'f32 * sin((t * 0.7'f32 + i.float32 * 0.05'f32).float64).float32)
-      c3 = 10.0'f32 + 16.0'f32 * (0.5'f32 + 0.5'f32 * cos((t * 0.8'f32 + i.float32 * 0.06'f32).float64).float32)
+      c2 =
+        8.0'f32 +
+        18.0'f32 *
+        (0.5'f32 + 0.5'f32 * sin((t * 0.7'f32 + i.float32 * 0.05'f32).float64).float32)
+      c3 =
+        10.0'f32 +
+        16.0'f32 *
+        (0.5'f32 + 0.5'f32 * cos((t * 0.8'f32 + i.float32 * 0.06'f32).float64).float32)
     when not TraceShared:
       redFig.setCorners(cornerRadii(c0, c1, c2, c3))
       redFig.setStroke(redBorder, redStroke)
@@ -114,7 +123,8 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
       if i == 0:
         echo "trace: red added"
 
-    let greenFig = newRectangleFig(greenStartX + offsetX, greenStartY + offsetY, greenW, greenH)
+    let greenFig =
+      newRectangleFig(greenStartX + offsetX, greenStartY + offsetY, greenW, greenH)
     GC_ref(greenFig)
     when TraceShared:
       if i == 0:
@@ -123,7 +133,9 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
     when not TraceShared:
       if useGreenGradient:
         let axis = (if (i mod 4) < 2: fgaX else: fgaDiagTLBR)
-        greenFig.setFillLinear3(greenGradStart, greenGradMid, greenGradStop, axis, 128'u8)
+        greenFig.setFillLinear3(
+          greenGradStart, greenGradMid, greenGradStop, axis, 128'u8
+        )
       else:
         greenFig.setFillColorRgba(greenSolid)
     else:
@@ -132,16 +144,26 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
       if i == 0:
         echo "trace: green fill"
     let
-      greenCornerPulse = 0.5'f32 + 0.5'f32 * cos((t * 0.95'f32 + i.float32 * 0.08'f32).float64).float32
+      greenCornerPulse =
+        0.5'f32 + 0.5'f32 * cos((t * 0.95'f32 + i.float32 * 0.08'f32).float64).float32
       g0 = 6.0'f32 + 22.0'f32 * greenCornerPulse
       g1 = 8.0'f32 + 18.0'f32 * (1.0'f32 - greenCornerPulse)
-      g2 = 10.0'f32 + 16.0'f32 * (0.5'f32 + 0.5'f32 * cos((t * 0.75'f32 + i.float32 * 0.04'f32).float64).float32)
-      g3 = 12.0'f32 + 14.0'f32 * (0.5'f32 + 0.5'f32 * sin((t * 0.85'f32 + i.float32 * 0.05'f32).float64).float32)
-      shadowPulse = 0.5'f32 + 0.5'f32 * sin((t * 1.1'f32 + i.float32 * 0.05'f32).float64).float32
+      g2 =
+        10.0'f32 +
+        16.0'f32 *
+        (0.5'f32 + 0.5'f32 * cos((t * 0.75'f32 + i.float32 * 0.04'f32).float64).float32)
+      g3 =
+        12.0'f32 +
+        14.0'f32 *
+        (0.5'f32 + 0.5'f32 * sin((t * 0.85'f32 + i.float32 * 0.05'f32).float64).float32)
+      shadowPulse =
+        0.5'f32 + 0.5'f32 * sin((t * 1.1'f32 + i.float32 * 0.05'f32).float64).float32
       shadowBlur = max(0.0'f32, 6.0'f32 + 18.0'f32 * shadowPulse)
       shadowSpread = max(0.0'f32, 4.0'f32 + 20.0'f32 * (1.0'f32 - shadowPulse))
-      shadowX = 6.0'f32 + 10.0'f32 * sin((t * 0.9'f32 + i.float32 * 0.03'f32).float64).float32
-      shadowY = 6.0'f32 + 10.0'f32 * cos((t * 0.9'f32 + i.float32 * 0.03'f32).float64).float32
+      shadowX =
+        6.0'f32 + 10.0'f32 * sin((t * 0.9'f32 + i.float32 * 0.03'f32).float64).float32
+      shadowY =
+        6.0'f32 + 10.0'f32 * cos((t * 0.9'f32 + i.float32 * 0.03'f32).float64).float32
     when not TraceShared:
       greenFig.setCorners(cornerRadii(g0, g1, g2, g3))
     when TraceShared:
@@ -154,13 +176,7 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
         echo "trace: green clear shadows"
     when not TraceShared:
       greenFig.setShadow(
-        0,
-        DropShadow,
-        shadowBlur,
-        shadowSpread,
-        shadowX,
-        shadowY,
-        blackShadow,
+        0, DropShadow, shadowBlur, shadowSpread, shadowX, shadowY, blackShadow
       )
     when TraceShared:
       if i == 0:
@@ -170,7 +186,8 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
       if i == 0:
         echo "trace: green added"
 
-    let blueFig = newRectangleFig(blueStartX + offsetX, blueStartY + offsetY, blueW, blueH)
+    let blueFig =
+      newRectangleFig(blueStartX + offsetX, blueStartY + offsetY, blueW, blueH)
     GC_ref(blueFig)
     when TraceShared:
       if i == 0:
@@ -193,7 +210,8 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
       if i == 0:
         echo "trace: blue stroke"
     let
-      insetPulse = 0.5'f32 + 0.5'f32 * sin((t * 1.05'f32 + i.float32 * 0.06'f32).float64).float32
+      insetPulse =
+        0.5'f32 + 0.5'f32 * sin((t * 1.05'f32 + i.float32 * 0.06'f32).float64).float32
       insetBlur = max(0.0'f32, 8.0'f32 + 10.0'f32 * insetPulse)
       insetSpread = max(0.0'f32, 2.0'f32 + 10.0'f32 * (1.0'f32 - insetPulse))
       insetX = 6.0'f32 * sin((t * 0.85'f32 + i.float32 * 0.04'f32).float64).float32
@@ -205,13 +223,7 @@ proc buildRenderTree(renders: Renders, w, h: float32, frame: int) =
         echo "trace: blue clear shadows"
     when not TraceShared:
       blueFig.setShadow(
-        0,
-        InnerShadow,
-        insetBlur,
-        insetSpread,
-        insetX,
-        insetY,
-        blueInnerShadow,
+        0, InnerShadow, insetBlur, insetSpread, insetX, insetY, blueInnerShadow
       )
     when TraceShared:
       if i == 0:
@@ -262,23 +274,13 @@ when isMainModule:
 
   let title = "Siwin RenderList (Nim Shared Lib)"
   let app = newFigSiwinAppBinding(
-    800'i32,
-    600'i32,
-    title,
-    512,
-    1.0'f32,
-    false,
-    true,
-    0'i32,
-    true,
-    false,
-    false,
+    800'i32, 600'i32, title, 512, 1.0'f32, false, true, 0'i32, true, false, false
   )
   if app.isNil:
     quit("Failed to create siwin app", 1)
   when TraceShared:
-    echo "trace: created siwin app backend=", app.siwinBackendName(),
-      " display=", app.siwinDisplayServerName()
+    echo "trace: created siwin app backend=",
+      app.siwinBackendName(), " display=", app.siwinDisplayServerName()
   app.siwinFirstStep()
   when TraceShared:
     echo "trace: first step"
@@ -324,7 +326,7 @@ when isMainModule:
         hudY = hudMargin
       let hudRect = newRectangleFig(hudX, hudY, hudW, hudH)
       GC_ref(hudRect)
-      hudRect.setFillColorRgba(ColorRGBA(r: 0, g: 0, b: 0, a: 155))
+      hudRect.setFillColorRgba(colorRgba(0, 0, 0, 155))
       hudRect.setCorners(cornerRadii(8, 8, 8, 8))
       discard renders.addRoot(0, hudRect)
 
@@ -349,7 +351,7 @@ when isMainModule:
       if not fpsLayout.isNil:
         let hudText = newTextFig(hudTextX, hudTextY, hudTextW, hudTextH)
         GC_ref(hudText)
-        hudText.setFillColorRgba(ColorRGBA(r: 0, g: 0, b: 0, a: 0))
+        hudText.setFillColorRgba(colorRgba(0, 0, 0, 0))
         setFigTextLayoutBinding(hudText, fpsLayout)
         discard renders.addRoot(0, hudText)
       when TraceShared:
@@ -373,8 +375,7 @@ when isMainModule:
         let avgMake = makeRenderTreeMsSum / max(1, fpsFrames).float
         let avgRender = renderFrameMsSum / max(1, fpsFrames).float
         echo "fps: ",
-          fps, " | elems: ", lastElementCount,
-          " | makeRenderTree avg(us): ", avgMake,
+          fps, " | elems: ", lastElementCount, " | makeRenderTree avg(us): ", avgMake,
           " | renderFrame avg(us): ", avgRender
         fpsFrames = 0
         fpsStart = now

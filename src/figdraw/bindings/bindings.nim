@@ -72,17 +72,22 @@ type
     inner: fnt.GlyphArrangement
 
 when ExportSiwinShim and not defined(emscripten):
-  type
-    FigSiwinAppRef* = ref object
-      window: siwinshim.Window
-      renderer: fgr.FigRenderer[siwinshim.SiwinRenderBackend]
-      autoScale: bool
+  type FigSiwinAppRef* = ref object
+    window: siwinshim.Window
+    renderer: fgr.FigRenderer[siwinshim.SiwinRenderBackend]
+    autoScale: bool
 
 proc newFig(): FigRef =
   FigRef(inner: fdn.Fig(kind: fdn.nkFrame))
 
 proc initRgba(r, g, b, a: uint8): ColorRGBA =
-  rgba(r, g, b, a)
+  ColorRGBA(r: r, g: g, b: b, a: a)
+
+proc colorRgba(r, g, b, a: uint8): ColorRGBA =
+  initRgba(r, g, b, a)
+
+proc toChroma(color: ColorRGBA): chroma.ColorRGBA =
+  rgba(color.r, color.g, color.b, color.a)
 
 proc cornerRadii(topLeft, topRight, bottomLeft, bottomRight: float32): CornerRadii =
   CornerRadii(
@@ -202,7 +207,9 @@ proc typesetTextBinding(
 
 proc figWithKind(src: fdn.Fig, kind: fdn.FigKind): fdn.Fig {.raises: [].}
 
-proc setFigTextLayoutBinding(fig: FigRef, layout: GlyphLayoutRef) {.raises: [FigDrawError].} =
+proc setFigTextLayoutBinding(
+    fig: FigRef, layout: GlyphLayoutRef
+) {.raises: [FigDrawError].} =
   if fig.isNil or layout.isNil:
     return
   withFigDrawError:
@@ -279,15 +286,13 @@ proc setFillColor(fig: FigRef, r, g, b, a: uint8) =
 
 proc setFillColorRgba(fig: FigRef, color: ColorRGBA) =
   returnIfNil fig
-  fig.inner.fill = fill(color)
+  fig.inner.fill = fill(color.toChroma())
 
-proc setFillLinear2(fig: FigRef, startColor, endColor: ColorRGBA, axis: FillGradientAxis) =
+proc setFillLinear2(
+    fig: FigRef, startColor, endColor: ColorRGBA, axis: FillGradientAxis
+) =
   returnIfNil fig
-  fig.inner.fill = linear(
-    startColor,
-    endColor,
-    axis = axis,
-  )
+  fig.inner.fill = linear(startColor.toChroma(), endColor.toChroma(), axis = axis)
 
 proc setFillLinear3(
     fig: FigRef,
@@ -297,9 +302,9 @@ proc setFillLinear3(
 ) =
   returnIfNil fig
   fig.inner.fill = linear(
-    startColor,
-    midColor,
-    endColor,
+    startColor.toChroma(),
+    midColor.toChroma(),
+    endColor.toChroma(),
     axis = axis,
     midPos = midPos,
   )
@@ -310,17 +315,13 @@ proc setRotation(fig: FigRef, rotation: float32) =
 
 proc setCorners(fig: FigRef, radii: CornerRadii) =
   returnIfNil fig
-  fig.inner.corners = [
-    radii.topLeft,
-    radii.topRight,
-    radii.bottomLeft,
-    radii.bottomRight,
-  ]
+  fig.inner.corners =
+    [radii.topLeft, radii.topRight, radii.bottomLeft, radii.bottomRight]
 
 proc setStroke(fig: FigRef, weight: float32, color: ColorRGBA) =
   returnIfNil fig
   fig.ensureRectangle()
-  fig.inner.stroke = RenderStroke(weight: weight, fill: fill(color))
+  fig.inner.stroke = RenderStroke(weight: weight, fill: fill(color.toChroma()))
 
 proc clearShadows(fig: FigRef) =
   returnIfNil fig
@@ -340,12 +341,7 @@ proc setShadow(
     return
 
   fig.inner.shadows[shadowIndex.int] = RenderShadow(
-    style: style,
-    blur: blur,
-    spread: spread,
-    x: x,
-    y: y,
-    fill: fill(color),
+    style: style, blur: blur, spread: spread, x: x, y: y, fill: fill(color.toChroma())
   )
 
 proc newRenders(): Renders =
@@ -355,12 +351,16 @@ proc ensureOpenGLInitialized() =
   when not defined(emscripten):
     startOpenGL(openglVersion)
 
-proc newFigRendererBinding*(atlasSize: int, pixelScale: float32): FigRendererRef {.raises: [FigDrawError].} =
+proc newFigRendererBinding*(
+    atlasSize: int, pixelScale: float32
+): FigRendererRef {.raises: [FigDrawError].} =
   withFigDrawError:
     ensureOpenGLInitialized()
     result = FigRendererRef(inner: fgr.newFigRenderer(atlasSize, pixelScale))
 
-proc renderFrameBinding*(renderer: FigRendererRef, renders: Renders, width, height: float32) {.raises: [FigDrawError].} =
+proc renderFrameBinding*(
+    renderer: FigRendererRef, renders: Renders, width, height: float32
+) {.raises: [FigDrawError].} =
   if renderer.isNil or renders.isNil:
     return
   withFigDrawError:
@@ -513,7 +513,9 @@ proc containsLayer(renders: Renders, zLevel: int8): bool =
     return false
   renders.contains(fdn.ZLevel(zLevel))
 
-proc addRoot(renders: Renders, zLevel: int8, root: FigRef): int16 {.raises: [FigDrawError].} =
+proc addRoot(
+    renders: Renders, zLevel: int8, root: FigRef
+): int16 {.raises: [FigDrawError].} =
   if renders.isNil or root.isNil:
     return -1'i16
   withFigDrawError:
@@ -529,12 +531,15 @@ proc insertRoot(
     var nodes = renders
     result = nodes.insertRoot(fdn.ZLevel(zLevel), root.inner, rootPos.Natural).int16
 
-proc addChild(renders: Renders, zLevel: int8, parentIdx: int16, child: FigRef): int16 {.raises: [FigDrawError].} =
+proc addChild(
+    renders: Renders, zLevel: int8, parentIdx: int16, child: FigRef
+): int16 {.raises: [FigDrawError].} =
   if renders.isNil or child.isNil:
     return -1'i16
   withFigDrawError:
     var nodes = renders
-    result = nodes.addChild(fdn.ZLevel(zLevel), fdn.FigIdx(parentIdx), child.inner).int16
+    result =
+      nodes.addChild(fdn.ZLevel(zLevel), fdn.FigIdx(parentIdx), child.inner).int16
 
 proc insertChild(
     renders: Renders, zLevel: int8, parentIdx: int16, childPos: int, child: FigRef
@@ -567,7 +572,9 @@ proc layerRootCount(renders: Renders, zLevel: int8): int {.raises: [FigDrawError
   except Exception as e:
     raiseFigDrawError(e)
 
-proc getLayerNode(renders: Renders, zLevel: int8, nodeIdx: int16): FigRef {.raises: [FigDrawError].} =
+proc getLayerNode(
+    renders: Renders, zLevel: int8, nodeIdx: int16
+): FigRef {.raises: [FigDrawError].} =
   if renders.isNil:
     return nil
   try:
@@ -585,9 +592,9 @@ exportEnums:
   DirectionCorners
   ShadowStyle
 
-exportObject chroma.ColorRGBA:
+exportObject ColorRGBA:
   constructor:
-    initRgba(uint8, uint8, uint8, uint8)
+    colorRgba(uint8, uint8, uint8, uint8)
 
 exportObject CornerRadii:
   constructor:
