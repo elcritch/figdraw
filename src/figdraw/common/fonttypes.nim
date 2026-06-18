@@ -42,6 +42,16 @@ type
     descentAdj*: float32
       ## The line height in pixels or autoLineHeight for the font's default line height.
 
+  FontFeature* = object
+    tag*: string ## OpenType feature tag, for example "liga" or "kern".
+    value*: uint32 ## Feature value. Most boolean features use 0 or 1.
+    start*: uint32 ## Inclusive glyph-range start for the feature.
+    ending*: uint32 ## Exclusive glyph-range end for the feature.
+
+  FontVariation* = object
+    tag*: string ## OpenType variation axis tag, for example "wght" or "wdth".
+    value*: float32 ## Axis coordinate in the font's design-space units.
+
   FigFont* = object
     typefaceId*: TypefaceId
     size*: float32 = 12.0'f32 ## Font size in pixels.
@@ -51,6 +61,9 @@ type
     underline*: bool ## Apply an underline.
     strikethrough*: bool ## Apply a strikethrough.
     noKerningAdjustments*: bool ## Optionally disable kerning pair adjustments
+    fallbackTypefaceIds*: seq[TypefaceId] ## Ordered font fallback chain.
+    features*: seq[FontFeature] ## OpenType features applied while shaping.
+    variations*: seq[FontVariation] ## OpenType variable-axis coordinates.
 
   FontStyle* = object
     font*: FigFont
@@ -124,6 +137,22 @@ proc `$`*(id: FontGlyphId): string {.borrow.}
 proc hash*(name: FontName): Hash {.borrow.}
 proc `==`*(a, b: FontName): bool {.borrow.}
 proc `$`*(name: FontName): string {.borrow.}
+
+func fontFeature*(
+    tag: string, value = 1'u32, start = 0'u32, ending = uint32.high
+): FontFeature =
+  ## Creates an OpenType feature setting for Harfbuzz-backed shaping.
+  FontFeature(tag: tag, value: value, start: start, ending: ending)
+
+func fontVariation*(tag: string, value: float32): FontVariation =
+  ## Creates an OpenType variable-axis coordinate for Harfbuzz-backed fonts.
+  FontVariation(tag: tag, value: value)
+
+proc hash*(feature: FontFeature): Hash =
+  hash((feature.tag, feature.value, feature.start, feature.ending))
+
+proc hash*(variation: FontVariation): Hash =
+  hash((variation.tag, variation.value))
 
 func syntheticFontGlyphId*(fontId: FontId, rune: Rune): FontGlyphId {.inline.} =
   ## Returns the Pixie-compatible synthetic glyph id for a source rune.

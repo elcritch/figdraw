@@ -202,6 +202,106 @@ suite "fontutils":
       check arrangement.glyphIndexAt(hitPoint) == ligatureGlyph
       check arrangement.sourceRuneRangeAt(hitPoint) == 1 .. 3
 
+    test "OpenType features can disable discretionary ligature shaping":
+      let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      let uiFont = FigFont(
+        typefaceId: typefaceId,
+        size: 32.0'f32,
+        features: @[fontFeature("liga", 0), fontFeature("clig", 0)],
+      )
+      let box = rect(0, 0, 300, 80)
+      let spans = [(fs(uiFont), "office")]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
+      )
+
+      check arrangement.sourceRunes.len == 6
+      check arrangement.arrangedGlyphs.len == arrangement.sourceRunes.len
+
+      let glyphRange = arrangement.glyphRangeForSourceRunes(1 .. 3)
+      check glyphRange.b - glyphRange.a + 1 == 3
+
+    test "harfbuzzy fallback stores fallback font ids on shaped runs":
+      let
+        primaryId = loadTypeface(
+          getCurrentDir() / "examples/fonts" / "NotoSansHebrew-wdth-wght.ttf"
+        )
+        arabicId =
+          loadTypeface(getCurrentDir() / "examples/fonts" / "NotoNaskhArabic-wght.ttf")
+        uiFont = FigFont(
+          typefaceId: primaryId, size: 32.0'f32, fallbackTypefaceIds: @[arabicId]
+        )
+        box = rect(0, 0, 360, 90)
+        spans = [(fs(uiFont), "abc سلام")]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
+      )
+
+      check arrangement.spans.len == arrangement.fonts.len
+      check arrangement.spans.len == arrangement.spanColors.len
+
+      var sawArabicFallback = false
+      for glyph in arrangement.arrangedGlyphs:
+        var sourceHasArabic = false
+        for sourceIndex in glyph.source.runeStart ..< glyph.source.runeEnd:
+          let codepoint = arrangement.sourceRunes[sourceIndex].uint32
+          if codepoint in 0x0600'u32 .. 0x06ff'u32:
+            sourceHasArabic = true
+            break
+
+        if sourceHasArabic:
+          check getFigFont(glyph.fontId).typefaceId == arabicId
+          sawArabicFallback = true
+
+      check sawArabicFallback
+
+    test "variable axes are carried by shaped font ids":
+      let typefaceId = loadTypeface(
+        getCurrentDir() / "examples/fonts" / "NotoSansHebrew-wdth-wght.ttf"
+      )
+      let lightFont = FigFont(
+        typefaceId: typefaceId,
+        size: 32.0'f32,
+        variations: @[fontVariation("wght", 300.0'f32), fontVariation("wdth", 90.0'f32)],
+      )
+      let boldFont = FigFont(
+        typefaceId: typefaceId,
+        size: 32.0'f32,
+        variations:
+          @[fontVariation("wght", 800.0'f32), fontVariation("wdth", 100.0'f32)],
+      )
+      let box = rect(0, 0, 300, 80)
+
+      let
+        lightArrangement = typeset(
+          box,
+          [(fs(lightFont), "שלום")],
+          hAlign = Left,
+          vAlign = Top,
+          minContent = false,
+          wrap = false,
+        )
+        boldArrangement = typeset(
+          box,
+          [(fs(boldFont), "שלום")],
+          hAlign = Left,
+          vAlign = Top,
+          minContent = false,
+          wrap = false,
+        )
+
+      check lightArrangement.arrangedGlyphs.len == boldArrangement.arrangedGlyphs.len
+      check lightArrangement.arrangedGlyphs.len > 0
+      check lightArrangement.arrangedGlyphs[0].fontId !=
+        boldArrangement.arrangedGlyphs[0].fontId
+      check getFigFont(lightArrangement.arrangedGlyphs[0].fontId).variations ==
+        lightFont.variations
+      check getFigFont(boldArrangement.arrangedGlyphs[0].fontId).variations ==
+        boldFont.variations
+
     test "harfbuzzy wrap creates line slices at shaped glyph boundaries":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)

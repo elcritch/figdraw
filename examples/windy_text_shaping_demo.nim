@@ -48,13 +48,41 @@ proc initDemoFonts(): DemoFonts =
     ubuntu = loadTypeface(UbuntuFontFile)
     arabic = loadTypeface(ArabicFontFile)
     hebrew = loadTypeface(HebrewFontFile)
+    commonFeatures = @[fontFeature("kern"), fontFeature("liga")]
 
   result = DemoFonts(
-    title: FigFont(typefaceId: ubuntu, size: 22.0'f32),
-    body: FigFont(typefaceId: ubuntu, size: 18.0'f32),
-    metric: FigFont(typefaceId: ubuntu, size: 13.0'f32),
-    arabic: FigFont(typefaceId: arabic, size: 36.0'f32),
-    hebrew: FigFont(typefaceId: hebrew, size: 34.0'f32),
+    title: FigFont(
+      typefaceId: ubuntu,
+      size: 22.0'f32,
+      fallbackTypefaceIds: @[arabic, hebrew],
+      features: commonFeatures,
+    ),
+    body: FigFont(
+      typefaceId: ubuntu,
+      size: 18.0'f32,
+      fallbackTypefaceIds: @[arabic, hebrew],
+      features: commonFeatures,
+    ),
+    metric: FigFont(
+      typefaceId: ubuntu,
+      size: 13.0'f32,
+      fallbackTypefaceIds: @[arabic, hebrew],
+      features: commonFeatures,
+    ),
+    arabic: FigFont(
+      typefaceId: arabic,
+      size: 36.0'f32,
+      fallbackTypefaceIds: @[hebrew, ubuntu],
+      features: commonFeatures,
+      variations: @[fontVariation("wght", 520.0'f32)],
+    ),
+    hebrew: FigFont(
+      typefaceId: hebrew,
+      size: 34.0'f32,
+      fallbackTypefaceIds: @[arabic, ubuntu],
+      features: commonFeatures,
+      variations: @[fontVariation("wght", 560.0'f32), fontVariation("wdth", 96.0'f32)],
+    ),
   )
 
 proc addRect(
@@ -248,8 +276,8 @@ proc addSampleCard(
   )
   renders.addTextLayout(card, textBox, layout)
 
-  let metricBox = rect(box.x + 22, box.y + box.h - 38, box.w - 44, 20)
-  renders.addRect(card, metricBox + rect(0, -5, 0, 10), accent, corners = 5.0'f32)
+  let metricBox = rect(box.x + 22, box.y + box.h - 43, box.w - 44, 30)
+  renders.addRect(card, metricBox, accent, corners = 5.0'f32)
   renders.addText(
     card,
     metricBox,
@@ -283,17 +311,24 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
         (usableW - gap) / 2
       else:
         usableW
-    topCardH =
+    baseTopCardH =
       if twoColumns:
         max(250.0'f32, (h - pad * 2 - titleHeight - gap) * 0.56'f32)
       else:
         max(220.0'f32, (h - pad * 2 - titleHeight - gap * 2) / 3)
+    topCardH = baseTopCardH * 1.25'f32
+    topGrowth = topCardH - baseTopCardH
+    baseLowerH =
+      if twoColumns:
+        max(190.0'f32, h - (pad + titleHeight + baseTopCardH + gap) - pad)
+      else:
+        baseTopCardH
     lowerY = pad + titleHeight + topCardH + gap
     lowerH =
       if twoColumns:
-        max(190.0'f32, h - lowerY - pad)
+        max(0.0'f32, baseLowerH - topGrowth)
       else:
-        topCardH
+        max(0.0'f32, baseLowerH - topGrowth * 2)
 
   let titleBox = rect(pad, pad, usableW, 34)
   result.addText(
@@ -361,25 +396,18 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
     mixed,
     rect(mixedCard.x + 22, mixedCard.y + 18, mixedCard.w - 44, 30),
     fonts.body,
-    "Mixed Runs",
+    "Mixed Fallback Runs",
     rgba(40, 45, 50, 255),
   )
 
   let mixedTextBox =
     rect(mixedCard.x + 22, mixedCard.y + 60, mixedCard.w - 44, mixedCard.h - 88)
+  let mixedText =
+    "FigDraw fallback: العربية + עברית + English\n" &
+    "glyph ids, source ranges, wrapping, and caret positions"
   let mixedLayout = textLayout(
     mixedTextBox,
-    [
-      (fs(fonts.body, rgba(20, 22, 24, 255)), "FigDraw: "),
-      (fs(fonts.arabic, rgba(10, 87, 119, 255)), "العربية"),
-      (fs(fonts.body, rgba(20, 22, 24, 255)), " + "),
-      (fs(fonts.hebrew, rgba(95, 53, 150, 255)), "עברית"),
-      (fs(fonts.body, rgba(20, 22, 24, 255)), " + English\n"),
-      (
-        fs(fonts.body, rgba(70, 78, 86, 255)),
-        "glyph ids, source ranges, wrapping, and caret positions",
-      ),
-    ],
+    [(fs(fonts.body, rgba(20, 22, 24, 255)), mixedText)],
     hAlign = Left,
     wrap = true,
   )

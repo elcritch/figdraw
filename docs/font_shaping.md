@@ -58,6 +58,19 @@ Important fields:
   source mapping.
 - `GlyphArrangement.sourceRunes`: Decoded source text for range-aware callers.
 
+`FigFont` carries shaping controls in backend-neutral terms:
+
+- `fallbackTypefaceIds`: Ordered fallback typeface ids. Harfbuzzy shaping tries
+  the primary typeface first, then fallbacks for unsupported shaped runs.
+- `features`: OpenType feature settings such as `fontFeature("liga", 0)` or
+  `fontFeature("kern")`.
+- `variations`: OpenType variable-axis coordinates such as
+  `fontVariation("wght", 650.0'f32)`.
+
+These fields are part of `FigFont` hashing, so shaped layout, glyph cache ids,
+and glyph-id rasterization stay separated by fallback chain, feature set, and
+variable-font coordinates.
+
 `GlyphPosition`, yielded by `glyphs(arrangement)`, mirrors the glyph-id-first
 shape used by render code:
 
@@ -154,6 +167,14 @@ The Harfbuzzy adapter converts shaped runs into FigDraw data:
 
 - `glyph.codepoint` becomes `FontGlyphId`.
 - `glyph.cluster` is retained for source mapping and break logic.
+- The adapter shapes through a Harfbuzzy `ShapeContext` built from the primary
+  typeface plus `FigFont.fallbackTypefaceIds`.
+- OpenType features from `FigFont.features` are passed to paragraph shaping.
+- Variable axes from `FigFont.variations` are applied to each Harfbuzzy font
+  before shaping.
+- A single styled input span can become multiple FigDraw spans when fallback
+  picks different typefaces. Each emitted span keeps the input fill and stores
+  the actual shaped `fontId` used by its glyph run.
 - HarfBuzz glyph flags are consumed inside the adapter so preferred wrapping can
   respect unsafe-to-break metadata without exposing HarfBuzz-specific flags.
 - Source byte and rune ranges are stored in `GlyphSourceRange`.
@@ -184,7 +205,8 @@ proc hash*(glyph: GlyphPosition, lcdFiltering = false, subpixelVariant = 0): Has
 Raster dispatch follows the selected backend:
 
 - `harfbuzzy` renders by `fontId + glyphId` through the glyph-id raster
-  provider.
+  provider. Variable axes stored on the resolved `FigFont` are applied before
+  drawing glyph outlines.
 - `pixie` and `hybrid` render through Pixie's rune raster path.
 
 Selection and hit testing use source ranges, not glyph ids.
@@ -201,6 +223,9 @@ The test suite covers:
 - Combining marks and Hebrew marks through source-range selection and hit
   testing.
 - Mixed LTR/RTL source-range hit testing and caret-position helpers.
+- Font fallback preserving fallback `fontId` on shaped runs.
+- OpenType feature control for ligature shaping.
+- Variable axes carrying through shaped font ids.
 - Arabic shaping when a suitable named system Arabic font is available.
 - Pure Harfbuzzy glyph-id rasterization.
 
@@ -209,4 +234,3 @@ The test suite covers:
 - Full Unicode Line Breaking Algorithm tailoring for locale-specific wrapping.
 - Widget-level editing policy, including arrow-key behavior, selection
   extension, and IME integration.
-- Font fallback across shaped runs.

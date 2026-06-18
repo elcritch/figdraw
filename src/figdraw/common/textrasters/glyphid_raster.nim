@@ -116,6 +116,21 @@ proc hb_font_draw_glyph_or_fail(
   font: hbraw.HbFont, glyph: hbraw.HbCodepoint, funcs: HbDrawFuncs, drawData: pointer
 ): hbraw.HbBool {.cdecl, importc: "hb_font_draw_glyph_or_fail", dynlib: hbraw.hbLib.}
 
+proc hbTag(tag: string): hbraw.HbTag =
+  if tag.len == 0 or tag.len > 4:
+    raise newException(ValueError, "HarfBuzz tags must contain 1 to 4 bytes")
+  hbraw.hb_tag_from_string(tag.cstring, cint(tag.len))
+
+proc setVariations(font: hbraw.HbFont, variations: openArray[FontVariation]) =
+  if variations.len == 0:
+    return
+
+  var rawVariations = newSeq[hbraw.HbVariation](variations.len)
+  for i, variation in variations:
+    rawVariations[i] =
+      hbraw.HbVariation(tag: hbTag(variation.tag), value: cfloat(variation.value))
+  hbraw.hb_font_set_variations(font, addr rawVariations[0], cuint(rawVariations.len))
+
 proc drawPathState(drawData: pointer): ptr DrawPathState {.inline.} =
   cast[ptr DrawPathState](drawData)
 
@@ -235,6 +250,7 @@ proc initHbFont(fontId: FontId): HbFontHandles =
   let upem = hbraw.hb_face_get_upem(result.face)
   if upem > 0:
     hbraw.hb_font_set_scale(result.font, cint(upem), cint(upem))
+  result.font.setVariations(font.variations)
 
 proc drawGlyphPath(font: hbraw.HbFont, glyphId: FontGlyphId): Path =
   let funcs = createDrawFuncs()

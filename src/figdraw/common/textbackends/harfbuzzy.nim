@@ -13,10 +13,16 @@ when figdrawTextBackend == "hybrid":
 
 const hbGlyphFlagUnsafeToBreak = 0x00000001'u32
 
-type DecodedSource = object
-  runes: seq[Rune]
-  byteStarts: seq[int]
-  byteEnds: seq[int]
+type
+  DecodedSource = object
+    runes: seq[Rune]
+    byteStarts: seq[int]
+    byteEnds: seq[int]
+
+  HarfbuzzFontInfo = object
+    typeface: hb.Typeface
+    fontId: FontId
+    glyphFont: GlyphFont
 
 proc decodeSource(text: string): DecodedSource =
   var byteOffset = 0
@@ -108,11 +114,54 @@ proc imageOffsetForGlyph(
   except ValueError:
     result = vec2(0, 0)
 
+proc toHarfbuzzFeatures(features: openArray[FontFeature]): seq[hb.Feature] =
+  for feature in features:
+    result.add hb.initFeature(
+      hb.toTag(feature.tag), feature.value, feature.start, feature.ending
+    )
+
+proc toHarfbuzzVariations(variations: openArray[FontVariation]): seq[hb.Variation] =
+  for variation in variations:
+    result.add hb.initVariation(hb.toTag(variation.tag), variation.value)
+
 proc initHarfbuzzTypeface(font: FigFont): hb.Typeface =
   let source = getTypefaceSource(font.typefaceId)
   let blob = hb.initBlob(source.data)
   let face = hb.initFace(blob)
   result = hb.initTypeface(face)
+  result.font.setVariations(font.variations.toHarfbuzzVariations())
+
+proc fallbackFont(font: FigFont, typefaceId: TypefaceId): FigFont =
+  result = font
+  result.typefaceId = typefaceId
+
+proc initHarfbuzzFontInfos(font: FigFont): seq[HarfbuzzFontInfo] =
+  var typefaceIds = @[font.typefaceId]
+  for fallbackId in font.fallbackTypefaceIds:
+    if fallbackId notin typefaceIds:
+      typefaceIds.add fallbackId
+
+  for typefaceId in typefaceIds:
+    let
+      figFont = font.fallbackFont(typefaceId)
+      fontInfo = glyphFontFor(figFont)
+    result.add HarfbuzzFontInfo(
+      typeface: initHarfbuzzTypeface(figFont),
+      fontId: fontInfo.id,
+      glyphFont: fontInfo.glyph,
+    )
+
+proc shapeParagraph(
+    fontInfos: openArray[HarfbuzzFontInfo], font: FigFont, text: string
+): hb.ShapedParagraph =
+  var typefaces = newSeqOfCap[hb.Typeface](fontInfos.len)
+  for info in fontInfos:
+    typefaces.add info.typeface
+
+  let context = hb.initShapeContext(
+    typefaces, hb.ParagraphOptions(features: font.features.toHarfbuzzFeatures())
+  )
+  context.shapeParagraph(text)
 
 proc pxScale(typeface: hb.Typeface, font: FigFont): float32 =
   let upem = typeface.face.upem
@@ -294,16 +343,27 @@ proc appendShapedSpan(
     pen: var Vec2,
     safeBreakAfter: var seq[bool],
 ) =
-  let fontInfo = glyphFontFor(style.font)
-  let hbTypeface = initHarfbuzzTypeface(style.font)
-  let scale = hbTypeface.pxScale(style.font)
-  let paragraph = hbTypeface.shapeParagraph(text)
-
-  let spanStart = arrangement.arrangedGlyphs.len
-  arrangement.fonts.add fontInfo.glyph
-  arrangement.spanColors.add style.color
+  let
+    fontInfos = initHarfbuzzFontInfos(style.font)
+    paragraph = fontInfos.shapeParagraph(style.font, text)
 
   for run in paragraph.visualRuns:
+    if run.glyphRun.glyphs.len == 0:
+      continue
+
+    let
+      fontIndex =
+        if run.typefaceIndex >= 0 and run.typefaceIndex < fontInfos.len:
+          run.typefaceIndex
+        else:
+          0
+      fontInfo = fontInfos[fontIndex]
+      scale = fontInfo.typeface.pxScale(style.font)
+      spanStart = arrangement.arrangedGlyphs.len
+
+    arrangement.fonts.add fontInfo.glyphFont
+    arrangement.spanColors.add style.color
+
     for runGlyphIndex, glyph in run.glyphRun.glyphs:
       let
         cluster = int(glyph.cluster)
@@ -314,15 +374,16 @@ proc appendShapedSpan(
         advance = vec2(glyph.xAdvance.float32 * scale, -glyph.yAdvance.float32 * scale)
         offset = vec2(glyph.xOffset.float32 * scale, -glyph.yOffset.float32 * scale)
         pos = pen + offset
-        drawPos = vec2(pos.x, pos.y - fontInfo.glyph.descentAdj)
+        drawPos = vec2(pos.x, pos.y - fontInfo.glyphFont.descentAdj)
         selectionWidth = max(abs(advance.x), 0.0'f32)
         selection =
-          rect(drawPos.x, drawPos.y, selectionWidth, fontInfo.glyph.lineHeight)
-        imageOffset =
-          hbTypeface.imageOffsetForGlyph(glyph.codepoint, fontInfo.glyph, scale)
+          rect(drawPos.x, drawPos.y, selectionWidth, fontInfo.glyphFont.lineHeight)
+        imageOffset = fontInfo.typeface.imageOffsetForGlyph(
+          glyph.codepoint, fontInfo.glyphFont, scale
+        )
 
       arrangement.arrangedGlyphs.add ArrangedGlyph(
-        fontId: fontInfo.id,
+        fontId: fontInfo.fontId,
         glyphId: FontGlyphId(glyph.codepoint.uint32),
         cluster: glyph.cluster,
         source: source,
@@ -344,8 +405,8 @@ proc appendShapedSpan(
 
       pen += advance
 
-  let spanStop = arrangement.arrangedGlyphs.len - 1
-  arrangement.spans.add spanStart .. spanStop
+    let spanStop = arrangement.arrangedGlyphs.len - 1
+    arrangement.spans.add spanStart .. spanStop
 
 proc typeset*(
     box: Rect,
