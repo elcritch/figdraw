@@ -85,6 +85,7 @@ proc generateGlyph*(
   let
     variant = clampGlyphVariantSubpixelStep(subpixelVariant)
     hashFill = glyph.hash(lcdFiltering = lcdFiltering, subpixelVariant = variant)
+  trackGlyphImage(glyph.fontId, hashFill.ImageId)
 
   if (not force) and hasImage(hashFill.ImageId):
     return nil

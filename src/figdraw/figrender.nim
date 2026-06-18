@@ -54,6 +54,32 @@ type FigRenderer*[BackendState = NoRendererBackendState] = ref object
 template entries*(ctx: BackendContext): untyped =
   ctx.entriesPtr()[]
 
+proc dropCachedImageEntries(ctx: BackendContext, imageIds: openArray[ImageId]): int =
+  let entryTable = ctx.entriesPtr()
+  if entryTable.isNil:
+    return 0
+  for imageId in imageIds:
+    let key = imageId.Hash
+    if key in entryTable[]:
+      entryTable[].del(key)
+      inc result
+
+proc clearFontCache*[BackendState](
+    renderer: FigRenderer[BackendState], font: FigFont
+): int =
+  let imageIds = clearFontCache(font)
+  result = renderer.ctx.dropCachedImageEntries(imageIds)
+
+proc clearTypefaceCache*[BackendState](
+    renderer: FigRenderer[BackendState], typefaceId: TypefaceId
+): int =
+  let imageIds = clearTypefaceCache(typefaceId)
+  result = renderer.ctx.dropCachedImageEntries(imageIds)
+
+proc clearAllFontCaches*[BackendState](renderer: FigRenderer[BackendState]): int =
+  let imageIds = clearAllFontCaches()
+  result = renderer.ctx.dropCachedImageEntries(imageIds)
+
 proc backendKind*[BackendState](
     renderer: FigRenderer[BackendState]
 ): RendererBackendKind =

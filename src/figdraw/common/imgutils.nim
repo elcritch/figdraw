@@ -28,6 +28,7 @@ type
 var
   imageChan* = newRChan[ImgObj](1000)
   imageCached*: HashSet[ImageId]
+  glyphImageIdsByFont*: Table[FontId, HashSet[ImageId]]
   imageCachedLock*: Lock
 
 imageCachedLock.initLock()
@@ -75,6 +76,7 @@ proc readImage*(filePath: string): Flippy =
 
 proc toImgObj*(image: Flippy): ImgObj =
   result = ImgObj(kind: FlippyImg, flippy: image)
+
 proc toImgObj*(image: Image): ImgObj =
   result = ImgObj(kind: PixieImg, pimg: image)
 
@@ -106,3 +108,33 @@ proc loadImage*(filePath: string): ImageId =
 proc loadImage*(id: ImageId, image: Image) =
   var imgObj = ImgObj(id: id, kind: PixieImg, pimg: image)
   sendImage(imgObj)
+
+proc trackGlyphImage*(fontId: FontId, imageId: ImageId) =
+  withLock imageCachedLock:
+    if fontId notin glyphImageIdsByFont:
+      glyphImageIdsByFont[fontId] = initHashSet[ImageId]()
+    glyphImageIdsByFont[fontId].incl(imageId)
+
+proc clearGlyphImagesForFonts*(fontIds: openArray[FontId]): seq[ImageId] =
+  var deduped = initHashSet[ImageId]()
+  withLock imageCachedLock:
+    for fontId in fontIds:
+      if fontId notin glyphImageIdsByFont:
+        continue
+      for imageId in glyphImageIdsByFont[fontId]:
+        imageCached.excl(imageId)
+        if imageId notin deduped:
+          deduped.incl(imageId)
+          result.add(imageId)
+      glyphImageIdsByFont.del(fontId)
+
+proc clearGlyphImagesForAllFonts*(): seq[ImageId] =
+  var deduped = initHashSet[ImageId]()
+  withLock imageCachedLock:
+    for _, imageIds in glyphImageIdsByFont.pairs():
+      for imageId in imageIds:
+        imageCached.excl(imageId)
+        if imageId notin deduped:
+          deduped.incl(imageId)
+          result.add(imageId)
+    glyphImageIdsByFont.clear()
