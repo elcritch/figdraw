@@ -106,14 +106,14 @@ proc initDemoFonts(): DemoFonts =
     ),
     arabic: FigFont(
       typefaceId: arabic,
-      size: 36.0'f32,
+      size: 32.0'f32,
       fallbackTypefaceIds: @[hebrew, devanagari, ubuntu],
       features: commonFeatures,
-      variations: @[fontVariation("wght", 520.0'f32)],
+      variations: @[fontVariation("wght", 560.0'f32)],
     ),
     hebrew: FigFont(
       typefaceId: hebrew,
-      size: 34.0'f32,
+      size: 32.0'f32,
       fallbackTypefaceIds: @[arabic, devanagari, ubuntu],
       features: commonFeatures,
       variations: @[fontVariation("wght", 560.0'f32), fontVariation("wdth", 96.0'f32)],
@@ -601,7 +601,7 @@ when isMainModule:
   var appRunning = true
   let
     title = windyWindowTitle("FigDraw Text Shaping")
-    size = ivec2(1280, 792)
+    size = ivec2(1280, 800)
     window = newWindyWindow(size = size, fullscreen = false, title = title)
 
   if getEnv("HDI") != "":
