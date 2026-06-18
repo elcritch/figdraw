@@ -47,7 +47,10 @@ jobs:
           libgl1-mesa-dri \
           libglx-mesa0 \
           libegl-mesa0 \
-          libgles2
+          libgles2 \
+          pkg-config \
+          libharfbuzz-dev \
+          libfribidi-dev
 
     - name: Vulkan diagnostics
       if: runner.os == 'Linux'
