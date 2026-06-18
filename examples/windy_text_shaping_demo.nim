@@ -601,7 +601,7 @@ when isMainModule:
   var appRunning = true
   let
     title = windyWindowTitle("FigDraw Text Shaping")
-    size = ivec2(1600, 792)
+    size = ivec2(1280, 792)
     window = newWindyWindow(size = size, fullscreen = false, title = title)
 
   if getEnv("HDI") != "":
