@@ -47,4 +47,4 @@ feature "metal":
   requires "https://github.com/elcritch/metalx#head"
 
 feature "sharedlib":
-  requires "gh:treeform/genny#d2adfd4"
+  requires "gh:treeform/genny#81d9659"
