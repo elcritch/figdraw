@@ -331,24 +331,24 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
       ctx.translate(vec2(0.0'f32, invertPivotY))
       ctx.scale(vec2(1.0'f32, -1.0'f32))
 
-    if NfSelectText in node.flags and fillAlphaMax(node.fill) > 0'u8:
-      let rects = node.textLayout.selectionRects
-      if rects.len > 0 and node.selectionRange.a <= node.selectionRange.b:
-        let startIdx = max(node.selectionRange.a, 0)
-        let endIdx = min(node.selectionRange.b, rects.len - 1)
-        let zeroRadii = [0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32]
-        for idx in startIdx .. endIdx:
-          let rect = rects[idx].scaled()
-          if rect.w > 0 and rect.h > 0:
-            ctx.drawRoundedRectSdf(
-              rect = rect,
-              fill = node.fill.toBackendFill(),
-              radii = zeroRadii,
-              mode = figbackend.SdfMode.sdfModeClipAA,
-              factor = 4.0'f32,
-              spread = 0.0'f32,
-              shapeSize = vec2(0.0'f32, 0.0'f32),
-            )
+    if NfSelectText in node.flags and fillAlphaMax(node.fill) > 0'u8 and
+        node.selectionRange.a <= node.selectionRange.b:
+      let
+        sourceRange = node.selectionRange.a.int .. node.selectionRange.b.int
+        zeroRadii = [0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32]
+      for selection in node.textLayout.selectionRectsFor(sourceRange):
+        if selection.h > 0:
+          let selectionRect =
+            rect(selection.x, selection.y, max(selection.w, 1.0'f32), selection.h)
+          ctx.drawRoundedRectSdf(
+            rect = selectionRect.scaled(),
+            fill = node.fill.toBackendFill(),
+            radii = zeroRadii,
+            mode = figbackend.SdfMode.sdfModeClipAA,
+            factor = 4.0'f32,
+            spread = 0.0'f32,
+            shapeSize = vec2(0.0'f32, 0.0'f32),
+          )
 
     for glyph in node.textLayout.glyphs():
       if glyph.isWhitespace:

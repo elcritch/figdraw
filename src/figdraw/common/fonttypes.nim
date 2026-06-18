@@ -116,6 +116,10 @@ type
     pos*: Vec2 ## Local caret top position.
     rect*: Rect ## Local caret rectangle.
 
+  SelectionSourceKind = enum
+    sskRunes
+    sskBytes
+
 const figdrawTextBackend* {.strdefine.} = "pixie"
 
 static:
@@ -212,7 +216,7 @@ func glyphSource(
       byteEnd: glyphIndex + 1,
     )
 
-func glyphRangeForSourceRunes*(
+func glyphRangeFor*(
     arrangement: GlyphArrangement, sourceRange: Slice[int]
 ): Slice[int] =
   ## Returns the inclusive glyph range touching an inclusive source-rune range.
@@ -237,10 +241,10 @@ func glyphRangeForSourceRunes*(
       else:
         result.b = glyphIndex
 
-func glyphRangeForSourceBytes*(
+func glyphRangeForRawBytes*(
     arrangement: GlyphArrangement, byteRange: Slice[int]
 ): Slice[int] =
-  ## Returns the inclusive glyph range touching an inclusive source-byte range.
+  ## Returns the inclusive glyph range touching an inclusive raw source-byte range.
   ## Returns `0 .. -1` when no glyph intersects the source range.
   if byteRange.a > byteRange.b:
     return 0 .. -1
@@ -262,31 +266,185 @@ func glyphRangeForSourceBytes*(
       else:
         result.b = glyphIndex
 
+func glyphCount(arrangement: GlyphArrangement): int {.inline.} =
+  if arrangement.arrangedGlyphs.len > 0:
+    arrangement.arrangedGlyphs.len
+  else:
+    arrangement.runes.len
+
 func rectForGlyph(arrangement: GlyphArrangement, glyphIndex: int): Rect {.inline.} =
   if arrangement.arrangedGlyphs.len > 0:
     arrangement.arrangedGlyphs[glyphIndex].rect
   else:
     arrangement.selectionRects[glyphIndex]
 
-func selectionRectsForSourceRunes*(
+func sourceIntersectsSelection(
+    source: GlyphSourceRange,
+    selectionStart, selectionEnd: int,
+    sourceKind: SelectionSourceKind,
+): bool {.inline.} =
+  case sourceKind
+  of sskRunes:
+    source.sourceIntersects(selectionStart, selectionEnd)
+  of sskBytes:
+    source.byteSourceIntersects(selectionStart, selectionEnd)
+
+func normalizedGlyphLine(arrangement: GlyphArrangement, line: Slice[int]): Slice[int] =
+  let glyphCount = arrangement.glyphCount()
+  if glyphCount == 0:
+    return 0 .. -1
+
+  result = max(line.a, 0) .. min(line.b, glyphCount - 1)
+  if result.a > result.b:
+    result = 0 .. -1
+
+func selectionLineBox(arrangement: GlyphArrangement, line: Slice[int]): Rect =
+  var
+    foundGlyph = false
+    minY = float32.high
+    maxY = -float32.high
+
+  for glyphIndex in line:
+    let glyphRect = arrangement.rectForGlyph(glyphIndex)
+    minY = min(minY, glyphRect.y)
+    maxY = max(maxY, glyphRect.y + glyphRect.h)
+    foundGlyph = true
+
+  if foundGlyph:
+    result = rect(0, minY, 0, max(maxY - minY, 0.0'f32))
+  else:
+    result = rect(0, 0, 0, 0)
+
+func glyphSelectionRectsForRange(
+    arrangement: GlyphArrangement,
+    sourceRange: Slice[int],
+    sourceKind: SelectionSourceKind,
+): seq[Rect] =
+  if sourceRange.a > sourceRange.b:
+    return
+
+  let
+    selectionStart = max(sourceRange.a, 0)
+    selectionEnd = sourceRange.b + 1
+  if selectionEnd <= selectionStart:
+    return
+
+  for glyphIndex in 0 ..< arrangement.glyphCount():
+    let source = arrangement.glyphSource(glyphIndex)
+    if source.sourceIntersectsSelection(selectionStart, selectionEnd, sourceKind):
+      result.add arrangement.rectForGlyph(glyphIndex)
+
+func glyphSelectionRectsFor*(
     arrangement: GlyphArrangement, sourceRange: Slice[int]
 ): seq[Rect] =
-  ## Returns selection rectangles for glyphs touching a source-rune range.
-  let glyphRange = arrangement.glyphRangeForSourceRunes(sourceRange)
-  if glyphRange.a > glyphRange.b:
-    return
-  for glyphIndex in glyphRange:
-    result.add arrangement.rectForGlyph(glyphIndex)
+  ## Returns raw glyph rectangles for glyphs touching a source-rune range.
+  glyphSelectionRectsForRange(arrangement, sourceRange, sskRunes)
 
-func selectionRectsForSourceBytes*(
+func glyphSelectionRectsForRawBytes*(
     arrangement: GlyphArrangement, byteRange: Slice[int]
 ): seq[Rect] =
-  ## Returns selection rectangles for glyphs touching a source-byte range.
-  let glyphRange = arrangement.glyphRangeForSourceBytes(byteRange)
-  if glyphRange.a > glyphRange.b:
+  ## Returns raw glyph rectangles for glyphs touching a raw source-byte range.
+  glyphSelectionRectsForRange(arrangement, byteRange, sskBytes)
+
+func flushSelectionBand(bands: var seq[Rect], band: var Rect, bandActive: var bool) =
+  if bandActive:
+    bands.add band
+    bandActive = false
+
+func addGlyphToSelectionBand(
+    band: var Rect, bandActive: var bool, lineBox, glyphRect: Rect
+) =
+  let
+    glyphMinX = min(glyphRect.x, glyphRect.x + glyphRect.w)
+    glyphMaxX = max(glyphRect.x, glyphRect.x + glyphRect.w)
+
+  if bandActive:
+    let
+      bandMinX = min(band.x, glyphMinX)
+      bandMaxX = max(band.x + band.w, glyphMaxX)
+    band = rect(bandMinX, lineBox.y, bandMaxX - bandMinX, lineBox.h)
+  else:
+    band = rect(glyphMinX, lineBox.y, glyphMaxX - glyphMinX, lineBox.h)
+    bandActive = true
+
+func addSelectionBandsForLine(
+    arrangement: GlyphArrangement,
+    line: Slice[int],
+    selectionStart, selectionEnd: int,
+    sourceKind: SelectionSourceKind,
+    bands: var seq[Rect],
+) =
+  let glyphLine = arrangement.normalizedGlyphLine(line)
+  if glyphLine.a <= glyphLine.b:
+    let lineBox = arrangement.selectionLineBox(glyphLine)
+    var
+      band = rect(0, lineBox.y, 0, lineBox.h)
+      bandActive = false
+
+    for glyphIndex in glyphLine:
+      let source = arrangement.glyphSource(glyphIndex)
+      if source.sourceIntersectsSelection(selectionStart, selectionEnd, sourceKind):
+        band.addGlyphToSelectionBand(
+          bandActive, lineBox, arrangement.rectForGlyph(glyphIndex)
+        )
+      else:
+        bands.flushSelectionBand(band, bandActive)
+
+    bands.flushSelectionBand(band, bandActive)
+
+func selectionBandsForRange(
+    arrangement: GlyphArrangement,
+    sourceRange: Slice[int],
+    sourceKind: SelectionSourceKind,
+): seq[Rect] =
+  if sourceRange.a > sourceRange.b:
     return
-  for glyphIndex in glyphRange:
-    result.add arrangement.rectForGlyph(glyphIndex)
+
+  let
+    selectionStart = max(sourceRange.a, 0)
+    selectionEnd = sourceRange.b + 1
+  if selectionEnd <= selectionStart:
+    return
+
+  if arrangement.lines.len > 0:
+    for line in arrangement.lines:
+      arrangement.addSelectionBandsForLine(
+        line, selectionStart, selectionEnd, sourceKind, result
+      )
+  else:
+    arrangement.addSelectionBandsForLine(
+      0 .. arrangement.glyphCount() - 1,
+      selectionStart,
+      selectionEnd,
+      sourceKind,
+      result,
+    )
+
+func selectionBandsFor*(
+    arrangement: GlyphArrangement, sourceRange: Slice[int]
+): seq[Rect] =
+  ## Returns merged visual selection bands for a source-rune range.
+  selectionBandsForRange(arrangement, sourceRange, sskRunes)
+
+func selectionBandsForRawBytes*(
+    arrangement: GlyphArrangement, byteRange: Slice[int]
+): seq[Rect] =
+  ## Returns merged visual selection bands for a raw source-byte range.
+  selectionBandsForRange(arrangement, byteRange, sskBytes)
+
+func selectionRectsFor*(
+    arrangement: GlyphArrangement, sourceRange: Slice[int]
+): seq[Rect] =
+  ## Returns merged visual selection bands for a source-rune range.
+  ## Use `glyphSelectionRectsFor` for raw per-glyph rectangles.
+  arrangement.selectionBandsFor(sourceRange)
+
+func selectionRectsForRawBytes*(
+    arrangement: GlyphArrangement, byteRange: Slice[int]
+): seq[Rect] =
+  ## Returns merged visual selection bands for a raw source-byte range.
+  ## Use `glyphSelectionRectsForRawBytes` for raw per-glyph rectangles.
+  arrangement.selectionBandsForRawBytes(byteRange)
 
 func containsPoint(rect: Rect, point: Vec2): bool {.inline.} =
   point.x >= rect.x and point.y >= rect.y and point.x < rect.x + rect.w and
@@ -315,12 +473,6 @@ func sourceRuneRangeAt*(arrangement: GlyphArrangement, point: Vec2): Slice[int] 
 func sourceRuneCount(arrangement: GlyphArrangement): int {.inline.} =
   if arrangement.sourceRunes.len > 0:
     arrangement.sourceRunes.len
-  else:
-    arrangement.runes.len
-
-func glyphCount(arrangement: GlyphArrangement): int {.inline.} =
-  if arrangement.arrangedGlyphs.len > 0:
-    arrangement.arrangedGlyphs.len
   else:
     arrangement.runes.len
 
@@ -373,7 +525,7 @@ func addCaret(carets: var seq[TextCaretPosition], caret: TextCaretPosition) =
       return
   carets.add caret
 
-func caretPositionsForSourceRune*(
+func caretPositionsFor*(
     arrangement: GlyphArrangement, sourceRune: int
 ): seq[TextCaretPosition] =
   ## Returns visual caret positions for a source insertion index.
@@ -448,7 +600,7 @@ func nearestSourceRuneForCaretPoint*(arrangement: GlyphArrangement, point: Vec2)
   result = 0
   var bestDistance = float32.high
   for sourceRune in 0 .. sourceCount:
-    for caret in arrangement.caretPositionsForSourceRune(sourceRune):
+    for caret in arrangement.caretPositionsFor(sourceRune):
       let
         dx = point.x - caret.pos.x
         dy =

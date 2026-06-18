@@ -111,25 +111,48 @@ iterator sourceRunes*(arrangement: GlyphArrangement, glyphIndex: int): Rune
 Range selection and hit testing helpers:
 
 ```nim
-func glyphRangeForSourceRunes*(
+func glyphRangeFor*(
   arrangement: GlyphArrangement, sourceRange: Slice[int]
 ): Slice[int]
 
-func glyphRangeForSourceBytes*(
+func glyphRangeForRawBytes*(
   arrangement: GlyphArrangement, byteRange: Slice[int]
 ): Slice[int]
 
-func selectionRectsForSourceRunes*(
+func glyphSelectionRectsFor*(
   arrangement: GlyphArrangement, sourceRange: Slice[int]
 ): seq[Rect]
 
-func selectionRectsForSourceBytes*(
+func glyphSelectionRectsForRawBytes*(
+  arrangement: GlyphArrangement, byteRange: Slice[int]
+): seq[Rect]
+
+func selectionBandsFor*(
+  arrangement: GlyphArrangement, sourceRange: Slice[int]
+): seq[Rect]
+
+func selectionBandsForRawBytes*(
+  arrangement: GlyphArrangement, byteRange: Slice[int]
+): seq[Rect]
+
+func selectionRectsFor*(
+  arrangement: GlyphArrangement, sourceRange: Slice[int]
+): seq[Rect]
+
+func selectionRectsForRawBytes*(
   arrangement: GlyphArrangement, byteRange: Slice[int]
 ): seq[Rect]
 
 func glyphIndexAt*(arrangement: GlyphArrangement, point: Vec2): int
 func sourceRuneRangeAt*(arrangement: GlyphArrangement, point: Vec2): Slice[int]
 ```
+
+`selectionRectsFor` returns merged visual selection bands for source-rune ranges.
+It groups selected glyphs by visual line fragment and uses the full line height
+for each band, which avoids shaped glyph boxes producing uneven or overlapping
+selection paint. Use `glyphSelectionRectsFor` when a caller needs the raw glyph
+rectangles for diagnostics or fine-grained hit-test checks. The `RawBytes`
+variants are for lower-level callers that already have byte offsets.
 
 Caret helpers expose source insertion indices instead of glyph indices:
 
@@ -148,7 +171,7 @@ type
     pos*: Vec2
     rect*: Rect
 
-func caretPositionsForSourceRune*(
+func caretPositionsFor*(
   arrangement: GlyphArrangement, sourceRune: int
 ): seq[TextCaretPosition]
 
@@ -157,7 +180,7 @@ func nearestSourceRuneForCaretPoint*(
 ): int
 ```
 
-`caretPositionsForSourceRune` can return more than one visual caret rectangle at
+`caretPositionsFor` can return more than one visual caret rectangle at
 bidi boundaries. `nearestSourceRuneForCaretPoint` performs the inverse query for
 local hit testing.
 

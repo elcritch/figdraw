@@ -220,7 +220,7 @@ proc addSourceHighlight(
   if sourceRange.a > sourceRange.b:
     return
 
-  for selection in layout.selectionRectsForSourceRunes(sourceRange):
+  for selection in layout.selectionRectsFor(sourceRange):
     if selection.h <= 0:
       continue
     let box = rect(
@@ -239,7 +239,7 @@ proc addCaretMarkers(
     sourceRune: int,
     fill: Fill,
 ) =
-  for caret in layout.caretPositionsForSourceRune(sourceRune):
+  for caret in layout.caretPositionsFor(sourceRune):
     let box =
       rect(origin.x + caret.pos.x - 1.0'f32, origin.y + caret.pos.y, 2, caret.rect.h)
     discard renders.addRect(parent, box, fill, corners = 1.0'f32)

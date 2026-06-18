@@ -47,6 +47,24 @@ when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
         discard
     ""
 
+proc testGlyph(
+    fontId: FontId, sourceRune: int, glyphId: uint32, box: Rect
+): ArrangedGlyph =
+  let rune = Rune(0x61'i32 + sourceRune.int32)
+  ArrangedGlyph(
+    fontId: fontId,
+    glyphId: FontGlyphId(glyphId),
+    source: GlyphSourceRange(
+      byteStart: sourceRune,
+      byteEnd: sourceRune + 1,
+      runeStart: sourceRune,
+      runeEnd: sourceRune + 1,
+    ),
+    rune: rune,
+    pos: box.xy,
+    rect: box,
+  )
+
 suite "fontutils":
   setup:
     resetFontState()
@@ -146,6 +164,76 @@ suite "fontutils":
         break
     check foundNonWhitespace
 
+  test "source selection bands use full line height":
+    let
+      fontId = FontId(Hash(42))
+      glyphFont = GlyphFont(fontId: fontId, lineHeight: 14, descentAdj: 10)
+      sourceRunes = @["a".runeAt(0), "b".runeAt(0), "c".runeAt(0), "d".runeAt(0)]
+      arrangement = GlyphArrangement(
+        lines: @[0 .. 3],
+        spans: @[0 .. 3],
+        fonts: @[glyphFont],
+        sourceRunes: sourceRunes,
+        arrangedGlyphs:
+          @[
+            testGlyph(fontId, 0, 10, rect(0, 2, 12, 10)),
+            testGlyph(fontId, 1, 11, rect(12, 4, 8, 6)),
+            testGlyph(fontId, 2, 12, rect(20, 0, 10, 14)),
+            testGlyph(fontId, 3, 13, rect(30, 2, 10, 10)),
+          ],
+        runes: sourceRunes,
+        selectionRects:
+          @[
+            rect(0, 2, 12, 10),
+            rect(12, 4, 8, 6),
+            rect(20, 0, 10, 14),
+            rect(30, 2, 10, 10),
+          ],
+      )
+
+    let rawRects = arrangement.glyphSelectionRectsFor(1 .. 2)
+    check rawRects == @[rect(12, 4, 8, 6), rect(20, 0, 10, 14)]
+
+    let bands = arrangement.selectionRectsFor(1 .. 2)
+    check bands == @[rect(12, 0, 18, 14)]
+    check arrangement.selectionBandsFor(1 .. 2) == bands
+    check arrangement.selectionRectsForRawBytes(1 .. 2) == bands
+
+  test "source selection bands split separated visual fragments":
+    let
+      fontId = FontId(Hash(43))
+      glyphFont = GlyphFont(fontId: fontId, lineHeight: 14, descentAdj: 10)
+      sourceRunes =
+        @["a".runeAt(0), "b".runeAt(0), "c".runeAt(0), "d".runeAt(0), "e".runeAt(0)]
+      arrangement = GlyphArrangement(
+        lines: @[0 .. 4],
+        spans: @[0 .. 4],
+        fonts: @[glyphFont],
+        sourceRunes: sourceRunes,
+        arrangedGlyphs:
+          @[
+            testGlyph(fontId, 0, 10, rect(0, 0, 10, 14)),
+            testGlyph(fontId, 1, 11, rect(10, 0, 10, 14)),
+            testGlyph(fontId, 3, 13, rect(20, 0, 10, 14)),
+            testGlyph(fontId, 2, 12, rect(30, 0, 10, 14)),
+            testGlyph(fontId, 4, 14, rect(40, 0, 10, 14)),
+          ],
+        runes: sourceRunes,
+        selectionRects:
+          @[
+            rect(0, 0, 10, 14),
+            rect(10, 0, 10, 14),
+            rect(20, 0, 10, 14),
+            rect(30, 0, 10, 14),
+            rect(40, 0, 10, 14),
+          ],
+      )
+
+    let rawRects = arrangement.glyphSelectionRectsFor(1 .. 2)
+    check rawRects == @[rect(10, 0, 10, 14), rect(30, 0, 10, 14)]
+    check arrangement.selectionRectsFor(1 .. 2) ==
+      @[rect(10, 0, 10, 14), rect(30, 0, 10, 14)]
+
   when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
     test "harfbuzzy backend emits shaped glyph ids and source ranges":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
@@ -183,7 +271,7 @@ suite "fontutils":
       check arrangement.sourceRunes.len == 6
       check arrangement.arrangedGlyphs.len < arrangement.sourceRunes.len
 
-      let ligatureGlyphRange = arrangement.glyphRangeForSourceRunes(1 .. 3)
+      let ligatureGlyphRange = arrangement.glyphRangeFor(1 .. 3)
       check ligatureGlyphRange.a == ligatureGlyphRange.b
 
       let ligatureGlyph = ligatureGlyphRange.a
@@ -194,9 +282,10 @@ suite "fontutils":
         source.add $rune
       check source == "ffi"
 
-      let rects = arrangement.selectionRectsForSourceRunes(2 .. 2)
+      let rects = arrangement.glyphSelectionRectsFor(2 .. 2)
       check rects.len == 1
       check rects[0] == arrangement.arrangedGlyphs[ligatureGlyph].rect
+      check arrangement.selectionRectsFor(2 .. 2).len == 1
 
       let hitPoint = vec2(rects[0].x + rects[0].w / 2, rects[0].y + rects[0].h / 2)
       check arrangement.glyphIndexAt(hitPoint) == ligatureGlyph
@@ -220,7 +309,7 @@ suite "fontutils":
       check arrangement.sourceRunes.len == 6
       check arrangement.arrangedGlyphs.len == arrangement.sourceRunes.len
 
-      let glyphRange = arrangement.glyphRangeForSourceRunes(1 .. 3)
+      let glyphRange = arrangement.glyphRangeFor(1 .. 3)
       check glyphRange.b - glyphRange.a + 1 == 3
 
     test "harfbuzzy fallback stores fallback font ids on shaped runs":
@@ -358,7 +447,7 @@ suite "fontutils":
       )
 
       check arrangement.lines.len > 1
-      let ligatureGlyph = arrangement.glyphRangeForSourceRunes(1 .. 3).a
+      let ligatureGlyph = arrangement.glyphRangeFor(1 .. 3).a
       check ligatureGlyph >= 0
       check arrangement.sourceRuneRange(ligatureGlyph) == 1 .. 3
 
@@ -369,7 +458,7 @@ suite "fontutils":
           break
       check lineIndex >= 0
 
-      for glyphIndex in arrangement.glyphRangeForSourceRunes(1 .. 3):
+      for glyphIndex in arrangement.glyphRangeFor(1 .. 3):
         var glyphLineIndex = -1
         for i, line in arrangement.lines:
           if glyphIndex >= line.a and glyphIndex <= line.b:
@@ -404,12 +493,13 @@ suite "fontutils":
       )
 
       check arrangement.sourceRunes.len == 12
-      let hebrewGlyphRange = arrangement.glyphRangeForSourceRunes(4 .. 7)
+      let hebrewGlyphRange = arrangement.glyphRangeFor(4 .. 7)
       check hebrewGlyphRange.a >= 0
       check hebrewGlyphRange.b >= hebrewGlyphRange.a
 
-      let rects = arrangement.selectionRectsForSourceRunes(4 .. 7)
+      let rects = arrangement.glyphSelectionRectsFor(4 .. 7)
       check rects.len == hebrewGlyphRange.b - hebrewGlyphRange.a + 1
+      check arrangement.selectionRectsFor(4 .. 7).len > 0
       for rect in rects:
         let point = vec2(rect.x + rect.w / 2, rect.y + rect.h / 2)
         let sourceRange = arrangement.sourceRuneRangeAt(point)
@@ -462,19 +552,20 @@ suite "fontutils":
       )
 
       check arrangement.sourceRunes.len == 10
-      let markGlyphRange = arrangement.glyphRangeForSourceRunes(4 .. 4)
+      let markGlyphRange = arrangement.glyphRangeFor(4 .. 4)
       check markGlyphRange.a >= 0
       check markGlyphRange.b >= markGlyphRange.a
 
-      let markRects = arrangement.selectionRectsForSourceRunes(4 .. 4)
+      let markRects = arrangement.glyphSelectionRectsFor(4 .. 4)
       check markRects.len > 0
+      check arrangement.selectionRectsFor(4 .. 4).len > 0
       for rect in markRects:
         let point = vec2(rect.x + rect.w / 2, rect.y + rect.h / 2)
         let sourceRange = arrangement.sourceRuneRangeAt(point)
         check sourceRange.a <= 4
         check sourceRange.b >= 4
 
-      let carets = arrangement.caretPositionsForSourceRune(4)
+      let carets = arrangement.caretPositionsFor(4)
       check carets.len > 0
       check arrangement.nearestSourceRuneForCaretPoint(carets[0].pos) == 4
 
@@ -492,13 +583,13 @@ suite "fontutils":
 
       check arrangement.sourceRunes.len == 7
       for markIndex in [1, 2, 5]:
-        let markGlyphRange =
-          arrangement.glyphRangeForSourceRunes(markIndex .. markIndex)
+        let markGlyphRange = arrangement.glyphRangeFor(markIndex .. markIndex)
         check markGlyphRange.a >= 0
         check markGlyphRange.b >= markGlyphRange.a
 
-        let markRects = arrangement.selectionRectsForSourceRunes(markIndex .. markIndex)
+        let markRects = arrangement.glyphSelectionRectsFor(markIndex .. markIndex)
         check markRects.len > 0
+        check arrangement.selectionRectsFor(markIndex .. markIndex).len > 0
         for rect in markRects:
           if rect.w > 0 and rect.h > 0:
             let point = vec2(rect.x + rect.w / 2, rect.y + rect.h / 2)
@@ -506,7 +597,7 @@ suite "fontutils":
             check sourceRange.a <= markIndex
             check sourceRange.b >= markIndex
 
-        let carets = arrangement.caretPositionsForSourceRune(markIndex)
+        let carets = arrangement.caretPositionsFor(markIndex)
         check carets.len > 0
 
     test "harfbuzzy caret helpers expose split mixed-direction positions":
@@ -520,7 +611,7 @@ suite "fontutils":
         box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
       )
 
-      let hebrewStartCarets = arrangement.caretPositionsForSourceRune(4)
+      let hebrewStartCarets = arrangement.caretPositionsFor(4)
       check hebrewStartCarets.len > 0
       for caret in hebrewStartCarets:
         check caret.sourceRune == 4
@@ -528,7 +619,7 @@ suite "fontutils":
         check caret.lineIndex == 0
         check arrangement.nearestSourceRuneForCaretPoint(caret.pos) == 4
 
-      let hebrewEndCarets = arrangement.caretPositionsForSourceRune(8)
+      let hebrewEndCarets = arrangement.caretPositionsFor(8)
       check hebrewEndCarets.len > 0
       for caret in hebrewEndCarets:
         check caret.sourceRune == 8
@@ -571,7 +662,7 @@ suite "fontutils":
       let arrangement = typeset(
         box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
       )
-      let glyphIndex = arrangement.glyphRangeForSourceRunes(1 .. 3).a
+      let glyphIndex = arrangement.glyphRangeFor(1 .. 3).a
 
       var glyphs = newSeq[GlyphPosition]()
       for glyph in arrangement.glyphs():
