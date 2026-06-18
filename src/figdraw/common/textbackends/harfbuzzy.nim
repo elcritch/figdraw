@@ -11,6 +11,8 @@ import ./common
 when figdrawTextBackend == "hybrid":
   import ../fontglyphs
 
+const hbGlyphFlagUnsafeToBreak = 0x00000001'u32
+
 type DecodedSource = object
   runes: seq[Rune]
   byteStarts: seq[int]
@@ -71,6 +73,27 @@ proc sourceIsWhitespace(decoded: DecodedSource, source: GlyphSourceRange): bool 
       return false
   true
 
+func isCjkLineBreakRune(rune: Rune): bool =
+  let cp = rune.uint32
+  cp in 0x1100'u32 .. 0x11ff'u32 or cp in 0x2e80'u32 .. 0x30ff'u32 or
+    cp in 0x3400'u32 .. 0x4dbf'u32 or cp in 0x4e00'u32 .. 0x9fff'u32 or
+    cp in 0xac00'u32 .. 0xd7af'u32 or cp in 0xf900'u32 .. 0xfaff'u32 or
+    cp in 0xff65'u32 .. 0xff9f'u32
+
+func canBreakAfterRune(rune: Rune): bool =
+  if rune.isWhiteSpace:
+    return true
+
+  case rune.uint32
+  of 0x002d'u32, 0x002f'u32, 0x00ad'u32, 0x058a'u32, 0x05be'u32, 0x1400'u32, 0x1806'u32,
+      0x200b'u32, 0x2053'u32, 0x207b'u32, 0x208b'u32, 0x2212'u32, 0x2e17'u32,
+      0x2e1a'u32, 0x301c'u32, 0x3030'u32, 0x30a0'u32, 0xfe58'u32, 0xfe63'u32, 0xff0d'u32:
+    true
+  of 0x2010'u32 .. 0x2015'u32, 0xfe31'u32 .. 0xfe32'u32:
+    true
+  else:
+    false
+
 proc imageOffsetForGlyph(
     typeface: hb.Typeface, glyphId: hb.Codepoint, font: GlyphFont, scale: float32
 ): Vec2 =
@@ -106,6 +129,27 @@ proc nextClusterBoundary(run: hb.ShapedRun, cluster: int): int =
   boundaries.sort()
   result = boundaries[0]
 
+proc shiftGlyph(arrangement: var GlyphArrangement, glyphIndex: int, delta: Vec2) =
+  arrangement.arrangedGlyphs[glyphIndex].pos += delta
+  arrangement.arrangedGlyphs[glyphIndex].rect =
+    arrangement.arrangedGlyphs[glyphIndex].rect + rect(delta.x, delta.y, 0, 0)
+  arrangement.positions[glyphIndex] += delta
+  arrangement.selectionRects[glyphIndex] =
+    arrangement.selectionRects[glyphIndex] + rect(delta.x, delta.y, 0, 0)
+
+proc lineBounds(arrangement: GlyphArrangement, line: Slice[int]): Rect =
+  result = rect(float32.high, float32.high, 0, 0)
+  if line.a > line.b:
+    return rect(0, 0, 0, 0)
+  for glyphIndex in line:
+    let glyphRect = arrangement.arrangedGlyphs[glyphIndex].rect
+    result.x = min(result.x, glyphRect.x)
+    result.y = min(result.y, glyphRect.y)
+    result.w = max(result.w, glyphRect.x + glyphRect.w)
+    result.h = max(result.h, glyphRect.y + glyphRect.h)
+  result.w -= result.x
+  result.h -= result.y
+
 proc applyAlignment(
     arrangement: var GlyphArrangement,
     box: Rect,
@@ -115,18 +159,27 @@ proc applyAlignment(
   if arrangement.arrangedGlyphs.len == 0:
     return
 
-  let content = arrangement.calcMinMaxContent()
-  let bounds = content.bounding
+  let lines =
+    if arrangement.lines.len > 0:
+      arrangement.lines
+    else:
+      @[0 .. arrangement.arrangedGlyphs.len - 1]
 
-  var dx = -bounds.x
-  case hAlign
-  of Left:
-    discard
-  of Center:
-    dx += (box.w - bounds.w) / 2
-  of Right:
-    dx += box.w - bounds.w
+  for line in lines:
+    let bounds = arrangement.lineBounds(line)
+    var dx = -bounds.x
+    case hAlign
+    of Left:
+      discard
+    of Center:
+      dx += (box.w - bounds.w) / 2
+    of Right:
+      dx += box.w - bounds.w
+    if dx != 0:
+      for glyphIndex in line:
+        arrangement.shiftGlyph(glyphIndex, vec2(dx, 0))
 
+  let bounds = arrangement.calcMinMaxContent().bounding
   var dy = -bounds.y
   case vAlign
   of Top:
@@ -136,14 +189,101 @@ proc applyAlignment(
   of Bottom:
     dy += box.h - bounds.h
 
-  let delta = vec2(dx, dy)
-  for glyph in arrangement.arrangedGlyphs.mitems:
-    glyph.pos += delta
-    glyph.rect = glyph.rect + rect(delta.x, delta.y, 0, 0)
-  for pos in arrangement.positions.mitems:
-    pos += delta
-  for selection in arrangement.selectionRects.mitems:
-    selection = selection + rect(delta.x, delta.y, 0, 0)
+  if dy != 0:
+    for glyphIndex in 0 ..< arrangement.arrangedGlyphs.len:
+      arrangement.shiftGlyph(glyphIndex, vec2(0, dy))
+
+proc lineHeight(arrangement: GlyphArrangement, line: Slice[int]): float32 =
+  for glyphIndex in line:
+    result = max(result, arrangement.arrangedGlyphs[glyphIndex].rect.h)
+  if result <= 0:
+    for font in arrangement.fonts:
+      result = max(result, font.lineHeight)
+
+proc glyphWrapWidth(glyph: ArrangedGlyph): float32 {.inline.} =
+  max(glyph.rect.w, abs(glyph.advance.x))
+
+proc preferredLineBreakAfter(arrangement: GlyphArrangement, glyphIndex: int): bool =
+  let glyph = arrangement.arrangedGlyphs[glyphIndex]
+  if glyph.isWhitespace:
+    return true
+  if glyph.source.runeEnd <= glyph.source.runeStart or
+      glyph.source.runeEnd > arrangement.sourceRunes.len:
+    return false
+
+  let lastRune = arrangement.sourceRunes[glyph.source.runeEnd - 1]
+  if lastRune.canBreakAfterRune:
+    return true
+
+  if glyphIndex + 1 < arrangement.arrangedGlyphs.len:
+    let nextGlyph = arrangement.arrangedGlyphs[glyphIndex + 1]
+    if glyph.source.runeEnd == nextGlyph.source.runeStart and
+        nextGlyph.source.runeStart < arrangement.sourceRunes.len:
+      let nextRune = arrangement.sourceRunes[nextGlyph.source.runeStart]
+      return lastRune.isCjkLineBreakRune and nextRune.isCjkLineBreakRune
+
+  false
+
+proc buildWrappedLines(
+    arrangement: GlyphArrangement, boxWidth: float32, safeBreakAfter: openArray[bool]
+): seq[Slice[int]] =
+  let glyphCount = arrangement.arrangedGlyphs.len
+  if glyphCount == 0:
+    return
+  if boxWidth <= 0:
+    return @[0 .. glyphCount - 1]
+
+  var
+    lineStart = 0
+    lineWidth = 0.0'f32
+    lastBreak = -1
+    glyphIndex = 0
+
+  while glyphIndex < glyphCount:
+    let glyph = arrangement.arrangedGlyphs[glyphIndex]
+    let width = glyph.glyphWrapWidth()
+
+    if glyphIndex > lineStart and lineWidth + width > boxWidth:
+      if lastBreak >= lineStart and lastBreak < glyphIndex:
+        result.add lineStart .. lastBreak
+        lineStart = lastBreak + 1
+      else:
+        result.add lineStart .. glyphIndex - 1
+        lineStart = glyphIndex
+      lineWidth = 0
+      lastBreak = -1
+      glyphIndex = lineStart
+      continue
+
+    lineWidth += width
+    let
+      breakAfter = glyphIndex >= safeBreakAfter.len or safeBreakAfter[glyphIndex]
+      preferredBreakAfter = arrangement.preferredLineBreakAfter(glyphIndex)
+    if preferredBreakAfter and breakAfter:
+      lastBreak = glyphIndex
+    inc glyphIndex
+
+  if lineStart < glyphCount:
+    result.add lineStart .. glyphCount - 1
+
+proc reflowLines(arrangement: var GlyphArrangement) =
+  var lineTop = 0.0'f32
+  for line in arrangement.lines:
+    var lineX = 0.0'f32
+    let lineHeight = arrangement.lineHeight(line)
+    for glyphIndex in line:
+      let
+        oldGlyph = arrangement.arrangedGlyphs[glyphIndex]
+        posOffset = oldGlyph.pos - oldGlyph.rect.xy
+        newRect = rect(lineX, lineTop, oldGlyph.rect.w, oldGlyph.rect.h)
+        newPos = newRect.xy + posOffset
+
+      arrangement.arrangedGlyphs[glyphIndex].rect = newRect
+      arrangement.arrangedGlyphs[glyphIndex].pos = newPos
+      arrangement.positions[glyphIndex] = newPos
+      arrangement.selectionRects[glyphIndex] = newRect
+      lineX += oldGlyph.glyphWrapWidth()
+    lineTop += lineHeight
 
 proc appendShapedSpan(
     arrangement: var GlyphArrangement,
@@ -152,6 +292,7 @@ proc appendShapedSpan(
     text: string,
     byteOffset: int,
     pen: var Vec2,
+    safeBreakAfter: var seq[bool],
 ) =
   let fontInfo = glyphFontFor(style.font)
   let hbTypeface = initHarfbuzzTypeface(style.font)
@@ -163,7 +304,7 @@ proc appendShapedSpan(
   arrangement.spanColors.add style.color
 
   for run in paragraph.visualRuns:
-    for glyph in run.glyphRun.glyphs:
+    for runGlyphIndex, glyph in run.glyphRun.glyphs:
       let
         cluster = int(glyph.cluster)
         nextCluster = run.nextClusterBoundary(cluster)
@@ -196,6 +337,10 @@ proc appendShapedSpan(
       arrangement.runes.add rune
       arrangement.positions.add pos
       arrangement.selectionRects.add selection
+      let nextGlyphUnsafeToBreak =
+        runGlyphIndex + 1 < run.glyphRun.glyphs.len and
+        (run.glyphRun.glyphs[runGlyphIndex + 1].flags and hbGlyphFlagUnsafeToBreak) != 0
+      safeBreakAfter.add not nextGlyphUnsafeToBreak
 
       pen += advance
 
@@ -213,9 +358,6 @@ proc typeset*(
   ## Typesets with Harfbuzzy and converts shaped glyph ids into FigDraw data.
   threadEffects:
     AppMainThread
-
-  discard minContent
-  discard wrap
 
   var shapedSpans = newSeqOfCap[(FontStyle, string)](uiSpans.len)
   for (style, text) in uiSpans:
@@ -236,22 +378,36 @@ proc typeset*(
 
   var pen = vec2(0, 0)
   var byteOffset = 0
+  var safeBreakAfter: seq[bool]
   for (style, text) in shapedSpans:
     let baseline = glyphFontFor(style.font).glyph.descentAdj
     if result.arrangedGlyphs.len == 0:
       pen.y = baseline
-    result.appendShapedSpan(decoded, style, text, byteOffset, pen)
+    result.appendShapedSpan(decoded, style, text, byteOffset, pen, safeBreakAfter)
     byteOffset += text.len
 
   if result.arrangedGlyphs.len > 0:
-    result.lines = @[0 .. result.arrangedGlyphs.len - 1]
+    result.lines =
+      if wrap:
+        result.buildWrappedLines(box.w, safeBreakAfter)
+      else:
+        @[0 .. result.arrangedGlyphs.len - 1]
+    if wrap:
+      result.reflowLines()
 
-  result.applyAlignment(box, hAlign, vAlign)
+  var alignmentBox = box
+  if minContent:
+    let content = result.calcMinMaxContent()
+    alignmentBox.h = max(alignmentBox.h, content.bounding.h)
+
+  result.applyAlignment(alignmentBox, hAlign, vAlign)
 
   let content = result.calcMinMaxContent()
   result.minSize = content.minSize
   result.maxSize = content.maxSize
   result.bounding = content.bounding
+  if minContent:
+    result.minSize.y = max(result.minSize.y, result.bounding.h)
   result.addFontSizePadding(fontSizes)
 
   when figdrawTextBackend == "hybrid":

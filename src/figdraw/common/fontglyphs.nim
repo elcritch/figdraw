@@ -156,13 +156,20 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
 
   block:
     for i, span in arrangement.spans:
+      if span.a > span.b:
+        continue
+      if idx < span.a:
+        idx = span.a
+      if idx >= arrangedGlyphCount:
+        break
+
       let gfont = arrangement.fonts[i]
       let spanColor =
         if i < arrangement.spanColors.len:
           arrangement.spanColors[i]
         else:
           fill(rgba(0, 0, 0, 255))
-      while idx < arrangedGlyphCount:
+      while idx < arrangedGlyphCount and idx in span:
         let arranged =
           if arrangement.arrangedGlyphs.len > 0:
             arrangement.arrangedGlyphs[idx]
@@ -200,8 +207,6 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
         )
 
         idx.inc()
-        if idx notin span:
-          break
 
 proc generateGlyphImages*(arrangement: GlyphArrangement, lcdFiltering = false) =
   ## returns Glyph's hash, will generate glyph if needed

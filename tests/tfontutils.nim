@@ -1,4 +1,4 @@
-import std/[os, unittest, tables, locks, unicode]
+import std/[hashes, os, unittest, tables, locks, unicode]
 
 import pkg/pixie
 import pkg/pixie/fonts
@@ -17,6 +17,35 @@ proc resetFontState() =
     initTable[string, tuple[name: string, data: string, kind: TypeFaceKinds]]()
   #withLock imageCachedLock:
   #  imageCached.clear()
+
+proc firstLoadableSystemFontPath(candidates: openArray[string]): string =
+  let preferred = findSystemFontFile(candidates)
+  if preferred.len > 0:
+    try:
+      discard readTypeface(preferred)
+      return preferred
+    except PixieError:
+      discard
+
+  for path in systemFontFiles():
+    try:
+      discard readTypeface(path)
+      return path
+    except PixieError:
+      discard
+
+  ""
+
+when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
+  proc firstLoadableNamedSystemFontPath(candidates: openArray[string]): string =
+    let preferred = findSystemFontFile(candidates)
+    if preferred.len > 0:
+      try:
+        discard readTypeface(preferred)
+        return preferred
+      except PixieError:
+        discard
+    ""
 
 suite "fontutils":
   setup:
@@ -173,6 +202,264 @@ suite "fontutils":
       check arrangement.glyphIndexAt(hitPoint) == ligatureGlyph
       check arrangement.sourceRuneRangeAt(hitPoint) == 1 .. 3
 
+    test "harfbuzzy wrap creates line slices at shaped glyph boundaries":
+      let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      let uiFont = FigFont(typefaceId: typefaceId, size: 24.0'f32)
+      let box = rect(0, 0, 95, 200)
+      let spans = [(fs(uiFont), "alpha beta gamma")]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = true
+      )
+
+      check arrangement.lines.len > 1
+
+      var covered = 0
+      var previousStop = -1
+      var previousY = -1.0'f32
+      for line in arrangement.lines:
+        check line.a == previousStop + 1
+        check line.a <= line.b
+        check line.b < arrangement.arrangedGlyphs.len
+
+        var
+          minX = float32.high
+          maxX = -float32.high
+          maxGlyphWidth = 0.0'f32
+          minY = float32.high
+        for glyphIndex in line:
+          let glyph = arrangement.arrangedGlyphs[glyphIndex]
+          minX = min(minX, glyph.rect.x)
+          maxX = max(maxX, glyph.rect.x + glyph.rect.w)
+          maxGlyphWidth = max(maxGlyphWidth, glyph.rect.w)
+          minY = min(minY, glyph.rect.y)
+          check glyph.source.runeStart >= 0
+          check glyph.source.runeEnd <= arrangement.sourceRunes.len
+          inc covered
+
+        let lineWidth = maxX - minX
+        check lineWidth <= box.w + 0.1'f32 or maxGlyphWidth > box.w
+        check minY > previousY
+        previousY = minY
+        previousStop = line.b
+
+      check covered == arrangement.arrangedGlyphs.len
+
+    test "harfbuzzy wrap keeps ligature source ranges on one line":
+      let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
+      let box = rect(0, 0, 78, 160)
+      let spans = [(fs(uiFont), "office office")]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = true
+      )
+
+      check arrangement.lines.len > 1
+      let ligatureGlyph = arrangement.glyphRangeForSourceRunes(1 .. 3).a
+      check ligatureGlyph >= 0
+      check arrangement.sourceRuneRange(ligatureGlyph) == 1 .. 3
+
+      var lineIndex = -1
+      for i, line in arrangement.lines:
+        if ligatureGlyph >= line.a and ligatureGlyph <= line.b:
+          lineIndex = i
+          break
+      check lineIndex >= 0
+
+      for glyphIndex in arrangement.glyphRangeForSourceRunes(1 .. 3):
+        var glyphLineIndex = -1
+        for i, line in arrangement.lines:
+          if glyphIndex >= line.a and glyphIndex <= line.b:
+            glyphLineIndex = i
+            break
+        check glyphLineIndex == lineIndex
+
+    test "harfbuzzy minContent keeps bottom-aligned wrapped text in bounds":
+      let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      let uiFont = FigFont(typefaceId: typefaceId, size: 24.0'f32)
+      let box = rect(0, 0, 82, 20)
+      let spans = [(fs(uiFont), "alpha beta gamma delta")]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Left, vAlign = Bottom, minContent = true, wrap = true
+      )
+
+      check arrangement.lines.len > 1
+      check arrangement.bounding.y >= -0.01'f32
+      check arrangement.minSize.y > box.h
+
+    test "harfbuzzy mixed direction text preserves source hit ranges":
+      let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      let uiFont = FigFont(typefaceId: typefaceId, size: 28.0'f32)
+      let box = rect(0, 0, 420, 80)
+      let spans = [(fs(uiFont), "abc שלום xyz")]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
+      )
+
+      check arrangement.sourceRunes.len == 12
+      let hebrewGlyphRange = arrangement.glyphRangeForSourceRunes(4 .. 7)
+      check hebrewGlyphRange.a >= 0
+      check hebrewGlyphRange.b >= hebrewGlyphRange.a
+
+      let rects = arrangement.selectionRectsForSourceRunes(4 .. 7)
+      check rects.len == hebrewGlyphRange.b - hebrewGlyphRange.a + 1
+      for rect in rects:
+        let point = vec2(rect.x + rect.w / 2, rect.y + rect.h / 2)
+        let sourceRange = arrangement.sourceRuneRangeAt(point)
+        check sourceRange.a >= 4
+        check sourceRange.b <= 7
+
+    test "harfbuzzy wraps CJK text without whitespace":
+      let fontPath = "deps/pixie/tests/fonts/NotoSansJP-Regular.ttf"
+      if not fileExists(fontPath):
+        check true
+      else:
+        let typefaceId = loadTypeface(fontPath)
+        let uiFont = FigFont(typefaceId: typefaceId, size: 24.0'f32)
+        let box = rect(0, 0, 72, 200)
+        let spans = [(fs(uiFont), "日本語日本語日本語")]
+
+        let arrangement = typeset(
+          box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = true
+        )
+
+        check arrangement.lines.len > 1
+        var previousStop = -1
+        for line in arrangement.lines:
+          check line.a == previousStop + 1
+          check line.a <= line.b
+          check line.b < arrangement.arrangedGlyphs.len
+
+          var
+            minX = float32.high
+            maxX = -float32.high
+          for glyphIndex in line:
+            let glyph = arrangement.arrangedGlyphs[glyphIndex]
+            minX = min(minX, glyph.rect.x)
+            maxX = max(maxX, glyph.rect.x + glyph.rect.w)
+            check not glyph.rune.isWhiteSpace
+
+          check maxX - minX <= box.w + 0.1'f32
+          previousStop = line.b
+
+    test "harfbuzzy source helpers cover combining marks":
+      let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
+      let acute = $Rune(0x0301)
+      let box = rect(0, 0, 260, 80)
+      let spans = [(fs(uiFont), "Cafe" & acute & " test")]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
+      )
+
+      check arrangement.sourceRunes.len == 10
+      let markGlyphRange = arrangement.glyphRangeForSourceRunes(4 .. 4)
+      check markGlyphRange.a >= 0
+      check markGlyphRange.b >= markGlyphRange.a
+
+      let markRects = arrangement.selectionRectsForSourceRunes(4 .. 4)
+      check markRects.len > 0
+      for rect in markRects:
+        let point = vec2(rect.x + rect.w / 2, rect.y + rect.h / 2)
+        let sourceRange = arrangement.sourceRuneRangeAt(point)
+        check sourceRange.a <= 4
+        check sourceRange.b >= 4
+
+      let carets = arrangement.caretPositionsForSourceRune(4)
+      check carets.len > 0
+      check arrangement.nearestSourceRuneForCaretPoint(carets[0].pos) == 4
+
+    test "harfbuzzy source helpers cover Hebrew marks":
+      let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
+      let text = "ש" & $Rune(0x05b8) & $Rune(0x05c1) & "לו" & $Rune(0x05b9) & "ם"
+      let box = rect(0, 0, 260, 80)
+      let spans = [(fs(uiFont), text)]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
+      )
+
+      check arrangement.sourceRunes.len == 7
+      for markIndex in [1, 2, 5]:
+        let markGlyphRange =
+          arrangement.glyphRangeForSourceRunes(markIndex .. markIndex)
+        check markGlyphRange.a >= 0
+        check markGlyphRange.b >= markGlyphRange.a
+
+        let markRects = arrangement.selectionRectsForSourceRunes(markIndex .. markIndex)
+        check markRects.len > 0
+        for rect in markRects:
+          if rect.w > 0 and rect.h > 0:
+            let point = vec2(rect.x + rect.w / 2, rect.y + rect.h / 2)
+            let sourceRange = arrangement.sourceRuneRangeAt(point)
+            check sourceRange.a <= markIndex
+            check sourceRange.b >= markIndex
+
+        let carets = arrangement.caretPositionsForSourceRune(markIndex)
+        check carets.len > 0
+
+    test "harfbuzzy caret helpers expose split mixed-direction positions":
+      let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      let uiFont = FigFont(typefaceId: typefaceId, size: 28.0'f32)
+      let box = rect(0, 0, 420, 80)
+      let spans = [(fs(uiFont), "abc שלום xyz")]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
+      )
+
+      let hebrewStartCarets = arrangement.caretPositionsForSourceRune(4)
+      check hebrewStartCarets.len > 0
+      for caret in hebrewStartCarets:
+        check caret.sourceRune == 4
+        check caret.glyphIndex >= 0
+        check caret.lineIndex == 0
+        check arrangement.nearestSourceRuneForCaretPoint(caret.pos) == 4
+
+      let hebrewEndCarets = arrangement.caretPositionsForSourceRune(8)
+      check hebrewEndCarets.len > 0
+      for caret in hebrewEndCarets:
+        check caret.sourceRune == 8
+
+    test "harfbuzzy shapes Arabic when a system Arabic font is available":
+      let fontPath = firstLoadableNamedSystemFontPath(
+        [
+          "Noto Naskh Arabic", "Noto Sans Arabic", "Geeza Pro", "Arial Unicode",
+          "Arial", "DejaVu Sans",
+        ]
+      )
+      if fontPath.len == 0:
+        check true
+      else:
+        let typefaceId = loadTypeface(fontPath)
+        let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
+        let box = rect(0, 0, 320, 90)
+        let spans = [(fs(uiFont), "سلام")]
+
+        let arrangement = typeset(
+          box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
+        )
+
+        check arrangement.sourceRunes.len == 4
+        check arrangement.arrangedGlyphs.len > 0
+        check arrangement.arrangedGlyphs.len <= arrangement.sourceRunes.len
+        for glyph in arrangement.arrangedGlyphs:
+          check glyph.glyphId != FontGlyphId(0)
+          check glyph.source.runeStart >= 0
+          check glyph.source.runeEnd <= arrangement.sourceRunes.len
+
   when figdrawTextBackend == "harfbuzzy":
     test "harfbuzzy glyph id raster provider renders shaped glyph images":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
@@ -263,6 +550,42 @@ suite "fontutils":
       checked = true
       break
     check checked
+
+  test "glyph iterator skips empty spans before assigning style":
+    let
+      rune = "A".runeAt(0)
+      fontId = FontId(Hash(1))
+      glyphFont = GlyphFont(fontId: fontId, lineHeight: 12, descentAdj: 3)
+      firstFill = fill(rgba(220, 40, 40, 255))
+      secondFill = fill(rgba(40, 90, 220, 255))
+      arrangement = GlyphArrangement(
+        lines: @[0 .. 0],
+        spans: @[0 .. -1, 0 .. 0],
+        fonts: @[glyphFont, glyphFont],
+        spanColors: @[firstFill, secondFill],
+        sourceRunes: @[rune],
+        arrangedGlyphs:
+          @[
+            ArrangedGlyph(
+              fontId: fontId,
+              glyphId: FontGlyphId(65),
+              cluster: 0,
+              source:
+                GlyphSourceRange(byteStart: 0, byteEnd: 1, runeStart: 0, runeEnd: 1),
+              rune: rune,
+              pos: vec2(10, 12),
+              rect: rect(10, 0, 8, 12),
+            )
+          ],
+      )
+
+    var glyphs = newSeq[GlyphPosition]()
+    for glyph in arrangement.glyphs():
+      glyphs.add glyph
+
+    check glyphs.len == 1
+    check glyphs[0].fill == secondFill
+    check glyphs[0].lineHeight == glyphFont.lineHeight
 
   test "glyph-variant subpixel step maps fractional x to 10 steps":
     check toGlyphVariantSubpixelStep(0.0'f32) == 0
@@ -377,24 +700,6 @@ suite "fontutils":
       candidates = @["Helvetica", "Arial", "Menlo", "SFNS"]
     elif defined(linux) or defined(freebsd):
       candidates = @["DejaVu Sans", "Noto Sans", "Liberation Sans", "Ubuntu"]
-
-    proc firstLoadableSystemFontPath(candidates: openArray[string]): string =
-      let preferred = findSystemFontFile(candidates)
-      if preferred.len > 0:
-        try:
-          discard readTypeface(preferred)
-          return preferred
-        except PixieError:
-          discard
-
-      for path in systemFontFiles():
-        try:
-          discard readTypeface(path)
-          return path
-        except PixieError:
-          discard
-
-      ""
 
     let systemPath = firstLoadableSystemFontPath(candidates)
     if systemPath.len == 0:

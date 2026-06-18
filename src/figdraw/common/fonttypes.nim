@@ -90,6 +90,19 @@ type
     minSize*: Vec2
     bounding*: Rect
 
+  TextCaretAffinity* = enum
+    CaretLeading
+    CaretInside
+    CaretTrailing
+
+  TextCaretPosition* = object
+    sourceRune*: int ## Source insertion index in `GlyphArrangement.sourceRunes`.
+    glyphIndex*: int ## Visual glyph index that produced this caret position.
+    lineIndex*: int
+    affinity*: TextCaretAffinity
+    pos*: Vec2 ## Local caret top position.
+    rect*: Rect ## Local caret rectangle.
+
 const figdrawTextBackend* {.strdefine.} = "pixie"
 
 static:
@@ -269,6 +282,157 @@ func sourceRuneRangeAt*(arrangement: GlyphArrangement, point: Vec2): Slice[int] 
   if glyphIndex < 0:
     return 0 .. -1
   arrangement.sourceRuneRange(glyphIndex)
+
+func sourceRuneCount(arrangement: GlyphArrangement): int {.inline.} =
+  if arrangement.sourceRunes.len > 0:
+    arrangement.sourceRunes.len
+  else:
+    arrangement.runes.len
+
+func glyphCount(arrangement: GlyphArrangement): int {.inline.} =
+  if arrangement.arrangedGlyphs.len > 0:
+    arrangement.arrangedGlyphs.len
+  else:
+    arrangement.runes.len
+
+func lineForGlyph(arrangement: GlyphArrangement, glyphIndex: int): Slice[int] =
+  if arrangement.lines.len > 0:
+    for line in arrangement.lines:
+      if glyphIndex >= line.a and glyphIndex <= line.b:
+        return line
+  0 .. arrangement.glyphCount() - 1
+
+func lineIndexForGlyph(arrangement: GlyphArrangement, glyphIndex: int): int =
+  for lineIndex, line in arrangement.lines:
+    if glyphIndex >= line.a and glyphIndex <= line.b:
+      return lineIndex
+  0
+
+func glyphAppearsRtl(arrangement: GlyphArrangement, glyphIndex: int): bool =
+  let
+    line = arrangement.lineForGlyph(glyphIndex)
+    source = arrangement.glyphSource(glyphIndex)
+  if glyphIndex > line.a:
+    let prevSource = arrangement.glyphSource(glyphIndex - 1)
+    if prevSource.runeStart > source.runeStart:
+      return true
+  if glyphIndex < line.b:
+    let nextSource = arrangement.glyphSource(glyphIndex + 1)
+    if nextSource.runeStart < source.runeStart:
+      return true
+  false
+
+func caretX(glyphRect: Rect, rtl, sourceStart: bool): float32 {.inline.} =
+  if sourceStart:
+    if rtl:
+      glyphRect.x + glyphRect.w
+    else:
+      glyphRect.x
+  else:
+    if rtl:
+      glyphRect.x
+    else:
+      glyphRect.x + glyphRect.w
+
+func sameCaret(a, b: TextCaretPosition): bool {.inline.} =
+  a.sourceRune == b.sourceRune and a.lineIndex == b.lineIndex and
+    abs(a.pos.x - b.pos.x) < 0.01'f32 and abs(a.pos.y - b.pos.y) < 0.01'f32
+
+func addCaret(carets: var seq[TextCaretPosition], caret: TextCaretPosition) =
+  for existing in carets:
+    if existing.sameCaret(caret):
+      return
+  carets.add caret
+
+func caretPositionsForSourceRune*(
+    arrangement: GlyphArrangement, sourceRune: int
+): seq[TextCaretPosition] =
+  ## Returns visual caret positions for a source insertion index.
+  ## Bidi boundaries can produce more than one visual position.
+  let sourceCount = arrangement.sourceRuneCount()
+  if sourceRune < 0 or sourceRune > sourceCount:
+    return
+
+  let glyphCount = arrangement.glyphCount()
+  if glyphCount == 0:
+    if sourceRune == 0:
+      result.add TextCaretPosition(
+        sourceRune: 0,
+        glyphIndex: -1,
+        lineIndex: 0,
+        affinity: CaretInside,
+        pos: vec2(0, 0),
+        rect: rect(0, 0, 0, 0),
+      )
+    return
+
+  for glyphIndex in 0 ..< glyphCount:
+    let
+      source = arrangement.glyphSource(glyphIndex)
+      glyphRect = arrangement.rectForGlyph(glyphIndex)
+      rtl = arrangement.glyphAppearsRtl(glyphIndex)
+      lineIndex = arrangement.lineIndexForGlyph(glyphIndex)
+
+    if source.runeStart == sourceRune:
+      let x = glyphRect.caretX(rtl, sourceStart = true)
+      result.addCaret TextCaretPosition(
+        sourceRune: sourceRune,
+        glyphIndex: glyphIndex,
+        lineIndex: lineIndex,
+        affinity: CaretLeading,
+        pos: vec2(x, glyphRect.y),
+        rect: rect(x, glyphRect.y, 0, glyphRect.h),
+      )
+
+    if source.runeEnd == sourceRune:
+      let x = glyphRect.caretX(rtl, sourceStart = false)
+      result.addCaret TextCaretPosition(
+        sourceRune: sourceRune,
+        glyphIndex: glyphIndex,
+        lineIndex: lineIndex,
+        affinity: CaretTrailing,
+        pos: vec2(x, glyphRect.y),
+        rect: rect(x, glyphRect.y, 0, glyphRect.h),
+      )
+
+    if sourceRune > source.runeStart and sourceRune < source.runeEnd:
+      let
+        rangeLen = max(source.runeEnd - source.runeStart, 1)
+        t = (sourceRune - source.runeStart).float32 / rangeLen.float32
+        x =
+          if rtl:
+            glyphRect.x + glyphRect.w * (1.0'f32 - t)
+          else:
+            glyphRect.x + glyphRect.w * t
+      result.addCaret TextCaretPosition(
+        sourceRune: sourceRune,
+        glyphIndex: glyphIndex,
+        lineIndex: lineIndex,
+        affinity: CaretInside,
+        pos: vec2(x, glyphRect.y),
+        rect: rect(x, glyphRect.y, 0, glyphRect.h),
+      )
+
+func nearestSourceRuneForCaretPoint*(arrangement: GlyphArrangement, point: Vec2): int =
+  ## Returns the source insertion index nearest to a local text-layout point.
+  let sourceCount = arrangement.sourceRuneCount()
+  result = 0
+  var bestDistance = float32.high
+  for sourceRune in 0 .. sourceCount:
+    for caret in arrangement.caretPositionsForSourceRune(sourceRune):
+      let
+        dx = point.x - caret.pos.x
+        dy =
+          if point.y < caret.rect.y:
+            caret.rect.y - point.y
+          elif point.y > caret.rect.y + caret.rect.h:
+            point.y - (caret.rect.y + caret.rect.h)
+          else:
+            0.0'f32
+        distance = dx * dx + dy * dy
+      if distance < bestDistance:
+        bestDistance = distance
+        result = sourceRune
 
 proc hash*(fnt: FigFont): Hash =
   var h = Hash(0)
