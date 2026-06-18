@@ -26,8 +26,8 @@ const
     "السلام عليكم ورحمة الله وبركاته\n" &
     "النص العربي يحتاج إلى تشكيل واتجاه صحيح ولف أسطر هادئ."
   HebrewBody =
-    "שלום עולם וברוכים הבאים\n" &
-    "טקסט עברי צריך ניקוד, כיוון נכון ושבירת שורות יציבה."
+    "שָׁלוֹם עוֹלָם וּבְרוּכִים הַבָּאִים\n" &
+    "טֶקְסְט עִבְרִי צָרִיךְ נִקּוּד, כִּוּוּן נָכוֹן וּשְׁבִירַת שׁוּרוֹת יַצִּיבָה."
 
 type DemoFonts = object
   title: FigFont
@@ -337,7 +337,7 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
     hebrewCard,
     "Hebrew",
     HebrewBody,
-    "עברי",
+    "עִבְרִי",
     fonts.hebrew,
     fonts.body,
     fonts.metric,
