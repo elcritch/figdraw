@@ -17,14 +17,32 @@ when defined(macosx) and defined(figdraw.moltenvkBrew):
   switch("passL", "-Wl,-rpath," & moltenVkPrefix & "/lib")
 
 when defined(linux):
+  proc pkgConfigFlags(kind: string, packages: openArray[string]): string =
+    for pkg in packages:
+      let exists = gorgeEx("sh -c 'pkg-config --exists " & pkg & " && printf yes'").output.strip()
+      if exists == "yes":
+        let flags = gorgeEx("pkg-config --" & kind & " " & pkg).output.strip()
+        if flags.len > 0:
+          if result.len > 0:
+            result.add ' '
+          result.add flags
+
   # Optional deps
   when defined(figdraw.vulkan):
-    switch("passC", gorgeEx("pkg-config --cflags vulkan").output.strip())
-    switch("passL", gorgeEx("pkg-config --libs vulkan").output.strip())
+    let vulkanCflags = pkgConfigFlags("cflags", ["vulkan"])
+    let vulkanLibs = pkgConfigFlags("libs", ["vulkan"])
+    if vulkanCflags.len > 0:
+      switch("passC", vulkanCflags)
+    if vulkanLibs.len > 0:
+      switch("passL", vulkanLibs)
 
   when defined(figdraw.harfbuzz):
-    switch("passC", gorgeEx("pkg-config --cflags harfbuzz fribidi").output.strip())
-    switch("passL", gorgeEx("pkg-config --libs harfbuzz fribidi").output.strip())
+    let shaperCflags = pkgConfigFlags("cflags", ["harfbuzz", "fribidi"])
+    let shaperLibs = pkgConfigFlags("libs", ["harfbuzz", "fribidi"])
+    if shaperCflags.len > 0:
+      switch("passC", shaperCflags)
+    if shaperLibs.len > 0:
+      switch("passL", shaperLibs)
 
   # Deps that figdraw absolutely needs to even compile
   # source: painful amounts of trial and error
@@ -33,20 +51,14 @@ when defined(linux):
     WaylandDependencies = "wayland-client wayland-egl"
     AuxDependencies = "gl glesv2 egl"
 
-  switch(
-    "passC",
-    gorgeEx(
-      &"pkg-config --cflags {XorgDependencies} {WaylandDependencies} {AuxDependencies}"
-    ).output
-      .strip(),
-  )
-  switch(
-    "passL",
-    gorgeEx(
-      &"pkg-config --libs {XorgDependencies} {WaylandDependencies} {AuxDependencies}"
-    ).output
-      .strip(),
-  )
+  let linuxCflags =
+    pkgConfigFlags("cflags", XorgDependencies.splitWhitespace() & WaylandDependencies.splitWhitespace() & AuxDependencies.splitWhitespace())
+  let linuxLibs =
+    pkgConfigFlags("libs", XorgDependencies.splitWhitespace() & WaylandDependencies.splitWhitespace() & AuxDependencies.splitWhitespace())
+  if linuxCflags.len > 0:
+    switch("passC", linuxCflags)
+  if linuxLibs.len > 0:
+    switch("passL", linuxLibs)
 
 proc nimExec(subcmd, file: string, extraFlags = "", platform = "") =
   let nimFlags = getEnv("NIMFLAGS").strip()
