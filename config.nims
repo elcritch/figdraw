@@ -50,6 +50,8 @@ task test, "run unit test":
   for file in listFiles("examples"):
     if file.startsWith("examples/windy_") and file.endsWith(".nim"):
       nimExec("c", file)
+    elif file.startsWith("examples/siwin_") and file.endsWith(".nim"):
+      nimExec("c", file)
     elif file.startsWith("examples/sdl2_") and file.endsWith(".nim"):
       if enableSdl2:
         nimExec("c", file, "-d:figdraw.metal=off -d:figdraw.vulkan=off")

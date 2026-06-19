@@ -1,217 +1,259 @@
-# Font Shaping Plan
+# Font Shaping
 
-This plan describes how to add HarfBuzz-based shaping as a compile-time
-alternative to the current Pixie text path.
+FigDraw text layout is glyph-id-first. `fontId + glyphId` is the render and
+cache identity; source runes remain available for compatibility, diagnostics,
+selection, and hit testing.
 
-## Goals
+Harfbuzzy is an optional shaping backend. FigDraw owns the public data model,
+backend selection, layout conversion, source mapping, wrapping policy, caret
+helpers, and raster dispatch. Harfbuzzy stays behind FigDraw adapters.
 
-- Keep the existing FigDraw text API usable for callers.
-- Support shaped glyph output: glyph ids, advances, offsets, and source
-  clusters.
-- Keep Pixie as the default font backend until the HarfBuzz path is complete.
-- Avoid leaking HarfBuzz handles or FFI details into public FigDraw node APIs.
-- Preserve current glyph atlas, LCD filtering, subpixel positioning, selection,
-  and renderer behavior where possible.
+## Backend Modes
 
-## Current Design
-
-FigDraw currently uses Pixie for three separate jobs:
-
-- Font loading and metrics in `src/figdraw/common/typefaces.nim`.
-- Text layout in `src/figdraw/common/fontutils.nim` via `pixie.typeset`.
-- Glyph image generation in `src/figdraw/common/fontglyphs.nim`, keyed by
-  `(fontId, rune, filtering, subpixelVariant)`.
-
-That works for simple Unicode glyph lookup, but shaped text needs glyph identity
-from the font rather than Unicode runes. Arabic joining, ligatures, Hebrew marks,
-and OpenType substitutions can all produce glyph ids that do not map cleanly to a
-single input rune.
-
-## Backend Selection
-
-Add a compile-time text backend switch:
+`figdrawTextBackend` is a compile-time string define:
 
 ```nim
-const fontBackend {.strdefine: "figdraw.fontBackend".} = "pixie"
-
-when fontBackend == "harfbuzz":
-  import ./textbackends/harfbuzz as textbackend
-elif fontBackend == "pixie":
-  import ./textbackends/pixie as textbackend
-else:
-  {.error: "unknown figdraw.fontBackend".}
+const figdrawTextBackend* {.strdefine.} = "pixie"
 ```
 
-The public `typeset`, `loadTypeface`, and `FigFont` APIs should remain stable.
-Backend-specific handle types stay private to backend modules.
+Supported modes:
 
-## Module Layout
+- `pixie`: Default Pixie layout and Pixie rasterization. Glyph ids are stable
+  synthetic ids derived from source runes.
+- `hybrid`: Harfbuzzy layout converted to FigDraw arrangements while rendering
+  through Pixie-compatible rune rasterization where possible. This is useful for
+  diagnostics, but is not a complex-script rendering target.
+- `harfbuzzy`: Harfbuzzy shaping and FigDraw's glyph-id raster provider.
 
-Proposed split:
+`fontutils.typeset` remains the public entry point and delegates to the selected
+backend.
 
-- `common/fonttypes.nim`
-  Backend-neutral public data types.
-- `common/typefaces.nim`
-  Public font loading API, static registry, ids, and backend dispatch.
-- `common/textbackends/pixie.nim`
-  Current Pixie implementation moved behind the backend interface.
-- `common/textbackends/harfbuzz.nim`
-  HarfBuzz shaping implementation using `../harfbuzzy`.
-- `common/fontglyphs.nim`
-  Backend-neutral glyph iteration, glyph cache keys, and rasterization dispatch.
-- `common/textbidi.nim`
-  Later bidi/run-itemization layer. Not part of the first HarfBuzz slice.
+## Modules
 
-## Data Model
+- `common/fonttypes.nim`: Backend-neutral public data types and source mapping
+  helpers.
+- `common/typefaces.nim`: Font loading, font ids, static registry, and backend
+  dispatch.
+- `common/textbackends/pixie.nim`: Pixie layout backend.
+- `common/textbackends/harfbuzzy.nim`: Harfbuzzy shaping adapter.
+- `common/textrasters/pixie_raster.nim`: Pixie compatibility raster provider.
+- `common/textrasters/glyphid_raster.nim`: Glyph-id raster provider using
+  HarfBuzz draw callbacks and Pixie path filling.
+- `common/fontglyphs.nim`: Glyph iteration, glyph cache keys, and raster
+  dispatch.
 
-Add backend-neutral shaped glyph data:
+## Public Data
+
+`GlyphArrangement.arrangedGlyphs` is the canonical placement data. The legacy
+parallel arrays `runes`, `positions`, and `selectionRects` remain populated for
+current callers.
+
+Important fields:
+
+- `FontGlyphId`: Font-scoped glyph id. In Harfbuzzy mode this is the HarfBuzz
+  glyph codepoint. In Pixie mode it is synthetic.
+- `GlyphSourceRange`: Half-open byte and rune source ranges for a shaped glyph.
+- `ArrangedGlyph.rune`: Cheap representative source rune. This is useful for
+  compatibility and debugging, but callers must not treat it as a one-to-one
+  source mapping.
+- `GlyphArrangement.sourceRunes`: Decoded source text for range-aware callers.
+
+`FigFont` carries shaping controls in backend-neutral terms:
+
+- `fallbackTypefaceIds`: Ordered fallback typeface ids. Harfbuzzy shaping tries
+  the primary typeface first, then fallbacks for unsupported shaped runs.
+- `features`: OpenType feature settings such as `fontFeature("liga", 0)` or
+  `fontFeature("kern")`.
+- `variations`: OpenType variable-axis coordinates such as
+  `fontVariation("wght", 650.0'f32)`.
+
+These fields are part of `FigFont` hashing, so shaped layout, glyph cache ids,
+and glyph-id rasterization stay separated by fallback chain, feature set, and
+variable-font coordinates.
+
+`GlyphPosition`, yielded by `glyphs(arrangement)`, mirrors the glyph-id-first
+shape used by render code:
 
 ```nim
 type
-  GlyphIndex* = distinct uint32
-
-  ArrangedGlyph* = object
+  GlyphPosition* = ref object
     fontId*: FontId
-    glyphId*: GlyphIndex
+    glyphId*: FontGlyphId
     cluster*: uint32
+    source*: GlyphSourceRange
     rune*: Rune
+    isWhitespace*: bool
     pos*: Vec2
-    advance*: Vec2
-    offset*: Vec2
+    imageOffset*: Vec2
     rect*: Rect
+    descent*: float32
+    lineHeight*: float32
+    fill*: Fill
 ```
 
-Update `GlyphArrangement` to either store `glyphs*: seq[ArrangedGlyph]` or to
-carry equivalent parallel arrays during migration. Keep the existing
-`runes`, `positions`, and `selectionRects` populated until current renderer and
-tests are moved over.
+Rendering uses `glyph.glyphId` for cache identity and keeps `glyph.rune` for
+cheap whitespace checks and human-readable diagnostics.
 
-`rune` should be treated as source/debug metadata. Rendering and caching must use
-`glyphId`.
+## Source Mapping
 
-## HarfBuzz Flow
+Use source helpers instead of assuming one visual glyph equals one source rune.
+Ligatures, combining marks, and mixed-direction visual runs can map one source
+range to multiple glyphs, or multiple source runes to one glyph.
 
-For each shaped run:
+Cheap glyph-to-source helpers:
 
-1. Resolve `FigFont` to a backend font record.
-2. Build HarfBuzz shape options from direction, script, language, flags, and
-   features.
-3. Shape text with `harfbuzzy`.
-4. Convert HarfBuzz font units to FigDraw pixels:
+```nim
+func sourceRune*(arrangement: GlyphArrangement, glyphIndex: int): Rune
+func sourceRuneRange*(arrangement: GlyphArrangement, glyphIndex: int): Slice[int]
+iterator sourceRunes*(arrangement: GlyphArrangement, glyphIndex: int): Rune
+```
 
-   ```nim
-   px = hbPosition.float32 * (font.size / face.upem.float32)
-   ```
+Range selection and hit testing helpers:
 
-5. Accumulate pen position from `xAdvance` and `yAdvance`.
-6. Apply `xOffset` and `yOffset` to the glyph draw position.
-7. Store `glyph.codepoint` as `GlyphIndex`.
-8. Store `glyph.cluster` for selection, hit testing, and source mapping.
+```nim
+func glyphRangeFor*(
+  arrangement: GlyphArrangement, sourceRange: Slice[int]
+): Slice[int]
 
-HarfBuzz lays out one run. FigDraw remains responsible for paragraph layout,
-line wrapping, horizontal alignment, vertical alignment, min/max content, and
-selection rectangles.
+func glyphRangeForRawBytes*(
+  arrangement: GlyphArrangement, byteRange: Slice[int]
+): Slice[int]
 
-## Glyph Rasterization
+func glyphSelectionRectsFor*(
+  arrangement: GlyphArrangement, sourceRange: Slice[int]
+): seq[Rect]
 
-The renderer can stay mostly unchanged if `GlyphPosition` becomes glyph-id
-based.
+func glyphSelectionRectsForRawBytes*(
+  arrangement: GlyphArrangement, byteRange: Slice[int]
+): seq[Rect]
 
-Required changes:
+func selectionBandsFor*(
+  arrangement: GlyphArrangement, sourceRange: Slice[int]
+): seq[Rect]
 
-- Change glyph cache key from `(fontId, rune, filtering, subpixelVariant)` to
-  `(fontId, glyphId, filtering, subpixelVariant)`.
-- Skip invisible glyphs by glyph metadata or extents, not only by
-  `rune.isWhiteSpace`.
-- Render glyph images by `fontId + glyphId`.
+func selectionBandsForRawBytes*(
+  arrangement: GlyphArrangement, byteRange: Slice[int]
+): seq[Rect]
 
-Rasterization options:
+func selectionRectsFor*(
+  arrangement: GlyphArrangement, sourceRange: Slice[int]
+): seq[Rect]
 
-1. Use HarfBuzz `hb-raster` to render glyph masks or BGRA color glyph images.
-   HarfBuzz 14.x exposes CPU raster APIs such as `hb_raster_draw_glyph`,
-   `hb_raster_draw_render`, and `hb_raster_paint_glyph`.
-2. Use HarfBuzz `hb-gpu` for direct GPU outline/color-glyph rendering. This is
-   a larger renderer integration because FigDraw would upload HarfBuzz-encoded
-   glyph blobs and use HarfBuzz shader snippets instead of the current bitmap
-   atlas path.
-3. Extend Pixie/OpenType to expose `getGlyphPath(glyphId)` and keep Pixie as the
-   rasterizer. This is still useful if FigDraw wants to keep all glyph cache
-   output as Pixie `Image`s.
-4. Add a FreeType-backed rasterization path later.
-5. Keep a temporary rune path only for Pixie compatibility. This does not solve
-   Arabic shaping or ligatures.
+func selectionRectsForRawBytes*(
+  arrangement: GlyphArrangement, byteRange: Slice[int]
+): seq[Rect]
 
-The first useful HarfBuzz implementation should use either HarfBuzz `hb-raster`
-or Pixie glyph-id paths, depending on whether it is easier to extend
-`../harfbuzzy` or Pixie's OpenType surface first. HarfBuzz `hb-gpu` should be a
-separate later project because it bypasses FigDraw's current image-atlas model.
+func glyphIndexAt*(arrangement: GlyphArrangement, point: Vec2): int
+func sourceRuneRangeAt*(arrangement: GlyphArrangement, point: Vec2): Slice[int]
+```
 
-## Bidi
+`selectionRectsFor` returns merged visual selection bands for source-rune ranges.
+It groups selected glyphs by visual line fragment and uses the full line height
+for each band, which avoids shaped glyph boxes producing uneven or overlapping
+selection paint. Use `glyphSelectionRectsFor` when a caller needs the raw glyph
+rectangles for diagnostics or fine-grained hit-test checks. The `RawBytes`
+variants are for lower-level callers that already have byte offsets.
 
-HarfBuzz does not perform bidi processing. The first slice can support explicit
-single-direction runs.
+Caret helpers expose source insertion indices instead of glyph indices:
 
-Full mixed-direction support needs:
+```nim
+type
+  TextCaretAffinity* = enum
+    CaretLeading
+    CaretInside
+    CaretTrailing
 
-- Paragraph bidi analysis, probably FriBidi or ICU.
-- Visual run ordering.
-- Logical-to-visual and visual-to-logical cluster mapping.
-- Line-level reordering after wrapping.
+  TextCaretPosition* = object
+    sourceRune*: int
+    glyphIndex*: int
+    lineIndex*: int
+    affinity*: TextCaretAffinity
+    pos*: Vec2
+    rect*: Rect
 
-This should live outside the HarfBuzz backend so the shaping backend receives
-same-direction runs.
+func caretPositionsFor*(
+  arrangement: GlyphArrangement, sourceRune: int
+): seq[TextCaretPosition]
 
-## `harfbuzzy` Gaps
+func nearestSourceRuneForCaretPoint*(
+  arrangement: GlyphArrangement, point: Vec2
+): int
+```
 
-Before relying on `../harfbuzzy` for FigDraw, add or verify:
+`caretPositionsFor` can return more than one visual caret rectangle at
+bidi boundaries. `nearestSourceRuneForCaretPoint` performs the inverse query for
+local hit testing.
 
-- `addUtf8(text, itemOffset, itemLength)` so shaping runs can use full paragraph
-  context.
-- Public buffer cluster-level setters around existing raw
-  `hb_buffer_set_cluster_level`.
-- Proper glyph flag extraction, especially `unsafe_to_break`.
-- `typefaceFromBlob` or `initTypeface(data)` for FigDraw's static typeface
-  registry.
-- A stable way to retrieve face `upem`, extents, glyph extents, and glyph
-  advances without exposing raw handles.
-- Bindings and wrappers for HarfBuzz rendering APIs if FigDraw uses HarfBuzz for
-  rasterization:
-  - `hb-draw` / `hb_font_draw_glyph_or_fail` for vector outlines.
-  - `hb-raster` for CPU glyph masks and BGRA color glyph output.
-  - `hb-gpu` only if FigDraw adopts HarfBuzz's GPU glyph encoding path.
+## Harfbuzzy Layout
 
-## Migration Phases
+The Harfbuzzy adapter converts shaped runs into FigDraw data:
 
-1. Add `GlyphIndex` and shaped glyph fields while preserving existing Pixie
-   behavior.
-2. Move the current Pixie implementation behind `textbackends/pixie.nim`.
-3. Change glyph cache and renderer code to use `glyphId`.
-4. Add glyph-id rasterization through HarfBuzz `hb-raster` or Pixie glyph-id
-   paths.
-5. Add `textbackends/harfbuzz.nim` for unidirectional runs.
-6. Add tests comparing Latin Pixie and HarfBuzz layout for simple text.
-7. Add Arabic and Hebrew fixture tests with known fonts.
-8. Add bidi itemization and mixed-direction selection tests.
+- `glyph.codepoint` becomes `FontGlyphId`.
+- `glyph.cluster` is retained for source mapping and break logic.
+- The adapter shapes through a Harfbuzzy `ShapeContext` built from the primary
+  typeface plus `FigFont.fallbackTypefaceIds`.
+- OpenType features from `FigFont.features` are passed to paragraph shaping.
+- Variable axes from `FigFont.variations` are applied to each Harfbuzzy font
+  before shaping.
+- A single styled input span can become multiple FigDraw spans when fallback
+  picks different typefaces. Each emitted span keeps the input fill and stores
+  the actual shaped `fontId` used by its glyph run.
+- HarfBuzz glyph flags are consumed inside the adapter so preferred wrapping can
+  respect unsafe-to-break metadata without exposing HarfBuzz-specific flags.
+- Source byte and rune ranges are stored in `GlyphSourceRange`.
+- Advances and offsets are scaled by `font.size / face.upem`.
+- `imageOffset` comes from glyph extents so raster images can include negative
+  bearings while baseline placement stays stable.
 
-## Tests
+The backend wraps greedily over shaped glyphs. It prefers whitespace clusters
+when the next shaped glyph is safe to break before, recognizes soft hyphen,
+zero-width space, hyphen-like separators, and common CJK/Kana/Hangul adjacent
+break opportunities, and falls back to hard shaped-glyph boundaries for
+overlong text. It never splits inside a shaped glyph.
 
-Focused tests should cover:
+Line slices are aligned after wrapping. Vertical alignment is applied to the
+whole arrangement. When `minContent` is enabled, Harfbuzzy expands the alignment
+height to the wrapped content height before vertical alignment so bottom- or
+middle-aligned text does not shift above the layout bounds.
 
-- Existing Pixie backend behavior under default build flags.
-- `-d:figdraw.fontBackend=harfbuzz` compile and smoke tests.
-- Static font registry loading through the HarfBuzz backend.
-- Glyph cache separation by glyph id, LCD filtering, and subpixel variant.
-- Arabic shaping with a font such as Noto Naskh Arabic.
-- Hebrew marks with a font such as Noto Sans Hebrew.
-- Ligature clusters and selection rectangles.
-- Mixed LTR/RTL text after bidi support is added.
+## Rendering
 
-## Open Questions
+Glyph cache identity is glyph-id-based:
 
-- Should `GlyphArrangement` expose shaped glyphs directly, or keep an iterator as
-  the only stable access surface?
-- Should line wrapping happen before shaping for simple text or after shaping
-  using HarfBuzz `unsafe_to_break` flags?
-- Which bidi dependency should FigDraw prefer: FriBidi, ICU, or a small Nim
-  implementation?
-- Should HarfBuzz be a package feature, a compile-time define only, or both?
+```nim
+proc hash*(glyph: GlyphPosition, lcdFiltering = false, subpixelVariant = 0): Hash =
+  hash((2344, glyph.fontId, glyph.glyphId, lcdFiltering, subpixelVariant))
+```
+
+Raster dispatch follows the selected backend:
+
+- `harfbuzzy` renders by `fontId + glyphId` through the glyph-id raster
+  provider. Variable axes stored on the resolved `FigFont` are applied before
+  drawing glyph outlines.
+- `pixie` and `hybrid` render through Pixie's rune raster path.
+
+Selection and hit testing use source ranges, not glyph ids.
+
+## Regression Coverage
+
+The test suite covers:
+
+- Shaped glyph ids and source ranges.
+- Ligature source mapping and source-rune iteration.
+- Wrapping at shaped glyph boundaries.
+- Preserving ligature ranges on one line.
+- CJK wrapping without whitespace using the dependency test font.
+- Combining marks and Hebrew marks through source-range selection and hit
+  testing.
+- Mixed LTR/RTL source-range hit testing and caret-position helpers.
+- Font fallback preserving fallback `fontId` on shaped runs.
+- OpenType feature control for ligature shaping.
+- Variable axes carrying through shaped font ids.
+- Arabic shaping when a suitable named system Arabic font is available.
+- Pure Harfbuzzy glyph-id rasterization.
+
+## Future Extensions
+
+- Full Unicode Line Breaking Algorithm tailoring for locale-specific wrapping.
+- Widget-level editing policy, including arrow-key behavior, selection
+  extension, and IME integration.

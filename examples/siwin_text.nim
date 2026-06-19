@@ -419,7 +419,7 @@ when isMainModule:
   let monoTypefaceId = loadTypeface("HackNerdFont-Regular.ttf")
   let monoFont = FigFont(typefaceId: monoTypefaceId, size: MonoFontSize)
 
-  let size = ivec2(900, 600)
+  let size = ivec2(900, 690)
 
   var frames = 0
   var fpsFrames = 0
@@ -460,7 +460,6 @@ when isMainModule:
     onClose: proc(e: CloseEvent) =
       app_running = false,
     onResize: proc(e: ResizeEvent) =
-      appWindow.refreshUiScale(useAutoScale)
       redraw(),
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.g:

@@ -20,9 +20,15 @@ type TypeFaceKinds* = enum
   OTF
   SVG
 
+type TypefaceSource* = object
+  name*: string
+  data*: string
+  kind*: TypeFaceKinds
+
 var
   typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
   fontTable*: Table[FontId, FigFont]
+  typefaceSourceTable*: Table[TypefaceId, TypefaceSource]
   staticTypefaceTable*:
     Table[string, tuple[name: string, data: string, kind: TypeFaceKinds]]
   fontLock*: Lock
@@ -89,6 +95,12 @@ proc readTypefaceImpl(
 
   result.filePath = name
 
+proc typefaceKindFromPath(path: string): TypeFaceKinds =
+  case splitFile(path).ext.toLowerAscii()
+  of ".otf": OTF
+  of ".svg": SVG
+  else: TTF
+
 proc loadTypeface*(name: string, fallbackNames: openArray[string] = []): TypefaceId =
   ## loads a font from a file and adds it to the font index
 
@@ -116,11 +128,17 @@ proc loadTypeface*(name: string, fallbackNames: openArray[string] = []): Typefac
 
   var loaded = false
   var typeface: Typeface
+  var source: TypefaceSource
   for candidate in candidateNames:
     let typefacePath = resolveTypefacePath(candidate)
     if typefacePath.len > 0:
       try:
         typeface = readTypeface(typefacePath)
+        source = TypefaceSource(
+          name: typefacePath,
+          data: readFile(typefacePath),
+          kind: typefaceKindFromPath(typefacePath),
+        )
         loaded = true
         break
       except PixieError:
@@ -135,6 +153,9 @@ proc loadTypeface*(name: string, fallbackNames: openArray[string] = []): Typefac
             requested = name, candidate = candidate, staticName = staticEntry.name
           typeface =
             readTypefaceImpl(staticEntry.name, staticEntry.data, staticEntry.kind)
+          source = TypefaceSource(
+            name: staticEntry.name, data: staticEntry.data, kind: staticEntry.kind
+          )
           loaded = true
           break
         except PixieError:
@@ -155,6 +176,7 @@ proc loadTypeface*(name: string, fallbackNames: openArray[string] = []): Typefac
   if id in typefaceTable:
     doAssert typefaceTable[id] == typeface
   typefaceTable[id] = typeface
+  typefaceSourceTable[id] = source
   result = id
 
 proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId =
@@ -165,7 +187,21 @@ proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId =
     id = typeface.getId()
 
   typefaceTable[id] = typeface
+  typefaceSourceTable[id] = TypefaceSource(name: name, data: data, kind: kind)
   result = id
+
+proc getTypefaceSource*(id: TypefaceId): TypefaceSource =
+  if id notin typefaceSourceTable:
+    raise newException(
+      ValueError, "typeface source data is not available for id " & $Hash(id)
+    )
+  typefaceSourceTable[id]
+
+proc getFigFont*(fontId: FontId): FigFont =
+  withLock(fontLock):
+    if fontId notin fontTable:
+      raise newException(ValueError, "font is not available for id " & $Hash(fontId))
+    result = fontTable[fontId]
 
 proc pixieFont(font: FigFont): (FontId, Font) =
   let

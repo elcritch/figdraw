@@ -16,7 +16,7 @@ jobs:
     strategy:
       matrix:
         nimversion:
-          - '2.2.8'
+          - '2.2.10'
         os:
           - ubuntu-24.04
           - macos-14
@@ -26,9 +26,10 @@ jobs:
 
     - name: Setup software OpenGL/Vulkan (Mesa) + Weston (Wayland)
       if: runner.os == 'Linux'
+      timeout-minutes: 15
       run: |
         sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
           weston \
           xwayland \
           wayland-protocols \
@@ -48,6 +49,16 @@ jobs:
           libglx-mesa0 \
           libegl-mesa0 \
           libgles2
+
+    - name: Install Linux text shaping dependencies
+      if: runner.os == 'Linux'
+      timeout-minutes: 5
+      run: |
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          pkg-config \
+          libharfbuzz-dev \
+          libfribidi-dev
+        pkg-config --cflags --libs harfbuzz
 
     - name: Vulkan diagnostics
       if: runner.os == 'Linux'
@@ -91,7 +102,7 @@ jobs:
         key: ${{ runner.os }}-${{ hashFiles('figdraw.nimble') }}
 
     - name: Install Deps
-      run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib
+      run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib,harfbuzz
 
     - name: Build Bindings
       run: |

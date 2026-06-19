@@ -1,13 +1,8 @@
-import std/[os, unicode, sequtils, tables, strutils, sets, hashes, math]
-import std/isolation
+import std/[hashes, unicode]
 
 import pkg/vmath
-import pkg/pixie
 import pkg/pixie/fonts
-import pkg/chronicles
 
-import ./rchannels
-import ./imgutils
 import ./shared
 
 import ./fonttypes
@@ -16,61 +11,10 @@ import ./fontglyphs
 
 export loadTypeface, convertFont, registerStaticTypeface
 
-proc calcMinMaxContent(
-    textLayout: GlyphArrangement
-): tuple[maxSize, minSize: Vec2, bounding: Rect] =
-  ## estimate the maximum and minimum size of a given typesetting
-
-  var longestWord: Slice[int]
-  var longestWordLen: float
-
-  var words = 0
-  var wordsHeight = 0.0
-  var curr: Slice[int]
-  var currLen: float
-  var maxWidth: float
-  var rect: Rect = rect(float32.high, float32.high, 0, 0)
-
-  # find longest word and count the number of words
-  # herein min content width is longest word
-  # herein max content height is a word on each line
-  var idx = 0
-  for glyph in textLayout.glyphs():
-    maxWidth += glyph.rect.w
-    rect.x = min(rect.x, glyph.rect.x)
-    rect.y = min(rect.y, glyph.rect.y)
-    rect.w = max(rect.w, glyph.rect.x + glyph.rect.w)
-    rect.h = max(rect.h, glyph.rect.y + glyph.rect.h)
-
-    if glyph.rune.isWhiteSpace:
-      curr = idx + 1 .. idx
-      currLen = 0.0
-    else:
-      if curr.len() == 1:
-        words.inc
-        wordsHeight += glyph.lineHeight
-      curr.b = idx
-      currLen += glyph.rect.w
-
-    if currLen > longestWordLen:
-      longestWord = curr
-      longestWordLen = currLen
-
-    idx.inc()
-
-  # find tallest font
-  var maxLine = 0.0
-  for font in textLayout.fonts:
-    maxLine = max(maxLine, font.lineHeight)
-
-  # set results
-  result.minSize.x = longestWordLen
-  result.minSize.y = maxLine
-
-  result.maxSize.x = maxWidth
-  result.maxSize.y = wordsHeight
-
-  result.bounding = rect
+when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
+  import ./textbackends/harfbuzzy as textBackend
+else:
+  import ./textbackends/pixie as textBackend
 
 proc typeset*(
     box: Rect,
@@ -80,103 +24,7 @@ proc typeset*(
     minContent: bool,
     wrap: bool,
 ): GlyphArrangement =
-  ## does the typesetting using pixie, then converts the typeseet results
-  ## into Figuro's own internal types
-  ## Primarily done for thread safety
-  threadEffects:
-    AppMainThread
-
-  var
-    wh = box.wh
-    sz = uiSpans.mapIt(it[0].font.size.float)
-    minSz = sz.foldl(max(a, b), 0.0)
-
-  var spans: seq[Span]
-  var pfs: seq[Font]
-  var gfonts: seq[GlyphFont]
-  for (style, txt) in uiSpans:
-    let (fontId, pf) = style.convertFont()
-    pfs.add(pf)
-    spans.add(newSpan(txt, pf))
-    assert not pf.typeface.isNil
-    let lineHeight = if pf.lineHeight >= 0: pf.lineHeight else: pf.defaultLineHeight()
-    let lineGap = (lineHeight / pf.scale) - pf.typeface.ascent + pf.typeface.descent
-    let baselineOffset = round((pf.typeface.ascent + lineGap / 2) * pf.scale)
-    gfonts.add GlyphFont(
-      fontId: fontId, lineHeight: lineHeight, descentAdj: baselineOffset
-    )
-
-  var ha: HorizontalAlignment
-  case hAlign
-  of Left:
-    ha = LeftAlign
-  of Center:
-    ha = CenterAlign
-  of Right:
-    ha = RightAlign
-
-  var va: VerticalAlignment
-  case vAlign
-  of Top:
-    va = TopAlign
-  of Middle:
-    va = MiddleAlign
-  of Bottom:
-    va = BottomAlign
-
-  let arrangement =
-    pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
-  result = convertArrangement(arrangement, box, uiSpans, hAlign, vAlign, gfonts)
-
-  let content = result.calcMinMaxContent()
-  result.minSize = content.minSize
-  result.maxSize = content.maxSize
-  result.bounding = content.bounding
-
-  if minContent:
-    ## calcaulate min width of content
-    var wh = wh
-    wh.y = result.maxSize.y
-    let arr = pixie.typeset(
-      spans, bounds = wh, hAlign = LeftAlign, vAlign = TopAlign, wrap = wrap
-    )
-    let minResult = convertArrangement(arr, box, uiSpans, hAlign, vAlign, gfonts)
-
-    let minContent = minResult.calcMinMaxContent()
-    trace "minContent:",
-      boxWh = box.wh,
-      wh = wh,
-      minSize = minContent.minSize,
-      maxSize = minContent.maxSize,
-      bounding = minContent.bounding,
-      boundH = result.bounding.h
-
-    if minContent.bounding.h > result.bounding.h:
-      let wh = vec2(wh.x, minContent.bounding.h)
-      let minAdjusted =
-        pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
-      result = convertArrangement(minAdjusted, box, uiSpans, hAlign, vAlign, gfonts)
-      let contentAdjusted = result.calcMinMaxContent()
-      result.minSize = contentAdjusted.minSize
-      result.maxSize = contentAdjusted.maxSize
-      result.bounding = contentAdjusted.bounding
-      trace "minContent:adjusted",
-        boxWh = box.wh,
-        wh = wh,
-        wrap = wrap,
-        minSize = result.minSize,
-        maxSize = result.maxSize,
-        bounding = result.bounding
-
-      result.minSize.y = result.bounding.h
-    else:
-      result.minSize.y = max(result.minSize.y, result.bounding.h)
-
-  let maxLineHeight = max(sz)
-  result.minSize += vec2(maxLineHeight / 2, 0)
-  result.maxSize += vec2(maxLineHeight / 2, 0)
-  result.bounding = result.bounding + rect(0, 0, 0, maxLineHeight / 2)
-  result.generateGlyphImages()
+  textBackend.typeset(box, uiSpans, hAlign, vAlign, minContent, wrap)
 
 proc typeset*(
     box: Rect,
@@ -215,7 +63,6 @@ proc placeGlyphs*(
     contentHash = Hash(0)
 
   for (rune, pos) in glyphs:
-    let scaledPos = pos
     let baselineOffset = cachedFont.glyph.descentAdj
     var baselinePos = pos
     if origin == GlyphTopLeft:
@@ -236,6 +83,9 @@ proc placeGlyphs*(
   result.spans = @[0 .. glyphs.len - 1]
   result.fonts = @[cachedFont.glyph]
   result.spanColors = @[style.color]
+  result.sourceRunes = runes
+  result.arrangedGlyphs =
+    buildArrangedGlyphs(runes, positions, selectionRects, result.spans, result.fonts)
   result.runes = runes
   result.positions = positions
   result.selectionRects = selectionRects

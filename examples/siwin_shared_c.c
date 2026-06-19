@@ -57,37 +57,13 @@ static int env_enabled(const char *name, int default_value) {
          strcmp(value, "yes") == 0 || strcmp(value, "on") == 0;
 }
 
-static char *take_error_string(void) {
-  GennyBuffer buffer = figdraw_take_error();
-  intptr_t len = figdraw_genny_buffer_len(buffer);
-  const char *data = figdraw_genny_buffer_data(buffer);
-  char *result = (char *)calloc((size_t)len + 1, 1);
-  if (result != NULL && data != NULL && len > 0) {
-    memcpy(result, data, (size_t)len);
-  }
-  figdraw_genny_buffer_unref(buffer);
-  return result;
-}
-
 static int check_figdraw_error(const char *context) {
   if (!figdraw_check_error()) {
     return 0;
   }
-  char *message = take_error_string();
+  const char *message = figdraw_take_error();
   fprintf(stderr, "%s: %s\n", context, message != NULL ? message : "unknown error");
-  free(message);
   return 1;
-}
-
-static char *buffer_to_string(GennyBuffer buffer) {
-  intptr_t len = figdraw_genny_buffer_len(buffer);
-  const char *data = figdraw_genny_buffer_data(buffer);
-  char *result = (char *)calloc((size_t)len + 1, 1);
-  if (result != NULL && data != NULL && len > 0) {
-    memcpy(result, data, (size_t)len);
-  }
-  figdraw_genny_buffer_unref(buffer);
-  return result;
 }
 
 static int add_root_checked(Renders renders, FigRef fig) {
@@ -103,7 +79,7 @@ static int build_render_tree(Renders renders, float width, float height, int fra
   float t = (float)frame * 0.02f;
 
   FigRef background = figdraw_new_rectangle_fig(0.0f, 0.0f, width, height);
-  if (background == NULL) {
+  if (background == 0) {
     fprintf(stderr, "new background fig failed\n");
     return 1;
   }
@@ -225,11 +201,11 @@ int main(void) {
   figdraw_set_fig_data_dir("data");
 
   TypefaceRef typeface = figdraw_load_typeface_binding("Ubuntu.ttf");
-  if (check_figdraw_error("figdraw_load_typeface_binding") || typeface == NULL) {
+  if (check_figdraw_error("figdraw_load_typeface_binding") || typeface == 0) {
     return 1;
   }
   FigFontRef fps_font = figdraw_new_fig_font_binding(typeface, 18.0f);
-  if (fps_font == NULL) {
+  if (fps_font == 0) {
     fprintf(stderr, "Failed to create fps font\n");
     return 1;
   }
@@ -237,17 +213,14 @@ int main(void) {
   FigSiwinAppRef app = figdraw_new_fig_siwin_app_binding(
       800, 600, "Siwin RenderList (C Shared Lib)", 512, 1.0f,
       0, 1, 0, 1, 0, 0);
-  if (check_figdraw_error("figdraw_new_fig_siwin_app_binding") || app == NULL) {
+  if (check_figdraw_error("figdraw_new_fig_siwin_app_binding") || app == 0) {
     return 1;
   }
 
-  char *backend = buffer_to_string(figdraw_fig_siwin_app_ref_siwin_backend_name(app));
-  char *display =
-      buffer_to_string(figdraw_fig_siwin_app_ref_siwin_display_server_name(app));
+  const char *backend = figdraw_fig_siwin_app_ref_siwin_backend_name(app);
+  const char *display = figdraw_fig_siwin_app_ref_siwin_display_server_name(app);
   printf("backend=%s display=%s\n", backend != NULL ? backend : "",
          display != NULL ? display : "");
-  free(backend);
-  free(display);
 
   figdraw_fig_siwin_app_ref_siwin_first_step(app);
   if (check_figdraw_error("figdraw_fig_siwin_app_ref_siwin_first_step")) {
@@ -255,7 +228,7 @@ int main(void) {
   }
 
   Renders renders = figdraw_new_renders();
-  if (renders == NULL) {
+  if (renders == 0) {
     fprintf(stderr, "Failed to create renders\n");
     return 1;
   }
@@ -324,7 +297,7 @@ int main(void) {
     if (check_figdraw_error("figdraw_typeset_text_binding")) {
       return 1;
     }
-    if (fps_layout != NULL) {
+    if (fps_layout != 0) {
       FigRef hud_text = figdraw_new_text_fig(text_x, text_y, text_w, text_h);
       figdraw_fig_ref_set_fill_color_rgba(hud_text, (ColorRGBA){0, 0, 0, 0});
       figdraw_set_fig_text_layout_binding(hud_text, fps_layout);

@@ -1,4 +1,4 @@
-version       = "0.24.3"
+version       = "0.25.0"
 author        = "Jaremy Creechley"
 description   = "UI Engine for Nim"
 license       = "MIT"
@@ -25,24 +25,21 @@ when defined(macosx):
 when defined(linux) or defined(bsd) or defined(windows):
   requires "https://github.com/planetis-m/vulkan#b223dc9"
 
+feature "harfbuzz":
+  requires "gh:elcritch/harfbuzzy >= 0.2.2"
 feature "lottie":
   requires "jsony"
-
 feature "sdl2":
   requires "sdl2"
-
 feature "windy":
   requires "windy"
 feature "surfer":
   requires "https://github.com/nim-windowing/surfer"
 feature "siwin":
   requires "siwin >= 1.0.1"
-
 feature "vulkan":
   requires "https://github.com/planetis-m/vulkan#b223dc9"
 feature "metal":
   requires "https://github.com/elcritch/metalx#head"
-
 feature "sharedlib":
-  requires "genny#head"
-
+  requires "gh:treeform/genny#81d9659"
