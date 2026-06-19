@@ -73,6 +73,9 @@ func intersectRects(a, b: Rect): Rect =
     return rect(x0, y0, 0.0'f32, 0.0'f32)
   rect(x0, y0, x1 - x0, y1 - y0)
 
+func offsetRect(r: Rect, offset: Vec2): Rect =
+  rect(r.x + offset.x, r.y + offset.y, r.w, r.h)
+
 func hasRoundedCorners(node: Fig): bool =
   for radius in node.corners:
     if radius != 0'u16:
@@ -121,6 +124,7 @@ proc collectDebugFigs(
     nodeIdx: FigIdx,
     hasClip: bool,
     clipBounds: Rect,
+    translation: Vec2,
     parentApproximate: bool,
     result: var seq[DebugFig],
 ) =
@@ -129,9 +133,13 @@ proc collectDebugFigs(
 
   let node = list.nodes[nodeIdx.int]
   let location = FigLocation(zlevel: zlevel, index: nodeIdx)
+  var nodeTranslation = translation
+  if node.kind == nkTransform:
+    nodeTranslation += node.transform.translation
+  let effectiveBox = node.screenBox.offsetRect(nodeTranslation)
   if NfDisableRender in node.flags:
     result.add DebugFig(
-      hit: FigHit(location: location, node: node, bounds: node.screenBox),
+      hit: FigHit(location: location, node: node, bounds: effectiveBox),
       disabled: true,
     )
     return
@@ -147,22 +155,22 @@ proc collectDebugFigs(
 
   if nodeClips:
     if nextHasClip:
-      nextClip = intersectRects(nextClip, node.screenBox)
+      nextClip = intersectRects(nextClip, effectiveBox)
     else:
-      nextClip = node.screenBox
+      nextClip = effectiveBox
     nextHasClip = true
 
   let clipped =
     if nextHasClip:
-      intersectRects(node.screenBox, nextClip)
+      intersectRects(effectiveBox, nextClip)
     else:
-      node.screenBox
+      effectiveBox
 
   result.add DebugFig(
     hit: FigHit(
       location: location,
       node: node,
-      bounds: node.screenBox,
+      bounds: effectiveBox,
       hasClipBounds: nextHasClip,
       clipBounds: nextClip,
       clippedBounds: clipped,
@@ -176,7 +184,8 @@ proc collectDebugFigs(
   while childIdx < list.nodes.len and foundChildren < node.childCount.int:
     if list.nodes[childIdx].childOf(nodeIdx):
       collectDebugFigs(
-        list, zlevel, childIdx.FigIdx, nextHasClip, nextClip, approximate, result
+        list, zlevel, childIdx.FigIdx, nextHasClip, nextClip, nodeTranslation,
+        approximate, result
       )
       inc foundChildren
     inc childIdx
@@ -193,6 +202,7 @@ proc collectDebugFigs*(list: RenderList, zlevel: ZLevel = 0.ZLevel): seq[FigHit]
       rootIdx,
       hasClip = false,
       clipBounds = rect(0, 0, 0, 0),
+      translation = vec2(0, 0),
       parentApproximate = false,
       debugFigs,
     )
@@ -231,6 +241,7 @@ proc figVisibility*(renders: Renders, location: FigLocation): FigVisibility =
         rootIdx,
         hasClip = false,
         clipBounds = rect(0, 0, 0, 0),
+        translation = vec2(0, 0),
         parentApproximate = false,
         debugFigs,
       )
