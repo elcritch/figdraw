@@ -41,13 +41,6 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
           xvfb \
-          xwayland \
-          wayland-protocols \
-          libwayland-dev \
-          libwayland-client0 \
-          libwayland-cursor0 \
-          libwayland-egl1 \
-          libwayland-egl-backend-dev \
           libx11-xcb-dev \
           libxcb1-dev \
           libxcursor-dev \
@@ -72,18 +65,13 @@ jobs:
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
           weston \
-          xwayland \
           wayland-protocols \
           libwayland-dev \
           libwayland-client0 \
           libwayland-cursor0 \
           libwayland-egl1 \
           libwayland-egl-backend-dev \
-          libx11-xcb-dev \
-          libxcb1-dev \
-          libxcursor-dev \
           libxkbcommon-dev \
-          libxrender-dev \
           libgl1-mesa-dev \
           libgles2-mesa-dev \
           libegl1-mesa-dev \
@@ -104,7 +92,13 @@ jobs:
           pkg-config \
           libharfbuzz-dev \
           libfribidi-dev
-        pkg-config --cflags --libs harfbuzz fribidi x11-xcb xcb xcursor xkbcommon xrender wayland-client wayland-egl wayland-egl-backend gl glesv2 egl
+        pkg-config --cflags --libs harfbuzz fribidi gl glesv2 egl
+
+        if [[ "${{ matrix.display }}" == "x11" ]]; then
+          pkg-config --cflags --libs x11-xcb xcb xcursor xkbcommon xrender
+        elif [[ "${{ matrix.display }}" == "wayland" ]]; then
+          pkg-config --cflags --libs wayland-client wayland-egl wayland-egl-backend xkbcommon
+        fi
 
     - name: Vulkan diagnostics
       if: runner.os == 'Linux'
@@ -190,7 +184,6 @@ jobs:
 
         weston --backend=headless-backend.so \
                --renderer=pixman \
-               --xwayland \
                --socket="${WAYLAND_DISPLAY}" \
                --idle-time=0 \
                --log="${RUNNER_TEMP}/weston.log" &
