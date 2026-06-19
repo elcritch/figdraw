@@ -26,15 +26,22 @@ when defined(linux):
   # source: painful amounts of trial and error
   const
     XorgDependencies = "x11-xcb xcb xcursor xkbcommon xrender"
-    AuxDependencies = "gl"
+    WaylandDependencies = "wayland-client wayland-egl"
+    AuxDependencies = "gl glesv2 egl"
 
   switch(
     "passC",
-    gorgeEx(&"pkg-config --cflags {XorgDependencies} {AuxDependencies}").output.strip(),
+    gorgeEx(
+      &"pkg-config --cflags {XorgDependencies} {WaylandDependencies} {AuxDependencies}"
+    ).output
+      .strip(),
   )
   switch(
     "passL",
-    gorgeEx(&"pkg-config --libs {XorgDependencies} {AuxDependencies}").output.strip(),
+    gorgeEx(
+      &"pkg-config --libs {XorgDependencies} {WaylandDependencies} {AuxDependencies}"
+    ).output
+      .strip(),
   )
 
 proc nimExec(subcmd, file: string, extraFlags = "", platform = "") =
