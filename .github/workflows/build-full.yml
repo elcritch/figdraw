@@ -8,39 +8,35 @@ on:
 
 
 jobs:
-  tests:
-    runs-on: ${{ matrix.os }}
+  linux-x11:
+    name: Linux X11
+    runs-on: ubuntu-24.04
     defaults:
       run:
         shell: bash
-    strategy:
-      matrix:
-        nimversion:
-          - '2.2.10'
-        os:
-          - ubuntu-24.04
-          - macos-14
-          - windows-2022
     steps:
     - uses: actions/checkout@v1
 
-    - name: Setup software OpenGL/Vulkan (Mesa) + Weston (Wayland)
-      if: runner.os == 'Linux'
+    - name: Setup software OpenGL/Vulkan (Mesa) + Xvfb (X11)
       timeout-minutes: 15
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-          weston \
+          xvfb \
           xwayland \
           wayland-protocols \
           libwayland-dev \
-          libegl1-mesa-dev \
           libwayland-client0 \
           libwayland-cursor0 \
           libwayland-egl1 \
-          libxkbcommon0 \
-          libxrender1 \
+          libx11-xcb-dev \
+          libxcb1-dev \
+          libxcursor-dev \
+          libxkbcommon-dev \
           libxrender-dev \
+          libgl1-mesa-dev \
+          libgles2-mesa-dev \
+          libegl1-mesa-dev \
           mesa-utils \
           vulkan-tools \
           mesa-vulkan-drivers \
@@ -51,20 +47,231 @@ jobs:
           libgles2
 
     - name: Install Linux text shaping dependencies
-      if: runner.os == 'Linux'
       timeout-minutes: 5
       run: |
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
           pkg-config \
           libharfbuzz-dev \
           libfribidi-dev
-        pkg-config --cflags --libs harfbuzz
+        pkg-config --cflags --libs harfbuzz fribidi x11-xcb xcb xcursor xkbcommon xrender wayland-client wayland-egl gl glesv2 egl
 
     - name: Vulkan diagnostics
-      if: runner.os == 'Linux'
       run: |
         ls -la /usr/share/vulkan/icd.d || true
         vulkaninfo --summary || true
+
+    - name: Install GrabNim
+      run: |
+        curl -fsSL https://codeberg.org/janAkali/grabnim/raw/branch/master/misc/install.sh | sh
+        echo "$HOME/.local/share/grabnim/current/bin" >> $GITHUB_PATH
+        echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+
+    - name: Install Nim
+      run: |
+        grabnim 2.2.10
+        nim -v
+
+    - name: Install Atlas
+      run: curl -fsSL https://raw.githubusercontent.com/nim-lang/atlas/HEAD/install.sh | bash -
+
+    - name: Versions
+      run: |
+        echo "Nim:: "
+        nim -v
+        echo "Nimble:: "
+        atlas -v
+
+    - name: Cache packages
+      uses: actions/cache@v3
+      with:
+        path: deps/
+        key: linux-x11-${{ hashFiles('figdraw.nimble') }}
+
+    - name: Install Deps
+      run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib,harfbuzz,surfer
+
+    - name: Build Bindings
+      run: |
+        nim bindings
+        nim c examples/siwin_shared.nim
+
+    - name: Build Tests
+      env:
+        XDG_SESSION_TYPE: "x11"
+        GALLIUM_DRIVER: "llvmpipe"
+        LIBGL_ALWAYS_SOFTWARE: "1"
+        MESA_GL_VERSION_OVERRIDE: "3.3"
+        MESA_GLSL_VERSION_OVERRIDE: "330"
+      run: |
+        xvfb-run -a nim test
+
+    - name: Build Tests (Vulkan Compile Check)
+      env:
+        NIMFLAGS: "-d:figdraw.opengl=off -d:figdraw.vulkan=on"
+      run: |
+        nim test_compile
+
+    - name: Upload Test Output (on failure)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: tests-output-linux-x11
+        path: |
+          tests/output/
+        if-no-files-found: ignore
+
+  linux-wayland:
+    name: Linux Wayland
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/checkout@v1
+
+    - name: Setup software OpenGL/Vulkan (Mesa) + Weston (Wayland)
+      timeout-minutes: 15
+      run: |
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          weston \
+          xwayland \
+          wayland-protocols \
+          libwayland-dev \
+          libwayland-client0 \
+          libwayland-cursor0 \
+          libwayland-egl1 \
+          libx11-xcb-dev \
+          libxcb1-dev \
+          libxcursor-dev \
+          libxkbcommon-dev \
+          libxrender-dev \
+          libgl1-mesa-dev \
+          libgles2-mesa-dev \
+          libegl1-mesa-dev \
+          mesa-utils \
+          vulkan-tools \
+          mesa-vulkan-drivers \
+          libvulkan1 \
+          libgl1-mesa-dri \
+          libglx-mesa0 \
+          libegl-mesa0 \
+          libgles2
+
+    - name: Install Linux text shaping dependencies
+      timeout-minutes: 5
+      run: |
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          pkg-config \
+          libharfbuzz-dev \
+          libfribidi-dev
+        pkg-config --cflags --libs harfbuzz fribidi x11-xcb xcb xcursor xkbcommon xrender wayland-client wayland-egl gl glesv2 egl
+
+    - name: Vulkan diagnostics
+      run: |
+        ls -la /usr/share/vulkan/icd.d || true
+        vulkaninfo --summary || true
+
+    - name: Install GrabNim
+      run: |
+        curl -fsSL https://codeberg.org/janAkali/grabnim/raw/branch/master/misc/install.sh | sh
+        echo "$HOME/.local/share/grabnim/current/bin" >> $GITHUB_PATH
+        echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+
+    - name: Install Nim
+      run: |
+        grabnim 2.2.10
+        nim -v
+
+    - name: Install Atlas
+      run: curl -fsSL https://raw.githubusercontent.com/nim-lang/atlas/HEAD/install.sh | bash -
+
+    - name: Versions
+      run: |
+        echo "Nim:: "
+        nim -v
+        echo "Nimble:: "
+        atlas -v
+
+    - name: Cache packages
+      uses: actions/cache@v3
+      with:
+        path: deps/
+        key: linux-wayland-${{ hashFiles('figdraw.nimble') }}
+
+    - name: Install Deps
+      run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib,harfbuzz,surfer
+
+    - name: Build Surfer Examples
+      run: |
+        nim c examples/surfer_text.nim
+        nim c examples/surfer_text_shaping_demo.nim
+
+    - name: Build Tests
+      env:
+        XDG_SESSION_TYPE: "wayland"
+        WAYLAND_DISPLAY: "wayland-1"
+        GALLIUM_DRIVER: "llvmpipe"
+        LIBGL_ALWAYS_SOFTWARE: "1"
+        MESA_GL_VERSION_OVERRIDE: "3.3"
+        MESA_GLSL_VERSION_OVERRIDE: "330"
+        VK_ICD_FILENAMES: "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+        VK_DRIVER_FILES: "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+      run: |
+        export XDG_RUNTIME_DIR="${RUNNER_TEMP}/xdg-runtime"
+        mkdir -p "${XDG_RUNTIME_DIR}"
+        chmod 700 "${XDG_RUNTIME_DIR}"
+
+        weston --backend=headless-backend.so \
+               --renderer=pixman \
+               --xwayland \
+               --socket="${WAYLAND_DISPLAY}" \
+               --idle-time=0 \
+               --log="${RUNNER_TEMP}/weston.log" &
+        WESTON_PID=$!
+        trap 'kill ${WESTON_PID} || true; wait ${WESTON_PID} || true' EXIT
+
+        for _ in $(seq 1 50); do
+          if [[ -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ]]; then
+            break
+          fi
+          sleep 0.1
+        done
+        [[ -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ]] || (cat "${RUNNER_TEMP}/weston.log" && exit 1)
+
+        vulkaninfo --summary || true
+        nim test
+
+    - name: Build Tests (Vulkan Compile Check)
+      env:
+        NIMFLAGS: "-d:figdraw.opengl=off -d:figdraw.vulkan=on"
+      run: |
+        nim test_compile
+
+    - name: Upload Test Output (on failure)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: tests-output-linux-wayland
+        path: |
+          tests/output/
+          ${{ runner.temp }}/weston.log
+        if-no-files-found: ignore
+
+  tests:
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      matrix:
+        nimversion:
+          - '2.2.10'
+        os:
+          - macos-14
+          - windows-2022
+    steps:
+    - uses: actions/checkout@v1
 
     - name: Install GrabNim
       if: runner.os != 'Windows'
@@ -104,54 +311,6 @@ jobs:
     - name: Install Deps
       run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib,harfbuzz
 
-    - name: Build Bindings
-      run: |
-        nim bindings
-        nim c examples/siwin_shared.nim
-
-    - name: Build Tests
-      if: runner.os == 'Linux'
-      env:
-        XDG_SESSION_TYPE: "wayland"
-        WAYLAND_DISPLAY: "wayland-1"
-        GALLIUM_DRIVER: "llvmpipe"
-        LIBGL_ALWAYS_SOFTWARE: "1"
-        MESA_GL_VERSION_OVERRIDE: "3.3"
-        MESA_GLSL_VERSION_OVERRIDE: "330"
-        VK_ICD_FILENAMES: "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
-        VK_DRIVER_FILES: "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
-      run: |
-        export XDG_RUNTIME_DIR="${RUNNER_TEMP}/xdg-runtime"
-        mkdir -p "${XDG_RUNTIME_DIR}"
-        chmod 700 "${XDG_RUNTIME_DIR}"
-
-        weston --backend=headless-backend.so \
-               --renderer=pixman \
-               --xwayland \
-               --socket="${WAYLAND_DISPLAY}" \
-               --idle-time=0 \
-               --log="${RUNNER_TEMP}/weston.log" &
-        WESTON_PID=$!
-        trap 'kill ${WESTON_PID} || true; wait ${WESTON_PID} || true' EXIT
-
-        for _ in $(seq 1 50); do
-          if [[ -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ]]; then
-            break
-          fi
-          sleep 0.1
-        done
-        [[ -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ]] || (cat "${RUNNER_TEMP}/weston.log" && exit 1)
-
-        vulkaninfo --summary || true
-        nim test
-
-    - name: Build Tests (Vulkan Compile Check)
-      if: runner.os == 'Linux'
-      env:
-        NIMFLAGS: "-d:figdraw.opengl=off -d:figdraw.vulkan=on"
-      run: |
-        nim test_compile
-
     - name: Build Tests
       if: runner.os == 'macOS'
       run: |
@@ -178,5 +337,4 @@ jobs:
         name: tests-output-${{ runner.os }}-nim${{ matrix.nimversion }}
         path: |
           tests/output/
-          ${{ runner.temp }}/weston.log
         if-no-files-found: ignore
