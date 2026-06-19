@@ -21,11 +21,51 @@ jobs:
           - ubuntu-24.04
           - macos-14
           - windows-2022
+        display:
+          - none
+        exclude:
+          - os: ubuntu-24.04
+            display: none
+        include:
+          - os: ubuntu-24.04
+            display: x11
+          - os: ubuntu-24.04
+            display: wayland
     steps:
     - uses: actions/checkout@v1
 
+    - name: Setup software OpenGL/Vulkan (Mesa) + Xvfb (X11)
+      if: runner.os == 'Linux' && matrix.display == 'x11'
+      timeout-minutes: 15
+      run: |
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          xvfb \
+          xwayland \
+          wayland-protocols \
+          libwayland-dev \
+          libwayland-client0 \
+          libwayland-cursor0 \
+          libwayland-egl1 \
+          libx11-xcb-dev \
+          libxcb1-dev \
+          libxcursor-dev \
+          libxkbcommon-dev \
+          libxrender-dev \
+          libgl1-mesa-dev \
+          libgles2-mesa-dev \
+          libegl1-mesa-dev \
+          mesa-utils \
+          vulkan-tools \
+          mesa-vulkan-drivers \
+          libvulkan1 \
+          libgl1-mesa-dri \
+          libglx-mesa0 \
+          libegl-mesa0 \
+          libgles2
+
     - name: Setup software OpenGL/Vulkan (Mesa) + Weston (Wayland)
-      if: runner.os == 'Linux'
+      if: runner.os == 'Linux' && matrix.display == 'wayland'
       timeout-minutes: 15
       run: |
         sudo apt-get update
@@ -34,7 +74,6 @@ jobs:
           xwayland \
           wayland-protocols \
           libwayland-dev \
-          libegl1-mesa-dev \
           libwayland-client0 \
           libwayland-cursor0 \
           libwayland-egl1 \
@@ -42,9 +81,10 @@ jobs:
           libxcb1-dev \
           libxcursor-dev \
           libxkbcommon-dev \
-          libxkbcommon0 \
-          libxrender1 \
           libxrender-dev \
+          libgl1-mesa-dev \
+          libgles2-mesa-dev \
+          libegl1-mesa-dev \
           mesa-utils \
           vulkan-tools \
           mesa-vulkan-drivers \
@@ -103,18 +143,35 @@ jobs:
       uses: actions/cache@v3
       with:
         path: deps/
-        key: ${{ runner.os }}-${{ hashFiles('figdraw.nimble') }}
+        key: ${{ runner.os }}-${{ matrix.display }}-${{ hashFiles('figdraw.nimble') }}
 
     - name: Install Deps
-      run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib,harfbuzz
+      run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib,harfbuzz,surfer
 
     - name: Build Bindings
       run: |
         nim bindings
         nim c examples/siwin_shared.nim
 
+    - name: Build Surfer Examples
+      if: runner.os == 'Linux' && matrix.display == 'wayland'
+      run: |
+        nim c examples/surfer_text.nim
+        nim c examples/surfer_text_shaping_demo.nim
+
     - name: Build Tests
-      if: runner.os == 'Linux'
+      if: runner.os == 'Linux' && matrix.display == 'x11'
+      env:
+        XDG_SESSION_TYPE: "x11"
+        GALLIUM_DRIVER: "llvmpipe"
+        LIBGL_ALWAYS_SOFTWARE: "1"
+        MESA_GL_VERSION_OVERRIDE: "3.3"
+        MESA_GLSL_VERSION_OVERRIDE: "330"
+      run: |
+        xvfb-run -a nim test
+
+    - name: Build Tests
+      if: runner.os == 'Linux' && matrix.display == 'wayland'
       env:
         XDG_SESSION_TYPE: "wayland"
         WAYLAND_DISPLAY: "wayland-1"
@@ -149,13 +206,6 @@ jobs:
         vulkaninfo --summary || true
         nim test
 
-    - name: Build Tests (Vulkan Compile Check)
-      if: runner.os == 'Linux'
-      env:
-        NIMFLAGS: "-d:figdraw.opengl=off -d:figdraw.vulkan=on"
-      run: |
-        nim test_compile
-
     - name: Build Tests
       if: runner.os == 'macOS'
       run: |
@@ -169,7 +219,7 @@ jobs:
         nim test
 
     - name: Build Tests (Vulkan Compile Check)
-      if: runner.os == 'Windows'
+      if: runner.os == 'Linux' || runner.os == 'Windows'
       env:
         NIMFLAGS: "-d:figdraw.opengl=off -d:figdraw.vulkan=on"
       run: |
@@ -179,7 +229,7 @@ jobs:
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: tests-output-${{ runner.os }}-nim${{ matrix.nimversion }}
+        name: tests-output-${{ runner.os }}-${{ matrix.display }}-nim${{ matrix.nimversion }}
         path: |
           tests/output/
           ${{ runner.temp }}/weston.log
