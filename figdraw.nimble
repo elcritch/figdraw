@@ -36,7 +36,7 @@ feature "windy":
 feature "surfer":
   requires "surfer >= 0.2.5"
   requires "xkb#b4d50f4cccad1cd9e39d2f5a5e1fef2710edcc31"
-    # TODO: Put this in surfer's manifest.
+  # TODO: Put this in surfer's manifest.
 feature "siwin":
   requires "siwin >= 1.0.1"
 feature "vulkan":
