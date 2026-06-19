@@ -48,7 +48,7 @@ when defined(linux):
   # source: painful amounts of trial and error
   const
     XorgDependencies = "x11-xcb xcb xcursor xkbcommon xrender"
-    WaylandDependencies = "wayland-client wayland-egl"
+    WaylandDependencies = "wayland-client wayland-egl wayland-egl-backend"
     AuxDependencies = "gl glesv2 egl"
 
   let linuxCflags =

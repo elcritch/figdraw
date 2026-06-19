@@ -47,6 +47,7 @@ jobs:
           libwayland-client0 \
           libwayland-cursor0 \
           libwayland-egl1 \
+          libwayland-egl-backend-dev \
           libx11-xcb-dev \
           libxcb1-dev \
           libxcursor-dev \
@@ -77,6 +78,7 @@ jobs:
           libwayland-client0 \
           libwayland-cursor0 \
           libwayland-egl1 \
+          libwayland-egl-backend-dev \
           libx11-xcb-dev \
           libxcb1-dev \
           libxcursor-dev \
@@ -102,7 +104,7 @@ jobs:
           pkg-config \
           libharfbuzz-dev \
           libfribidi-dev
-        pkg-config --cflags --libs harfbuzz fribidi x11-xcb xcb xcursor xkbcommon xrender wayland-client wayland-egl gl glesv2 egl
+        pkg-config --cflags --libs harfbuzz fribidi x11-xcb xcb xcursor xkbcommon xrender wayland-client wayland-egl wayland-egl-backend gl glesv2 egl
 
     - name: Vulkan diagnostics
       if: runner.os == 'Linux'
