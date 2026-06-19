@@ -12,6 +12,8 @@ mkShell {
     libxkbcommon
     libxrender
     libGL
+
+    harfbuzz
   ];
 
   LD_LIBRARY_PATH = lib.makeLibraryPath [
@@ -23,5 +25,6 @@ mkShell {
     libxrender.dev
     libxkbcommon.dev
     libGL.dev
+    harfbuzz.dev
   ];
 }
