@@ -76,12 +76,19 @@ proc platforms(): seq[string] =
       sessionType = getEnv("XDG_SESSION_TYPE").toLowerAscii()
       hasWaylandDisplay = getEnv("WAYLAND_DISPLAY").len != 0
       hasX11Display = getEnv("DISPLAY").len != 0
-    if hasWaylandDisplay or sessionType == "wayland":
+    if sessionType == "wayland":
       result.add "XDG_SESSION_TYPE=wayland FIGDRAW_FORCE_OPENGL=0 "
       result.add "XDG_SESSION_TYPE=wayland FIGDRAW_FORCE_OPENGL=1 "
-    if hasX11Display or sessionType == "x11":
+    elif sessionType == "x11":
       result.add "XDG_SESSION_TYPE=x11 FIGDRAW_FORCE_OPENGL=0 "
       result.add "XDG_SESSION_TYPE=x11 FIGDRAW_FORCE_OPENGL=1 "
+    else:
+      if hasWaylandDisplay:
+        result.add "XDG_SESSION_TYPE=wayland FIGDRAW_FORCE_OPENGL=0 "
+        result.add "XDG_SESSION_TYPE=wayland FIGDRAW_FORCE_OPENGL=1 "
+      if hasX11Display:
+        result.add "XDG_SESSION_TYPE=x11 FIGDRAW_FORCE_OPENGL=0 "
+        result.add "XDG_SESSION_TYPE=x11 FIGDRAW_FORCE_OPENGL=1 "
   else:
     @[""]
 
