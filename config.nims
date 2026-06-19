@@ -1,9 +1,13 @@
---nimcache:".nimcache/"
---passc:"-Wno-incompatible-function-pointer-types"
---define:useMalloc
---define:release
+--nimcache:
+  ".nimcache/"
+--passc:
+  "-Wno-incompatible-function-pointer-types"
+--define:
+  useMalloc
+--define:
+  release
 
-import std/strutils
+import std/[strformat, strutils]
 import std/os
 
 when defined(macosx) and defined(figdraw.moltenvkBrew):
@@ -11,6 +15,38 @@ when defined(macosx) and defined(figdraw.moltenvkBrew):
   if moltenVkPrefix.len == 0:
     quit "figdraw.moltenvkBrew requires Homebrew molten-vk"
   switch("passL", "-Wl,-rpath," & moltenVkPrefix & "/lib")
+
+when defined(linux):
+  # Optional deps
+  when defined(figdraw.vulkan):
+    switch("passC", gorgeEx("pkg-config --cflags vulkan").output.strip())
+    switch("passL", gorgeEx("pkg-config --libs vulkan").output.strip())
+
+  when defined(figdraw.harfbuzz):
+    switch("passC", gorgeEx("pkg-config --cflags harfbuzz fribidi").output.strip())
+    switch("passL", gorgeEx("pkg-config --libs harfbuzz fribidi").output.strip())
+
+  # Deps that figdraw absolutely needs to even compile
+  # source: painful amounts of trial and error
+  const
+    XorgDependencies = "x11-xcb xcb xcursor xkbcommon xrender"
+    WaylandDependencies = "wayland-client wayland-egl"
+    AuxDependencies = "gl glesv2 egl"
+
+  switch(
+    "passC",
+    gorgeEx(
+      &"pkg-config --cflags {XorgDependencies} {WaylandDependencies} {AuxDependencies}"
+    ).output
+      .strip(),
+  )
+  switch(
+    "passL",
+    gorgeEx(
+      &"pkg-config --libs {XorgDependencies} {WaylandDependencies} {AuxDependencies}"
+    ).output
+      .strip(),
+  )
 
 proc nimExec(subcmd, file: string, extraFlags = "", platform = "") =
   let nimFlags = getEnv("NIMFLAGS").strip()
@@ -42,7 +78,8 @@ task test, "run unit test":
     getEnv("FIGDRAW_TEST_SDL2").strip().toLowerAscii() in ["1", "true", "yes", "on"]
 
   for platformArg in platforms():
-    if platformArg != "": echo "Running platform args: ", platformArg
+    if platformArg != "":
+      echo "Running platform args: ", platformArg
     for file in listFiles("tests"):
       if file.startsWith("tests/t") and file.endsWith(".nim"):
         nimExec("r", file, platform = platformArg)
@@ -70,8 +107,7 @@ task test_emscripten, "build emscripten examples":
 
 task bindings, "Generate bindings":
   proc compile(libName: string, flags = "") =
-    exec "nim c -f " & flags &
-      " --path:src -d:release " &
+    exec "nim c -f " & flags & " --path:src -d:release " &
       " -d:gennyNim -d:gennyC -d:gennyPython " &
       " --app:lib --gc:arc --tlsEmulation:off --out:" & libName &
       " --outdir:src/figdraw/bindings/generated src/figdraw/bindings/bindings.nim"

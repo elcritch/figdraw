@@ -1,0 +1,460 @@
+when defined(emscripten):
+  {.error: "Surfer does not support WASM.".}
+
+import std/[os, options, times, unicode, strutils]
+import chroma
+import pkg/pixie/fonts
+
+import figdraw/windowing/surfershim
+import figdraw/commons
+import figdraw/fignodes
+import figdraw/figrender
+
+import pkg/surfer/app
+
+when not UseVulkanBackend:
+  {.error: "Surfer onlysupports the Vulkan backend for now.".}
+
+const FontName {.strdefine: "figdraw.defaultfont".}: string = "Ubuntu.ttf"
+const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
+const MonoFontSize = 12.0'f32
+
+type TextSubpixelMode = enum
+  tsmOff
+  tsmUvShift
+  tsmGlyphVariants
+
+proc subpixelModeDescription(mode: TextSubpixelMode): string =
+  case mode
+  of tsmOff: "off"
+  of tsmUvShift: "uv shift"
+  of tsmGlyphVariants: "glyph variants"
+
+proc textStatusLine(mode: TextSubpixelMode, lcdFilteringEnabled: bool): string =
+  let lcdMode = if lcdFilteringEnabled: "on" else: "off"
+  "LCD: " & lcdMode & ", subpixel: " & subpixelModeDescription(mode)
+
+proc applyTextSampling[BackendState](
+    renderer: FigRenderer[BackendState],
+    mode: TextSubpixelMode,
+    lcdFilteringEnabled: bool,
+) =
+  renderer.setTextLcdFiltering(lcdFilteringEnabled)
+  case mode
+  of tsmOff:
+    renderer.setTextSubpixelPositioning(false)
+    renderer.setTextSubpixelGlyphVariants(false)
+  of tsmUvShift:
+    renderer.setTextSubpixelPositioning(true)
+    renderer.setTextSubpixelGlyphVariants(false)
+  of tsmGlyphVariants:
+    renderer.setTextSubpixelPositioning(true)
+    renderer.setTextSubpixelGlyphVariants(true)
+
+proc detectTextSubpixelMode[BackendState](
+    renderer: FigRenderer[BackendState]
+): TextSubpixelMode =
+  let
+    subpixel = renderer.textSubpixelPositioning()
+    glyphVariants = renderer.textSubpixelGlyphVariants()
+  if subpixel:
+    if glyphVariants:
+      return tsmGlyphVariants
+    return tsmUvShift
+  tsmOff
+
+proc detectLcdFilteringEnabled[BackendState](
+    renderer: FigRenderer[BackendState]
+): bool =
+  renderer.textLcdFiltering()
+
+proc findPhraseRange(text, phrase: string): Slice[int16] =
+  let startByte = text.find(phrase)
+  if startByte < 0:
+    return 0'i16 .. -1'i16
+  let endByte = startByte + phrase.len
+  var startRune = 0
+  var endRune = -1
+  var runeIdx = 0
+  var byteIdx = 0
+  while byteIdx < text.len:
+    if byteIdx == startByte:
+      startRune = runeIdx
+    if byteIdx < endByte:
+      endRune = runeIdx
+    else:
+      break
+    byteIdx += runeLenAt(text, byteIdx)
+    runeIdx.inc
+  result = startRune.int16 .. endRune.int16
+
+proc buildBodyTextLayout*(
+    uiFont: FigFont, textRect: Rect, modeLine: string
+): tuple[layout: GlyphArrangement, highlightRange: Slice[int16]] =
+  let text =
+    "Mode: " & modeLine & " (G/U/V: subpixel, L: LCD)\n\n" & "FigDraw text demo\n\n" &
+    "This example uses `src/figdraw/common/fontutils.nim` typesetting + glyph caching,\n" &
+    "then renders glyph atlas sprites via the active renderer backend.\n"
+  let highlightRange = findPhraseRange(text, "renders glyph atlas sprites")
+  let bodyFill = rgba(20, 20, 20, 255)
+  let accentFill = linear(rgba(255, 120, 66, 255), rgba(72, 197, 255, 255), axis = fgaY)
+  let accentToken = "renderer backend"
+  let accentIdx = text.find(accentToken)
+  var spans: seq[(FontStyle, string)]
+  if accentIdx >= 0:
+    let prefix = text[0 ..< accentIdx]
+    let suffix = text[accentIdx + accentToken.len .. ^1]
+    if prefix.len > 0:
+      spans.add(span(uiFont, bodyFill, prefix))
+    spans.add(span(uiFont, accentFill, accentToken))
+    if suffix.len > 0:
+      spans.add(span(uiFont, bodyFill, suffix))
+  else:
+    spans = @[span(uiFont, bodyFill, text)]
+  result.layout = typeset(
+    rect(0, 0, textRect.w, textRect.h),
+    spans,
+    hAlign = Left,
+    vAlign = Top,
+    minContent = false,
+    wrap = true,
+  )
+  result.highlightRange = highlightRange
+
+proc buildMonoWordLayouts*(
+    monoFont: FigFont, monoText: string, pad: float32, colors: openArray[Fill]
+): seq[GlyphArrangement] =
+  let (_, monoPx) = monoFont.convertFont()
+  let monoLineHeight =
+    (if monoPx.lineHeight >= 0: monoPx.lineHeight
+    else: monoPx.defaultLineHeight())
+  let monoAdvance = (monoPx.typeface.getAdvance(Rune('M')) * monoPx.scale)
+  let colorsSeq = @colors
+
+  var x = pad
+  var y = pad
+  var wordIdx = 0
+  var glyphs: seq[(Rune, Vec2)]
+  var layouts: seq[GlyphArrangement]
+  proc flushWord(
+      glyphs: var seq[(Rune, Vec2)],
+      layouts: var seq[GlyphArrangement],
+      monoFont: FigFont,
+      colors: seq[Fill],
+      wordIdx: var int,
+  ) =
+    if glyphs.len == 0:
+      return
+    let wordColor =
+      if colors.len > 0:
+        colors[wordIdx mod colors.len]
+      else:
+        fill(rgba(0, 0, 0, 255))
+    layouts.add(placeGlyphs(fs(monoFont, wordColor), glyphs, origin = GlyphTopLeft))
+    wordIdx.inc
+    glyphs.setLen(0)
+
+  for rune in monoText.runes:
+    if rune == Rune(10):
+      flushWord(glyphs, layouts, monoFont, colorsSeq, wordIdx)
+      x = pad
+      y += monoLineHeight
+      continue
+    if rune == Rune(32):
+      flushWord(glyphs, layouts, monoFont, colorsSeq, wordIdx)
+      x += monoAdvance
+      continue
+    glyphs.add((rune, vec2(x, y)))
+    x += monoAdvance
+
+  flushWord(glyphs, layouts, monoFont, colorsSeq, wordIdx)
+  result = layouts
+
+proc makeRenderTree*(
+    w, h: float32, uiFont, monoFont: FigFont, modeLine: string
+): Renders =
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  let z = 0.ZLevel
+
+  let rootIdx = result.addRoot(
+    z,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: z,
+      screenBox: rect(0, 0, w, h),
+      fill: rgba(245, 245, 245, 255),
+    ),
+  )
+
+  let pad = 40'f32
+  let cardRect = rect(pad, pad, w - pad * 2, h - pad * 2)
+  let cardIdx = result.addChild(
+    z,
+    rootIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: z,
+      screenBox: cardRect,
+      fill: rgba(255, 255, 255, 255),
+      stroke: RenderStroke(weight: 2.0, fill: rgba(0, 0, 0, 25).color),
+      corners: [16.0'f32, 16.0, 16.0, 16.0],
+      shadows: [
+        RenderShadow(
+          style: DropShadow,
+          blur: 24,
+          spread: 0,
+          x: 0,
+          y: 8,
+          fill: rgba(0, 0, 0, 30).color,
+        ),
+        RenderShadow(),
+        RenderShadow(),
+        RenderShadow(),
+      ],
+    ),
+  )
+
+  let textPad = 28'f32
+  let innerRect = rect(
+    cardRect.x + textPad,
+    cardRect.y + textPad,
+    cardRect.w - textPad * 2,
+    cardRect.h - textPad * 2,
+  )
+
+  let monoText = "Manual glyphs: Hack Nerd Font\n$ printf(\"hello\")"
+  let (_, monoPx) = monoFont.convertFont()
+  let monoLineHeight =
+    (if monoPx.lineHeight >= 0: monoPx.lineHeight
+    else: monoPx.defaultLineHeight())
+  let monoPad = max(8.0'f32, monoFont.size * 0.6'f32)
+  var monoLines = 1
+  for rune in monoText.runes:
+    if rune == Rune(10):
+      monoLines.inc
+  let monoHeight = monoLines.float32 * monoLineHeight + monoPad * 2
+  let invertedBoxHeight = uiFont.size * 5.0'f32
+  let sectionGap = 60.0'f32
+
+  proc mirroredInputRect(finalRect: Rect): Rect =
+    rect(finalRect.x, h - finalRect.y - finalRect.h, finalRect.w, finalRect.h)
+
+  let textRect = rect(
+    innerRect.x,
+    innerRect.y,
+    innerRect.w,
+    innerRect.h - monoHeight - invertedBoxHeight * 2.0'f32 - sectionGap * 3.0'f32,
+  )
+  let invertedTextRect = rect(
+    innerRect.x, textRect.y + textRect.h + sectionGap, innerRect.w, invertedBoxHeight
+  )
+  let mirroredInvertedTextRect = rect(
+    innerRect.x,
+    invertedTextRect.y + invertedTextRect.h + sectionGap,
+    innerRect.w,
+    invertedBoxHeight,
+  )
+  let monoRect = rect(
+    innerRect.x,
+    mirroredInvertedTextRect.y + mirroredInvertedTextRect.h + sectionGap,
+    innerRect.w,
+    monoHeight,
+  )
+
+  let (layout, highlightRange) = buildBodyTextLayout(uiFont, textRect, modeLine)
+  let invertedText = "Inverted text line (NfInvertY)\nwith selection"
+  let invertedSelectionRange = findPhraseRange(invertedText, "NfInvertY")
+  let invertedLayout = typeset(
+    rect(0, 0, invertedTextRect.w, invertedTextRect.h),
+    [span(uiFont, rgba(30, 30, 30, 255), invertedText)],
+    hAlign = Left,
+    vAlign = Top,
+    minContent = false,
+    wrap = false,
+  )
+
+  discard result.addChild(
+    z,
+    cardIdx,
+    Fig(
+      kind: nkText,
+      childCount: 0,
+      zlevel: z,
+      screenBox: textRect,
+      selectionRange: highlightRange,
+      fill: linear(rgba(255, 242, 170, 255), rgba(255, 192, 128, 255), axis = fgaY),
+      flags:
+        if highlightRange.a <= highlightRange.b:
+          {NfSelectText}
+        else:
+          {},
+      textLayout: layout,
+    ),
+  )
+
+  discard result.addChild(
+    z,
+    cardIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: z,
+      screenBox: monoRect,
+      fill: rgba(27, 29, 36, 255),
+      stroke: RenderStroke(weight: 1.5, fill: rgba(0, 0, 0, 50).color),
+      corners: [10.0'f32, 10.0, 10.0, 10.0],
+    ),
+  )
+
+  discard result.addChild(
+    z,
+    cardIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: z,
+      screenBox: invertedTextRect,
+      fill: clearColor,
+      stroke: RenderStroke(weight: 1.5, fill: rgba(38, 38, 38, 155).color),
+      corners: [4.0'f32, 4.0, 4.0, 4.0],
+    ),
+  )
+
+  discard result.addChild(
+    z,
+    cardIdx,
+    Fig(
+      kind: nkText,
+      childCount: 0,
+      zlevel: z,
+      flags: {NfInvertY, NfSelectText},
+      screenBox: invertedTextRect,
+      selectionRange: invertedSelectionRange,
+      fill: linear(rgba(255, 244, 175, 255), rgba(255, 200, 140, 255), axis = fgaY),
+      textLayout: invertedLayout,
+    ),
+  )
+
+  discard result.addChild(
+    z,
+    cardIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: z,
+      screenBox: mirroredInvertedTextRect,
+      fill: clearColor,
+      stroke: RenderStroke(weight: 1.5, fill: rgba(42, 96, 168, 170).color),
+      corners: [4.0'f32, 4.0, 4.0, 4.0],
+    ),
+  )
+
+  let mirroredTransformIdx = result.addChild(
+    z,
+    cardIdx,
+    Fig(
+      kind: nkTransform,
+      childCount: 0,
+      zlevel: z,
+      transform: TransformStyle(
+        translation: vec2(0.0'f32, h),
+        matrix: scale(vec3(1.0'f32, -1.0'f32, 1.0'f32)),
+        useMatrix: true,
+      ),
+    ),
+  )
+
+  discard result.addChild(
+    z,
+    mirroredTransformIdx,
+    Fig(
+      kind: nkText,
+      childCount: 0,
+      zlevel: z,
+      flags: {NfInvertY, NfSelectText},
+      screenBox: mirroredInputRect(mirroredInvertedTextRect),
+      selectionRange: invertedSelectionRange,
+      fill: linear(rgba(180, 220, 255, 220), rgba(130, 180, 255, 220), axis = fgaY),
+      textLayout: invertedLayout,
+    ),
+  )
+
+  let monoColors = [
+    linear(rgba(236, 238, 245, 255), rgba(182, 214, 255, 255), axis = fgaX),
+    rgba(255, 210, 160, 255),
+    linear(rgba(166, 223, 255, 255), rgba(196, 255, 198, 255), axis = fgaDiagTLBR),
+    rgba(196, 255, 198, 255),
+    linear(rgba(255, 187, 229, 255), rgba(255, 214, 152, 255), axis = fgaX),
+  ]
+  let monoLayouts = buildMonoWordLayouts(monoFont, monoText, monoPad, monoColors)
+  for monoLayout in monoLayouts:
+    discard result.addChild(
+      z,
+      cardIdx,
+      Fig(
+        kind: nkText,
+        childCount: 0,
+        zlevel: z,
+        screenBox: monoRect,
+        fill: clearColor,
+        textLayout: monoLayout,
+      ),
+    )
+
+proc main() {.inline.} =
+  setFigDataDir(getCurrentDir() / "data")
+
+  let fontName = getEnv("FONT", FontName)
+  # looks for fonts, fallback to static fonts if not found
+  registerStaticTypeface("Ubuntu.ttf", "../data/Ubuntu.ttf")
+  registerStaticTypeface("HackNerdFont-Regular.ttf", "../data/HackNerdFont-Regular.ttf")
+
+  let typefaceId = loadTypeface(fontName, @["Ubuntu.ttf"])
+  let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+  let monoTypefaceId = loadTypeface("HackNerdFont-Regular.ttf")
+  let monoFont = FigFont(typefaceId: monoTypefaceId, size: MonoFontSize)
+
+  let size = ivec2(900, 690)
+  let renderer = newFigRenderer(atlasSize = 4096, backendState = SurferRenderBackend())
+  let app = newApp("Surfer + Text", appId = "io.github.elcritch.figdraw")
+  app.initialize()
+  app.createWindow(size, Renderer.Vulkan)
+
+  var
+    textSubpixelMode = tsmOff
+    lcdFilteringEnabled = true
+
+  proc redraw() =
+    renderer.beginFrame()
+
+    let modeLine = textStatusLine(textSubpixelMode, lcdFilteringEnabled)
+    var renders = makeRenderTree(
+      app.windowSize.x.float32, app.windowSize.y.float32, uiFont, monoFont, modeLine
+    )
+    renderer.renderFrame(renders, vec2(app.windowSize))
+    renderer.endFrame()
+
+  while not app.closureRequested:
+    let eventOpt = app.flushQueue()
+    if eventOpt.isNone:
+      continue
+
+    let event = get(eventOpt)
+    case event.kind
+    of EventKind.WindowResized:
+      if renderer.backendState.app == nil:
+        surfershim.setupBackend(renderer, app)
+        redraw() # we need to push through an initial frame to get the chain going
+        app.queueRedraw()
+    of EventKind.RedrawRequested:
+      redraw()
+    of EventKind.PreferredRenderScale:
+      # neat wayland fractional scaling support :^)
+      setFigUiScale(float32(event.preferredScale) / 120'f32)
+    else:
+      discard
+
+when isMainModule:
+  main()

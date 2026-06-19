@@ -1,0 +1,650 @@
+import std/[os, strutils, times, unicode]
+
+import chroma
+import chronicles
+
+import pkg/surfer/app
+
+import figdraw/commons
+import figdraw/common/fonttypes
+import figdraw/fignodes
+import figdraw/figrender as glrenderer
+import figdraw/windowing/surfershim
+
+const
+  RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
+  ExampleDir = currentSourcePath().parentDir
+  RepoDir = ExampleDir.parentDir
+  UbuntuFontFile = RepoDir / "data" / "Ubuntu.ttf"
+  ArabicFontFile = ExampleDir / "fonts" / "NotoNaskhArabic-wght.ttf"
+  HebrewFontFile = ExampleDir / "fonts" / "NotoSansHebrew-wdth-wght.ttf"
+  DevanagariFontFile = ExampleDir / "fonts" / "NotoSansDevanagari-wdth-wght.ttf"
+  CodeFontFile = ExampleDir / "fonts" / "FiraCode-wght.ttf"
+
+const
+  ArabicBody =
+    "السلام عليكم ورحمة الله وبركاته\n" &
+    "النص العربي يحتاج إلى تشكيل واتجاه صحيح ولف أسطر هادئ."
+  HebrewBody =
+    "שָׁלוֹם עוֹלָם וּבְרוּכִים הַבָּאִים\n" &
+    "טֶקְסְט עִבְרִי צָרִיךְ נִקּוּד, כִּוּוּן נָכוֹן וּשְׁבִירַת שׁוּרוֹת יַצִּיבָה."
+  DevanagariBody =
+    "नमस्ते दुनिया और आपका स्वागत है\n" &
+    "देवनागरी पाठ को मात्रा, संयुक्ताक्षर और स्थिर पंक्ति-विन्यास चाहिए."
+
+type DemoFonts = object
+  title: FigFont
+  body: FigFont
+  metric: FigFont
+  codePlain: FigFont
+  code: FigFont
+  arabic: FigFont
+  hebrew: FigFont
+  devanagari: FigFont
+
+type LigatureSample = object
+  label: string
+  unfused: string
+  fused: string
+
+proc requireFile(path: string) =
+  if not fileExists(path):
+    raise newException(IOError, "Missing demo asset: " & path)
+
+proc initDemoFonts(): DemoFonts =
+  for path in [
+    UbuntuFontFile, ArabicFontFile, HebrewFontFile, DevanagariFontFile, CodeFontFile
+  ]:
+    requireFile(path)
+
+  let
+    ubuntu = loadTypeface(UbuntuFontFile)
+    arabic = loadTypeface(ArabicFontFile)
+    hebrew = loadTypeface(HebrewFontFile)
+    devanagari = loadTypeface(DevanagariFontFile)
+    code = loadTypeface(CodeFontFile)
+    commonFeatures = @[fontFeature("kern"), fontFeature("liga")]
+    codePlainFeatures =
+      @[fontFeature("kern"), fontFeature("liga", 0), fontFeature("calt", 0)]
+    codeFeatures = @[fontFeature("kern"), fontFeature("liga"), fontFeature("calt")]
+    fallbackTypefaces = @[arabic, hebrew, devanagari]
+
+  result = DemoFonts(
+    title: FigFont(
+      typefaceId: ubuntu,
+      size: 22.0'f32,
+      fallbackTypefaceIds: fallbackTypefaces,
+      features: commonFeatures,
+    ),
+    body: FigFont(
+      typefaceId: ubuntu,
+      size: 18.0'f32,
+      fallbackTypefaceIds: fallbackTypefaces,
+      features: commonFeatures,
+    ),
+    metric: FigFont(
+      typefaceId: ubuntu,
+      size: 13.0'f32,
+      fallbackTypefaceIds: fallbackTypefaces,
+      features: commonFeatures,
+    ),
+    codePlain: FigFont(
+      typefaceId: code,
+      size: 24.0'f32,
+      fallbackTypefaceIds: fallbackTypefaces,
+      features: codePlainFeatures,
+      variations: @[fontVariation("wght", 520.0'f32)],
+    ),
+    code: FigFont(
+      typefaceId: code,
+      size: 24.0'f32,
+      fallbackTypefaceIds: fallbackTypefaces,
+      features: codeFeatures,
+      variations: @[fontVariation("wght", 520.0'f32)],
+    ),
+    arabic: FigFont(
+      typefaceId: arabic,
+      size: 32.0'f32,
+      fallbackTypefaceIds: @[hebrew, devanagari, ubuntu],
+      features: commonFeatures,
+      variations: @[fontVariation("wght", 560.0'f32)],
+    ),
+    hebrew: FigFont(
+      typefaceId: hebrew,
+      size: 32.0'f32,
+      fallbackTypefaceIds: @[arabic, devanagari, ubuntu],
+      features: commonFeatures,
+      variations: @[fontVariation("wght", 560.0'f32), fontVariation("wdth", 96.0'f32)],
+    ),
+    devanagari: FigFont(
+      typefaceId: devanagari,
+      size: 32.0'f32,
+      fallbackTypefaceIds: @[arabic, hebrew, ubuntu],
+      features: commonFeatures,
+      variations: @[fontVariation("wght", 560.0'f32), fontVariation("wdth", 100.0'f32)],
+    ),
+  )
+
+proc addRect(
+    renders: var Renders,
+    parent: FigIdx,
+    box: Rect,
+    fill: Fill,
+    corners = 0.0'f32,
+    zlevel = 0.ZLevel,
+    stroke = RenderStroke(),
+    shadows: array[ShadowCount, RenderShadow] =
+      [RenderShadow(), RenderShadow(), RenderShadow(), RenderShadow()],
+): FigIdx {.discardable.} =
+  renders.addChild(
+    zlevel,
+    parent,
+    Fig(
+      kind: nkRectangle,
+      zlevel: zlevel,
+      screenBox: box,
+      fill: fill,
+      corners: [corners, corners, corners, corners],
+      stroke: stroke,
+      shadows: shadows,
+    ),
+  )
+
+proc addTextLayout(
+    renders: var Renders,
+    parent: FigIdx,
+    box: Rect,
+    layout: GlyphArrangement,
+    zlevel = 0.ZLevel,
+) =
+  discard renders.addChild(
+    zlevel,
+    parent,
+    Fig(
+      kind: nkText, zlevel: zlevel, screenBox: box, fill: clearColor, textLayout: layout
+    ),
+  )
+
+proc textLayout(
+    box: Rect,
+    spans: openArray[(FontStyle, string)],
+    hAlign = Left,
+    vAlign = Top,
+    wrap = true,
+): GlyphArrangement =
+  typeset(
+    rect(0, 0, box.w, box.h),
+    spans,
+    hAlign = hAlign,
+    vAlign = vAlign,
+    minContent = false,
+    wrap = wrap,
+  )
+
+proc runeRange(text, phrase: string): Slice[int] =
+  let startByte = text.find(phrase)
+  if startByte < 0:
+    return 0 .. -1
+
+  let endByte = startByte + phrase.len
+  var
+    runeIndex = 0
+    byteIndex = 0
+    startRune = -1
+    endRune = -1
+
+  while byteIndex < text.len:
+    if byteIndex == startByte:
+      startRune = runeIndex
+    if byteIndex < endByte:
+      endRune = runeIndex
+    else:
+      break
+    byteIndex += runeLenAt(text, byteIndex)
+    inc runeIndex
+
+  if startRune < 0 or endRune < startRune:
+    return 0 .. -1
+  startRune .. endRune
+
+proc addSourceHighlight(
+    renders: var Renders,
+    parent: FigIdx,
+    origin: Vec2,
+    layout: GlyphArrangement,
+    sourceRange: Slice[int],
+    fill: Fill,
+) =
+  if sourceRange.a > sourceRange.b:
+    return
+
+  for selection in layout.selectionRectsFor(sourceRange):
+    if selection.h <= 0:
+      continue
+    let box = rect(
+      origin.x + selection.x,
+      origin.y + selection.y,
+      max(selection.w, 2.0'f32),
+      selection.h,
+    )
+    discard renders.addRect(parent, box, fill, corners = 4.0'f32)
+
+proc addCaretMarkers(
+    renders: var Renders,
+    parent: FigIdx,
+    origin: Vec2,
+    layout: GlyphArrangement,
+    sourceRune: int,
+    fill: Fill,
+) =
+  for caret in layout.caretPositionsFor(sourceRune):
+    let box =
+      rect(origin.x + caret.pos.x - 1.0'f32, origin.y + caret.pos.y, 2, caret.rect.h)
+    discard renders.addRect(parent, box, fill, corners = 1.0'f32)
+
+proc layoutStats(name: string, layout: GlyphArrangement): string =
+  name & "  glyphs " & $layout.arrangedGlyphs.len & "  source " & $layout.sourceRunes.len &
+    "  lines " & $layout.lines.len
+
+proc addText(
+    renders: var Renders,
+    parent: FigIdx,
+    box: Rect,
+    font: FigFont,
+    text: string,
+    fill: Fill,
+    hAlign = Left,
+    vAlign = Top,
+    wrap = false,
+) =
+  let layout = textLayout(
+    box, [(fs(font, fill), text)], hAlign = hAlign, vAlign = vAlign, wrap = wrap
+  )
+  renders.addTextLayout(parent, box, layout)
+
+proc addCenteredText(
+    renders: var Renders,
+    parent: FigIdx,
+    box: Rect,
+    font: FigFont,
+    text: string,
+    fill: Fill,
+) =
+  let layout = textLayout(
+    box, [(fs(font, fill), text)], hAlign = Center, vAlign = Middle, wrap = false
+  )
+  renders.addTextLayout(parent, box, layout)
+
+proc addSampleCard(
+    renders: var Renders,
+    root: FigIdx,
+    box: Rect,
+    title: string,
+    body: string,
+    highlightPhrase: string,
+    font: FigFont,
+    labelFont: FigFont,
+    metricFont: FigFont,
+    accent: Fill,
+    hAlign: FontHorizontal,
+    ligatures: seq[LigatureSample] = @[],
+) =
+  let card = renders.addRect(
+    root,
+    box,
+    rgba(255, 255, 255, 255),
+    corners = 8.0'f32,
+    stroke = RenderStroke(weight: 1.0'f32, fill: rgba(0, 0, 0, 32).color),
+    shadows = [
+      RenderShadow(
+        style: DropShadow,
+        blur: 20,
+        spread: 0,
+        x: 0,
+        y: 8,
+        fill: rgba(0, 0, 0, 24).color,
+      ),
+      RenderShadow(),
+      RenderShadow(),
+      RenderShadow(),
+    ],
+  )
+
+  let titleBox = rect(box.x + 22, box.y + 18, box.w - 44, 30)
+  renders.addText(card, titleBox, labelFont, title, rgba(40, 45, 50, 255))
+
+  let hasLigatures = ligatures.len > 0
+  let
+    metricBox = rect(box.x + 22, box.y + box.h - 43, box.w - 44, 30)
+    ligatureH = 36.0'f32 + 38.0'f32 * ligatures.len.float32
+    ligatureBox =
+      if hasLigatures:
+        rect(box.x + 22, metricBox.y - ligatureH - 14.0'f32, box.w - 44, ligatureH)
+      else:
+        rect(0, 0, 0, 0)
+    textBottom =
+      if hasLigatures:
+        ligatureBox.y - 12
+      else:
+        metricBox.y - 12
+    textBox =
+      rect(box.x + 22, box.y + 62, box.w - 44, max(24.0'f32, textBottom - box.y - 62))
+  let layout = textLayout(
+    textBox, [(fs(font, rgba(18, 20, 24, 255)), body)], hAlign = hAlign, wrap = true
+  )
+
+  renders.addSourceHighlight(
+    card,
+    textBox.xy,
+    layout,
+    body.runeRange(highlightPhrase),
+    linear(rgba(80, 190, 255, 70), rgba(30, 100, 210, 48), axis = fgaY),
+  )
+  renders.addCaretMarkers(
+    card, textBox.xy, layout, body.runeRange(highlightPhrase).a, rgba(33, 92, 185, 210)
+  )
+  renders.addTextLayout(card, textBox, layout)
+
+  if hasLigatures:
+    renders.addRect(
+      card,
+      ligatureBox,
+      linear(rgba(246, 248, 249, 255), rgba(231, 236, 239, 255), axis = fgaY),
+      corners = 5.0'f32,
+      stroke = RenderStroke(weight: 1.0'f32, fill: rgba(0, 0, 0, 22).color),
+    )
+    let
+      labelW = min(86.0'f32, ligatureBox.w * 0.28'f32)
+      sampleW = max(44.0'f32, (ligatureBox.w - labelW - 32.0'f32) / 2.0'f32)
+      labelHeaderBox = rect(ligatureBox.x + 10, ligatureBox.y + 8, labelW, 16)
+      unfusedLabelBox =
+        rect(ligatureBox.x + labelW + 12, ligatureBox.y + 8, sampleW, 16)
+      fusedLabelBox =
+        rect(unfusedLabelBox.x + sampleW + 12, ligatureBox.y + 8, sampleW, 16)
+      sampleFont = FigFont(
+        typefaceId: font.typefaceId,
+        size: max(22.0'f32, min(font.size * 0.82'f32, 30.0'f32)),
+        fallbackTypefaceIds: font.fallbackTypefaceIds,
+        features: font.features,
+        variations: font.variations,
+      )
+    renders.addText(card, labelHeaderBox, metricFont, "form", rgba(98, 106, 114, 225))
+    renders.addText(
+      card, unfusedLabelBox, metricFont, "unfused", rgba(98, 106, 114, 225)
+    )
+    renders.addText(card, fusedLabelBox, metricFont, "fused", rgba(98, 106, 114, 225))
+    for i, ligature in ligatures:
+      let
+        rowY = ligatureBox.y + 27.0'f32 + 38.0'f32 * i.float32
+        labelBox = rect(labelHeaderBox.x, rowY, labelW, 38)
+        unfusedBox = rect(unfusedLabelBox.x, rowY, sampleW, 38)
+        fusedBox = rect(fusedLabelBox.x, rowY, sampleW, 38)
+      renders.addText(
+        card,
+        labelBox,
+        metricFont,
+        ligature.label,
+        rgba(78, 86, 94, 235),
+        vAlign = Middle,
+      )
+      renders.addCenteredText(
+        card, unfusedBox, sampleFont, ligature.unfused, rgba(24, 28, 32, 255)
+      )
+      renders.addCenteredText(
+        card, fusedBox, sampleFont, ligature.fused, rgba(24, 28, 32, 255)
+      )
+
+  renders.addRect(card, metricBox, accent, corners = 5.0'f32)
+  renders.addText(
+    card,
+    metricBox,
+    metricFont,
+    layoutStats(title, layout),
+    rgba(255, 255, 255, 235),
+    hAlign = Center,
+    vAlign = Middle,
+  )
+
+proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
+  result = Renders()
+  let root = result.addRoot(
+    0.ZLevel,
+    Fig(
+      kind: nkRectangle,
+      zlevel: 0.ZLevel,
+      screenBox: rect(0, 0, w, h),
+      fill: linear(rgba(236, 240, 241, 255), rgba(215, 222, 226, 255), axis = fgaY),
+    ),
+  )
+
+  let
+    pad = 28.0'f32
+    titleHeight = 66.0'f32
+    gap = 18.0'f32
+    usableW = max(360.0'f32, w - pad * 2)
+    columnCount =
+      if usableW >= 1460.0'f32:
+        4
+      elif usableW >= 1120.0'f32:
+        3
+      elif usableW >= 760.0'f32:
+        2
+      else:
+        1
+    scriptCount = 3
+    scriptRows = (scriptCount + columnCount - 1) div columnCount
+    cardW = (usableW - gap * (columnCount.float32 - 1.0'f32)) / columnCount.float32
+    mixedMinH = 200.0'f32
+    availableH = max(0.0'f32, h - pad * 2 - titleHeight - mixedMinH - gap)
+    topCardH =
+      max(190.0'f32, (availableH - gap * scriptRows.float32) / scriptRows.float32)
+    lowerY = pad + titleHeight + (topCardH + gap) * scriptRows.float32
+    lowerH = max(0.0'f32, h - lowerY - pad)
+
+  proc cardRect(index: int): Rect =
+    let
+      col = index mod columnCount
+      row = index div columnCount
+    rect(
+      pad + (cardW + gap) * col.float32,
+      pad + titleHeight + (topCardH + gap) * row.float32,
+      cardW,
+      topCardH,
+    )
+
+  let titleBox = rect(pad, pad, usableW, 34)
+  result.addText(
+    root,
+    titleBox,
+    fonts.title,
+    "FigDraw Text Shaping",
+    linear(rgba(30, 42, 58, 255), rgba(45, 92, 145, 255), axis = fgaX),
+  )
+
+  let backendBox = rect(pad, pad + 34, usableW, 24)
+  result.addText(
+    root,
+    backendBox,
+    fonts.metric,
+    "backend: " & figdrawTextBackend,
+    rgba(74, 84, 94, 255),
+  )
+
+  let arabicCard = cardRect(0)
+  result.addSampleCard(
+    root,
+    arabicCard,
+    "Arabic",
+    ArabicBody,
+    "العربي",
+    fonts.arabic,
+    fonts.body,
+    fonts.metric,
+    linear(rgba(21, 135, 115, 235), rgba(25, 92, 145, 235), axis = fgaX),
+    Right,
+    @[
+      LigatureSample(label: "la", unfused: "ل + ا", fused: "لا"),
+      LigatureSample(label: "lm", unfused: "ل + م", fused: "لم"),
+    ],
+  )
+
+  let hebrewCard = cardRect(1)
+  result.addSampleCard(
+    root,
+    hebrewCard,
+    "Hebrew",
+    HebrewBody,
+    "עִבְרִי",
+    fonts.hebrew,
+    fonts.body,
+    fonts.metric,
+    linear(rgba(114, 68, 160, 235), rgba(58, 112, 188, 235), axis = fgaX),
+    Right,
+  )
+
+  let devanagariCard = cardRect(2)
+  result.addSampleCard(
+    root,
+    devanagariCard,
+    "Devanagari",
+    DevanagariBody,
+    "देवनागरी",
+    fonts.devanagari,
+    fonts.body,
+    fonts.metric,
+    linear(rgba(185, 96, 34, 235), rgba(118, 113, 34, 235), axis = fgaX),
+    Left,
+    @[
+      LigatureSample(label: "ksha", unfused: "क् + ष", fused: "क्ष"),
+      LigatureSample(label: "rta", unfused: "र् + ट", fused: "र्ट"),
+    ],
+  )
+
+  let mixedCard = rect(pad, lowerY, usableW, lowerH)
+  let mixed = result.addRect(
+    root,
+    mixedCard,
+    rgba(252, 253, 253, 255),
+    corners = 8.0'f32,
+    stroke = RenderStroke(weight: 1.0'f32, fill: rgba(0, 0, 0, 32).color),
+  )
+  result.addText(
+    mixed,
+    rect(mixedCard.x + 22, mixedCard.y + 18, mixedCard.w - 44, 30),
+    fonts.body,
+    "Mixed Fallback Runs",
+    rgba(40, 45, 50, 255),
+  )
+
+  let
+    mixedContentBox =
+      rect(mixedCard.x + 22, mixedCard.y + 58, mixedCard.w - 44, mixedCard.h - 80)
+    fallbackBox = rect(mixedContentBox.x, mixedContentBox.y, mixedContentBox.w, 40)
+    codeLabelBox =
+      rect(mixedContentBox.x, fallbackBox.y + fallbackBox.h + 10, mixedContentBox.w, 18)
+    codeBoxY = codeLabelBox.y + 22
+    codeBox = rect(
+      mixedContentBox.x,
+      codeBoxY,
+      mixedContentBox.w,
+      max(64.0'f32, mixedContentBox.y + mixedContentBox.h - codeBoxY),
+    )
+  let mixedText =
+    "FigDraw fallback: العربية + עברית + देवनागरी + English\n" &
+    "glyph ids, source ranges, wrapping, and caret positions"
+  let mixedLayout = textLayout(
+    fallbackBox,
+    [(fs(fonts.body, rgba(20, 22, 24, 255)), mixedText)],
+    hAlign = Left,
+    wrap = true,
+  )
+  result.addTextLayout(mixed, fallbackBox, mixedLayout)
+  result.addText(
+    mixed, codeLabelBox, fonts.metric, "Coding ligatures", rgba(74, 84, 94, 235)
+  )
+  result.addRect(
+    mixed,
+    codeBox,
+    linear(rgba(245, 247, 248, 255), rgba(231, 236, 239, 255), axis = fgaY),
+    corners = 5.0'f32,
+    stroke = RenderStroke(weight: 1.0'f32, fill: rgba(0, 0, 0, 22).color),
+  )
+  let
+    codeText = "!=  ===  !==  <=  >=  ->  =>  |>  &&"
+    codeGap = 16.0'f32
+    codeColW = max(80.0'f32, (codeBox.w - 24.0'f32 - codeGap) / 2.0'f32)
+    plainLabelBox = rect(codeBox.x + 12, codeBox.y + 8, codeColW, 16)
+    fusedLabelBox =
+      rect(plainLabelBox.x + codeColW + codeGap, codeBox.y + 8, codeColW, 16)
+    plainTextBox = rect(codeBox.x + 12, codeBox.y + 25, codeColW, codeBox.h - 31)
+    fusedTextBox = rect(fusedLabelBox.x, plainTextBox.y, codeColW, plainTextBox.h)
+  result.addText(mixed, plainLabelBox, fonts.metric, "unfused", rgba(98, 106, 114, 225))
+  result.addText(mixed, fusedLabelBox, fonts.metric, "fused", rgba(98, 106, 114, 225))
+  let plainCodeLayout = textLayout(
+    plainTextBox,
+    [(fs(fonts.codePlain, rgba(22, 28, 34, 255)), codeText)],
+    hAlign = Left,
+    wrap = false,
+  )
+  result.addTextLayout(mixed, plainTextBox, plainCodeLayout)
+  let fusedCodeLayout = textLayout(
+    fusedTextBox,
+    [(fs(fonts.code, rgba(22, 28, 34, 255)), codeText)],
+    hAlign = Left,
+    wrap = false,
+  )
+  result.addTextLayout(mixed, fusedTextBox, fusedCodeLayout)
+
+proc main() {.inline.} =
+  let
+    title = "surfer: FigDraw Text Shaping"
+    size = ivec2(1280, 800)
+    app = newApp(title, appId = "io.github.elcritch.figdraw")
+
+  app.initialize()
+  app.createWindow(size, Renderer.Vulkan)
+
+  let fonts = initDemoFonts()
+  let renderer =
+    glrenderer.newFigRenderer(atlasSize = 2048, backendState = SurferRenderBackend())
+
+  info "Text shaping demo startup",
+    backend = figdrawTextBackend, windowW = app.windowSize.x, windowH = app.windowSize.y
+
+  var
+    renders = makeRenderTree(0.0'f32, 0.0'f32, fonts)
+    lastSize = vec2(0.0'f32, 0.0'f32)
+    frames = 0
+    fpsFrames = 0
+    fpsStart = epochTime()
+
+  proc redraw() =
+    renderer.beginFrame()
+    let sz = vec2(app.windowSize)
+    if sz != lastSize:
+      lastSize = sz
+      renders = makeRenderTree(sz.x, sz.y, fonts)
+    renderer.renderFrame(renders, sz)
+    renderer.endFrame()
+
+  while not app.closureRequested:
+    let eventOpt = app.flushQueue()
+    if eventOpt.isNone:
+      continue
+
+    let event = eventOpt.get()
+    case event.kind
+    of EventKind.WindowResized:
+      if renderer.backendState.app == nil:
+        surfershim.setupBackend(renderer, app)
+        redraw() # we need to push through an initial frame to get the chain going
+        app.queueRedraw()
+    of EventKind.RedrawRequested:
+      redraw()
+    of EventKind.PreferredRenderScale:
+      setFigUiScale(float32(event.preferredScale) / 120'f32)
+    else:
+      discard
+
+when isMainModule:
+  main()

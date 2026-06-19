@@ -303,12 +303,18 @@ Add the `harfbuzz` feature when using FigDraw from another project:
 requires "https://github.com/elcritch/figdraw[windy,harfbuzz]"
 ```
 
-Note: Windy is the default example. Harfbuzz support works with Siwin or other WMs.
+Note: Windy is the default example. Harfbuzz support works with Siwin, Surfer or other windowing libraries.
 
 Then compile with the Harfbuzzy text backend:
 
+### windy example
 ```sh
 nim r -d:figdrawTextBackend=harfbuzzy examples/windy_text_shaping_demo.nim
+```
+
+### surfer example
+```sh
+nim r -d:figdrawTextBackend=harfbuzzy examples/surfer_text_shaping_demo.nim
 ```
 
 For an example or app that should always use Harfbuzzy, put the backend switch

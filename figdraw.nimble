@@ -1,8 +1,8 @@
-version       = "0.25.0"
-author        = "Jaremy Creechley"
-description   = "UI Engine for Nim"
-license       = "MIT"
-srcDir        = "src"
+version = "0.25.0"
+author = "Jaremy Creechley"
+description = "UI Engine for Nim"
+license = "MIT"
+srcDir = "src"
 
 # Dependencies
 
@@ -34,7 +34,9 @@ feature "sdl2":
 feature "windy":
   requires "windy"
 feature "surfer":
-  requires "https://github.com/nim-windowing/surfer"
+  requires "surfer >= 0.2.5"
+  requires "xkb#b4d50f4cccad1cd9e39d2f5a5e1fef2710edcc31"
+    # TODO: Put this in surfer's manifest.
 feature "siwin":
   requires "siwin >= 1.0.1"
 feature "vulkan":
