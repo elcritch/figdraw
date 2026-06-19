@@ -23,8 +23,8 @@ when defined(linux):
     switch("passL", gorgeEx("pkg-config --libs vulkan").output.strip())
 
   when defined(figdraw.harfbuzz):
-    switch("passC", gorgeEx("pkg-config --cflags harfbuzz").output.strip())
-    switch("passL", gorgeEx("pkg-config --libs harfbuzz").output.strip())
+    switch("passC", gorgeEx("pkg-config --cflags harfbuzz fribidi").output.strip())
+    switch("passL", gorgeEx("pkg-config --libs harfbuzz fribidi").output.strip())
 
   # Deps that figdraw absolutely needs to even compile
   # source: painful amounts of trial and error

@@ -14,6 +14,7 @@ mkShell {
     libGL
 
     harfbuzz
+    fribidi
   ];
 
   LD_LIBRARY_PATH = lib.makeLibraryPath [
@@ -26,5 +27,6 @@ mkShell {
     libxkbcommon.dev
     libGL.dev
     harfbuzz.dev
+    fribidi.dev
   ];
 }
