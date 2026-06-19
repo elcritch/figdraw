@@ -65,6 +65,24 @@ proc testGlyph(
     rect: box,
   )
 
+proc testGlyphRange(
+    fontId: FontId, sourceRange: Slice[int], glyphId: uint32, box: Rect
+): ArrangedGlyph =
+  let rune = Rune(0x61'i32 + sourceRange.a.int32)
+  ArrangedGlyph(
+    fontId: fontId,
+    glyphId: FontGlyphId(glyphId),
+    source: GlyphSourceRange(
+      byteStart: sourceRange.a,
+      byteEnd: sourceRange.b + 1,
+      runeStart: sourceRange.a,
+      runeEnd: sourceRange.b + 1,
+    ),
+    rune: rune,
+    pos: box.xy,
+    rect: box,
+  )
+
 suite "fontutils":
   setup:
     resetFontState()
@@ -233,6 +251,130 @@ suite "fontutils":
     check rawRects == @[rect(10, 0, 10, 14), rect(30, 0, 10, 14)]
     check arrangement.selectionRectsFor(1 .. 2) ==
       @[rect(10, 0, 10, 14), rect(30, 0, 10, 14)]
+
+  test "source selection bands clip partial ligature ranges":
+    let
+      fontId = FontId(Hash(44))
+      glyphFont = GlyphFont(fontId: fontId, lineHeight: 14, descentAdj: 10)
+      sourceRunes = @["a".runeAt(0), "b".runeAt(0), "c".runeAt(0), "d".runeAt(0)]
+      arrangement = GlyphArrangement(
+        lines: @[0 .. 0],
+        spans: @[0 .. 0],
+        fonts: @[glyphFont],
+        sourceRunes: sourceRunes,
+        arrangedGlyphs: @[testGlyphRange(fontId, 0 .. 3, 20, rect(10, 2, 40, 10))],
+        runes: sourceRunes,
+        selectionRects: @[rect(10, 2, 40, 10)],
+      )
+
+    check arrangement.glyphSelectionRectsFor(1 .. 1) == @[rect(10, 2, 40, 10)]
+    check arrangement.selectionRectsFor(1 .. 1) == @[rect(20, 2, 10, 10)]
+    check arrangement.selectionRectsFor(1 .. 2) == @[rect(20, 2, 20, 10)]
+
+  test "source selection bands clip rtl partial ligature ranges from right edge":
+    let
+      fontId = FontId(Hash(45))
+      glyphFont = GlyphFont(fontId: fontId, lineHeight: 14, descentAdj: 10)
+      sourceRunes =
+        @["a".runeAt(0), "b".runeAt(0), "c".runeAt(0), "d".runeAt(0), "e".runeAt(0)]
+      arrangement = GlyphArrangement(
+        lines: @[0 .. 2],
+        spans: @[0 .. 2],
+        fonts: @[glyphFont],
+        sourceRunes: sourceRunes,
+        arrangedGlyphs:
+          @[
+            testGlyph(fontId, 4, 24, rect(0, 0, 10, 14)),
+            testGlyphRange(fontId, 1 .. 3, 21, rect(10, 0, 30, 14)),
+            testGlyph(fontId, 0, 20, rect(40, 0, 10, 14)),
+          ],
+        runes: sourceRunes,
+        selectionRects: @[rect(0, 0, 10, 14), rect(10, 0, 30, 14), rect(40, 0, 10, 14)],
+      )
+
+    check arrangement.selectionRectsFor(1 .. 1) == @[rect(30, 0, 10, 14)]
+    check arrangement.selectionRectsFor(2 .. 3) == @[rect(10, 0, 20, 14)]
+
+  test "caret positions collapse ltr shaped cluster fragments":
+    let
+      fontId = FontId(Hash(46))
+      glyphFont = GlyphFont(fontId: fontId, lineHeight: 14, descentAdj: 10)
+      sourceRunes = @["a".runeAt(0), "b".runeAt(0), "c".runeAt(0), "d".runeAt(0)]
+      arrangement = GlyphArrangement(
+        lines: @[0 .. 3],
+        spans: @[0 .. 3],
+        fonts: @[glyphFont],
+        sourceRunes: sourceRunes,
+        arrangedGlyphs:
+          @[
+            testGlyph(fontId, 0, 10, rect(0, 0, 10, 14)),
+            testGlyphRange(fontId, 1 .. 2, 21, rect(22, 0, 0, 14)),
+            testGlyphRange(fontId, 1 .. 2, 22, rect(10, 0, 20, 14)),
+            testGlyph(fontId, 3, 13, rect(30, 0, 10, 14)),
+          ],
+        runes: sourceRunes,
+        selectionRects:
+          @[
+            rect(0, 0, 10, 14),
+            rect(22, 0, 0, 14),
+            rect(10, 0, 20, 14),
+            rect(30, 0, 10, 14),
+          ],
+      )
+
+    let
+      startCarets = arrangement.caretPositionsFor(1)
+      insideCarets = arrangement.caretPositionsFor(2)
+      endCarets = arrangement.caretPositionsFor(3)
+
+    check startCarets.len == 1
+    check abs(startCarets[0].pos.x - 10.0'f32) < 0.01'f32
+    check insideCarets.len == 1
+    check abs(insideCarets[0].pos.x - 20.0'f32) < 0.01'f32
+    check endCarets.len == 1
+    check abs(endCarets[0].pos.x - 30.0'f32) < 0.01'f32
+    check arrangement.selectionRectsFor(1 .. 1) == @[rect(10, 0, 10, 14)]
+
+  test "caret positions collapse rtl shaped cluster fragments":
+    let
+      fontId = FontId(Hash(47))
+      glyphFont = GlyphFont(fontId: fontId, lineHeight: 14, descentAdj: 10)
+      sourceRunes =
+        @["a".runeAt(0), "b".runeAt(0), "c".runeAt(0), "d".runeAt(0), "e".runeAt(0)]
+      arrangement = GlyphArrangement(
+        lines: @[0 .. 3],
+        spans: @[0 .. 3],
+        fonts: @[glyphFont],
+        sourceRunes: sourceRunes,
+        arrangedGlyphs:
+          @[
+            testGlyph(fontId, 4, 14, rect(0, 0, 10, 14)),
+            testGlyphRange(fontId, 1 .. 2, 21, rect(22, 0, 0, 14)),
+            testGlyphRange(fontId, 1 .. 2, 22, rect(10, 0, 20, 14)),
+            testGlyph(fontId, 0, 10, rect(30, 0, 10, 14)),
+          ],
+        runes: sourceRunes,
+        selectionRects:
+          @[
+            rect(0, 0, 10, 14),
+            rect(22, 0, 0, 14),
+            rect(10, 0, 20, 14),
+            rect(30, 0, 10, 14),
+          ],
+      )
+
+    let
+      startCarets = arrangement.caretPositionsFor(1)
+      insideCarets = arrangement.caretPositionsFor(2)
+      endCarets = arrangement.caretPositionsFor(3)
+
+    check startCarets.len == 1
+    check abs(startCarets[0].pos.x - 30.0'f32) < 0.01'f32
+    check insideCarets.len == 1
+    check abs(insideCarets[0].pos.x - 20.0'f32) < 0.01'f32
+    check endCarets.len == 1
+    check abs(endCarets[0].pos.x - 10.0'f32) < 0.01'f32
+    check arrangement.selectionRectsFor(2 .. 2) == @[rect(10, 0, 10, 14)]
 
   when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
     test "harfbuzzy backend emits shaped glyph ids and source ranges":

@@ -315,6 +315,74 @@ func selectionLineBox(arrangement: GlyphArrangement, line: Slice[int]): Rect =
   else:
     result = rect(0, 0, 0, 0)
 
+func lineForGlyph(arrangement: GlyphArrangement, glyphIndex: int): Slice[int] =
+  if arrangement.lines.len > 0:
+    for line in arrangement.lines:
+      if glyphIndex >= line.a and glyphIndex <= line.b:
+        return line
+  0 .. arrangement.glyphCount() - 1
+
+func lineIndexForGlyph(arrangement: GlyphArrangement, glyphIndex: int): int =
+  for lineIndex, line in arrangement.lines:
+    if glyphIndex >= line.a and glyphIndex <= line.b:
+      return lineIndex
+  0
+
+func glyphAppearsRtl(arrangement: GlyphArrangement, glyphIndex: int): bool =
+  let
+    line = arrangement.lineForGlyph(glyphIndex)
+    source = arrangement.glyphSource(glyphIndex)
+  if glyphIndex > line.a:
+    let prevSource = arrangement.glyphSource(glyphIndex - 1)
+    if prevSource.runeStart > source.runeStart:
+      return true
+  if glyphIndex < line.b:
+    let nextSource = arrangement.glyphSource(glyphIndex + 1)
+    if nextSource.runeStart < source.runeStart:
+      return true
+  false
+
+func sameSourceRange(a, b: GlyphSourceRange): bool {.inline.} =
+  a.byteStart == b.byteStart and a.byteEnd == b.byteEnd and a.runeStart == b.runeStart and
+    a.runeEnd == b.runeEnd
+
+func clusterGlyphRangeForGlyph(
+    arrangement: GlyphArrangement, glyphIndex: int
+): Slice[int] =
+  let
+    line = arrangement.lineForGlyph(glyphIndex)
+    source = arrangement.glyphSource(glyphIndex)
+
+  result = glyphIndex .. glyphIndex
+  while result.a > line.a and
+      arrangement.glyphSource(result.a - 1).sameSourceRange(source):
+    dec result.a
+  while result.b < line.b and
+      arrangement.glyphSource(result.b + 1).sameSourceRange(source):
+    inc result.b
+
+func clusterRectForGlyph(arrangement: GlyphArrangement, glyphIndex: int): Rect =
+  let cluster = arrangement.clusterGlyphRangeForGlyph(glyphIndex)
+  var
+    minX = float32.high
+    minY = float32.high
+    maxX = -float32.high
+    maxY = -float32.high
+    foundGlyph = false
+
+  for clusterGlyphIndex in cluster:
+    let glyphRect = arrangement.rectForGlyph(clusterGlyphIndex)
+    minX = min(minX, min(glyphRect.x, glyphRect.x + glyphRect.w))
+    minY = min(minY, glyphRect.y)
+    maxX = max(maxX, max(glyphRect.x, glyphRect.x + glyphRect.w))
+    maxY = max(maxY, glyphRect.y + glyphRect.h)
+    foundGlyph = true
+
+  if foundGlyph:
+    rect(minX, minY, maxX - minX, maxY - minY)
+  else:
+    arrangement.rectForGlyph(glyphIndex)
+
 func glyphSelectionRectsForRange(
     arrangement: GlyphArrangement,
     sourceRange: Slice[int],
@@ -345,6 +413,52 @@ func glyphSelectionRectsForRawBytes*(
 ): seq[Rect] =
   ## Returns raw glyph rectangles for glyphs touching a raw source-byte range.
   glyphSelectionRectsForRange(arrangement, byteRange, sskBytes)
+
+func sourceBounds(
+    source: GlyphSourceRange, sourceKind: SelectionSourceKind
+): tuple[start, ending: int] {.inline.} =
+  case sourceKind
+  of sskRunes:
+    (source.runeStart, source.runeEnd)
+  of sskBytes:
+    (source.byteStart, source.byteEnd)
+
+func selectedGlyphRectForRange(
+    arrangement: GlyphArrangement,
+    glyphIndex: int,
+    selectionStart, selectionEnd: int,
+    sourceKind: SelectionSourceKind,
+): Rect =
+  let
+    source = arrangement.glyphSource(glyphIndex)
+    bounds = source.sourceBounds(sourceKind)
+    clippedStart = max(selectionStart, bounds.start)
+    clippedEnd = min(selectionEnd, bounds.ending)
+  if clippedEnd <= clippedStart or bounds.ending <= bounds.start:
+    return rect(0, 0, 0, 0)
+
+  let
+    glyphRect = arrangement.clusterRectForGlyph(glyphIndex)
+    minX = min(glyphRect.x, glyphRect.x + glyphRect.w)
+    maxX = max(glyphRect.x, glyphRect.x + glyphRect.w)
+    width = maxX - minX
+    sourceLen = max(bounds.ending - bounds.start, 1).float32
+    startT =
+      max(0.0'f32, min((clippedStart - bounds.start).float32 / sourceLen, 1.0'f32))
+    endT = max(0.0'f32, min((clippedEnd - bounds.start).float32 / sourceLen, 1.0'f32))
+    rtl = arrangement.glyphAppearsRtl(glyphIndex)
+    startX =
+      if rtl:
+        maxX - width * startT
+      else:
+        minX + width * startT
+    endX =
+      if rtl:
+        maxX - width * endT
+      else:
+        minX + width * endT
+
+  rect(min(startX, endX), glyphRect.y, abs(endX - startX), glyphRect.h)
 
 func flushSelectionBand(bands: var seq[Rect], band: var Rect, bandActive: var bool) =
   if bandActive:
@@ -384,9 +498,10 @@ func addSelectionBandsForLine(
     for glyphIndex in glyphLine:
       let source = arrangement.glyphSource(glyphIndex)
       if source.sourceIntersectsSelection(selectionStart, selectionEnd, sourceKind):
-        band.addGlyphToSelectionBand(
-          bandActive, lineBox, arrangement.rectForGlyph(glyphIndex)
+        let selectionRect = arrangement.selectedGlyphRectForRange(
+          glyphIndex, selectionStart, selectionEnd, sourceKind
         )
+        band.addGlyphToSelectionBand(bandActive, lineBox, selectionRect)
       else:
         bands.flushSelectionBand(band, bandActive)
 
@@ -476,33 +591,6 @@ func sourceRuneCount(arrangement: GlyphArrangement): int {.inline.} =
   else:
     arrangement.runes.len
 
-func lineForGlyph(arrangement: GlyphArrangement, glyphIndex: int): Slice[int] =
-  if arrangement.lines.len > 0:
-    for line in arrangement.lines:
-      if glyphIndex >= line.a and glyphIndex <= line.b:
-        return line
-  0 .. arrangement.glyphCount() - 1
-
-func lineIndexForGlyph(arrangement: GlyphArrangement, glyphIndex: int): int =
-  for lineIndex, line in arrangement.lines:
-    if glyphIndex >= line.a and glyphIndex <= line.b:
-      return lineIndex
-  0
-
-func glyphAppearsRtl(arrangement: GlyphArrangement, glyphIndex: int): bool =
-  let
-    line = arrangement.lineForGlyph(glyphIndex)
-    source = arrangement.glyphSource(glyphIndex)
-  if glyphIndex > line.a:
-    let prevSource = arrangement.glyphSource(glyphIndex - 1)
-    if prevSource.runeStart > source.runeStart:
-      return true
-  if glyphIndex < line.b:
-    let nextSource = arrangement.glyphSource(glyphIndex + 1)
-    if nextSource.runeStart < source.runeStart:
-      return true
-  false
-
 func caretX(glyphRect: Rect, rtl, sourceStart: bool): float32 {.inline.} =
   if sourceStart:
     if rtl:
@@ -550,7 +638,7 @@ func caretPositionsFor*(
   for glyphIndex in 0 ..< glyphCount:
     let
       source = arrangement.glyphSource(glyphIndex)
-      glyphRect = arrangement.rectForGlyph(glyphIndex)
+      glyphRect = arrangement.clusterRectForGlyph(glyphIndex)
       rtl = arrangement.glyphAppearsRtl(glyphIndex)
       lineIndex = arrangement.lineIndexForGlyph(glyphIndex)
 
