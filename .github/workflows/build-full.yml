@@ -21,26 +21,61 @@ jobs:
           - ubuntu-24.04
           - macos-14
           - windows-2022
+        display:
+          - none
+        exclude:
+          - os: ubuntu-24.04
+            display: none
+        include:
+          - os: ubuntu-24.04
+            display: x11
+          - os: ubuntu-24.04
+            display: wayland
     steps:
     - uses: actions/checkout@v1
 
+    - name: Setup software OpenGL/Vulkan (Mesa) + Xvfb (X11)
+      if: runner.os == 'Linux' && matrix.display == 'x11'
+      timeout-minutes: 15
+      run: |
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          xvfb \
+          libx11-xcb-dev \
+          libxcb1-dev \
+          libxcursor-dev \
+          libxkbcommon-dev \
+          libxrender-dev \
+          libgl1-mesa-dev \
+          libgles2-mesa-dev \
+          libegl1-mesa-dev \
+          mesa-utils \
+          vulkan-tools \
+          mesa-vulkan-drivers \
+          libvulkan1 \
+          libgl1-mesa-dri \
+          libglx-mesa0 \
+          libegl-mesa0 \
+          libgles2
+
     - name: Setup software OpenGL/Vulkan (Mesa) + Weston (Wayland)
-      if: runner.os == 'Linux'
+      if: runner.os == 'Linux' && matrix.display == 'wayland'
       timeout-minutes: 15
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
           weston \
-          xwayland \
           wayland-protocols \
           libwayland-dev \
-          libegl1-mesa-dev \
           libwayland-client0 \
           libwayland-cursor0 \
           libwayland-egl1 \
-          libxkbcommon0 \
-          libxrender1 \
+          libwayland-egl-backend-dev \
+          libxkbcommon-dev \
           libxrender-dev \
+          libgl1-mesa-dev \
+          libgles2-mesa-dev \
+          libegl1-mesa-dev \
           mesa-utils \
           vulkan-tools \
           mesa-vulkan-drivers \
@@ -58,7 +93,13 @@ jobs:
           pkg-config \
           libharfbuzz-dev \
           libfribidi-dev
-        pkg-config --cflags --libs harfbuzz
+        pkg-config --cflags --libs harfbuzz fribidi gl glesv2 egl
+
+        if [[ "${{ matrix.display }}" == "x11" ]]; then
+          pkg-config --cflags --libs x11-xcb xcb xcursor xkbcommon xrender
+        elif [[ "${{ matrix.display }}" == "wayland" ]]; then
+          pkg-config --cflags --libs wayland-client wayland-egl wayland-egl-backend xkbcommon
+        fi
 
     - name: Vulkan diagnostics
       if: runner.os == 'Linux'
@@ -99,18 +140,35 @@ jobs:
       uses: actions/cache@v3
       with:
         path: deps/
-        key: ${{ runner.os }}-${{ hashFiles('figdraw.nimble') }}
+        key: ${{ runner.os }}-${{ matrix.display }}-${{ hashFiles('figdraw.nimble') }}
 
     - name: Install Deps
-      run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib,harfbuzz
+      run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib,harfbuzz,surfer
 
     - name: Build Bindings
       run: |
         nim bindings
         nim c examples/siwin_shared.nim
 
+    - name: Build Surfer Examples
+      if: runner.os == 'Linux' && matrix.display == 'wayland'
+      run: |
+        nim c examples/surfer_text.nim
+        nim c examples/surfer_text_shaping_demo.nim
+
     - name: Build Tests
-      if: runner.os == 'Linux'
+      if: runner.os == 'Linux' && matrix.display == 'x11'
+      env:
+        XDG_SESSION_TYPE: "x11"
+        GALLIUM_DRIVER: "llvmpipe"
+        LIBGL_ALWAYS_SOFTWARE: "1"
+        MESA_GL_VERSION_OVERRIDE: "3.3"
+        MESA_GLSL_VERSION_OVERRIDE: "330"
+      run: |
+        xvfb-run -a nim test
+
+    - name: Build Tests
+      if: runner.os == 'Linux' && matrix.display == 'wayland'
       env:
         XDG_SESSION_TYPE: "wayland"
         WAYLAND_DISPLAY: "wayland-1"
@@ -118,8 +176,8 @@ jobs:
         LIBGL_ALWAYS_SOFTWARE: "1"
         MESA_GL_VERSION_OVERRIDE: "3.3"
         MESA_GLSL_VERSION_OVERRIDE: "330"
-        VK_ICD_FILENAMES: "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
-        VK_DRIVER_FILES: "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+        VK_ICD_FILENAMES: "/usr/share/vulkan/icd.d/lvp_icd.json"
+        VK_DRIVER_FILES: "/usr/share/vulkan/icd.d/lvp_icd.json"
       run: |
         export XDG_RUNTIME_DIR="${RUNNER_TEMP}/xdg-runtime"
         mkdir -p "${XDG_RUNTIME_DIR}"
@@ -127,7 +185,6 @@ jobs:
 
         weston --backend=headless-backend.so \
                --renderer=pixman \
-               --xwayland \
                --socket="${WAYLAND_DISPLAY}" \
                --idle-time=0 \
                --log="${RUNNER_TEMP}/weston.log" &
@@ -145,13 +202,6 @@ jobs:
         vulkaninfo --summary || true
         nim test
 
-    - name: Build Tests (Vulkan Compile Check)
-      if: runner.os == 'Linux'
-      env:
-        NIMFLAGS: "-d:figdraw.opengl=off -d:figdraw.vulkan=on"
-      run: |
-        nim test_compile
-
     - name: Build Tests
       if: runner.os == 'macOS'
       run: |
@@ -165,7 +215,7 @@ jobs:
         nim test
 
     - name: Build Tests (Vulkan Compile Check)
-      if: runner.os == 'Windows'
+      if: runner.os == 'Linux' || runner.os == 'Windows'
       env:
         NIMFLAGS: "-d:figdraw.opengl=off -d:figdraw.vulkan=on"
       run: |
@@ -175,7 +225,7 @@ jobs:
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: tests-output-${{ runner.os }}-nim${{ matrix.nimversion }}
+        name: tests-output-${{ runner.os }}-${{ matrix.display }}-nim${{ matrix.nimversion }}
         path: |
           tests/output/
           ${{ runner.temp }}/weston.log
