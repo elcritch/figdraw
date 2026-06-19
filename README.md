@@ -8,7 +8,8 @@ Features:
 - Rects & shadows default to SDF (signed-distance-field) primitives for crisp, dynamic, and low memory UI primitives
 - Lightweight, multiplatform, and high performance by design! (few or no allocations for each frame)
 - Thread-safe renderer pipeline. (render tree construction and preparation can be done off the main thread)
-- Modern and fast text rendering and layout using [Pixie](https://github.com/treeform/pixie/) with thread-safe Text API.
+- Fast pure Nimtext rendering and layout using [Pixie](https://github.com/treeform/pixie/) by default
+- Optional Harfbuzzy support for shaping and rendering more complex scripts, font fallback, ligatures, and variable fonts!
 - Image rendering using a texture atlas.
 - Supports layering and multiple "roots" per layer - great for menus, overlays, etc.
 - SDF/MSDF (Multi-SDF) based glyph rendering.
@@ -283,6 +284,92 @@ proc makeGradientDemo(w, h: float32, uiFont: FigFont): Renders =
     fill: rgba(255, 235, 170, 255),
   ))
 ```
+
+## Font Shaping with Harfbuzzy
+
+FigDraw uses Pixie text layout by default. For complex scripts, glyph ligatures,
+font fallback, OpenType features, and variable-font axes, compile with the
+optional Harfbuzzy backend.
+
+Install the optional Harfbuzzy dependency when trying the repo:
+
+```sh
+atlas install --feature:windy --feature:harfbuzz
+```
+
+Add the `harfbuzz` feature when using FigDraw from another project:
+
+```nim
+requires "https://github.com/elcritch/figdraw[windy,harfbuzz]"
+```
+
+Note: Windy is the default example. Harfbuzz support works with Siwin or other WMs.
+
+Then compile with the Harfbuzzy text backend:
+
+```sh
+nim r -d:figdrawTextBackend=harfbuzzy examples/windy_text_shaping_demo.nim
+```
+
+For an example or app that should always use Harfbuzzy, put the backend switch
+in a sibling `.nims` file:
+
+```nim
+# examples/windy_text_shaping_demo.nims
+switch("define", "figdrawTextBackend=harfbuzzy")
+```
+
+The public text API stays FigDraw-owned: use `typeset` as usual, but pass
+shaping controls through `FigFont`.
+
+```nim
+import figdraw/commons
+import figdraw/common/fonttypes
+import chroma
+
+let
+  ui = loadTypeface("data/Ubuntu.ttf")
+  arabic = loadTypeface("examples/fonts/NotoNaskhArabic-wght.ttf")
+  hebrew = loadTypeface("examples/fonts/NotoSansHebrew-wdth-wght.ttf")
+
+  bodyFont = FigFont(
+    typefaceId: ui,
+    size: 22.0'f32,
+    fallbackTypefaceIds: @[arabic, hebrew],
+    features: @[fontFeature("kern"), fontFeature("liga")],
+    variations: @[fontVariation("wght", 560.0'f32)],
+  )
+
+let layout = typeset(
+  rect(0, 0, 520, 120),
+  [span(bodyFont, rgba(30, 34, 40, 255), "Hello שלום السلام")],
+  minContent = false,
+  wrap = true,
+)
+```
+
+Useful backend modes:
+
+- `-d:figdrawTextBackend=pixie`: default Pixie layout and raster path.
+- `-d:figdrawTextBackend=harfbuzzy`: Harfbuzzy shaping with glyph-id
+  rasterization.
+- `-d:figdrawTextBackend=hybrid`: Harfbuzzy layout converted through the Pixie
+  compatibility raster path, useful for diagnostics.
+
+When shaping is enabled, one visual glyph is not necessarily one source rune.
+Use the source-aware helpers for selection, hit testing, and carets:
+
+- `selectionRectsFor(sourceRange)`: merged visual selection bands for source
+  rune ranges.
+- `glyphSelectionRectsFor(sourceRange)`: raw per-glyph rectangles for
+  diagnostics.
+- `sourceRuneRangeAt(point)`: source range under a local text-layout point.
+- `caretPositionsFor(sourceRune)`: visual caret rectangles for a source
+  insertion index, including split positions at bidi boundaries.
+
+See [docs/font_shaping.md](docs/font_shaping.md) for the data model details and
+[examples/windy_text_shaping_demo.nim](examples/windy_text_shaping_demo.nim) for
+a complete Arabic, Hebrew, Devanagari, fallback, and ligature demo.
 
 ## Layers and ZLevel
 
