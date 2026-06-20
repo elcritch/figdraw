@@ -5,7 +5,6 @@ license = "MIT"
 srcDir = "src"
 
 # Dependencies
-
 requires "nim >= 2.2"
 requires "pixie >= 5.0.1"
 requires "chroma >= 0.2.7"
