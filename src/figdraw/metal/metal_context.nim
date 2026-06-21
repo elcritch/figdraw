@@ -27,6 +27,13 @@ proc round*(v: Vec2): Vec2 =
 
 const quadLimit = 10_921
 const maxFramesInFlight = 3
+const fastRectMaskLimit = figbackend.FigDrawFastRectMaskLimit
+when fastRectMaskLimit >= 2:
+  const rectMaskUniformBufferIndex = 17
+else:
+  const rectMaskUniformBufferIndex = 13
+const metalShaderDefines =
+  "#define FIGDRAW_FAST_RECT_MASK_LIMIT " & $fastRectMaskLimit & "\n"
 
 type PassKind = enum
   pkNone
@@ -74,6 +81,15 @@ type FlushBuffers = object
   rectMaskMatXCapacity: int
   rectMaskMatY: ObjcOwned[MTLBuffer]
   rectMaskMatYCapacity: int
+  when fastRectMaskLimit >= 2:
+    rectMaskParams2: ObjcOwned[MTLBuffer]
+    rectMaskParams2Capacity: int
+    rectMaskRadii2: ObjcOwned[MTLBuffer]
+    rectMaskRadii2Capacity: int
+    rectMaskMatX2: ObjcOwned[MTLBuffer]
+    rectMaskMatX2Capacity: int
+    rectMaskMatY2: ObjcOwned[MTLBuffer]
+    rectMaskMatY2Capacity: int
 
 type FrameArena = object
   flushBuffers: seq[FlushBuffers]
@@ -139,6 +155,11 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   rectMaskRadii: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
   rectMaskMatX: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
   rectMaskMatY: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+  when fastRectMaskLimit >= 2:
+    rectMaskParams2: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+    rectMaskRadii2: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+    rectMaskMatX2: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+    rectMaskMatY2: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
   rectMaskStack: seq[RectMask]
 
   # SDF shader uniform (global)
@@ -407,7 +428,7 @@ proc ensureDeviceAndPipelines(ctx: MetalContext) =
       raise newException(ValueError, "Failed to create Metal command queue")
     ctx.queue.resetRetained(q)
 
-    let shaderSource = metalShaderSource
+    let shaderSource = metalShaderDefines & metalShaderSource
 
     var err: NSError
     let library = fromRetained(
@@ -597,6 +618,27 @@ proc upload(ctx: MetalContext) =
       ctx.rectMaskMatY.data,
       vertexCount * 4 * sizeof(float32),
     )
+    when fastRectMaskLimit >= 2:
+      copyToBuf(
+        ctx.rectMaskParams2.buffer.borrow,
+        ctx.rectMaskParams2.data,
+        vertexCount * 4 * sizeof(float32),
+      )
+      copyToBuf(
+        ctx.rectMaskRadii2.buffer.borrow,
+        ctx.rectMaskRadii2.data,
+        vertexCount * 4 * sizeof(float32),
+      )
+      copyToBuf(
+        ctx.rectMaskMatX2.buffer.borrow,
+        ctx.rectMaskMatX2.data,
+        vertexCount * 4 * sizeof(float32),
+      )
+      copyToBuf(
+        ctx.rectMaskMatY2.buffer.borrow,
+        ctx.rectMaskMatY2.data,
+        vertexCount * 4 * sizeof(float32),
+      )
 
 proc grow(ctx: MetalContext) =
   ctx.flush()
@@ -751,6 +793,16 @@ proc setRectMaskVert4(ctx: MetalContext, offset: int, params, radii, matX, matY:
     ctx.rectMaskMatX.data.setVert4(offset + i, matX)
     ctx.rectMaskMatY.data.setVert4(offset + i, matY)
 
+when fastRectMaskLimit >= 2:
+  proc setRectMask2Vert4(
+      ctx: MetalContext, offset: int, params, radii, matX, matY: Vec4
+  ) =
+    for i in 0 ..< 4:
+      ctx.rectMaskParams2.data.setVert4(offset + i, params)
+      ctx.rectMaskRadii2.data.setVert4(offset + i, radii)
+      ctx.rectMaskMatX2.data.setVert4(offset + i, matX)
+      ctx.rectMaskMatY2.data.setVert4(offset + i, matY)
+
 proc setDisabledRectMaskVerts(ctx: MetalContext, firstVertex, vertexCount: int) =
   let
     params = vec4(0.0'f32, 0.0'f32, -1.0'f32, -1.0'f32)
@@ -760,40 +812,77 @@ proc setDisabledRectMaskVerts(ctx: MetalContext, firstVertex, vertexCount: int) 
     ctx.rectMaskRadii.data.setVert4(i, zero4)
     ctx.rectMaskMatX.data.setVert4(i, zero4)
     ctx.rectMaskMatY.data.setVert4(i, zero4)
+    when fastRectMaskLimit >= 2:
+      ctx.rectMaskParams2.data.setVert4(i, params)
+      ctx.rectMaskRadii2.data.setVert4(i, zero4)
+      ctx.rectMaskMatX2.data.setVert4(i, zero4)
+      ctx.rectMaskMatY2.data.setVert4(i, zero4)
+
+proc fastRectMaskCount(ctx: MetalContext): int =
+  for rectMask in ctx.rectMaskStack:
+    if rectMask.kind == rmkFast:
+      inc result
 
 proc setRectMaskVert4(ctx: MetalContext, offset: int) =
-  if ctx.maskBegun:
+  when fastRectMaskLimit == 0:
     return
+  else:
+    if ctx.maskBegun:
+      return
 
-  var
-    hasRectMask = false
-    params = vec4(0.0'f32)
-    radii = vec4(0.0'f32)
-    matX = vec4(0.0'f32)
-    matY = vec4(0.0'f32)
+    var
+      maskCount = 0
+      params = vec4(0.0'f32)
+      radii = vec4(0.0'f32)
+      matX = vec4(0.0'f32)
+      matY = vec4(0.0'f32)
+    when fastRectMaskLimit >= 2:
+      var
+        params2 = vec4(0.0'f32)
+        radii2 = vec4(0.0'f32)
+        matX2 = vec4(0.0'f32)
+        matY2 = vec4(0.0'f32)
 
-  if ctx.rectMaskStack.len > 0:
-    for i in countdown(ctx.rectMaskStack.len - 1, 0):
-      let rectMask = ctx.rectMaskStack[i]
-      if rectMask.kind == rmkFast:
-        hasRectMask = true
-        params = rectMask.params
-        radii = rectMask.radii
-        matX = rectMask.matX
-        matY = rectMask.matY
-        break
+    if ctx.rectMaskStack.len > 0:
+      for i in countdown(ctx.rectMaskStack.len - 1, 0):
+        let rectMask = ctx.rectMaskStack[i]
+        if rectMask.kind == rmkFast:
+          if maskCount == 0:
+            params = rectMask.params
+            radii = rectMask.radii
+            matX = rectMask.matX
+            matY = rectMask.matY
+            inc maskCount
+          elif fastRectMaskLimit >= 2 and maskCount == 1:
+            when fastRectMaskLimit >= 2:
+              params2 = rectMask.params
+              radii2 = rectMask.radii
+              matX2 = rectMask.matX
+              matY2 = rectMask.matY
+            inc maskCount
+          if maskCount >= fastRectMaskLimit:
+            break
 
-  if hasRectMask:
-    if not ctx.batchHasRectMask:
-      ctx.setDisabledRectMaskVerts(0, offset)
-      ctx.batchHasRectMask = true
-    ctx.setRectMaskVert4(offset, params, radii, matX, matY)
-  elif ctx.batchHasRectMask:
-    ctx.setDisabledRectMaskVerts(offset, 4)
+    if maskCount > 0:
+      if not ctx.batchHasRectMask:
+        ctx.setDisabledRectMaskVerts(0, offset)
+        ctx.batchHasRectMask = true
+      ctx.setRectMaskVert4(offset, params, radii, matX, matY)
+      when fastRectMaskLimit >= 2:
+        if maskCount >= 2:
+          ctx.setRectMask2Vert4(offset, params2, radii2, matX2, matY2)
+        else:
+          let
+            disabledParams = vec4(0.0'f32, 0.0'f32, -1.0'f32, -1.0'f32)
+            zero4 = vec4(0.0'f32)
+          ctx.setRectMask2Vert4(offset, disabledParams, zero4, zero4, zero4)
+    elif ctx.batchHasRectMask:
+      ctx.setDisabledRectMaskVerts(offset, 4)
 
 template setRectMaskVert4IfNeeded(ctx: MetalContext, offset: int) =
-  if not ctx.maskBegun and (ctx.batchHasRectMask or ctx.rectMaskStack.len > 0):
-    ctx.setRectMaskVert4(offset)
+  when fastRectMaskLimit > 0:
+    if not ctx.maskBegun and (ctx.batchHasRectMask or ctx.rectMaskStack.len > 0):
+      ctx.setRectMaskVert4(offset)
 
 func `*`*(m: Mat4, v: Vec2): Vec2 =
   (m * vec3(v.x, v.y, 0.0)).xy
@@ -1554,7 +1643,8 @@ method beginRectMask*(
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginRectMask cannot start inside a mask."
 
-  if ctx.rectMaskStack.len == 0 and maskRect.w > 0.0'f32 and maskRect.h > 0.0'f32:
+  if fastRectMaskLimit > 0 and ctx.fastRectMaskCount() < fastRectMaskLimit and
+      maskRect.w > 0.0'f32 and maskRect.h > 0.0'f32:
     ctx.rectMaskStack.add(ctx.makeRectMask(maskRect, radii))
   else:
     ctx.beginMask(maskRect, radii)
@@ -1925,6 +2015,27 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
       flushBuffers[].rectMaskMatYCapacity,
       rectMaskMatYBytes,
     )
+    when fastRectMaskLimit >= 2:
+      ctx.ensureFlushBufferCapacity(
+        flushBuffers[].rectMaskParams2,
+        flushBuffers[].rectMaskParams2Capacity,
+        rectMaskParamsBytes,
+      )
+      ctx.ensureFlushBufferCapacity(
+        flushBuffers[].rectMaskRadii2,
+        flushBuffers[].rectMaskRadii2Capacity,
+        rectMaskRadiiBytes,
+      )
+      ctx.ensureFlushBufferCapacity(
+        flushBuffers[].rectMaskMatX2,
+        flushBuffers[].rectMaskMatX2Capacity,
+        rectMaskMatXBytes,
+      )
+      ctx.ensureFlushBufferCapacity(
+        flushBuffers[].rectMaskMatY2,
+        flushBuffers[].rectMaskMatY2Capacity,
+        rectMaskMatYBytes,
+      )
 
   copyToBuf(flushBuffers[].positions.borrow, ctx.positions.data, positionsBytes)
   copyToBuf(flushBuffers[].uvs.borrow, ctx.uvs.data, uvsBytes)
@@ -1957,6 +2068,23 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
     copyToBuf(
       flushBuffers[].rectMaskMatY.borrow, ctx.rectMaskMatY.data, rectMaskMatYBytes
     )
+    when fastRectMaskLimit >= 2:
+      copyToBuf(
+        flushBuffers[].rectMaskParams2.borrow,
+        ctx.rectMaskParams2.data,
+        rectMaskParamsBytes,
+      )
+      copyToBuf(
+        flushBuffers[].rectMaskRadii2.borrow,
+        ctx.rectMaskRadii2.data,
+        rectMaskRadiiBytes,
+      )
+      copyToBuf(
+        flushBuffers[].rectMaskMatX2.borrow, ctx.rectMaskMatX2.data, rectMaskMatXBytes
+      )
+      copyToBuf(
+        flushBuffers[].rectMaskMatY2.borrow, ctx.rectMaskMatY2.data, rectMaskMatYBytes
+      )
 
   setVertexBuffer(enc, flushBuffers[].positions.borrow, 0, 0)
   setVertexBuffer(enc, flushBuffers[].uvs.borrow, 0, 1)
@@ -1972,13 +2100,21 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
     setVertexBuffer(enc, flushBuffers[].rectMaskRadii.borrow, 0, 10)
     setVertexBuffer(enc, flushBuffers[].rectMaskMatX.borrow, 0, 11)
     setVertexBuffer(enc, flushBuffers[].rectMaskMatY.borrow, 0, 12)
+    when fastRectMaskLimit >= 2:
+      setVertexBuffer(enc, flushBuffers[].rectMaskParams2.borrow, 0, 13)
+      setVertexBuffer(enc, flushBuffers[].rectMaskRadii2.borrow, 0, 14)
+      setVertexBuffer(enc, flushBuffers[].rectMaskMatX2.borrow, 0, 15)
+      setVertexBuffer(enc, flushBuffers[].rectMaskMatY2.borrow, 0, 16)
 
   type VSUniforms = object
     proj: Mat4
 
   var vsu = VSUniforms(proj: ctx.proj)
   setVertexBytes(
-    enc, addr vsu, NSUInteger(sizeof(VSUniforms)), (if useRectMaskPipeline: 13 else: 9)
+    enc,
+    addr vsu,
+    NSUInteger(sizeof(VSUniforms)),
+    (if useRectMaskPipeline: rectMaskUniformBufferIndex else: 9),
   )
 
   type FSUniforms = object
@@ -2061,6 +2197,11 @@ proc newContext*(
     result.rectMaskRadii.data = newSeq[float32](4 * maxQuads * 4)
     result.rectMaskMatX.data = newSeq[float32](4 * maxQuads * 4)
     result.rectMaskMatY.data = newSeq[float32](4 * maxQuads * 4)
+    when fastRectMaskLimit >= 2:
+      result.rectMaskParams2.data = newSeq[float32](4 * maxQuads * 4)
+      result.rectMaskRadii2.data = newSeq[float32](4 * maxQuads * 4)
+      result.rectMaskMatX2.data = newSeq[float32](4 * maxQuads * 4)
+      result.rectMaskMatY2.data = newSeq[float32](4 * maxQuads * 4)
     result.rectMaskStack = @[]
 
     # Allocate GPU buffers.
@@ -2155,6 +2296,35 @@ proc newContext*(
         MTLResourceOptions(0),
       )
     )
+    when fastRectMaskLimit >= 2:
+      result.rectMaskParams2.buffer.resetRetained(
+        newBufferWithLength(
+          result.device.borrow,
+          NSUInteger(result.rectMaskParams2.data.len * sizeof(float32)),
+          MTLResourceOptions(0),
+        )
+      )
+      result.rectMaskRadii2.buffer.resetRetained(
+        newBufferWithLength(
+          result.device.borrow,
+          NSUInteger(result.rectMaskRadii2.data.len * sizeof(float32)),
+          MTLResourceOptions(0),
+        )
+      )
+      result.rectMaskMatX2.buffer.resetRetained(
+        newBufferWithLength(
+          result.device.borrow,
+          NSUInteger(result.rectMaskMatX2.data.len * sizeof(float32)),
+          MTLResourceOptions(0),
+        )
+      )
+      result.rectMaskMatY2.buffer.resetRetained(
+        newBufferWithLength(
+          result.device.borrow,
+          NSUInteger(result.rectMaskMatY2.data.len * sizeof(float32)),
+          MTLResourceOptions(0),
+        )
+      )
 
     # Indices are static.
     result.indices.data = newSeq[uint16](maxQuads * 6)

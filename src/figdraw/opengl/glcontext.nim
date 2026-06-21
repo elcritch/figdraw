@@ -26,6 +26,9 @@ proc round*(v: Vec2): Vec2 =
   vec2(round(v.x), round(v.y))
 
 const quadLimit = 10_921
+const fastRectMaskLimit = figbackend.FigDrawFastRectMaskLimit
+const rectMaskShaderDefines =
+  "#define FIGDRAW_FAST_RECT_MASK_LIMIT " & $fastRectMaskLimit & "\n"
 
 when defined(emscripten):
   type SdfModeData = float32
@@ -83,12 +86,16 @@ type OpenGlContext* = ref object of figbackend.BackendContext
   sdfRadii: tuple[buffer: Buffer, data: seq[float32]]
     ## Vec4: (topRight, bottomRight, topLeft, bottomLeft)
   sdfModeAttr: tuple[buffer: Buffer, data: seq[SdfModeData]] ## SDFMode value
-  sdfFactors: tuple[buffer: Buffer, data: seq[float32]] ## Vec2: (factor, spread)
-  subpixelShifts: tuple[buffer: Buffer, data: seq[float32]] ## Scalar shift in px
+  sdfFactors: tuple[buffer: Buffer, data: seq[float32]]
+    ## Vec4: (factor, spread, text subpixel shift, unused)
   rectMaskParams: tuple[buffer: Buffer, data: seq[float32]]
   rectMaskRadii: tuple[buffer: Buffer, data: seq[float32]]
   rectMaskMatX: tuple[buffer: Buffer, data: seq[float32]]
   rectMaskMatY: tuple[buffer: Buffer, data: seq[float32]]
+  when fastRectMaskLimit >= 2:
+    rectMaskParams2: tuple[buffer: Buffer, data: seq[float32]]
+    rectMaskRadii2: tuple[buffer: Buffer, data: seq[float32]]
+    rectMaskMat2: tuple[buffer: Buffer, data: seq[float32]]
   rectMaskStack: seq[RectMask]
 
   # SDF shader uniforms (global)
@@ -125,12 +132,10 @@ proc upload(ctx: OpenGlContext) =
   ctx.sdfRadii.buffer.count = ctx.quadCount * 4
   ctx.sdfModeAttr.buffer.count = ctx.quadCount * 4
   ctx.sdfFactors.buffer.count = ctx.quadCount * 4
-  ctx.subpixelShifts.buffer.count = ctx.quadCount * 4
   bindBufferData(ctx.sdfParams.buffer.addr, ctx.sdfParams.data[0].addr)
   bindBufferData(ctx.sdfRadii.buffer.addr, ctx.sdfRadii.data[0].addr)
   bindBufferData(ctx.sdfModeAttr.buffer.addr, ctx.sdfModeAttr.data[0].addr)
   bindBufferData(ctx.sdfFactors.buffer.addr, ctx.sdfFactors.data[0].addr)
-  bindBufferData(ctx.subpixelShifts.buffer.addr, ctx.subpixelShifts.data[0].addr)
 
 proc uploadRectMasks(ctx: OpenGlContext) =
   ctx.rectMaskParams.buffer.count = ctx.quadCount * 4
@@ -141,6 +146,13 @@ proc uploadRectMasks(ctx: OpenGlContext) =
   bindBufferData(ctx.rectMaskRadii.buffer.addr, ctx.rectMaskRadii.data[0].addr)
   bindBufferData(ctx.rectMaskMatX.buffer.addr, ctx.rectMaskMatX.data[0].addr)
   bindBufferData(ctx.rectMaskMatY.buffer.addr, ctx.rectMaskMatY.data[0].addr)
+  when fastRectMaskLimit >= 2:
+    ctx.rectMaskParams2.buffer.count = ctx.quadCount * 4
+    ctx.rectMaskRadii2.buffer.count = ctx.quadCount * 4
+    ctx.rectMaskMat2.buffer.count = ctx.quadCount * 4
+    bindBufferData(ctx.rectMaskParams2.buffer.addr, ctx.rectMaskParams2.data[0].addr)
+    bindBufferData(ctx.rectMaskRadii2.buffer.addr, ctx.rectMaskRadii2.data[0].addr)
+    bindBufferData(ctx.rectMaskMat2.buffer.addr, ctx.rectMaskMat2.data[0].addr)
 
 proc setUpMaskFramebuffer(ctx: OpenGlContext) =
   glBindFramebuffer(GL_FRAMEBUFFER, ctx.maskFramebufferId)
@@ -274,8 +286,9 @@ proc newContext*(
       newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
     result.mainShader =
       newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/atlas.frag")
-    result.rectMaskShader = newShaderStatic(
-      "glsl/emscripten/atlas_rect_mask.vert", "glsl/emscripten/atlas_rect_mask.frag"
+    result.rectMaskShader = newShaderStaticWithDefines(
+      "glsl/emscripten/atlas_rect_mask.vert", "glsl/emscripten/atlas_rect_mask.frag",
+      rectMaskShaderDefines,
     )
     result.blurShader =
       newShaderStatic("glsl/emscripten/blur.vert", "glsl/emscripten/blur.frag")
@@ -283,8 +296,9 @@ proc newContext*(
     try:
       result.maskShader = newShaderStatic("glsl/atlas.vert", "glsl/mask.frag")
       result.mainShader = newShaderStatic("glsl/atlas.vert", "glsl/atlas.frag")
-      result.rectMaskShader =
-        newShaderStatic("glsl/atlas_rect_mask.vert", "glsl/atlas_rect_mask.frag")
+      result.rectMaskShader = newShaderStaticWithDefines(
+        "glsl/atlas_rect_mask.vert", "glsl/atlas_rect_mask.frag", rectMaskShaderDefines
+      )
       result.blurShader = newShaderStatic("glsl/blur.vert", "glsl/blur.frag")
     except ShaderCompilationError:
       info "OpenGL 3.30 failed, trying GLSL ES fallback"
@@ -292,8 +306,9 @@ proc newContext*(
         newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
       result.mainShader =
         newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/atlas.frag")
-      result.rectMaskShader = newShaderStatic(
-        "glsl/emscripten/atlas_rect_mask.vert", "glsl/emscripten/atlas_rect_mask.frag"
+      result.rectMaskShader = newShaderStaticWithDefines(
+        "glsl/emscripten/atlas_rect_mask.vert", "glsl/emscripten/atlas_rect_mask.frag",
+        rectMaskShaderDefines,
       )
       result.blurShader =
         newShaderStatic("glsl/emscripten/blur.vert", "glsl/emscripten/blur.frag")
@@ -361,17 +376,11 @@ proc newContext*(
     newSeq[SdfModeData](result.sdfModeAttr.buffer.kind.componentCount() * maxQuads * 4)
 
   result.sdfFactors.buffer.componentType = cGL_FLOAT
-  result.sdfFactors.buffer.kind = bkVEC2
+  result.sdfFactors.buffer.kind = bkVEC4
   result.sdfFactors.buffer.target = GL_ARRAY_BUFFER
   result.sdfFactors.buffer.usage = GL_STREAM_DRAW
   result.sdfFactors.data =
     newSeq[float32](result.sdfFactors.buffer.kind.componentCount() * maxQuads * 4)
-
-  result.subpixelShifts.buffer.componentType = cGL_FLOAT
-  result.subpixelShifts.buffer.kind = bkSCALAR
-  result.subpixelShifts.buffer.target = GL_ARRAY_BUFFER
-  result.subpixelShifts.buffer.usage = GL_STREAM_DRAW
-  result.subpixelShifts.data = newSeq[float32](maxQuads * 4)
 
   result.rectMaskParams.buffer.componentType = cGL_FLOAT
   result.rectMaskParams.buffer.kind = bkVEC4
@@ -400,6 +409,29 @@ proc newContext*(
   result.rectMaskMatY.buffer.usage = GL_STREAM_DRAW
   result.rectMaskMatY.data =
     newSeq[float32](result.rectMaskMatY.buffer.kind.componentCount() * maxQuads * 4)
+
+  when fastRectMaskLimit >= 2:
+    result.rectMaskParams2.buffer.componentType = cGL_FLOAT
+    result.rectMaskParams2.buffer.kind = bkVEC4
+    result.rectMaskParams2.buffer.target = GL_ARRAY_BUFFER
+    result.rectMaskParams2.buffer.usage = GL_STREAM_DRAW
+    result.rectMaskParams2.data = newSeq[float32](
+      result.rectMaskParams2.buffer.kind.componentCount() * maxQuads * 4
+    )
+
+    result.rectMaskRadii2.buffer.componentType = cGL_FLOAT
+    result.rectMaskRadii2.buffer.kind = bkVEC4
+    result.rectMaskRadii2.buffer.target = GL_ARRAY_BUFFER
+    result.rectMaskRadii2.buffer.usage = GL_STREAM_DRAW
+    result.rectMaskRadii2.data =
+      newSeq[float32](result.rectMaskRadii2.buffer.kind.componentCount() * maxQuads * 4)
+
+    result.rectMaskMat2.buffer.componentType = cGL_FLOAT
+    result.rectMaskMat2.buffer.kind = bkVEC4
+    result.rectMaskMat2.buffer.target = GL_ARRAY_BUFFER
+    result.rectMaskMat2.buffer.usage = GL_STREAM_DRAW
+    result.rectMaskMat2.data =
+      newSeq[float32](result.rectMaskMat2.buffer.kind.componentCount() * maxQuads * 4)
 
   result.indices.buffer.componentType = GL_UNSIGNED_SHORT
   result.indices.buffer.kind = bkSCALAR
@@ -440,7 +472,6 @@ proc newContext*(
   result.mainShader.bindAttrib("vertexSdfRadii", result.sdfRadii.buffer)
   result.mainShader.bindAttrib("vertexSdfMode", result.sdfModeAttr.buffer)
   result.mainShader.bindAttrib("vertexSdfFactors", result.sdfFactors.buffer)
-  result.mainShader.bindAttrib("vertexSubpixelShift", result.subpixelShifts.buffer)
 
   # Main shader with per-vertex fast rect masks.
   glGenVertexArrays(1, result.rectMaskVertexArrayId.addr)
@@ -454,11 +485,18 @@ proc newContext*(
   result.rectMaskShader.bindAttrib("vertexSdfRadii", result.sdfRadii.buffer)
   result.rectMaskShader.bindAttrib("vertexSdfMode", result.sdfModeAttr.buffer)
   result.rectMaskShader.bindAttrib("vertexSdfFactors", result.sdfFactors.buffer)
-  result.rectMaskShader.bindAttrib("vertexSubpixelShift", result.subpixelShifts.buffer)
   result.rectMaskShader.bindAttrib("vertexRectMaskParams", result.rectMaskParams.buffer)
   result.rectMaskShader.bindAttrib("vertexRectMaskRadii", result.rectMaskRadii.buffer)
   result.rectMaskShader.bindAttrib("vertexRectMaskMatX", result.rectMaskMatX.buffer)
   result.rectMaskShader.bindAttrib("vertexRectMaskMatY", result.rectMaskMatY.buffer)
+  when fastRectMaskLimit >= 2:
+    result.rectMaskShader.bindAttrib(
+      "vertexRectMaskParams2", result.rectMaskParams2.buffer
+    )
+    result.rectMaskShader.bindAttrib(
+      "vertexRectMaskRadii2", result.rectMaskRadii2.buffer
+    )
+    result.rectMaskShader.bindAttrib("vertexRectMaskMat2", result.rectMaskMat2.buffer)
 
   # Mask shader.
   glGenVertexArrays(1, result.maskVertexArrayId.addr)
@@ -469,7 +507,6 @@ proc newContext*(
   result.maskShader.bindAttrib("vertexSdfParams", result.sdfParams.buffer)
   result.maskShader.bindAttrib("vertexSdfRadii", result.sdfRadii.buffer)
   result.maskShader.bindAttrib("vertexSdfMode", result.sdfModeAttr.buffer)
-  result.maskShader.bindAttrib("vertexSubpixelShift", result.subpixelShifts.buffer)
 
   # Fullscreen triangle buffers for blur passes.
   result.blurPositions.componentType = cGL_FLOAT
@@ -703,9 +740,6 @@ proc setVert2(buf: var seq[float32], i: int, v: Vec2) =
   buf[i * 2 + 0] = v.x
   buf[i * 2 + 1] = v.y
 
-proc setVert1(buf: var seq[float32], i: int, v: float32) =
-  buf[i] = v
-
 proc setVert4(buf: var seq[float32], i: int, v: Vec4) =
   buf[i * 4 + 0] = v.x
   buf[i * 4 + 1] = v.y
@@ -750,12 +784,12 @@ proc activeSubpixelShift(ctx: OpenGlContext): float32 =
     return 0.0'f32
   max(0.0'f32, min(ctx.textSubpixelShift, 0.999'f32))
 
-proc setQuadSubpixelShift(ctx: OpenGlContext, offset: int) =
-  let shift = ctx.activeSubpixelShift()
-  ctx.subpixelShifts.data.setVert1(offset + 0, shift)
-  ctx.subpixelShifts.data.setVert1(offset + 1, shift)
-  ctx.subpixelShifts.data.setVert1(offset + 2, shift)
-  ctx.subpixelShifts.data.setVert1(offset + 3, shift)
+proc setQuadSdfFactors(ctx: OpenGlContext, offset: int, factors: Vec2) =
+  let packed = vec4(factors.x, factors.y, ctx.activeSubpixelShift(), 0.0'f32)
+  ctx.sdfFactors.data.setVert4(offset + 0, packed)
+  ctx.sdfFactors.data.setVert4(offset + 1, packed)
+  ctx.sdfFactors.data.setVert4(offset + 2, packed)
+  ctx.sdfFactors.data.setVert4(offset + 3, packed)
 
 proc makeRectMask(
     ctx: OpenGlContext, maskRect: Rect, radii: array[DirectionCorners, float32]
@@ -781,6 +815,13 @@ proc setRectMaskVert4(
     ctx.rectMaskMatX.data.setVert4(offset + i, matX)
     ctx.rectMaskMatY.data.setVert4(offset + i, matY)
 
+when fastRectMaskLimit >= 2:
+  proc setRectMask2Vert4(ctx: OpenGlContext, offset: int, params, radii, mat2: Vec4) =
+    for i in 0 ..< 4:
+      ctx.rectMaskParams2.data.setVert4(offset + i, params)
+      ctx.rectMaskRadii2.data.setVert4(offset + i, radii)
+      ctx.rectMaskMat2.data.setVert4(offset + i, mat2)
+
 proc setDisabledRectMaskVerts(ctx: OpenGlContext, firstVertex, vertexCount: int) =
   let
     params = vec4(0.0'f32, 0.0'f32, -1.0'f32, -1.0'f32)
@@ -790,40 +831,77 @@ proc setDisabledRectMaskVerts(ctx: OpenGlContext, firstVertex, vertexCount: int)
     ctx.rectMaskRadii.data.setVert4(i, zero4)
     ctx.rectMaskMatX.data.setVert4(i, zero4)
     ctx.rectMaskMatY.data.setVert4(i, zero4)
+    when fastRectMaskLimit >= 2:
+      ctx.rectMaskParams2.data.setVert4(i, params)
+      ctx.rectMaskRadii2.data.setVert4(i, zero4)
+      ctx.rectMaskMat2.data.setVert4(i, zero4)
+
+proc fastRectMaskCount(ctx: OpenGlContext): int =
+  for rectMask in ctx.rectMaskStack:
+    if rectMask.kind == rmkFast:
+      inc result
 
 proc setRectMaskVert4(ctx: OpenGlContext, offset: int) =
-  if ctx.maskBegun:
+  when fastRectMaskLimit == 0:
     return
+  else:
+    if ctx.maskBegun:
+      return
 
-  var
-    hasRectMask = false
-    params = vec4(0.0'f32)
-    radii = vec4(0.0'f32)
-    matX = vec4(0.0'f32)
-    matY = vec4(0.0'f32)
+    var
+      maskCount = 0
+      params = vec4(0.0'f32)
+      radii = vec4(0.0'f32)
+      matX = vec4(0.0'f32)
+      matY = vec4(0.0'f32)
+    when fastRectMaskLimit >= 2:
+      var
+        params2 = vec4(0.0'f32)
+        radii2 = vec4(0.0'f32)
+        mat2 = vec4(0.0'f32)
 
-  if ctx.rectMaskStack.len > 0:
-    for i in countdown(ctx.rectMaskStack.len - 1, 0):
-      let rectMask = ctx.rectMaskStack[i]
-      if rectMask.kind == rmkFast:
-        hasRectMask = true
-        params = rectMask.params
-        radii = rectMask.radii
-        matX = rectMask.matX
-        matY = rectMask.matY
-        break
+    if ctx.rectMaskStack.len > 0:
+      for i in countdown(ctx.rectMaskStack.len - 1, 0):
+        let rectMask = ctx.rectMaskStack[i]
+        if rectMask.kind == rmkFast:
+          if maskCount == 0:
+            params = rectMask.params
+            radii = rectMask.radii
+            matX = rectMask.matX
+            matY = rectMask.matY
+            inc maskCount
+          elif fastRectMaskLimit >= 2 and maskCount == 1:
+            when fastRectMaskLimit >= 2:
+              params2 = rectMask.params
+              radii2 = rectMask.radii
+              mat2 =
+                vec4(rectMask.matX.x, rectMask.matX.y, rectMask.matX.z, rectMask.matY.x)
+              matX.w = rectMask.matY.y
+              matY.w = rectMask.matY.z
+            inc maskCount
+          if maskCount >= fastRectMaskLimit:
+            break
 
-  if hasRectMask:
-    if not ctx.batchHasRectMask:
-      ctx.setDisabledRectMaskVerts(0, offset)
-      ctx.batchHasRectMask = true
-    ctx.setRectMaskVert4(offset, params, radii, matX, matY)
-  elif ctx.batchHasRectMask:
-    ctx.setDisabledRectMaskVerts(offset, 4)
+    if maskCount > 0:
+      if not ctx.batchHasRectMask:
+        ctx.setDisabledRectMaskVerts(0, offset)
+        ctx.batchHasRectMask = true
+      ctx.setRectMaskVert4(offset, params, radii, matX, matY)
+      when fastRectMaskLimit >= 2:
+        if maskCount >= 2:
+          ctx.setRectMask2Vert4(offset, params2, radii2, mat2)
+        else:
+          let
+            disabledParams = vec4(0.0'f32, 0.0'f32, -1.0'f32, -1.0'f32)
+            zero4 = vec4(0.0'f32)
+          ctx.setRectMask2Vert4(offset, disabledParams, zero4, zero4)
+    elif ctx.batchHasRectMask:
+      ctx.setDisabledRectMaskVerts(offset, 4)
 
 template setRectMaskVert4IfNeeded(ctx: OpenGlContext, offset: int) =
-  if not ctx.maskBegun and (ctx.batchHasRectMask or ctx.rectMaskStack.len > 0):
-    ctx.setRectMaskVert4(offset)
+  when fastRectMaskLimit > 0:
+    if not ctx.maskBegun and (ctx.batchHasRectMask or ctx.rectMaskStack.len > 0):
+      ctx.setRectMaskVert4(offset)
 
 func `*`*(m: Mat4, v: Vec2): Vec2 =
   (m * vec3(v.x, v.y, 0.0)).xy
@@ -864,10 +942,7 @@ proc drawQuad*(
   ctx.sdfRadii.data.setVert4(offset + 3, zero4)
 
   let defaultFactors = vec2(0.0'f32, 0.0'f32)
-  ctx.sdfFactors.data.setVert2(offset + 0, defaultFactors)
-  ctx.sdfFactors.data.setVert2(offset + 1, defaultFactors)
-  ctx.sdfFactors.data.setVert2(offset + 2, defaultFactors)
-  ctx.sdfFactors.data.setVert2(offset + 3, defaultFactors)
+  ctx.setQuadSdfFactors(offset, defaultFactors)
 
   # atlas fragment mode
   when defined(emscripten):
@@ -878,7 +953,6 @@ proc drawQuad*(
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
-  ctx.setQuadSubpixelShift(offset)
   ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
@@ -971,10 +1045,7 @@ proc drawUvRectAtlasSdf(
   ctx.sdfRadii.data.setVert4(offset + 2, zero4)
   ctx.sdfRadii.data.setVert4(offset + 3, zero4)
 
-  ctx.sdfFactors.data.setVert2(offset + 0, factors)
-  ctx.sdfFactors.data.setVert2(offset + 1, factors)
-  ctx.sdfFactors.data.setVert2(offset + 2, factors)
-  ctx.sdfFactors.data.setVert2(offset + 3, factors)
+  ctx.setQuadSdfFactors(offset, factors)
 
   when defined(emscripten):
     let modeVal = mode.int.float32
@@ -984,7 +1055,6 @@ proc drawUvRectAtlasSdf(
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
-  ctx.setQuadSubpixelShift(offset)
   ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
@@ -1105,10 +1175,7 @@ proc drawUvRect(ctx: OpenGlContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color
   ctx.sdfRadii.data.setVert4(offset + 3, zero4)
 
   let defaultFactors = vec2(0.0'f32, 0.0'f32)
-  ctx.sdfFactors.data.setVert2(offset + 0, defaultFactors)
-  ctx.sdfFactors.data.setVert2(offset + 1, defaultFactors)
-  ctx.sdfFactors.data.setVert2(offset + 2, defaultFactors)
-  ctx.sdfFactors.data.setVert2(offset + 3, defaultFactors)
+  ctx.setQuadSdfFactors(offset, defaultFactors)
 
   when defined(emscripten):
     let modeVal = 0.0'f32
@@ -1118,7 +1185,6 @@ proc drawUvRect(ctx: OpenGlContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
-  ctx.setQuadSubpixelShift(offset)
   ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
@@ -1173,10 +1239,7 @@ proc drawUvRect(
   ctx.sdfRadii.data.setVert4(offset + 3, zero4)
 
   let defaultFactors = vec2(0.0'f32, 0.0'f32)
-  ctx.sdfFactors.data.setVert2(offset + 0, defaultFactors)
-  ctx.sdfFactors.data.setVert2(offset + 1, defaultFactors)
-  ctx.sdfFactors.data.setVert2(offset + 2, defaultFactors)
-  ctx.sdfFactors.data.setVert2(offset + 3, defaultFactors)
+  ctx.setQuadSdfFactors(offset, defaultFactors)
 
   when defined(emscripten):
     let modeVal = 0.0'f32
@@ -1186,7 +1249,6 @@ proc drawUvRect(
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
-  ctx.setQuadSubpixelShift(offset)
   ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
@@ -1429,10 +1491,7 @@ proc drawRoundedRectSdfOpenGl(
       vec2(factor, spread)
     else:
       vec2(factor, clamp(fillMidPos, 0.01'f32, 0.99'f32))
-  ctx.sdfFactors.data.setVert2(offset + 0, factors)
-  ctx.sdfFactors.data.setVert2(offset + 1, factors)
-  ctx.sdfFactors.data.setVert2(offset + 2, factors)
-  ctx.sdfFactors.data.setVert2(offset + 3, factors)
+  ctx.setQuadSdfFactors(offset, factors)
 
   when defined(emscripten):
     let modeVal = encodeSdfMode(mode, fillMode)
@@ -1442,7 +1501,6 @@ proc drawRoundedRectSdfOpenGl(
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
   ctx.sdfModeAttr.data[offset + 3] = modeVal
-  ctx.setQuadSubpixelShift(offset)
   ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
@@ -1703,7 +1761,8 @@ method beginRectMask*(
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginRectMask cannot start inside a mask."
 
-  if ctx.rectMaskStack.len == 0 and maskRect.w > 0.0'f32 and maskRect.h > 0.0'f32:
+  if fastRectMaskLimit > 0 and ctx.fastRectMaskCount() < fastRectMaskLimit and
+      maskRect.w > 0.0'f32 and maskRect.h > 0.0'f32:
     ctx.rectMaskStack.add(ctx.makeRectMask(maskRect, radii))
   else:
     ctx.beginMask(maskRect, radii)

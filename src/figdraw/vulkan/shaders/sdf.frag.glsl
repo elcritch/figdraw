@@ -23,6 +23,12 @@ layout(location = 9) in vec4 vRectMaskParams;
 layout(location = 10) in vec4 vRectMaskRadii;
 layout(location = 11) in vec4 vRectMaskMatX;
 layout(location = 12) in vec4 vRectMaskMatY;
+#if FIGDRAW_FAST_RECT_MASK_LIMIT >= 2
+layout(location = 13) in vec4 vRectMaskParams2;
+layout(location = 14) in vec4 vRectMaskRadii2;
+layout(location = 15) in vec4 vRectMaskMatX2;
+layout(location = 16) in vec4 vRectMaskMatY2;
+#endif
 
 layout(location = 0) out vec4 fragColor;
 
@@ -61,18 +67,34 @@ float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
   return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - rr;
 }
 
-float rectMaskAlpha(vec2 pixelPos) {
-  if (vRectMaskParams.z <= 0.0 || vRectMaskParams.w <= 0.0) {
+float rectMaskAlphaOne(
+    vec2 pixelPos,
+    vec4 params,
+    vec4 radii,
+    vec4 matX,
+    vec4 matY) {
+  if (params.z <= 0.0 || params.w <= 0.0) {
     return 1.0;
   }
 
   vec2 local = vec2(
-    dot(vRectMaskMatX.xy, pixelPos) + vRectMaskMatX.z,
-    dot(vRectMaskMatY.xy, pixelPos) + vRectMaskMatY.z
+    dot(matX.xy, pixelPos) + matX.z,
+    dot(matY.xy, pixelPos) + matY.z
   );
-  vec2 q = local - vRectMaskParams.xy;
-  float dist = sdRoundedBox(vec2(q.x, -q.y), vRectMaskParams.zw, vRectMaskRadii);
+  vec2 q = local - params.xy;
+  float dist = sdRoundedBox(vec2(q.x, -q.y), params.zw, radii);
   return 1.0 - clamp(uFS.aaFactor * dist + 0.5, 0.0, 1.0);
+}
+
+float rectMaskAlpha(vec2 pixelPos) {
+  float alpha =
+    rectMaskAlphaOne(pixelPos, vRectMaskParams, vRectMaskRadii, vRectMaskMatX, vRectMaskMatY);
+#if FIGDRAW_FAST_RECT_MASK_LIMIT >= 2
+  alpha *= rectMaskAlphaOne(
+    pixelPos, vRectMaskParams2, vRectMaskRadii2, vRectMaskMatX2, vRectMaskMatY2
+  );
+#endif
+  return alpha;
 }
 
 float shadowProfile(float sd, float blurRadius) {

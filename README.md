@@ -455,7 +455,7 @@ Notes:
 
 Use `NfClipContent` when a node needs normal clipping semantics. It renders a mask and applies it to the node's content, which is flexible but can force the backend to flush queued draws around the mask pass.
 
-Use `NfRectMaskContent` when the mask shape is just the node's rounded rectangle and the content is small leaf-style UI content, such as cells in a list/table, clipped buttons, pills, badges, or compact panels. On Metal this is evaluated as a per-fragment rounded-rect SDF mask, so it can avoid the extra mask pass for the first active rect mask and keep more draw work batched. Other backends fall back to the normal mask behavior, so the flag is safe to use before every backend has a fast implementation.
+Use `NfRectMaskContent` when the mask shape is just the node's rounded rectangle and the content is small leaf-style UI content, such as cells in a list/table, clipped buttons, pills, badges, or compact panels. Metal, OpenGL, and Vulkan evaluate the first active rect masks as per-fragment rounded-rect SDF masks, so they can avoid extra mask passes and keep more draw work batched. The number of fast rect masks is fixed at compile time with `-d:FigDrawFastRectMaskLimit=0`, `1`, or `2`; the default is `2`. Deeper rect masks fall back to normal mask behavior.
 
 `NfRectMaskContent` also composes with `NfClipContent`: a scroll viewport can use `NfClipContent`, while each small child item inside it uses
 `NfRectMaskContent`.
