@@ -577,6 +577,46 @@ suite "fontutils":
 
       check covered == arrangement.arrangedGlyphs.len
 
+    test "harfbuzzy wraps long text to fit the layout box":
+      let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+      let box = rect(0, 0, 160, 400)
+      let spans = [
+        (
+          fs(uiFont),
+          "This is a long sentence that should wrap across several lines " &
+            "when the layout box is much narrower than the unwrapped text.",
+        )
+      ]
+
+      let wrapped = typeset(
+        box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = true
+      )
+      let unwrapped = typeset(
+        box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
+      )
+
+      check unwrapped.lines.len == 1
+      check wrapped.lines.len > 1
+      check wrapped.bounding.w <= box.w + 0.1'f32
+      check wrapped.bounding.h > unwrapped.bounding.h
+
+      for line in wrapped.lines:
+        var
+          minX = float32.high
+          maxX = -float32.high
+          glyphCount = 0
+
+        for glyphIndex in line:
+          let glyph = wrapped.arrangedGlyphs[glyphIndex]
+          minX = min(minX, glyph.rect.x)
+          maxX = max(maxX, glyph.rect.x + glyph.rect.w)
+          inc glyphCount
+
+        check glyphCount > 0
+        check maxX - minX <= box.w + 0.1'f32
+
     test "harfbuzzy wrap keeps ligature source ranges on one line":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
