@@ -16,7 +16,11 @@ proc calcMinMaxContent*(
   var curr: Slice[int]
   var currLen: float
   var maxWidth: float
-  var rect: Rect = rect(float32.high, float32.high, 0, 0)
+  var
+    minX = float32.high
+    minY = float32.high
+    maxX = -float32.high
+    maxY = -float32.high
 
   let glyphCount =
     if textLayout.arrangedGlyphs.len > 0:
@@ -39,10 +43,10 @@ proc calcMinMaxContent*(
         textLayout.runes[idx]
 
     maxWidth += glyphRect.w
-    rect.x = min(rect.x, glyphRect.x)
-    rect.y = min(rect.y, glyphRect.y)
-    rect.w = max(rect.w, glyphRect.x + glyphRect.w)
-    rect.h = max(rect.h, glyphRect.y + glyphRect.h)
+    minX = min(minX, glyphRect.x)
+    minY = min(minY, glyphRect.y)
+    maxX = max(maxX, glyphRect.x + glyphRect.w)
+    maxY = max(maxY, glyphRect.y + glyphRect.h)
 
     if glyphRune.isWhiteSpace:
       curr = idx + 1 .. idx
@@ -71,9 +75,11 @@ proc calcMinMaxContent*(
   result.maxSize.x = maxWidth
   result.maxSize.y = wordsHeight
 
-  if glyphCount == 0:
-    rect = rect(0, 0, 0, 0)
-  result.bounding = rect
+  result.bounding =
+    if glyphCount == 0:
+      rect(0, 0, 0, 0)
+    else:
+      rect(minX, minY, maxX - minX, maxY - minY)
 
 proc maxFontSize*(fontSizes: openArray[float]): float32 =
   for size in fontSizes:

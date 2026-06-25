@@ -102,6 +102,32 @@ proc makeMixedRectMaskBatchRenderTree(w, h: float32): Renders =
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   result.layers[0.ZLevel] = list
 
+proc addClippedBand(
+    list: var RenderList, rectBox: Rect, childColor: ColorRGBA, z: ZLevel
+) =
+  let parentIdx = list.addRoot(
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      zlevel: z,
+      screenBox: rectBox,
+      fill: rgba(0, 0, 0, 0),
+      flags: {NfClipContent},
+    )
+  )
+  list.addRect(parentIdx, rectBox, childColor, z)
+
+proc makeSmallClipRenderTree(w, h: float32): Renders =
+  var list = RenderList()
+  discard list.addRootRect(rect(0, 0, w, h), rgba(255, 255, 255, 255), 0.ZLevel)
+  list.addClippedBand(rect(32, 24, 180, 18), rgba(220, 40, 40, 255), 0.ZLevel)
+  list.addClippedBand(rect(32, 56, 180, 24), rgba(56, 168, 88, 255), 0.ZLevel)
+  list.addClippedBand(rect(32, 94, 180, 28), rgba(54, 118, 230, 255), 0.ZLevel)
+  list.addClippedBand(rect(32, 136, 180, 32), rgba(210, 170, 46, 255), 0.ZLevel)
+
+  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  result.layers[0.ZLevel] = list
+
 suite "siwin vulkan rect mask":
   test "keeps mixed masked and unmasked siblings in one batch":
     when UseVulkanBackend:
@@ -136,5 +162,40 @@ suite "siwin vulkan rect mask":
         assertLogicalColor(rendered, 204, 88, windowW, windowH, 56, 168, 88)
         assertLogicalColor(rendered, 276, 88, windowW, windowH, 255, 255, 255)
         assertLogicalColor(rendered, 336, 88, windowW, windowH, 54, 118, 230)
+    else:
+      skip()
+
+  test "NfClipContent renders small clipped rectangle subtrees":
+    when UseVulkanBackend:
+      const
+        windowW = 260
+        windowH = 190
+      setFigUiScale(1.0)
+      let outDir = ensureTestOutputDir()
+      let outPath = outDir / "render_small_clip_vulkan.png"
+      if fileExists(outPath):
+        removeFile(outPath)
+
+      block renderOnce:
+        var rendered: Image
+        try:
+          rendered = renderAndScreenshotOnce(
+            makeRenders = makeSmallClipRenderTree,
+            outputPath = outPath,
+            windowW = windowW,
+            windowH = windowH,
+            title = "figdraw test: vulkan small clip",
+          )
+        except ValueError:
+          skip()
+          break renderOnce
+
+        check fileExists(outPath)
+        check getFileSize(outPath) > 0
+
+        assertLogicalColor(rendered, 64, 32, windowW, windowH, 220, 40, 40)
+        assertLogicalColor(rendered, 64, 68, windowW, windowH, 56, 168, 88)
+        assertLogicalColor(rendered, 64, 108, windowW, windowH, 54, 118, 230)
+        assertLogicalColor(rendered, 64, 152, windowW, windowH, 210, 170, 46)
     else:
       skip()

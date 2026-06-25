@@ -1,4 +1,4 @@
-import std/[os, strutils]
+import std/os
 import pkg/pixie
 
 import figdraw/windowing/siwinshim
@@ -55,11 +55,11 @@ proc renderAndScreenshotOnce*(
       renderer.beginFrame()
       renderer.renderFrame(renders, sz)
       if renderer.backendKind() == rbOpenGL:
-        result = glrenderer.takeScreenshot(renderer, readFront = false)
+        result = glrenderer.takeOneFrameScreenshot(renderer)
         renderer.endFrame()
       else:
         renderer.endFrame()
-        result = glrenderer.takeScreenshot(renderer)
+        result = glrenderer.takeOneFrameScreenshot(renderer)
       if result.isNil or result.width <= 0 or result.height <= 0 or result.data.len == 0:
         raise newException(
           ValueError, "Vulkan screenshot unavailable (no present target or empty frame)"
@@ -81,11 +81,9 @@ proc renderAndScreenshotOnce*(
       let sz = window.logicalSize()
       var renders = makeRenders(sz.x, sz.y)
       let renderer = glrenderer.newFigRenderer(atlasSize = atlasSize)
-      renderer.beginFrame()
       renderer.renderFrame(renders, sz)
       glFinish()
-      result = glrenderer.takeScreenshot(renderer, readFront = false)
-      renderer.endFrame()
+      result = glrenderer.takeOneFrameScreenshot(renderer)
       presentNow(window)
       result.writeFile(outputPath)
     finally:

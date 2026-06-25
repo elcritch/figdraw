@@ -5,6 +5,7 @@ import pkg/pixie
 
 import figdraw/commons
 import figdraw/fignodes
+import figdraw/common/fontutils
 import figdraw/common/typefaces
 
 import ./siwin_test_utils
@@ -95,7 +96,282 @@ proc profileDiffFlipped(a, b: seq[int]): int =
     total += abs(a[i] - b[n - 1 - i])
   total
 
+proc testTextLayout(
+    typefaceId: TypefaceId,
+    text: string,
+    width, height: float32,
+    color: ColorRGBA,
+    hAlign = Center,
+): GlyphArrangement =
+  let
+    uiFont = FigFont(typefaceId: typefaceId, size: 13.0'f32)
+    textStyle = fs(uiFont, fill(color))
+  typeset(
+    rect(0, 0, width, height),
+    [(textStyle, text)],
+    hAlign = hAlign,
+    vAlign = Middle,
+    minContent = false,
+    wrap = false,
+  )
+
+proc loadHelloTypeface(): TypefaceId =
+  let merendaDataDir = getCurrentDir().parentDir().parentDir() / "data"
+  if fileExists(merendaDataDir / "IBMPlexSans-Regular.ttf"):
+    setFigDataDir(merendaDataDir)
+    return loadTypeface("IBMPlexSans-Regular.ttf", ["Ubuntu.ttf"])
+
+  setFigDataDir(getCurrentDir() / "data")
+  let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+  loadTypeface("Ubuntu.ttf", fontData, TTF)
+
 suite "siwin text invert render":
+  test "left aligned text renders inside small clipped parents":
+    setFigUiScale(1.0'f32)
+    setFigDataDir(getCurrentDir() / "data")
+
+    let
+      fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      uiFont = FigFont(typefaceId: typefaceId, size: 13.0'f32)
+      textStyle = fs(uiFont, fill(rgba(18, 28, 44, 255)))
+      textValue = "Pure Nim responder/action dispatch with plain widget state"
+
+    proc textArrangement(width, height: float32): GlyphArrangement =
+      typeset(
+        rect(0, 0, width, height),
+        [(textStyle, textValue)],
+        hAlign = Left,
+        vAlign = Middle,
+        minContent = false,
+        wrap = false,
+      )
+
+    proc addClippedText(
+        list: var RenderList, box: Rect, layout: GlyphArrangement, z: ZLevel
+    ) =
+      let parentIdx = list.addRoot(
+        Fig(
+          kind: nkRectangle,
+          childCount: 0,
+          zlevel: z,
+          screenBox: box,
+          fill: rgba(242, 245, 250, 255),
+          flags: {NfClipContent},
+        )
+      )
+      discard list.addChild(
+        parentIdx,
+        Fig(kind: nkText, childCount: 0, zlevel: z, screenBox: box, textLayout: layout),
+      )
+
+    proc makeRenderTree(w, h: float32): Renders =
+      var list = RenderList()
+      discard list.addRoot(
+        Fig(
+          kind: nkRectangle,
+          childCount: 0,
+          zlevel: 0.ZLevel,
+          screenBox: rect(0, 0, w, h),
+          fill: rgba(255, 255, 255, 255),
+        )
+      )
+      list.addClippedText(rect(28, 30, 664, 18), textArrangement(664, 18), 1.ZLevel)
+      list.addClippedText(rect(28, 70, 664, 24), textArrangement(664, 24), 1.ZLevel)
+
+      result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+      result.layers[0.ZLevel] = list
+
+    let outDir = ensureTestOutputDir()
+    let outPath = outDir / "render_small_clipped_text.png"
+    if fileExists(outPath):
+      removeFile(outPath)
+
+    block renderOnce:
+      var img: Image
+      try:
+        img = renderAndScreenshotOnce(
+          makeRenders = makeRenderTree,
+          outputPath = outPath,
+          windowW = 720,
+          windowH = 130,
+          title = "figdraw test: small clipped text",
+        )
+      except ValueError:
+        skip()
+        break renderOnce
+
+      check fileExists(outPath)
+      check getFileSize(outPath) > 0
+
+      let
+        bodyInk = findInkBounds(img, 24, 24, 420, 32)
+        statusInk = findInkBounds(img, 24, 64, 420, 38)
+      check bodyInk.found
+      check statusInk.found
+      check bodyInk.x1 - bodyInk.x0 > 120
+      check statusInk.x1 - statusInk.x0 > 120
+
+  test "hello-like clipped label sequence renders every text node":
+    setFigUiScale(1.0'f32)
+    setFigDataDir(getCurrentDir() / "data")
+
+    let
+      typefaceId = loadHelloTypeface()
+      titleLayout = testTextLayout(
+        typefaceId, "Hello from KNutella/nimkit", 640, 28, rgba(23, 36, 66, 255), Center
+      )
+      bodyLayout = testTextLayout(
+        typefaceId,
+        "Pure Nim responder/action dispatch with plain widget state",
+        664,
+        18,
+        rgba(23, 31, 46, 255),
+        Left,
+      )
+      statusLayout = testTextLayout(
+        typefaceId,
+        "Button state: Off (click to cycle)",
+        644,
+        24,
+        rgba(23, 69, 46, 255),
+        Left,
+      )
+      buttonLayout = testTextLayout(
+        typefaceId, "Cycle State (Off)", 648, 32, rgba(40, 40, 40, 255), Center
+      )
+
+    proc addLabel(
+        list: var RenderList,
+        parentIdx: FigIdx,
+        frame, textFrame: Rect,
+        background: ColorRGBA,
+        layout: GlyphArrangement,
+        z: ZLevel,
+    ) =
+      let labelIdx = list.addChild(
+        parentIdx,
+        Fig(
+          kind: nkRectangle,
+          childCount: 0,
+          zlevel: z,
+          screenBox: frame,
+          fill: rgba(0, 0, 0, 0),
+          flags: {NfClipContent},
+        ),
+      )
+      discard list.addChild(
+        labelIdx,
+        Fig(
+          kind: nkRectangle,
+          childCount: 0,
+          zlevel: z,
+          screenBox: frame,
+          fill: background,
+        ),
+      )
+      discard list.addChild(
+        labelIdx,
+        Fig(
+          kind: nkText,
+          childCount: 0,
+          zlevel: z,
+          screenBox: textFrame,
+          textLayout: layout,
+        ),
+      )
+
+    proc makeRenderTree(w, h: float32): Renders =
+      var list = RenderList()
+      let rootIdx = list.addRoot(
+        Fig(
+          kind: nkRectangle,
+          childCount: 0,
+          zlevel: 0.ZLevel,
+          screenBox: rect(0, 0, w, h),
+          fill: rgba(242, 245, 250, 255),
+        )
+      )
+      let stackIdx = list.addChild(
+        rootIdx,
+        Fig(
+          kind: nkRectangle,
+          childCount: 0,
+          zlevel: 0.ZLevel,
+          screenBox: rect(28, 28, 664, 138),
+          fill: rgba(0, 0, 0, 0),
+        ),
+      )
+      list.addLabel(
+        stackIdx,
+        rect(28, 28, 664, 28),
+        rect(40, 28, 640, 28),
+        rgba(228, 242, 255, 255),
+        titleLayout,
+        0.ZLevel,
+      )
+      list.addLabel(
+        stackIdx,
+        rect(28, 68, 664, 18),
+        rect(28, 68, 664, 18),
+        rgba(0, 0, 0, 0),
+        bodyLayout,
+        0.ZLevel,
+      )
+      list.addLabel(
+        stackIdx,
+        rect(28, 98, 664, 24),
+        rect(38, 98, 644, 24),
+        rgba(228, 244, 232, 255),
+        statusLayout,
+        0.ZLevel,
+      )
+      list.addLabel(
+        stackIdx,
+        rect(28, 134, 664, 32),
+        rect(36, 134, 648, 32),
+        rgba(205, 208, 211, 255),
+        buttonLayout,
+        0.ZLevel,
+      )
+
+      result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+      result.layers[0.ZLevel] = list
+
+    let outDir = ensureTestOutputDir()
+    let outPath = outDir / "render_hello_like_clipped_text.png"
+    if fileExists(outPath):
+      removeFile(outPath)
+
+    block renderOnce:
+      var img: Image
+      try:
+        img = renderAndScreenshotOnce(
+          makeRenders = makeRenderTree,
+          outputPath = outPath,
+          windowW = 720,
+          windowH = 220,
+          title = "figdraw test: hello-like clipped text",
+        )
+      except ValueError:
+        skip()
+        break renderOnce
+
+      check fileExists(outPath)
+      check getFileSize(outPath) > 0
+
+      let
+        titleInk = findInkBounds(img, 260, 28, 200, 28)
+        bodyInk = findInkBounds(img, 28, 64, 420, 28)
+        statusInk = findInkBounds(img, 38, 94, 260, 34)
+        buttonInk = findInkBounds(img, 300, 130, 140, 40)
+      check titleInk.found
+      check bodyInk.found
+      check statusInk.found
+      check buttonInk.found
+      check bodyInk.x1 - bodyInk.x0 > 120
+      check statusInk.x1 - statusInk.x0 > 100
+
   test "NfInvertY under mirrored parent stays upright and vertically aligned":
     setFigUiScale(1.0'f32)
     setFigDataDir(getCurrentDir() / "data")

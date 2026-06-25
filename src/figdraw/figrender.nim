@@ -1,7 +1,7 @@
 import std/[hashes, math, os, strutils, tables, unicode]
 export tables
 
-from pkg/pixie import Image
+import pkg/pixie
 import pkg/chroma
 import pkg/chronicles
 
@@ -182,6 +182,13 @@ proc takeScreenshot*[BackendState](
     readFront: bool = true,
 ): Image =
   renderer.ctx.readPixels(frame, readFront = readFront)
+
+proc takeOneFrameScreenshot*[BackendState](
+    renderer: FigRenderer[BackendState], frame: Rect = rect(0, 0, 0, 0)
+): Image =
+  ## Captures the frame that was just rendered by renderFrame().
+  ## OpenGL draws into the back buffer until the windowing layer swaps.
+  renderer.takeScreenshot(frame, readFront = renderer.backendKind() != rbOpenGL)
 
 proc logBackend(msg: static string) =
   info msg, preferredBackend = backendName(PreferredBackendKind)
@@ -943,6 +950,6 @@ proc renderFrame*[BackendState](
   when defined(testOneFrame) and (UseOpenGlBackend or UseOpenGlFallback):
     ## This is used for test only
     ## Take a screen shot of the first frame and exit.
-    var img = takeScreenshot(renderer)
+    var img = takeOneFrameScreenshot(renderer)
     img.writeFile("screenshot.png")
     quit()
