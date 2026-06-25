@@ -62,11 +62,11 @@ proc renderAndScreenshotOnce*(
       renderer.renderFrame(renders, sz)
       if renderer.backendKind() == rbOpenGL:
         # OpenGL fallback renders into the back buffer; capture before swap.
-        result = glrenderer.takeScreenshot(renderer, readFront = false)
+        result = glrenderer.takeOneFrameScreenshot(renderer)
         renderer.endFrame()
       else:
         renderer.endFrame()
-        result = glrenderer.takeScreenshot(renderer)
+        result = glrenderer.takeOneFrameScreenshot(renderer)
       result.writeFile(outputPath)
     except VulkanError as exc:
       raise newException(WindyError, "Vulkan device not available: " & exc.msg)
@@ -87,7 +87,7 @@ proc renderAndScreenshotOnce*(
       var renders = makeRenders(sz.x, sz.y)
       renderer.renderFrame(renders, sz)
       glFinish()
-      result = glrenderer.takeScreenshot(renderer, readFront = false)
+      result = glrenderer.takeOneFrameScreenshot(renderer)
       window.swapBuffers()
       result.writeFile(outputPath)
     finally:
@@ -126,7 +126,7 @@ proc renderAndScreenshotOverlayOnce*(
         renders, vec2(windowW.float32, windowH.float32), clearMain = true
       )
       glFinish()
-      result = glrenderer.takeScreenshot(renderer, readFront = false)
+      result = glrenderer.takeOneFrameScreenshot(renderer)
       window.swapBuffers()
       result.writeFile(outputPath)
     finally:
