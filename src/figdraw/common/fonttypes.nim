@@ -266,7 +266,8 @@ func glyphRangeForRawBytes*(
       else:
         result.b = glyphIndex
 
-func glyphCount(arrangement: GlyphArrangement): int {.inline.} =
+func glyphCount*(arrangement: GlyphArrangement): int {.inline.} =
+  ## Returns the number of visual glyphs in the arrangement.
   if arrangement.arrangedGlyphs.len > 0:
     arrangement.arrangedGlyphs.len
   else:
@@ -277,6 +278,30 @@ func rectForGlyph(arrangement: GlyphArrangement, glyphIndex: int): Rect {.inline
     arrangement.arrangedGlyphs[glyphIndex].rect
   else:
     arrangement.selectionRects[glyphIndex]
+
+func glyphSourceRange*(
+    arrangement: GlyphArrangement, glyphIndex: int
+): GlyphSourceRange =
+  ## Returns the source byte/rune range that produced a visual glyph.
+  if glyphIndex < 0 or glyphIndex >= arrangement.glyphCount():
+    return
+  arrangement.glyphSource(glyphIndex)
+
+func glyphRect*(arrangement: GlyphArrangement, glyphIndex: int): Rect =
+  ## Returns the local visual glyph rectangle, or an empty rectangle when out of range.
+  if glyphIndex < 0 or glyphIndex >= arrangement.glyphCount():
+    return rect(0, 0, 0, 0)
+  arrangement.rectForGlyph(glyphIndex)
+
+func glyphFont*(arrangement: GlyphArrangement, glyphIndex: int): GlyphFont =
+  ## Returns the font metrics associated with a visual glyph.
+  for fontIndex, span in arrangement.spans:
+    if glyphIndex in span and fontIndex < arrangement.fonts.len:
+      return arrangement.fonts[fontIndex]
+  if arrangement.fonts.len > 0:
+    arrangement.fonts[0]
+  else:
+    GlyphFont()
 
 func sourceIntersectsSelection(
     source: GlyphSourceRange,
@@ -327,6 +352,39 @@ func lineIndexForGlyph(arrangement: GlyphArrangement, glyphIndex: int): int =
     if glyphIndex >= line.a and glyphIndex <= line.b:
       return lineIndex
   0
+
+func glyphLineIndex*(arrangement: GlyphArrangement, glyphIndex: int): int =
+  ## Returns the visual line index for a glyph, or `-1` when out of range.
+  if glyphIndex < 0 or glyphIndex >= arrangement.glyphCount():
+    return -1
+  arrangement.lineIndexForGlyph(glyphIndex)
+
+func glyphLineRange*(arrangement: GlyphArrangement, glyphIndex: int): Slice[int] =
+  ## Returns the normalized visual glyph range for the line containing a glyph.
+  if glyphIndex < 0 or glyphIndex >= arrangement.glyphCount():
+    return 0 .. -1
+  arrangement.normalizedGlyphLine(arrangement.lineForGlyph(glyphIndex))
+
+func lineGlyphRanges*(arrangement: GlyphArrangement): seq[Slice[int]] =
+  ## Returns normalized visual-line glyph ranges for this arrangement.
+  let count = arrangement.glyphCount()
+  if count == 0:
+    return
+  if arrangement.lines.len == 0:
+    result.add 0 .. count - 1
+    return
+
+  for rawLine in arrangement.lines:
+    let line = arrangement.normalizedGlyphLine(rawLine)
+    if line.a <= line.b:
+      result.add line
+
+func layoutContentSize*(arrangement: GlyphArrangement): Vec2 =
+  ## Returns the content size implied by arranged glyph bounds and max size.
+  vec2(
+    max(arrangement.maxSize.x, arrangement.bounding.w),
+    max(arrangement.maxSize.y, arrangement.bounding.h),
+  )
 
 func glyphAppearsRtl(arrangement: GlyphArrangement, glyphIndex: int): bool =
   let
@@ -585,7 +643,8 @@ func sourceRuneRangeAt*(arrangement: GlyphArrangement, point: Vec2): Slice[int] 
     return 0 .. -1
   arrangement.sourceRuneRange(glyphIndex)
 
-func sourceRuneCount(arrangement: GlyphArrangement): int {.inline.} =
+func sourceRuneCount*(arrangement: GlyphArrangement): int {.inline.} =
+  ## Returns the number of source runes represented by the arrangement.
   if arrangement.sourceRunes.len > 0:
     arrangement.sourceRunes.len
   else:
