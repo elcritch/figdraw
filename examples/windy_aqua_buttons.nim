@@ -584,15 +584,15 @@ proc aquaPalette(kind: AquaButtonKind): AquaButtonPalette =
     AquaButtonPalette(
       rimTop: rgba(122, 126, 128, 255),
       rimMid: rgba(218, 224, 225, 255),
-      rimBottom: rgba(95, 102, 106, 255),
-      rimStroke: rgba(78, 80, 82, 235),
+      rimBottom: rgba(142, 150, 152, 255),
+      rimStroke: rgba(86, 88, 94, 188),
       innerTop: rgba(228, 234, 236, 248),
       innerMid: rgba(192, 201, 204, 246),
       innerBottom: rgba(238, 246, 248, 244),
       topShade: rgba(48, 58, 64, 54),
       waistShade: rgba(80, 94, 102, 42),
       lowerWash: rgba(255, 255, 255, 58),
-      sideShade: rgba(54, 64, 70, 42),
+      sideShade: rgba(54, 64, 70, 28),
       bottomGlow: rgba(255, 255, 255, 130),
       text: rgba(7, 14, 18, 246),
       textTop: rgba(255, 255, 255, 74),
@@ -600,17 +600,17 @@ proc aquaPalette(kind: AquaButtonKind): AquaButtonPalette =
     )
   of abkDefault:
     AquaButtonPalette(
-      rimTop: rgba(24, 58, 145, 255),
-      rimMid: rgba(101, 154, 202, 255),
-      rimBottom: rgba(73, 91, 109, 255),
-      rimStroke: rgba(0, 35, 111, 250),
+      rimTop: rgba(76, 68, 166, 255),
+      rimMid: rgba(112, 164, 211, 255),
+      rimBottom: rgba(128, 159, 168, 255),
+      rimStroke: rgba(60, 55, 150, 188),
       innerTop: rgba(190, 211, 234, 250),
       innerMid: rgba(138, 178, 236, 250),
       innerBottom: rgba(188, 233, 253, 248),
       topShade: rgba(0, 44, 126, 64),
       waistShade: rgba(0, 64, 152, 44),
       lowerWash: rgba(255, 255, 255, 48),
-      sideShade: rgba(0, 52, 132, 46),
+      sideShade: rgba(0, 52, 132, 32),
       bottomGlow: rgba(232, 255, 255, 126),
       text: rgba(5, 16, 27, 248),
       textTop: rgba(255, 255, 255, 82),
@@ -654,7 +654,7 @@ proc addAquaButton(
     box,
     linear(p.rimTop, p.rimMid, p.rimBottom, axis = fgaY, midPos = 132'u8),
     radius,
-    stroke = RenderStroke(weight: 1.0'f32, fill: p.rimStroke),
+    stroke = RenderStroke(weight: 0.55'f32, fill: p.rimStroke),
     flags = {NfRectMaskContent},
   )
 
@@ -690,24 +690,24 @@ proc addAquaButton(
       ),
       RenderShadow(
         style: InnerShadow,
-        blur: 4.0'f32,
+        blur: 7.0'f32,
         spread: 0.0'f32,
-        x: 1.0'f32,
+        x: 2.0'f32,
         y: 0.0'f32,
         fill: p.sideShade.color,
       ),
       RenderShadow(
         style: InnerShadow,
-        blur: 4.0'f32,
+        blur: 7.0'f32,
         spread: 0.0'f32,
-        x: -1.0'f32,
+        x: -2.0'f32,
         y: 0.0'f32,
         fill: p.sideShade.color,
       ),
     ],
   )
 
-  let topShade = rect(inner.x - 2.0'f32, inner.y, inner.w + 4.0'f32, inner.h * 0.20'f32)
+  let topShade = rect(inner.x - 2.0'f32, inner.y, inner.w + 4.0'f32, inner.h * 0.38'f32)
   discard renders.addRect(
     innerClip,
     topShade,
@@ -716,35 +716,71 @@ proc addAquaButton(
   )
 
   let upperSheen =
-    rect(inner.x + 6.0'f32, inner.y + 2.4'f32, inner.w - 12.0'f32, 2.0'f32)
+    rect(inner.x + 15.0'f32, inner.y + 3.2'f32, inner.w - 30.0'f32, 1.0'f32)
   discard renders.addRect(
     innerClip,
     upperSheen,
-    linear(
-      rgba(255, 255, 255, if kind == abkDefault: 58'u8 else: 52'u8),
-      rgba(255, 255, 255, 0),
-      axis = fgaY,
-    ),
-    1.0'f32,
+    rgba(0, 0, 0, 0),
+    0.5'f32,
+    shadows = [
+      RenderShadow(
+        style: DropShadow,
+        blur: 8.0'f32,
+        spread: 0.0'f32,
+        x: 0.0'f32,
+        y: 1.0'f32,
+        fill: rgba(255, 255, 255, if kind == abkDefault: 54'u8 else: 44'u8).color,
+      ),
+      RenderShadow(
+        style: DropShadow,
+        blur: 5.0'f32,
+        spread: 0.0'f32,
+        x: 0.0'f32,
+        y: 2.0'f32,
+        fill: rgba(
+          p.innerTop.r,
+          p.innerTop.g,
+          p.innerTop.b,
+          if kind == abkDefault: 58'u8 else: 44'u8,
+        ).color,
+      ),
+      RenderShadow(),
+      RenderShadow(),
+    ],
   )
 
-  let waistShade = rect(
-    inner.x + 3.0'f32,
-    inner.y + inner.h * 0.36'f32,
-    inner.w - 6.0'f32,
-    inner.h * 0.24'f32,
-  )
+  let waistShade =
+    rect(inner.x + 12.0'f32, inner.y + inner.h * 0.36'f32, inner.w - 24.0'f32, 1.0'f32)
   discard renders.addRect(
     innerClip,
     waistShade,
-    linear(
-      rgba(p.waistShade.r, p.waistShade.g, p.waistShade.b, 0),
-      p.waistShade,
-      rgba(p.waistShade.r, p.waistShade.g, p.waistShade.b, 0),
-      axis = fgaY,
-      midPos = 128'u8,
-    ),
-    2.0'f32,
+    rgba(0, 0, 0, 0),
+    0.5'f32,
+    shadows = [
+      RenderShadow(
+        style: DropShadow,
+        blur: 6.0'f32,
+        spread: 0.0'f32,
+        x: 0.0'f32,
+        y: 1.2'f32,
+        fill: rgba(
+          p.waistShade.r,
+          p.waistShade.g,
+          p.waistShade.b,
+          if kind == abkDefault: 46'u8 else: 34'u8,
+        ).color,
+      ),
+      RenderShadow(
+        style: DropShadow,
+        blur: 4.0'f32,
+        spread: 0.0'f32,
+        x: 0.0'f32,
+        y: -1.2'f32,
+        fill: rgba(255, 255, 255, if kind == abkDefault: 20'u8 else: 16'u8).color,
+      ),
+      RenderShadow(),
+      RenderShadow(),
+    ],
   )
 
   let lowerGloss = rect(
@@ -756,26 +792,76 @@ proc addAquaButton(
   discard renders.addRect(
     innerClip,
     lowerGloss,
-    linear(rgba(255, 255, 255, 0), p.lowerWash, axis = fgaY),
+    linear(
+      rgba(255, 255, 255, 0),
+      p.lowerWash,
+      rgba(p.bottomGlow.r, p.bottomGlow.g, p.bottomGlow.b, 72),
+      axis = fgaY,
+      midPos = 164'u8,
+    ),
     innerRadius,
   )
 
-  let lowerHotspot =
-    rect(inner.x + 12.0'f32, inner.y + inner.h * 0.66'f32, inner.w - 24.0'f32, 4.0'f32)
+  let lowerBloom =
+    rect(inner.x + 16.0'f32, inner.y + inner.h * 0.66'f32, inner.w - 32.0'f32, 1.0'f32)
   discard renders.addRect(
     innerClip,
-    lowerHotspot,
-    linear(
-      rgba(255, 255, 255, 0),
-      rgba(255, 255, 255, if kind == abkDefault: 78'u8 else: 58'u8),
-      axis = fgaY,
-    ),
-    2.0'f32,
+    lowerBloom,
+    rgba(0, 0, 0, 0),
+    0.5'f32,
+    shadows = [
+      RenderShadow(
+        style: DropShadow,
+        blur: 8.0'f32,
+        spread: 0.0'f32,
+        x: 0.0'f32,
+        y: 1.2'f32,
+        fill: rgba(
+          p.bottomGlow.r,
+          p.bottomGlow.g,
+          p.bottomGlow.b,
+          if kind == abkDefault: 74'u8 else: 54'u8,
+        ).color,
+      ),
+      RenderShadow(
+        style: DropShadow,
+        blur: 5.0'f32,
+        spread: 0.0'f32,
+        x: 0.0'f32,
+        y: -0.6'f32,
+        fill: rgba(255, 255, 255, if kind == abkDefault: 28'u8 else: 22'u8).color,
+      ),
+      RenderShadow(),
+      RenderShadow(),
+    ],
   )
 
   let bottomGlow =
-    rect(inner.x + 7.0'f32, inner.y + inner.h - 3.1'f32, inner.w - 14.0'f32, 2.0'f32)
-  discard renders.addRect(innerClip, bottomGlow, p.bottomGlow, 1.0'f32)
+    rect(inner.x + 10.0'f32, inner.y + inner.h - 2.8'f32, inner.w - 20.0'f32, 1.0'f32)
+  discard renders.addRect(
+    innerClip,
+    bottomGlow,
+    rgba(0, 0, 0, 0),
+    0.5'f32,
+    shadows = [
+      RenderShadow(
+        style: DropShadow,
+        blur: 5.5'f32,
+        spread: 0.0'f32,
+        x: 0.0'f32,
+        y: -1.2'f32,
+        fill: rgba(
+          p.bottomGlow.r,
+          p.bottomGlow.g,
+          p.bottomGlow.b,
+          if kind == abkDefault: 62'u8 else: 48'u8,
+        ).color,
+      ),
+      RenderShadow(),
+      RenderShadow(),
+      RenderShadow(),
+    ],
+  )
 
   let labelBox = rect(box.x, box.y + 0.5'f32, box.w, box.h - 1.0'f32)
   addText(renders, root, labelBox, font, text, p.textTop.color, vec2(0, 1.0'f32))
