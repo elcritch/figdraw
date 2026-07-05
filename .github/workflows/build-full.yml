@@ -143,18 +143,18 @@ jobs:
         key: ${{ runner.os }}-${{ matrix.display }}-${{ hashFiles('figdraw.nimble') }}
 
     - name: Install Deps
-      run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib,harfbuzz,surfer
+      run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib,harfbuzz
 
     - name: Build Bindings
       run: |
         nim bindings
         nim c examples/siwin_shared.nim
 
-    - name: Build Surfer Examples
-      if: runner.os == 'Linux' && matrix.display == 'wayland'
-      run: |
-        nim c examples/surfer_text.nim
-        nim c examples/surfer_text_shaping_demo.nim
+    # - name: Build Surfer Examples
+    #   if: runner.os == 'Linux' && matrix.display == 'wayland'
+    #   run: |
+    #     nim c examples/surfer_text.nim
+    #     nim c examples/surfer_text_shaping_demo.nim
 
     - name: Build Tests
       if: runner.os == 'Linux' && matrix.display == 'x11'
