@@ -6,14 +6,17 @@ type
     dsWayland
     dsX11
 
-const
-  FontFileExtensions = [".ttf", ".ttc", ".otf", ".otc"]
+  SystemFontRole* = enum
+    sfrSans
+    sfrMono
+
+const FontFileExtensions = [".ttf", ".ttc", ".otf", ".otc"]
 
 proc normalizeName(name: string): string =
   ## Normalizes a font/file name for loose matching.
   result = newStringOfCap(name.len)
   for ch in name.toLowerAscii():
-    if ch in {'a'..'z', '0'..'9'}:
+    if ch in {'a' .. 'z', '0' .. '9'}:
       result.add(ch)
 
 proc normalizePathKey(path: string): string =
@@ -48,6 +51,29 @@ proc splitPathList(value: string): seq[string] =
     if item.len > 0:
       result.add(item)
 
+proc systemDefaultFontNames*(role = sfrSans): seq[string] =
+  ## Returns platform-default font family candidates for a role.
+  when defined(windows):
+    case role
+    of sfrMono:
+      result = @["Cascadia Mono", "Consolas", "Courier New"]
+    of sfrSans:
+      result = @["Segoe UI", "Arial", "Tahoma", "Verdana"]
+  elif defined(macosx):
+    case role
+    of sfrMono:
+      result = @["Menlo", "SF Mono", "Monaco"]
+    of sfrSans:
+      result = @["Helvetica", "Arial", "SFNS"]
+  elif defined(posix):
+    case role
+    of sfrMono:
+      result = @["Noto Sans Mono", "DejaVu Sans Mono", "Liberation Mono", "Ubuntu Mono"]
+    of sfrSans:
+      result = @["Noto Sans", "DejaVu Sans", "Liberation Sans", "Ubuntu"]
+  else:
+    discard
+
 proc systemFontDirs*(displayServer = detectDisplayServer()): seq[string] =
   ## Returns existing platform font directories.
   var dirs: seq[string]
@@ -56,12 +82,10 @@ proc systemFontDirs*(displayServer = detectDisplayServer()): seq[string] =
     dirs.addIfDir(getEnv("WINDIR", r"C:\Windows") / "Fonts")
     dirs.addIfDir(getEnv("LOCALAPPDATA", "") / "Microsoft" / "Windows" / "Fonts")
     dirs.addIfDir(getEnv("APPDATA", "") / "Microsoft" / "Windows" / "Fonts")
-
   elif defined(macosx):
     dirs.addIfDir("/System/Library/Fonts")
     dirs.addIfDir("/Library/Fonts")
     dirs.addIfDir("~/Library/Fonts")
-
   elif defined(linux) or defined(freebsd):
     let home = getHomeDir()
     let xdgDataHome = getEnv("XDG_DATA_HOME", home / ".local" / "share")
@@ -100,7 +124,9 @@ proc systemFontFiles*(displayServer = detectDisplayServer()): seq[string] =
     except OSError:
       discard
 
-proc findSystemFontFile*(names: openArray[string], displayServer = detectDisplayServer()): string =
+proc findSystemFontFile*(
+    names: openArray[string], displayServer = detectDisplayServer()
+): string =
   ## Finds the first system font path matching one of the candidate names.
   if names.len == 0:
     return ""

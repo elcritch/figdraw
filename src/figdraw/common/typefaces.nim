@@ -125,6 +125,7 @@ proc loadTypeface*(name: string, fallbackNames: openArray[string] = []): Typefac
 
   var candidateNames = @[name]
   candidateNames.add(fallbackNames)
+  candidateNames.add(systemDefaultFontNames())
 
   var loaded = false
   var typeface: Typeface

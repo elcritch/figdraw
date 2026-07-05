@@ -18,6 +18,16 @@ proc resetFontState() =
   #withLock imageCachedLock:
   #  imageCached.clear()
 
+template registerStaticDefaultSansTypeface(path: static[string]) =
+  when defined(windows):
+    registerStaticTypeface("Segoe UI", path, TTF)
+  elif defined(macosx):
+    registerStaticTypeface("Helvetica", path, TTF)
+  elif defined(posix):
+    registerStaticTypeface("Noto Sans", path, TTF)
+  else:
+    discard
+
 proc firstLoadableSystemFontPath(candidates: openArray[string]): string =
   let preferred = findSystemFontFile(candidates)
   if preferred.len > 0:
@@ -1083,6 +1093,27 @@ suite "fontutils":
       check id.int != 0
       check typefaceTable[id].filePath.len > 0
 
+  test "loadTypeface falls back to platform default font names":
+    if systemDefaultFontNames().len == 0:
+      check true
+    else:
+      let oldDataDir = figDataDir()
+      let emptyDir = getTempDir() / "figdraw-font-default-fallback-test"
+      if not dirExists(emptyDir):
+        createDir(emptyDir)
+      setFigDataDir(emptyDir)
+      defer:
+        setFigDataDir(oldDataDir)
+        if dirExists(emptyDir):
+          removeDir(emptyDir)
+
+      registerStaticDefaultSansTypeface("../data/Ubuntu.ttf")
+
+      let missingName = "__figdraw_missing_font_for_platform_default__.ttf"
+      let id = loadTypeface(missingName)
+      check id.int != 0
+      check typefaceTable[id].filePath != missingName
+
   test "loadTypeface searches static registry via fallbackNames":
     let oldDataDir = figDataDir()
     let emptyDir = getTempDir() / "figdraw-font-embedded-fallback-test"
@@ -1094,6 +1125,7 @@ suite "fontutils":
       if dirExists(emptyDir):
         removeDir(emptyDir)
 
+    registerStaticDefaultSansTypeface("../data/Ubuntu.ttf")
     registerStaticTypeface("test-ubuntu.ttf", "../data/Ubuntu.ttf", TTF)
 
     let missingName = "__figdraw_missing_font_for_embedded_fallback__.ttf"

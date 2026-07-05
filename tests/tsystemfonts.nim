@@ -3,6 +3,25 @@ import std/[os, unittest]
 import figdraw/extras/systemfonts
 
 suite "system fonts":
+  test "platform default font names are listed by role":
+    let
+      sans = systemDefaultFontNames()
+      mono = systemDefaultFontNames(sfrMono)
+
+    when defined(windows):
+      check sans == @["Segoe UI", "Arial", "Tahoma", "Verdana"]
+      check mono == @["Cascadia Mono", "Consolas", "Courier New"]
+    elif defined(macosx):
+      check sans == @["Helvetica", "Arial", "SFNS"]
+      check mono == @["Menlo", "SF Mono", "Monaco"]
+    elif defined(posix):
+      check sans == @["Noto Sans", "DejaVu Sans", "Liberation Sans", "Ubuntu"]
+      check mono ==
+        @["Noto Sans Mono", "DejaVu Sans Mono", "Liberation Mono", "Ubuntu Mono"]
+    else:
+      check sans.len == 0
+      check mono.len == 0
+
   test "system font dirs are discoverable":
     let dirs = systemFontDirs()
     check dirs.len > 0
@@ -54,8 +73,9 @@ suite "system fonts":
       check waylandDirs.len > 0
 
     test "find common linux/freebsd system font":
-      let font =
-        findSystemFontFile(["DejaVu Sans.ttf", "Noto Sans", "Liberation Sans", "Ubuntu"])
+      let font = findSystemFontFile(
+        ["DejaVu Sans.ttf", "Noto Sans", "Liberation Sans", "Ubuntu"]
+      )
       check font.len > 0
       check fileExists(font)
   else:
