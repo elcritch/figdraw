@@ -11,6 +11,7 @@ import ./shared
 
 type
   ImageId* = distinct Hash
+  OwnerToken* = distinct uint64
   ImgKind* = enum
     FlippyImg
     PixieImg
@@ -32,6 +33,10 @@ type
     ImkClearImageCache
     ImkClearFontGlyphs
     ImkClearTypefaceGlyphs
+    ImkRetainImage
+    ImkReleaseImage
+    ImkRetainFont
+    ImkReleaseFont
 
   ImageMsg* = object
     id*: ImageId
@@ -39,6 +44,7 @@ type
     cacheGeneration*: uint64
     fontId*: FontId
     typefaceId*: TypefaceId
+    ownerToken*: OwnerToken
     ids*: seq[ImageId]
     case kind*: ImageMsgKind
     of ImkPutFlippy:
@@ -46,8 +52,17 @@ type
     of ImkPutPixie, ImkPutGlyphPixie:
       pimg*: Image
     of ImkClearImage, ImkClearImages, ImkClearImageCache, ImkClearFontGlyphs,
-        ImkClearTypefaceGlyphs:
+        ImkClearTypefaceGlyphs, ImkRetainImage, ImkReleaseImage, ImkRetainFont,
+        ImkReleaseFont:
       discard
+
+  ImageRef* = object
+    ## Thread-affine managed image handle.
+    ##
+    ## Pass raw ImageId values across threads and create a new ImageRef on the
+    ## receiving thread when that thread needs ownership.
+    id*: ImageId
+    managed: bool
 
   ImageCacheKind = enum
     ickImage
@@ -67,11 +82,97 @@ var
   imageCacheGeneration: uint64
   imageMsgOrderLock: Lock
   imageCachedLock*: Lock
+  ownerTokenLock: Lock
+  nextOwnerToken: uint64
+  localOwnerToken {.threadvar.}: OwnerToken
+  localImageRefCounts {.threadvar.}: Table[ImageId, int]
+  localFontRefCounts {.threadvar.}: Table[FontId, int]
 
 imageMsgOrderLock.initLock()
 imageCachedLock.initLock()
+ownerTokenLock.initLock()
 
 proc `==`*(a, b: ImageId): bool {.borrow.}
+proc `==`*(a, b: OwnerToken): bool {.borrow.}
+proc hash*(token: OwnerToken): Hash {.borrow.}
+
+proc currentOwnerToken*(): OwnerToken =
+  if localOwnerToken == OwnerToken(0):
+    withLock ownerTokenLock:
+      inc nextOwnerToken
+      localOwnerToken = OwnerToken(nextOwnerToken)
+  localOwnerToken
+
+proc sendRetainImage(id: ImageId, ownerToken: OwnerToken) =
+  withLock imageMsgOrderLock:
+    var msg = ImageMsg(kind: ImkRetainImage, id: id, ownerToken: ownerToken)
+    imageMsgChan.send(unsafeIsolate msg)
+
+proc sendReleaseImage(id: ImageId, ownerToken: OwnerToken) =
+  withLock imageMsgOrderLock:
+    var msg = ImageMsg(kind: ImkReleaseImage, id: id, ownerToken: ownerToken)
+    imageMsgChan.send(unsafeIsolate msg)
+
+proc sendRetainFont(fontId: FontId, ownerToken: OwnerToken) =
+  withLock imageMsgOrderLock:
+    var msg = ImageMsg(kind: ImkRetainFont, fontId: fontId, ownerToken: ownerToken)
+    imageMsgChan.send(unsafeIsolate msg)
+
+proc sendReleaseFont(fontId: FontId, ownerToken: OwnerToken) =
+  withLock imageMsgOrderLock:
+    var msg = ImageMsg(kind: ImkReleaseFont, fontId: fontId, ownerToken: ownerToken)
+    imageMsgChan.send(unsafeIsolate msg)
+
+proc retainImageRefId*(id: ImageId) =
+  let ownerToken = currentOwnerToken()
+  let count = localImageRefCounts.getOrDefault(id, 0)
+  localImageRefCounts[id] = count + 1
+  if count == 0:
+    sendRetainImage(id, ownerToken)
+
+proc releaseImageRefId*(id: ImageId) =
+  let count = localImageRefCounts.getOrDefault(id, 0)
+  if count > 1:
+    localImageRefCounts[id] = count - 1
+  elif count == 1:
+    localImageRefCounts.del(id)
+    sendReleaseImage(id, currentOwnerToken())
+
+proc retainFontRefId*(fontId: FontId) =
+  let ownerToken = currentOwnerToken()
+  let count = localFontRefCounts.getOrDefault(fontId, 0)
+  localFontRefCounts[fontId] = count + 1
+  if count == 0:
+    sendRetainFont(fontId, ownerToken)
+
+proc releaseFontRefId*(fontId: FontId) =
+  let count = localFontRefCounts.getOrDefault(fontId, 0)
+  if count > 1:
+    localFontRefCounts[fontId] = count - 1
+  elif count == 1:
+    localFontRefCounts.del(fontId)
+    sendReleaseFont(fontId, currentOwnerToken())
+
+proc `=destroy`*(imageRef: ImageRef) =
+  if imageRef.managed:
+    releaseImageRefId(imageRef.id)
+
+proc `=wasMoved`*(imageRef: var ImageRef) =
+  imageRef.id = ImageId(0)
+  imageRef.managed = false
+
+proc `=dup`*(src: ImageRef): ImageRef =
+  if src.managed:
+    retainImageRefId(src.id)
+  result.id = src.id
+  result.managed = src.managed
+
+proc `=copy`*(dest: var ImageRef, src: ImageRef) =
+  if src.managed:
+    retainImageRefId(src.id)
+  `=destroy`(dest)
+  dest.id = src.id
+  dest.managed = src.managed
 
 proc imgId*(name: string): ImageId =
   hash(name).ImageId
@@ -152,6 +253,14 @@ proc clearCachedTypefaceGlyphsLocked(typefaceId: TypefaceId): seq[ImageId] =
       result.add(id)
   for id in result:
     clearCachedImageLocked(id)
+
+proc forgetReleasedImage*(id: ImageId) =
+  withLock imageCachedLock:
+    clearCachedImageLocked(id)
+
+proc forgetReleasedFontGlyphs*(fontId: FontId) =
+  withLock imageCachedLock:
+    discard clearCachedGlyphsLocked(fontId)
 
 proc hasImage*(id: ImageId): bool =
   withLock imageCachedLock:
@@ -292,3 +401,18 @@ proc loadImage*(filePath: string): ImageId =
 proc loadImage*(id: ImageId, image: Image) =
   var imgObj = ImgObj(id: id, kind: PixieImg, pimg: image)
   sendImage(imgObj)
+
+proc imageRef*(id: ImageId): ImageRef =
+  ## Retain an existing image ID for the current thread.
+  retainImageRefId(id)
+  result.id = id
+  result.managed = true
+
+proc loadImageRef*(filePath: string): ImageRef =
+  ## Load an image through the normal cache path and retain its ID.
+  imageRef(loadImage(filePath))
+
+proc imageRef*(id: ImageId, image: Image): ImageRef =
+  ## Upload an image through the normal message path and retain its ID.
+  loadImage(id, image)
+  imageRef(id)

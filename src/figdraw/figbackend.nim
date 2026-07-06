@@ -1,4 +1,4 @@
-import std/[hashes, math, tables]
+import std/[hashes, math, sets, tables]
 export tables
 
 from pkg/pixie import Image
@@ -152,6 +152,8 @@ func gradientColors*(fill: BackendFill): array[4, ColorRGBA] =
     result[3] = fill.sampleColor(0.5'f32)
 
 type BackendContext* = ref object of RootObj
+  imageOwners: Table[ImageId, HashSet[OwnerToken]]
+  fontOwners: Table[FontId, HashSet[OwnerToken]]
 
 method kind*(impl: BackendContext): RendererBackendKind {.base.} =
   raise newException(ValueError, "Backend kind unavailable")
@@ -232,6 +234,40 @@ method clearTypefaceGlyphs*(impl: BackendContext, typefaceId: TypefaceId) {.base
       keys.add(key)
   for key in keys:
     impl.removeAtlasEntry(key)
+
+proc retainImageOwner*(impl: BackendContext, id: ImageId, ownerToken: OwnerToken) =
+  var owners = impl.imageOwners.getOrDefault(id, initHashSet[OwnerToken]())
+  owners.incl(ownerToken)
+  impl.imageOwners[id] = owners
+
+proc releaseImageOwner*(
+    impl: BackendContext, id: ImageId, ownerToken: OwnerToken
+): bool =
+  if id in impl.imageOwners:
+    var owners = impl.imageOwners[id]
+    owners.excl(ownerToken)
+    if owners.len == 0:
+      impl.imageOwners.del(id)
+      result = true
+    else:
+      impl.imageOwners[id] = owners
+
+proc retainFontOwner*(impl: BackendContext, fontId: FontId, ownerToken: OwnerToken) =
+  var owners = impl.fontOwners.getOrDefault(fontId, initHashSet[OwnerToken]())
+  owners.incl(ownerToken)
+  impl.fontOwners[fontId] = owners
+
+proc releaseFontOwner*(
+    impl: BackendContext, fontId: FontId, ownerToken: OwnerToken
+): bool =
+  if fontId in impl.fontOwners:
+    var owners = impl.fontOwners[fontId]
+    owners.excl(ownerToken)
+    if owners.len == 0:
+      impl.fontOwners.del(fontId)
+      result = true
+    else:
+      impl.fontOwners[fontId] = owners
 
 method drawImage*(
     impl: BackendContext,

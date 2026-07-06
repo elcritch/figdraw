@@ -955,6 +955,22 @@ proc renderRoot*(
     of ImkClearTypefaceGlyphs:
       trace "typeface glyphs cleared", typefaceId = $Hash(img.typefaceId)
       ctx.clearTypefaceGlyphs(img.typefaceId)
+    of ImkRetainImage:
+      trace "image retained", id = $img.id.Hash
+      ctx.retainImageOwner(img.id, img.ownerToken)
+    of ImkReleaseImage:
+      trace "image released", id = $img.id.Hash
+      if ctx.releaseImageOwner(img.id, img.ownerToken):
+        forgetReleasedImage(img.id)
+        ctx.removeImage(img.id)
+    of ImkRetainFont:
+      trace "font retained", fontId = $Hash(img.fontId)
+      ctx.retainFontOwner(img.fontId, img.ownerToken)
+    of ImkReleaseFont:
+      trace "font released", fontId = $Hash(img.fontId)
+      if ctx.releaseFontOwner(img.fontId, img.ownerToken):
+        forgetReleasedFontGlyphs(img.fontId)
+        ctx.clearFontGlyphs(img.fontId)
 
   for zlvl, list in nodes.layers.pairs():
     for rootIdx in list.rootIds:

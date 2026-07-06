@@ -5,11 +5,11 @@
 - [x] Keep `ImageId`, `FontId`, and `TypefaceId` as the primary thread-safe handles.
 - [x] Let any thread request image upload or image clear without touching backend state directly.
 - [x] Let any thread request full image atlas reset without touching backend state directly.
-- [ ] Let any thread request targeted font-glyph clear without touching backend state directly.
+- [x] Let any thread request targeted font-glyph clear without touching backend state directly.
 - [x] Use one ordered `ImageMsg` stream for new image upload and image clear work.
 - [x] Keep the legacy `imageChan: RChan[ImgObj]` drained for source compatibility.
 - [x] Let users manually clear images when streaming large folders.
-- [ ] Add an optional managed-handle layer that uses thread-local counts and sends retain/release messages.
+- [x] Add an optional managed-handle layer that uses thread-local counts and sends retain/release messages.
 - [x] Keep cache-clearing APIs additive so existing `ImageId`, `loadImage`, `FigFont`, and `loadTypeface` workflows keep working.
 
 ## Compatibility Commitments
@@ -28,14 +28,14 @@
 ## Decisions
 
 - [x] `clearImage(id)` is a force-clear request. It removes logical cache state and renderer atlas lookup state even if a managed ref exists later.
-- [ ] Managed ref final release is an eviction hint. It should clear only when the render thread sees no remaining owners for that ID.
-- [ ] Raw IDs are the cross-thread API. Pass `ImageId`, `FontId`, or `TypefaceId` between threads, not managed refs.
-- [ ] `ImageRef` and `FontRef` are thread-affine convenience wrappers. If another thread needs ownership, send the ID and create/retain a new wrapper there.
-- [ ] Add shared/atomic managed refs later only if callers need owned refs to cross thread boundaries.
+- [x] Managed ref final release is an eviction hint. It should clear only when the render thread sees no remaining owners for that ID.
+- [x] Raw IDs are the cross-thread API. Pass `ImageId`, `FontId`, or `TypefaceId` between threads, not managed refs.
+- [x] `ImageRef` and `FontRef` are thread-affine convenience wrappers. If another thread needs ownership, send the ID and create/retain a new wrapper there.
+- [x] Add shared/atomic managed refs later only if callers need owned refs to cross thread boundaries.
 - [x] Use `send` for image clear messages so important cache-control events are not dropped.
 - [x] Use `send` for reset messages so important cache-control events are not dropped.
-- [ ] Use `send` for retain/release messages so important cache-control events are not dropped.
-- [ ] Reserve `push` only for future lossy update-style messages.
+- [x] Use `send` for retain/release messages so important cache-control events are not dropped.
+- [x] Reserve `push` only for future lossy update-style messages.
 - [x] Keep generation state in `imgutils` behind a lock for phase 1, because uploads can be produced before the render thread sees them.
 - [x] Do not clear `fontTable`, `typefaceTable`, or `typefaceSourceTable` in the first implementation.
 - [x] Full atlas reset clears image and glyph atlas entries; visible user images must be reloaded by application logic.
@@ -46,7 +46,7 @@
 - [x] Treat integer/hash IDs as the safe cross-thread resource handles.
 - [x] Do not pass renderer/backend contexts across threads for image cache mutation.
 - [x] Do not mutate GPU resources or atlas tables outside the render thread for image clear.
-- [ ] Destructors must never touch backend state directly.
+- [x] Destructors must never touch backend state directly.
 - [x] Use channels to move image payloads and image clear requests to the render thread.
 - [x] Keep cache generation state protected by a lock or owned by the render-thread message processor.
 - [x] Serialize logical cache mutations and image-message enqueue order.
@@ -76,14 +76,14 @@
     imkClearTypefaceGlyphs
   ```
 
-- [ ] Add later message kinds for managed refs:
+- [x] Add message kinds for managed refs:
 
   ```nim
   type ImageMsgKind = enum
-    imkRetainImage
-    imkReleaseImage
-    imkRetainFont
-    imkReleaseFont
+    ImkRetainImage
+    ImkReleaseImage
+    ImkRetainFont
+    ImkReleaseFont
   ```
 
 - [x] Define one message type for uploads and image clears:
@@ -171,7 +171,7 @@
 - [x] On `ImkClearImageCache`, reset the whole atlas; the request path clears logical image/glyph cached state.
 - [x] On `ImkClearFontGlyphs`, remove glyph atlas entries for the font.
 - [x] On `ImkClearTypefaceGlyphs`, remove glyph atlas entries for fonts using that typeface.
-- [ ] On retain/release messages, update render-thread ownership tables used by the managed-handle layer.
+- [x] On retain/release messages, update render-thread ownership tables used by the managed-handle layer.
 
 ## Atlas Metadata
 
@@ -224,7 +224,7 @@
 
 ## Managed Handle Layer
 
-- [ ] Keep managed handles additive and ID-based:
+- [x] Keep managed handles additive and ID-based:
 
   ```nim
   type
@@ -236,48 +236,49 @@
       fontId*: FontId
   ```
 
-- [ ] Avoid making `ImageRef` or `FontRef` the only way to use images/fonts.
-- [ ] Document that managed refs are thread-affine.
-- [ ] Document that raw IDs are the supported way to communicate resources across threads.
-- [ ] Maintain thread-local counts for cheap same-thread copies.
-- [ ] Allocate one stable `ownerToken` per thread.
-- [ ] On first local `ImageRef` retain for an ID, send `imkRetainImage(id, ownerToken)`.
-- [ ] On last local `ImageRef` release for an ID, send `imkReleaseImage(id, ownerToken)`.
-- [ ] On first local `FontRef` retain for a font, send `imkRetainFont(fontId, ownerToken)`.
-- [ ] On last local `FontRef` release for a font, send `imkReleaseFont(fontId, ownerToken)`.
-- [ ] The render thread should aggregate owner tokens per ID and clear only when the aggregate owner set is empty.
-- [ ] A final release should be an automatic eviction hint, not a direct forced clear from a destructor.
-- [ ] Manual `clearImage(id)` remains a force-clear request.
-- [ ] Do not automatically remove `typefaceTable` or `typefaceSourceTable` in the first version.
+- [x] Avoid making `ImageRef` or `FontRef` the only way to use images/fonts.
+- [x] Document that managed refs are thread-affine.
+- [x] Document that raw IDs are the supported way to communicate resources across threads.
+- [x] Maintain thread-local counts for cheap same-thread copies.
+- [x] Allocate one stable `ownerToken` per thread.
+- [x] On first local `ImageRef` retain for an ID, send `ImkRetainImage(id, ownerToken)`.
+- [x] On last local `ImageRef` release for an ID, send `ImkReleaseImage(id, ownerToken)`.
+- [x] On first local `FontRef` retain for a font, send `ImkRetainFont(fontId, ownerToken)`.
+- [x] On last local `FontRef` release for a font, send `ImkReleaseFont(fontId, ownerToken)`.
+- [x] The render thread should aggregate owner tokens per ID and clear only when the aggregate owner set is empty.
+- [x] A final release should be an automatic eviction hint, not a direct forced clear from a destructor.
+- [x] Manual `clearImage(id)` remains a force-clear request.
+- [x] Do not automatically remove `typefaceTable` or `typefaceSourceTable` in the first version.
 
 ## Managed Constructors
 
-- [ ] Add image constructors:
+- [x] Add image constructors:
 
   ```nim
+  proc imageRef*(id: ImageId): ImageRef
   proc loadImageRef*(path: string): ImageRef
   proc imageRef*(id: ImageId, image: Image): ImageRef
   ```
 
-- [ ] Add font constructors:
+- [x] Add font constructors:
 
   ```nim
   proc fontRef*(font: FigFont): FontRef
   proc fontRef*(typefaceId: TypefaceId, size: float32): FontRef
   ```
 
-- [ ] `loadImageRef(path)` should call the normal load path and return the ID wrapper.
-- [ ] `imageRef(id, image)` should upload through the image message channel and retain the ID.
-- [ ] `fontRef` should retain the `FontId` derived from the `FigFont`.
+- [x] `loadImageRef(path)` should call the normal load path and return the ID wrapper.
+- [x] `imageRef(id, image)` should upload through the image message channel and retain the ID.
+- [x] `fontRef` should retain the `FontId` derived from the `FigFont`.
 
 ## Ownership Hook Rules
 
-- [ ] Keep destructors non-raising.
-- [ ] Destructors should only update thread-local counts and enqueue retain/release messages.
-- [ ] Do not mutate backend context, GPU resources, global image sets, or atlas tables from `=destroy`.
-- [ ] Declare custom hooks immediately after managed-handle type definitions.
-- [ ] Test copy, move, destroy-after-move, self-assignment, and final-release behavior.
-- [ ] Verify hooks with `--expandArc` before relying on destructor behavior.
+- [x] Keep destructors non-raising.
+- [x] Destructors should only update thread-local counts and enqueue retain/release messages.
+- [x] Do not mutate backend context, GPU resources, global image sets, or atlas tables from `=destroy`.
+- [x] Declare custom hooks immediately after managed-handle type definitions.
+- [x] Test copy, move, destroy-after-move, self-assignment, and final-release behavior.
+- [x] Verify hooks with `--expandArc` before relying on destructor behavior.
 
 ## Streaming Folder Workflow
 
@@ -297,8 +298,8 @@
 - [x] Phase 2: add atlas reset tests for image cache state and glyph regeneration.
 - [x] Phase 3: add atlas metadata and targeted font/glyph clears.
 - [x] Phase 3: add tests proving image clears do not delete glyph/generated entries.
-- [ ] Phase 4: add `ImageRef` and `FontRef` thread-affine managed wrappers.
-- [ ] Phase 4: add ownership hook and owner-token aggregation tests.
+- [x] Phase 4: add `ImageRef` and `FontRef` thread-affine managed wrappers.
+- [x] Phase 4: add ownership hook and owner-token aggregation tests.
 - [ ] Phase 5: add docs/examples for streaming folders and memory-budget reset policy.
 
 ## Tests
@@ -312,13 +313,13 @@
 - [x] Glyph generation regenerates markers after a full atlas reset.
 - [x] `ImkClearFontGlyphs` removes only glyph entries for that font.
 - [x] `ImkClearTypefaceGlyphs` removes only glyph entries for that typeface.
-- [ ] `ImageRef` first retain sends `imkRetainImage`.
-- [ ] `ImageRef` final release sends `imkReleaseImage`.
-- [ ] Releases from one thread do not clear an image still retained by another thread.
-- [ ] Passing raw `ImageId` across threads and creating a new `ImageRef` on the target thread retains under that thread's owner token.
+- [x] `ImageRef` first retain sends `ImkRetainImage`.
+- [x] `ImageRef` final release sends `ImkReleaseImage`.
+- [x] Releases from one thread do not clear an image still retained by another thread.
+- [x] Passing raw `ImageId` across threads and creating a new `ImageRef` on the target thread retains under that thread's owner token.
 - [ ] Moving or sharing `ImageRef` across threads is documented as unsupported in phase 4.
-- [ ] `FontRef` final release sends `imkReleaseFont`.
-- [ ] Manual `clearImage(id)` overrides retained state by design.
+- [x] `FontRef` final release sends `ImkReleaseFont`.
+- [x] Manual `clearImage(id)` overrides retained state by design.
 
 ## Implementation Order
 
@@ -328,7 +329,7 @@
 - [x] Run focused render/image/glyph tests.
 - [x] Implement phase 3.
 - [x] Run focused font/glyph tests.
-- [ ] Implement phase 4.
-- [ ] Run ownership hook tests under ARC/ORC.
+- [x] Implement phase 4.
+- [x] Run ownership hook tests under ARC/ORC.
 - [ ] Implement phase 5.
 - [ ] Run `nim test`.

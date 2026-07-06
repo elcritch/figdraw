@@ -9,7 +9,7 @@ import ./fonttypes
 import ./typefaces
 import ./fontglyphs
 
-export loadTypeface, convertFont, registerStaticTypeface
+export FontRef, fontRef, loadTypeface, convertFont, registerStaticTypeface
 
 when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
   import ./textbackends/harfbuzzy as textBackend

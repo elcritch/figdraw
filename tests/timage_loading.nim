@@ -3,6 +3,7 @@ import std/[hashes, os, tables, unittest]
 import pkg/pixie as pixie except readImage
 
 import figdraw/commons
+import figdraw/common/typefaces
 import figdraw/figrender
 import figdraw/fignodes
 
@@ -49,6 +50,14 @@ proc newRenders(): Renders =
 proc drainImages(ctx: TestContext) =
   var renders = newRenders()
   ctx.renderRoot(renders)
+
+proc recvImageMsg(kind: ImageMsgKind): ImageMsg =
+  require tryRecvImageMsg(result)
+  check result.kind == kind
+
+proc retainImageOnThread(id: ImageId) {.thread.} =
+  var owned = imageRef(id)
+  discard owned.id
 
 suite "image loading":
   test "load png via figDataDir fallback":
@@ -256,3 +265,91 @@ suite "image loading":
     check hasImage(loadedId)
     check ctx.uploaded == @[loadedId, loadedId]
     check loadedId.Hash in ctx.entries
+
+  test "ImageRef retain copy move and final release send owner messages":
+    let id = imgId("tests/timage_loading/image-ref-hooks")
+    var owned = imageRef(id)
+    let retain = recvImageMsg(ImkRetainImage)
+    check retain.id == id
+
+    var copied = owned
+    var msg: ImageMsg
+    check not tryRecvImageMsg(msg)
+
+    owned = owned
+    check not tryRecvImageMsg(msg)
+
+    var moved = move(copied)
+    copied = ImageRef()
+    check not tryRecvImageMsg(msg)
+
+    owned = ImageRef()
+    check not tryRecvImageMsg(msg)
+
+    moved = ImageRef()
+    let release = recvImageMsg(ImkReleaseImage)
+    check release.id == id
+    check release.ownerToken == retain.ownerToken
+
+  test "ImageRef release waits for all owner tokens before evicting":
+    let
+      id = imgId("tests/timage_loading/image-ref-thread")
+      ctx = newTestContext()
+
+    clearImage(id)
+    ctx.drainImages()
+
+    loadImage(id, newImage(1, 1))
+    var mainOwner = imageRef(id)
+    var worker: Thread[ImageId]
+    createThread(worker, retainImageOnThread, id)
+    joinThread(worker)
+
+    ctx.drainImages()
+    check id.Hash in ctx.entries
+    check hasImage(id)
+
+    mainOwner = ImageRef()
+    ctx.drainImages()
+    check id.Hash notin ctx.entries
+    check not hasImage(id)
+
+  test "manual clear removes retained image immediately":
+    let
+      id = imgId("tests/timage_loading/image-ref-manual-clear")
+      ctx = newTestContext()
+
+    clearImage(id)
+    ctx.drainImages()
+
+    var owner = imageRef(id, newImage(1, 1))
+    ctx.drainImages()
+    check id.Hash in ctx.entries
+    check hasImage(id)
+
+    clearImage(id)
+    ctx.drainImages()
+    check id.Hash notin ctx.entries
+    check not hasImage(id)
+
+    owner = ImageRef()
+    ctx.drainImages()
+
+  test "FontRef final release clears matching glyph entries":
+    setFigDataDir(getCurrentDir() / "data")
+    let
+      typefaceId = loadTypeface("Ubuntu.ttf")
+      uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+      ctx = newTestContext()
+    var owner = fontRef(uiFont)
+    let glyphImageId = imgId("tests/timage_loading/font-ref-glyph")
+    loadGlyphImage(glyphImageId, owner.fontId, typefaceId, newImage(1, 1))
+
+    ctx.drainImages()
+    check hasImage(glyphImageId)
+    check glyphImageId.Hash in ctx.entries
+
+    owner = FontRef()
+    ctx.drainImages()
+    check not hasImage(glyphImageId)
+    check glyphImageId.Hash notin ctx.entries

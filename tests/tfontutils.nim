@@ -18,6 +18,15 @@ proc resetFontState() =
   #withLock imageCachedLock:
   #  imageCached.clear()
 
+proc drainImageMessages() =
+  var msg: ImageMsg
+  while tryRecvImageMsg(msg):
+    discard
+
+proc recvImageMsg(kind: ImageMsgKind): ImageMsg =
+  require tryRecvImageMsg(result)
+  check result.kind == kind
+
 template registerStaticDefaultSansTypeface(path: static[string]) =
   when defined(windows):
     registerStaticTypeface("Segoe UI", path, TTF)
@@ -1093,6 +1102,32 @@ suite "fontutils":
       discard glyph.generateGlyph()
       break
     check hasImage(glyphImageId)
+
+  test "FontRef retain copy move and final release send owner messages":
+    drainImageMessages()
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+
+    var owner = fontRef(uiFont)
+    let retain = recvImageMsg(ImkRetainFont)
+    check retain.fontId == owner.fontId
+
+    var copied = owner
+    var msg: ImageMsg
+    check not tryRecvImageMsg(msg)
+
+    var moved = move(copied)
+    copied = FontRef()
+    check not tryRecvImageMsg(msg)
+
+    owner = FontRef()
+    check not tryRecvImageMsg(msg)
+
+    moved = FontRef()
+    let release = recvImageMsg(ImkReleaseFont)
+    check release.fontId == retain.fontId
+    check release.ownerToken == retain.ownerToken
 
   test "loadTypeface prefers figDataDir over other paths":
     let oldDataDir = figDataDir()
