@@ -233,6 +233,9 @@ proc convertFont*(font: FigFont): (FontId, Font) =
 proc convertFont*(style: FontStyle): (FontId, Font) =
   style.font.convertFont()
 
+proc clearFontGlyphs*(font: FigFont) =
+  clearFontGlyphs(font.convertFont()[0])
+
 proc glyphFontFor*(uiFont: FigFont): tuple[id: FontId, font: Font, glyph: GlyphFont] =
   ## Get the GlyphFont
   let (fontId, pf) = uiFont.convertFont()

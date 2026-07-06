@@ -23,7 +23,7 @@
 - [x] Implement compatibility wrappers by translating to `ImageMsg`.
 - [x] Do not require users to adopt `ImageRef` or `FontRef`.
 - [x] Keep the new `ImageMsg` channel private behind renderer helpers.
-- [ ] Treat backend atlas metadata as an internal implementation detail unless there is a clear public use case.
+- [x] Treat backend atlas metadata as an internal implementation detail unless there is a clear public use case.
 
 ## Decisions
 
@@ -60,19 +60,28 @@
   type ImageMsgKind = enum
     ImkPutFlippy
     ImkPutPixie
+    ImkPutGlyphPixie
     ImkClearImage
     ImkClearImages
     ImkClearImageCache
+    ImkClearFontGlyphs
+    ImkClearTypefaceGlyphs
   ```
 
-- [ ] Add later message kinds for managed refs and targeted font/glyph clears:
+- [x] Add message kinds for targeted font/glyph clears:
+
+  ```nim
+  type ImageMsgKind = enum
+    imkClearFontGlyphs
+    imkClearTypefaceGlyphs
+  ```
+
+- [ ] Add later message kinds for managed refs:
 
   ```nim
   type ImageMsgKind = enum
     imkRetainImage
     imkReleaseImage
-    imkClearFontGlyphs
-    imkClearTypefaceGlyphs
     imkRetainFont
     imkReleaseFont
   ```
@@ -84,13 +93,16 @@
     generation: uint64
     cacheGeneration: uint64
     id: ImageId
+    fontId: FontId
+    typefaceId: TypefaceId
     ids: seq[ImageId]
     case kind: ImageMsgKind
     of ImkPutFlippy:
       flippy: Flippy
-    of ImkPutPixie:
+    of ImkPutPixie, ImkPutGlyphPixie:
       image: Image
-    of ImkClearImage, ImkClearImages, ImkClearImageCache:
+    of ImkClearImage, ImkClearImages, ImkClearImageCache, ImkClearFontGlyphs,
+        ImkClearTypefaceGlyphs:
       discard
   ```
 
@@ -128,6 +140,14 @@
   ```
 
 - [x] Implement full reset by sending `ImkClearImageCache`.
+- [x] Add targeted glyph clears:
+
+  ```nim
+  proc clearFontGlyphs*(fontId: FontId)
+  proc clearFontGlyphs*(font: FigFont)
+  proc clearTypefaceGlyphs*(typefaceId: TypefaceId)
+  ```
+
 - [ ] Document that `clearImage(id)` makes an image reloadable and removes atlas lookup state, but does not reclaim packed atlas holes.
 - [ ] Document that `clearImageCache(renderer)` is the memory relief path because it resets/recreates atlas storage.
 
@@ -146,16 +166,16 @@
 - [x] On `ImkPutFlippy` or `ImkPutPixie`, upload to the backend atlas if the message generation is current.
 - [x] On `ImkClearImage`, remove the image from backend entries.
 - [x] On `ImkClearImages`, remove each listed image from backend entries.
-- [ ] On `imkClearImage`, remove atlas metadata once metadata exists.
-- [ ] On `imkClearImages`, remove atlas metadata once metadata exists.
+- [x] On `ImkClearImage`, remove atlas metadata for matching user image entries.
+- [x] On `ImkClearImages`, remove atlas metadata for matching user image entries.
 - [x] On `ImkClearImageCache`, reset the whole atlas; the request path clears logical image/glyph cached state.
-- [ ] On `imkClearFontGlyphs`, remove glyph atlas entries for the font.
-- [ ] On `imkClearTypefaceGlyphs`, remove glyph atlas entries for fonts using that typeface.
+- [x] On `ImkClearFontGlyphs`, remove glyph atlas entries for the font.
+- [x] On `ImkClearTypefaceGlyphs`, remove glyph atlas entries for fonts using that typeface.
 - [ ] On retain/release messages, update render-thread ownership tables used by the managed-handle layer.
 
 ## Atlas Metadata
 
-- [ ] Add metadata beside backend atlas entries:
+- [x] Add metadata beside backend atlas entries:
 
   ```nim
   type AtlasEntryKind = enum
@@ -170,11 +190,11 @@
     typefaceId: TypefaceId
   ```
 
-- [ ] Mark user-loaded images as `aekImage`.
-- [ ] Mark generated glyph images as `aekGlyph`.
-- [ ] Mark shape/shadow/corner generated assets as `aekGenerated`.
-- [ ] Use metadata so image clears do not remove glyphs or generated renderer assets.
-- [ ] Use metadata so font clears only remove glyph entries.
+- [x] Mark user-loaded images as `aekImage`.
+- [x] Mark generated glyph images as `aekGlyph`.
+- [x] Mark shape/shadow/corner generated assets as `aekGenerated`.
+- [x] Use metadata so image clears do not remove glyphs or generated renderer assets.
+- [x] Use metadata so font clears only remove glyph entries.
 
 ## Backend Atlas Operations
 
@@ -185,7 +205,7 @@
   method clearImageAtlas*(ctx: BackendContext) {.base.}
   ```
 
-- [ ] Add targeted font/glyph backend methods:
+- [x] Add targeted font/glyph backend methods:
 
   ```nim
   method clearFontGlyphs*(ctx: BackendContext, fontId: FontId) {.base.}
@@ -197,7 +217,7 @@
 - [x] `clearImageAtlas` should flush pending draw batches before resetting backend atlas state.
 - [x] Reset atlas texture to the initial size.
 - [x] Clear backend `entries`.
-- [ ] Clear backend atlas metadata.
+- [x] Clear backend atlas metadata.
 - [x] Reset skyline `heights`.
 - [x] For Vulkan, recreate or mark atlas GPU storage dirty as appropriate.
 - [x] Bump global cache generation during full reset.
@@ -275,8 +295,8 @@
 - [x] Phase 1: add stale queued upload tests.
 - [x] Phase 2: add backend `removeImage`, `clearImageAtlas`, and `clearImageCache(renderer)`.
 - [x] Phase 2: add atlas reset tests for image cache state and glyph regeneration.
-- [ ] Phase 3: add atlas metadata and targeted font/glyph clears.
-- [ ] Phase 3: add tests proving image clears do not delete glyph/generated entries.
+- [x] Phase 3: add atlas metadata and targeted font/glyph clears.
+- [x] Phase 3: add tests proving image clears do not delete glyph/generated entries.
 - [ ] Phase 4: add `ImageRef` and `FontRef` thread-affine managed wrappers.
 - [ ] Phase 4: add ownership hook and owner-token aggregation tests.
 - [ ] Phase 5: add docs/examples for streaming folders and memory-budget reset policy.
@@ -290,7 +310,8 @@
 - [ ] Drawing a cleared image does not crash.
 - [x] `ImkClearImageCache` resets atlas entries and logical image markers.
 - [x] Glyph generation regenerates markers after a full atlas reset.
-- [ ] `imkClearFontGlyphs` removes only glyph entries for that font.
+- [x] `ImkClearFontGlyphs` removes only glyph entries for that font.
+- [x] `ImkClearTypefaceGlyphs` removes only glyph entries for that typeface.
 - [ ] `ImageRef` first retain sends `imkRetainImage`.
 - [ ] `ImageRef` final release sends `imkReleaseImage`.
 - [ ] Releases from one thread do not clear an image still retained by another thread.
@@ -305,8 +326,8 @@
 - [x] Run focused image tests.
 - [x] Implement phase 2.
 - [x] Run focused render/image/glyph tests.
-- [ ] Implement phase 3.
-- [ ] Run focused font/glyph tests.
+- [x] Implement phase 3.
+- [x] Run focused font/glyph tests.
 - [ ] Implement phase 4.
 - [ ] Run ownership hook tests under ARC/ORC.
 - [ ] Implement phase 5.

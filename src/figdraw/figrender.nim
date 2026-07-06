@@ -9,6 +9,7 @@ import ./commons
 import ./figbackend
 import ./fignodes
 import ./common/fontglyphs
+import ./common/typefaces
 export figbackend
 
 when UseMetalBackend and UseOpenGlFallback:
@@ -387,6 +388,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
         )
         if img != nil:
           ctx.putImage(glyphId, img)
+          ctx.markGlyphEntry(glyphId, glyph.fontId, getFigFont(glyph.fontId).typefaceId)
         if glyphId notin ctx.entries:
           debug "missing glyph image in context",
             glyphId = glyphId, glyphRune = $glyph.rune, glyphRuneRepr = repr(glyph.rune)
@@ -907,11 +909,12 @@ proc renderRoot*(
         debug "skipping empty flippy image", imageId = legacyImg.id.Hash
         continue
     ctx.putImage(legacyImg)
+    ctx.markImageEntry(legacyImg.id)
 
   var img: ImageMsg
   while tryRecvImageMsg(img):
     case img.kind
-    of ImkPutPixie:
+    of ImkPutPixie, ImkPutGlyphPixie:
       trace "image loaded", id = $img.id.Hash
       if not imageMessageCurrent(img):
         debug "skipping stale pixie image", imageId = img.id.Hash
@@ -921,6 +924,10 @@ proc renderRoot*(
         continue
       var imgObj = ImgObj(id: img.id, kind: PixieImg, pimg: img.pimg)
       ctx.putImage(imgObj)
+      if img.kind == ImkPutGlyphPixie:
+        ctx.markGlyphEntry(img.id.Hash, img.fontId, img.typefaceId)
+      else:
+        ctx.markImageEntry(img.id)
     of ImkPutFlippy:
       trace "image loaded", id = $img.id.Hash
       if not imageMessageCurrent(img):
@@ -931,6 +938,7 @@ proc renderRoot*(
         continue
       var imgObj = ImgObj(id: img.id, kind: FlippyImg, flippy: move(img.flippy))
       ctx.putImage(imgObj)
+      ctx.markImageEntry(img.id)
     of ImkClearImage:
       trace "image cleared", id = $img.id.Hash
       ctx.removeImage(img.id)
@@ -941,6 +949,12 @@ proc renderRoot*(
     of ImkClearImageCache:
       trace "image cache cleared"
       ctx.clearImageAtlas()
+    of ImkClearFontGlyphs:
+      trace "font glyphs cleared", fontId = $Hash(img.fontId)
+      ctx.clearFontGlyphs(img.fontId)
+    of ImkClearTypefaceGlyphs:
+      trace "typeface glyphs cleared", typefaceId = $Hash(img.typefaceId)
+      ctx.clearTypefaceGlyphs(img.typefaceId)
 
   for zlvl, list in nodes.layers.pairs():
     for rootIdx in list.rootIds:
@@ -1001,3 +1015,15 @@ proc clearImages*[BackendState](
 proc clearImageCache*[BackendState](renderer: FigRenderer[BackendState]) =
   discard renderer
   clearImageCache()
+
+proc clearFontGlyphs*[BackendState](
+    renderer: FigRenderer[BackendState], fontId: FontId
+) =
+  discard renderer
+  clearFontGlyphs(fontId)
+
+proc clearTypefaceGlyphs*[BackendState](
+    renderer: FigRenderer[BackendState], typefaceId: TypefaceId
+) =
+  discard renderer
+  clearTypefaceGlyphs(typefaceId)

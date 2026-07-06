@@ -1,9 +1,7 @@
-import std/[os, unicode, sequtils, tables, strutils, sets, hashes]
+import std/[os, tables, strutils, sets, hashes]
 import std/[isolation, locks, times]
 
-import pkg/vmath
 import pkg/pixie
-import pkg/pixie/fonts
 import chronicles
 
 import ./rchannels
@@ -28,28 +26,44 @@ type
   ImageMsgKind* = enum
     ImkPutFlippy
     ImkPutPixie
+    ImkPutGlyphPixie
     ImkClearImage
     ImkClearImages
     ImkClearImageCache
+    ImkClearFontGlyphs
+    ImkClearTypefaceGlyphs
 
   ImageMsg* = object
     id*: ImageId
     generation*: uint64
     cacheGeneration*: uint64
+    fontId*: FontId
+    typefaceId*: TypefaceId
     ids*: seq[ImageId]
     case kind*: ImageMsgKind
     of ImkPutFlippy:
       flippy*: Flippy
-    of ImkPutPixie:
+    of ImkPutPixie, ImkPutGlyphPixie:
       pimg*: Image
-    of ImkClearImage, ImkClearImages, ImkClearImageCache:
+    of ImkClearImage, ImkClearImages, ImkClearImageCache, ImkClearFontGlyphs,
+        ImkClearTypefaceGlyphs:
       discard
+
+  ImageCacheKind = enum
+    ickImage
+    ickGlyph
+
+  ImageCacheMeta = object
+    kind: ImageCacheKind
+    fontId: FontId
+    typefaceId: TypefaceId
 
 var
   imageChan* = newRChan[ImgObj](1000)
   imageMsgChan = newRChan[ImageMsg](1000)
   imageCached*: HashSet[ImageId]
   imageGenerations: Table[ImageId, uint64]
+  imageCacheMeta: Table[ImageId, ImageCacheMeta]
   imageCacheGeneration: uint64
   imageMsgOrderLock: Lock
   imageCachedLock*: Lock
@@ -111,6 +125,34 @@ proc bumpImageGenerationLocked(id: ImageId): uint64 =
   result = imageGenerationLocked(id) + 1'u64
   imageGenerations[id] = result
 
+proc markImageCachedLocked(id: ImageId) =
+  imageCached.incl(id)
+  imageCacheMeta[id] = ImageCacheMeta(kind: ickImage)
+
+proc markGlyphCachedLocked(id: ImageId, fontId: FontId, typefaceId: TypefaceId) =
+  imageCached.incl(id)
+  imageCacheMeta[id] =
+    ImageCacheMeta(kind: ickGlyph, fontId: fontId, typefaceId: typefaceId)
+
+proc clearCachedImageLocked(id: ImageId) =
+  imageCached.excl(id)
+  imageCacheMeta.del(id)
+  discard bumpImageGenerationLocked(id)
+
+proc clearCachedGlyphsLocked(fontId: FontId): seq[ImageId] =
+  for id, meta in imageCacheMeta.pairs:
+    if meta.kind == ickGlyph and meta.fontId == fontId:
+      result.add(id)
+  for id in result:
+    clearCachedImageLocked(id)
+
+proc clearCachedTypefaceGlyphsLocked(typefaceId: TypefaceId): seq[ImageId] =
+  for id, meta in imageCacheMeta.pairs:
+    if meta.kind == ickGlyph and meta.typefaceId == typefaceId:
+      result.add(id)
+  for id in result:
+    clearCachedImageLocked(id)
+
 proc hasImage*(id: ImageId): bool =
   withLock imageCachedLock:
     result = id in imageCached
@@ -150,7 +192,7 @@ proc sendImage*(imgObj: var ImgObj) =
   var cacheGeneration: uint64
   withLock imageMsgOrderLock:
     withLock imageCachedLock:
-      imageCached.incl(imgObj.id)
+      markImageCachedLocked(imgObj.id)
       generation = imageGenerationLocked(imgObj.id)
       cacheGeneration = imageCacheGeneration
     var msg = imgObj.toImageMsg(generation, cacheGeneration)
@@ -165,17 +207,39 @@ proc sendImageCached*(imgObj: var ImgObj) =
       if imgObj.id in imageCached:
         cached = true
       else:
-        imageCached.incl(imgObj.id)
+        markImageCachedLocked(imgObj.id)
         generation = imageGenerationLocked(imgObj.id)
         cacheGeneration = imageCacheGeneration
     if not cached:
       var msg = imgObj.toImageMsg(generation, cacheGeneration)
       imageMsgChan.send(unsafeIsolate msg)
 
+proc loadGlyphImage*(
+    id: ImageId, fontId: FontId, typefaceId: TypefaceId, image: Image
+) =
+  var generation: uint64
+  var cacheGeneration: uint64
+  withLock imageMsgOrderLock:
+    withLock imageCachedLock:
+      markGlyphCachedLocked(id, fontId, typefaceId)
+      generation = imageGenerationLocked(id)
+      cacheGeneration = imageCacheGeneration
+    var msg = ImageMsg(
+      kind: ImkPutGlyphPixie,
+      id: id,
+      generation: generation,
+      cacheGeneration: cacheGeneration,
+      fontId: fontId,
+      typefaceId: typefaceId,
+      pimg: image,
+    )
+    imageMsgChan.send(unsafeIsolate msg)
+
 proc clearImage*(id: ImageId) =
   var generation: uint64
   withLock imageMsgOrderLock:
     withLock imageCachedLock:
+      imageCacheMeta.del(id)
       imageCached.excl(id)
       generation = bumpImageGenerationLocked(id)
     var msg = ImageMsg(kind: ImkClearImage, id: id, generation: generation)
@@ -190,8 +254,7 @@ proc clearImages*(ids: openArray[ImageId]) =
   withLock imageMsgOrderLock:
     withLock imageCachedLock:
       for id in ids:
-        imageCached.excl(id)
-        discard bumpImageGenerationLocked(id)
+        clearCachedImageLocked(id)
     imageMsgChan.send(unsafeIsolate msg)
 
 proc clearImageCache*() =
@@ -200,9 +263,24 @@ proc clearImageCache*() =
     withLock imageCachedLock:
       imageCached.clear()
       imageGenerations.clear()
+      imageCacheMeta.clear()
       imageCacheGeneration.inc()
       cacheGeneration = imageCacheGeneration
     var msg = ImageMsg(kind: ImkClearImageCache, cacheGeneration: cacheGeneration)
+    imageMsgChan.send(unsafeIsolate msg)
+
+proc clearFontGlyphs*(fontId: FontId) =
+  withLock imageMsgOrderLock:
+    withLock imageCachedLock:
+      discard clearCachedGlyphsLocked(fontId)
+    var msg = ImageMsg(kind: ImkClearFontGlyphs, fontId: fontId)
+    imageMsgChan.send(unsafeIsolate msg)
+
+proc clearTypefaceGlyphs*(typefaceId: TypefaceId) =
+  withLock imageMsgOrderLock:
+    withLock imageCachedLock:
+      discard clearCachedTypefaceGlyphsLocked(typefaceId)
+    var msg = ImageMsg(kind: ImkClearTypefaceGlyphs, typefaceId: typefaceId)
     imageMsgChan.send(unsafeIsolate msg)
 
 proc loadImage*(filePath: string): ImageId =

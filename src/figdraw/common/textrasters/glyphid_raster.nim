@@ -332,7 +332,7 @@ proc renderGlyphIdGlyph*(
       image.applyLcdFilter()
 
     if upload:
-      loadImage(imageId, image)
+      loadGlyphImage(imageId, fontId, figFont.typefaceId, image)
     return image
   except PixieError:
     return nil

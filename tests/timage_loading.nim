@@ -8,6 +8,7 @@ import figdraw/fignodes
 
 type TestContext = ref object of BackendContext
   entries: Table[Hash, Rect]
+  atlasEntryMeta: Table[Hash, AtlasEntryMeta]
   uploaded: seq[ImageId]
   removed: seq[ImageId]
   resetCount: int
@@ -15,17 +16,32 @@ type TestContext = ref object of BackendContext
 method entriesPtr*(ctx: TestContext): ptr Table[Hash, Rect] =
   ctx.entries.addr
 
+method atlasEntryMetaPtr*(ctx: TestContext): ptr Table[Hash, AtlasEntryMeta] =
+  ctx.atlasEntryMeta.addr
+
 method putImage*(ctx: TestContext, imgObj: ImgObj) =
   ctx.uploaded.add(imgObj.id)
   ctx.entries[imgObj.id.Hash] = rect(0, 0, 1, 1)
 
 method removeImage*(ctx: TestContext, id: ImageId) =
   ctx.removed.add(id)
-  ctx.entries.del(id.Hash)
+  let key = id.Hash
+  if key in ctx.atlasEntryMeta:
+    let meta = ctx.atlasEntryMeta[key]
+    if meta.kind == aekImage and meta.imageId == id:
+      ctx.removeAtlasEntry(key)
+  else:
+    ctx.entries.del(key)
 
 method clearImageAtlas*(ctx: TestContext) =
   inc ctx.resetCount
   ctx.entries.clear()
+  ctx.atlasEntryMeta.clear()
+
+proc newTestContext(): TestContext =
+  TestContext(
+    entries: initTable[Hash, Rect](), atlasEntryMeta: initTable[Hash, AtlasEntryMeta]()
+  )
 
 proc newRenders(): Renders =
   Renders(layers: initOrderedTable[ZLevel, RenderList]())
@@ -58,7 +74,7 @@ suite "image loading":
 
   test "clearImage drops logical cache and skips stale queued upload":
     let id = imgId("tests/timage_loading/stale")
-    let ctx = TestContext(entries: initTable[Hash, Rect]())
+    let ctx = newTestContext()
     clearImage(id)
     ctx.drainImages()
 
@@ -74,7 +90,7 @@ suite "image loading":
 
   test "loadImage after clear uploads the current image":
     let id = imgId("tests/timage_loading/reload")
-    let ctx = TestContext(entries: initTable[Hash, Rect]())
+    let ctx = newTestContext()
     clearImage(id)
     ctx.drainImages()
 
@@ -100,7 +116,7 @@ suite "image loading":
     let
       path = "arrow.png"
       id = imgId(path)
-      ctx = TestContext(entries: initTable[Hash, Rect]())
+      ctx = newTestContext()
     clearImage(id)
     ctx.drainImages()
 
@@ -125,7 +141,7 @@ suite "image loading":
     let
       idA = imgId("tests/timage_loading/batch/a")
       idB = imgId("tests/timage_loading/batch/b")
-      ctx = TestContext(entries: initTable[Hash, Rect]())
+      ctx = newTestContext()
     clearImages([idA, idB])
     ctx.drainImages()
     ctx.removed.setLen(0)
@@ -147,11 +163,74 @@ suite "image loading":
     check idA.Hash notin ctx.entries
     check idB.Hash notin ctx.entries
 
+  test "clearImage only removes entries marked as that image":
+    let
+      id = imgId("tests/timage_loading/metadata/protected")
+      key = id.Hash
+      fontId = FontId(Hash(101))
+      typefaceId = TypefaceId(Hash(201))
+      ctx = newTestContext()
+
+    ctx.entries[key] = rect(0, 0, 1, 1)
+    ctx.markGlyphEntry(key, fontId, typefaceId)
+    clearImage(id)
+    ctx.drainImages()
+    check key in ctx.entries
+    check ctx.atlasEntryMeta[key].kind == aekGlyph
+
+    ctx.markGeneratedEntry(key)
+    clearImage(id)
+    ctx.drainImages()
+    check key in ctx.entries
+    check ctx.atlasEntryMeta[key].kind == aekGenerated
+
+    ctx.markImageEntry(id)
+    clearImage(id)
+    ctx.drainImages()
+    check key notin ctx.entries
+    check key notin ctx.atlasEntryMeta
+
+  test "targeted glyph clears remove only matching glyph entries":
+    let
+      fontA = FontId(Hash(301))
+      fontB = FontId(Hash(302))
+      typefaceA = TypefaceId(Hash(401))
+      typefaceB = TypefaceId(Hash(402))
+      glyphFontA = Hash(501)
+      glyphFontB = Hash(502)
+      glyphTypefaceA = Hash(503)
+      generated = Hash(504)
+      imageId = ImageId(Hash(505))
+      ctx = newTestContext()
+
+    for key in [glyphFontA, glyphFontB, glyphTypefaceA, generated, imageId.Hash]:
+      ctx.entries[key] = rect(0, 0, 1, 1)
+    ctx.markGlyphEntry(glyphFontA, fontA, typefaceA)
+    ctx.markGlyphEntry(glyphFontB, fontB, typefaceB)
+    ctx.markGlyphEntry(glyphTypefaceA, fontB, typefaceA)
+    ctx.markGeneratedEntry(generated)
+    ctx.markImageEntry(imageId)
+
+    clearFontGlyphs(fontA)
+    ctx.drainImages()
+    check glyphFontA notin ctx.entries
+    check glyphFontB in ctx.entries
+    check glyphTypefaceA in ctx.entries
+    check generated in ctx.entries
+    check imageId.Hash in ctx.entries
+
+    clearTypefaceGlyphs(typefaceA)
+    ctx.drainImages()
+    check glyphTypefaceA notin ctx.entries
+    check glyphFontB in ctx.entries
+    check generated in ctx.entries
+    check imageId.Hash in ctx.entries
+
   test "clearImageCache clears logical cache backend entries and stale uploads":
     let
       loadedId = imgId("tests/timage_loading/cache-reset/loaded")
       staleId = imgId("tests/timage_loading/cache-reset/stale")
-      ctx = TestContext(entries: initTable[Hash, Rect]())
+      ctx = newTestContext()
     clearImageCache()
     ctx.drainImages()
     ctx.resetCount = 0

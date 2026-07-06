@@ -5,6 +5,7 @@ from pkg/pixie import Image
 import pkg/chroma
 
 import ./commons
+import ./common/fonttypes
 import ./figbasics
 import ./fignodes
 
@@ -45,6 +46,17 @@ type SdfMode* {.pure.} = enum
   sdfModeBackdropBlur = 17
 
 type
+  AtlasEntryKind* = enum
+    aekImage
+    aekGlyph
+    aekGenerated
+
+  AtlasEntryMeta* = object
+    kind*: AtlasEntryKind
+    imageId*: ImageId
+    fontId*: FontId
+    typefaceId*: TypefaceId
+
   BackendFillKind* = enum
     bfColor
     bfLinear2
@@ -147,6 +159,11 @@ method kind*(impl: BackendContext): RendererBackendKind {.base.} =
 method entriesPtr*(impl: BackendContext): ptr Table[Hash, Rect] {.base.} =
   raise newException(ValueError, "Backend entries unavailable")
 
+method atlasEntryMetaPtr*(
+    impl: BackendContext
+): ptr Table[Hash, AtlasEntryMeta] {.base.} =
+  raise newException(ValueError, "Backend atlas metadata unavailable")
+
 method pixelScale*(impl: BackendContext): float32 {.base.} =
   raise newException(ValueError, "Backend pixelScale unavailable")
 
@@ -165,11 +182,56 @@ method updateImage*(impl: BackendContext, path: Hash, image: Image) {.base.} =
 method putImage*(impl: BackendContext, imgObj: ImgObj) {.base.} =
   raise newException(ValueError, "Backend putImage unavailable")
 
+proc removeAtlasEntry*(impl: BackendContext, key: Hash) =
+  let
+    entries = impl.entriesPtr()
+    metas = impl.atlasEntryMetaPtr()
+  entries[].del(key)
+  metas[].del(key)
+
+proc markImageEntry*(impl: BackendContext, id: ImageId) =
+  let metas = impl.atlasEntryMetaPtr()
+  metas[][id.Hash] = AtlasEntryMeta(kind: aekImage, imageId: id)
+
+proc markGlyphEntry*(
+    impl: BackendContext, key: Hash, fontId: FontId, typefaceId: TypefaceId
+) =
+  let metas = impl.atlasEntryMetaPtr()
+  metas[][key] = AtlasEntryMeta(kind: aekGlyph, fontId: fontId, typefaceId: typefaceId)
+
+proc markGeneratedEntry*(impl: BackendContext, key: Hash) =
+  let metas = impl.atlasEntryMetaPtr()
+  metas[][key] = AtlasEntryMeta(kind: aekGenerated)
+
 method removeImage*(impl: BackendContext, id: ImageId) {.base.} =
-  impl.entriesPtr()[].del(id.Hash)
+  let key = id.Hash
+  let metas = impl.atlasEntryMetaPtr()
+  if key in metas[]:
+    let meta = metas[][key]
+    if meta.kind == aekImage and meta.imageId == id:
+      impl.removeAtlasEntry(key)
+  else:
+    impl.entriesPtr()[].del(key)
 
 method clearImageAtlas*(impl: BackendContext) {.base.} =
   impl.entriesPtr()[].clear()
+  impl.atlasEntryMetaPtr()[].clear()
+
+method clearFontGlyphs*(impl: BackendContext, fontId: FontId) {.base.} =
+  var keys: seq[Hash]
+  for key, meta in impl.atlasEntryMetaPtr()[].pairs:
+    if meta.kind == aekGlyph and meta.fontId == fontId:
+      keys.add(key)
+  for key in keys:
+    impl.removeAtlasEntry(key)
+
+method clearTypefaceGlyphs*(impl: BackendContext, typefaceId: TypefaceId) {.base.} =
+  var keys: seq[Hash]
+  for key, meta in impl.atlasEntryMetaPtr()[].pairs:
+    if meta.kind == aekGlyph and meta.typefaceId == typefaceId:
+      keys.add(key)
+  for key in keys:
+    impl.removeAtlasEntry(key)
 
 method drawImage*(
     impl: BackendContext,

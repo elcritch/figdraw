@@ -1065,6 +1065,35 @@ suite "fontutils":
       break
     check hasImage(glyphImageId)
 
+  test "targeted glyph clears remove glyph markers and allow regeneration":
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+    let arrangement = placeGlyphs(uiFont, [("B".runeAt(0), vec2(12, 16))])
+
+    var glyphImageId = ImageId(0)
+    for glyph in arrangement.glyphs():
+      glyphImageId = glyph.hash().ImageId
+      break
+    require glyphImageId != ImageId(0)
+    require hasImage(glyphImageId)
+
+    clearFontGlyphs(uiFont)
+    check not hasImage(glyphImageId)
+
+    for glyph in arrangement.glyphs():
+      discard glyph.generateGlyph()
+      break
+    require hasImage(glyphImageId)
+
+    clearTypefaceGlyphs(typefaceId)
+    check not hasImage(glyphImageId)
+
+    for glyph in arrangement.glyphs():
+      discard glyph.generateGlyph()
+      break
+    check hasImage(glyphImageId)
+
   test "loadTypeface prefers figDataDir over other paths":
     let oldDataDir = figDataDir()
     let tempDir = getTempDir() / "figdraw-font-priority-test"

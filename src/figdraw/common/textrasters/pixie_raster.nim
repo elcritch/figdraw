@@ -89,7 +89,7 @@ proc renderPixieGlyph*(
       image.applyLcdFilter()
 
     if upload:
-      loadImage(imageId, image)
+      loadGlyphImage(imageId, fontId, getFigFont(fontId).typefaceId, image)
     return image
   except PixieError:
     return nil
