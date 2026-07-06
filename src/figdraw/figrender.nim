@@ -894,19 +894,50 @@ proc renderRoot*(
     ctx: BackendContext, nodes: var Renders
 ) {.forbids: [AppMainThreadEff].} =
   ## draw roots for each level
-  var img: ImgObj
-  while imageChan.tryRecv(img):
-    trace "image loaded", id = $img.id.Hash
-    case img.kind
+  var legacyImg: ImgObj
+  while imageChan.tryRecv(legacyImg):
+    trace "image loaded", id = $legacyImg.id.Hash
+    case legacyImg.kind
     of PixieImg:
+      if legacyImg.pimg == nil:
+        debug "skipping nil pixie image", imageId = legacyImg.id.Hash
+        continue
+    of FlippyImg:
+      if legacyImg.flippy.mipmaps.len == 0:
+        debug "skipping empty flippy image", imageId = legacyImg.id.Hash
+        continue
+    ctx.putImage(legacyImg)
+
+  var img: ImageMsg
+  while tryRecvImageMsg(img):
+    case img.kind
+    of ImkPutPixie:
+      trace "image loaded", id = $img.id.Hash
+      if not imageMessageCurrent(img):
+        debug "skipping stale pixie image", imageId = img.id.Hash
+        continue
       if img.pimg == nil:
         debug "skipping nil pixie image", imageId = img.id.Hash
         continue
-    of FlippyImg:
+      var imgObj = ImgObj(id: img.id, kind: PixieImg, pimg: img.pimg)
+      ctx.putImage(imgObj)
+    of ImkPutFlippy:
+      trace "image loaded", id = $img.id.Hash
+      if not imageMessageCurrent(img):
+        debug "skipping stale flippy image", imageId = img.id.Hash
+        continue
       if img.flippy.mipmaps.len == 0:
         debug "skipping empty flippy image", imageId = img.id.Hash
         continue
-    ctx.putImage(img)
+      var imgObj = ImgObj(id: img.id, kind: FlippyImg, flippy: move(img.flippy))
+      ctx.putImage(imgObj)
+    of ImkClearImage:
+      trace "image cleared", id = $img.id.Hash
+      ctx.entries.del(img.id.Hash)
+    of ImkClearImages:
+      trace "images cleared", count = img.ids.len
+      for id in img.ids:
+        ctx.entries.del(id.Hash)
 
   for zlvl, list in nodes.layers.pairs():
     for rootIdx in list.rootIds:
