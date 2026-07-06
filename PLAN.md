@@ -148,8 +148,8 @@
   proc clearTypefaceGlyphs*(typefaceId: TypefaceId)
   ```
 
-- [ ] Document that `clearImage(id)` makes an image reloadable and removes atlas lookup state, but does not reclaim packed atlas holes.
-- [ ] Document that `clearImageCache(renderer)` is the memory relief path because it resets/recreates atlas storage.
+- [x] Document that `clearImage(id)` makes an image reloadable and removes atlas lookup state, but does not reclaim packed atlas holes.
+- [x] Document that `clearImageCache(renderer)` is the memory relief path because it resets/recreates atlas storage.
 
 ## Stale Upload Protection
 
@@ -282,12 +282,12 @@
 
 ## Streaming Folder Workflow
 
-- [ ] App keeps a visible image set plus a preload margin.
-- [ ] App stores `ImageId`s in UI nodes and may optionally hold `ImageRef`s for visible/preloaded images.
-- [ ] App drops refs or calls `clearImage(id)` when images scroll out of range.
-- [ ] Final `ImageRef` release sends a release message; the render thread clears only when no owner tokens remain.
-- [ ] App calls `clearImageCache(renderer)` when atlas size or memory budget crosses a threshold.
-- [ ] After a full cache reset, app reloads currently visible/preloaded image IDs.
+- [x] App keeps a visible image set plus a preload margin.
+- [x] App stores `ImageId`s in UI nodes and may optionally hold `ImageRef`s for visible/preloaded images.
+- [x] App drops refs or calls `clearImage(id)` when images scroll out of range.
+- [x] Final `ImageRef` release sends a release message; the render thread clears only when no owner tokens remain.
+- [x] App calls `clearImageCache(renderer)` when atlas size or memory budget crosses a threshold.
+- [x] After a full cache reset, app reloads currently visible/preloaded image IDs.
 
 ## Phased Rollout
 
@@ -300,7 +300,7 @@
 - [x] Phase 3: add tests proving image clears do not delete glyph/generated entries.
 - [x] Phase 4: add `ImageRef` and `FontRef` thread-affine managed wrappers.
 - [x] Phase 4: add ownership hook and owner-token aggregation tests.
-- [ ] Phase 5: add docs/examples for streaming folders and memory-budget reset policy.
+- [x] Phase 5: add docs/examples for streaming folders and memory-budget reset policy.
 
 ## Tests
 
@@ -308,7 +308,7 @@
 - [x] `clearImage(id)` allows `loadImage(path)` and `loadImage(id, image)` to enqueue a newer upload.
 - [x] Stale queued uploads are skipped after `clearImage(id)`.
 - [x] `ImkClearImage` removes the backend entry.
-- [ ] Drawing a cleared image does not crash.
+- [x] Drawing a cleared image does not crash.
 - [x] `ImkClearImageCache` resets atlas entries and logical image markers.
 - [x] Glyph generation regenerates markers after a full atlas reset.
 - [x] `ImkClearFontGlyphs` removes only glyph entries for that font.
@@ -317,7 +317,7 @@
 - [x] `ImageRef` final release sends `ImkReleaseImage`.
 - [x] Releases from one thread do not clear an image still retained by another thread.
 - [x] Passing raw `ImageId` across threads and creating a new `ImageRef` on the target thread retains under that thread's owner token.
-- [ ] Moving or sharing `ImageRef` across threads is documented as unsupported in phase 4.
+- [x] Moving or sharing `ImageRef` across threads is documented as unsupported in phase 4.
 - [x] `FontRef` final release sends `ImkReleaseFont`.
 - [x] Manual `clearImage(id)` overrides retained state by design.
 
@@ -331,5 +331,6 @@
 - [x] Run focused font/glyph tests.
 - [x] Implement phase 4.
 - [x] Run ownership hook tests under ARC/ORC.
-- [ ] Implement phase 5.
-- [ ] Run `nim test`.
+- [x] Implement phase 5.
+- [x] Run `nim test` (stops at existing generated binding issue:
+  `examples/siwin_shared.nim` cannot open `figdraw/bindings/generated/figdraw`).

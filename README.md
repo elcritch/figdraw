@@ -134,6 +134,52 @@ For a complete working example (window + GL context + render loop), see:
 - `examples/windy_renderlist.nim`
 - `examples/sdl2_renderlist.nim`
 
+### Image Cache Management
+
+Image IDs are the stable, thread-safe handles for image nodes. Any thread may load
+or clear images by ID; the renderer receives ordered cache messages and mutates
+backend atlas state on the render thread.
+
+```nim
+let id = loadImage("photos/frame-001.png")
+
+# Later, when the image scrolls out of the active range:
+clearImage(id)
+
+# Or clear several IDs at once:
+clearImages([id])
+```
+
+`clearImage(id)` makes that ID reloadable and removes its renderer atlas lookup
+entry. It does not compact or reclaim holes inside the packed texture atlas. Use
+`clearImageCache()` or `clearImageCache(renderer)` as the memory relief path when
+the atlas grows past a budget; this resets the atlas storage and currently visible
+images should be loaded again by the application.
+
+For scrolling folders or galleries, keep a visible set plus a small preload
+margin. Store raw `ImageId`s in UI nodes. You may optionally hold `ImageRef`s for
+visible/preloaded images:
+
+```nim
+var visible: Table[ImageId, ImageRef]
+
+proc show(path: string) =
+  let ref = loadImageRef(path)
+  visible[ref.id] = ref
+
+proc hide(id: ImageId) =
+  visible.del(id)      # final local release queues an eviction hint
+  # clearImage(id)     # force-clear when you want immediate removal
+```
+
+`ImageRef` and `FontRef` are thread-affine convenience wrappers. Pass raw
+`ImageId`, `FontId`, `TypefaceId`, or `FigFont` values between threads, then
+create a new ref on the target thread if that thread needs ownership. Moving or
+sharing `ImageRef`/`FontRef` values across threads is unsupported in this
+additive layer. A final ref release queues an eviction hint; the render thread
+clears only after all owner tokens for that ID are gone. Manual `clearImage(id)`
+remains a force-clear request.
+
 ### RenderList Tree Helpers
 
 `addRoot` and `addChild` append nodes to the end of a layer. Use the insert helpers when draw order

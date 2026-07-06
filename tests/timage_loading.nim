@@ -12,6 +12,7 @@ type TestContext = ref object of BackendContext
   atlasEntryMeta: Table[Hash, AtlasEntryMeta]
   uploaded: seq[ImageId]
   removed: seq[ImageId]
+  drawn: seq[Hash]
   resetCount: int
 
 method entriesPtr*(ctx: TestContext): ptr Table[Hash, Rect] =
@@ -38,6 +39,17 @@ method clearImageAtlas*(ctx: TestContext) =
   inc ctx.resetCount
   ctx.entries.clear()
   ctx.atlasEntryMeta.clear()
+
+method drawImage*(
+    ctx: TestContext,
+    path: Hash,
+    pos: Vec2,
+    colors: array[4, ColorRGBA],
+    size: Vec2,
+    flipY: bool,
+) =
+  if path in ctx.entries:
+    ctx.drawn.add(path)
 
 proc newTestContext(): TestContext =
   TestContext(
@@ -171,6 +183,32 @@ suite "image loading":
     check ctx.removed == @[idA, idB]
     check idA.Hash notin ctx.entries
     check idB.Hash notin ctx.entries
+
+  test "drawing a cleared image does not crash":
+    let
+      id = imgId("tests/timage_loading/draw-cleared")
+      ctx = newTestContext()
+    var renders = newRenders()
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkImage,
+        screenBox: rect(0, 0, 16, 16),
+        image: ImageStyle(id: id, fill: rgba(255, 255, 255, 255).color),
+      ),
+    )
+
+    clearImage(id)
+    ctx.drainImages()
+
+    loadImage(id, newImage(1, 1))
+    ctx.renderRoot(renders)
+    check ctx.drawn == @[id.Hash]
+
+    clearImage(id)
+    ctx.renderRoot(renders)
+    check ctx.drawn == @[id.Hash]
+    check id.Hash notin ctx.entries
 
   test "clearImage only removes entries marked as that image":
     let
