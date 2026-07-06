@@ -165,6 +165,12 @@ method updateImage*(impl: BackendContext, path: Hash, image: Image) {.base.} =
 method putImage*(impl: BackendContext, imgObj: ImgObj) {.base.} =
   raise newException(ValueError, "Backend putImage unavailable")
 
+method removeImage*(impl: BackendContext, id: ImageId) {.base.} =
+  impl.entriesPtr()[].del(id.Hash)
+
+method clearImageAtlas*(impl: BackendContext) {.base.} =
+  impl.entriesPtr()[].clear()
+
 method drawImage*(
     impl: BackendContext,
     path: Hash,

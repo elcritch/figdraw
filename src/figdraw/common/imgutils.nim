@@ -30,17 +30,19 @@ type
     ImkPutPixie
     ImkClearImage
     ImkClearImages
+    ImkClearImageCache
 
   ImageMsg* = object
     id*: ImageId
     generation*: uint64
+    cacheGeneration*: uint64
     ids*: seq[ImageId]
     case kind*: ImageMsgKind
     of ImkPutFlippy:
       flippy*: Flippy
     of ImkPutPixie:
       pimg*: Image
-    of ImkClearImage, ImkClearImages:
+    of ImkClearImage, ImkClearImages, ImkClearImageCache:
       discard
 
 var
@@ -48,8 +50,11 @@ var
   imageMsgChan = newRChan[ImageMsg](1000)
   imageCached*: HashSet[ImageId]
   imageGenerations: Table[ImageId, uint64]
+  imageCacheGeneration: uint64
+  imageMsgOrderLock: Lock
   imageCachedLock*: Lock
 
+imageMsgOrderLock.initLock()
 imageCachedLock.initLock()
 
 proc `==`*(a, b: ImageId): bool {.borrow.}
@@ -112,53 +117,69 @@ proc hasImage*(id: ImageId): bool =
 
 proc imageMessageCurrent*(msg: ImageMsg): bool =
   withLock imageCachedLock:
-    result = msg.generation == imageGenerationLocked(msg.id)
+    result =
+      msg.cacheGeneration == imageCacheGeneration and
+      msg.generation == imageGenerationLocked(msg.id)
 
 proc tryRecvImageMsg*(msg: var ImageMsg): bool =
   imageMsgChan.tryRecv(msg)
 
-proc toImageMsg(imgObj: var ImgObj, generation: uint64): ImageMsg =
+proc toImageMsg(
+    imgObj: var ImgObj, generation: uint64, cacheGeneration: uint64
+): ImageMsg =
   case imgObj.kind
   of FlippyImg:
     result = ImageMsg(
       kind: ImkPutFlippy,
       id: imgObj.id,
       generation: generation,
+      cacheGeneration: cacheGeneration,
       flippy: move(imgObj.flippy),
     )
   of PixieImg:
     result = ImageMsg(
-      kind: ImkPutPixie, id: imgObj.id, generation: generation, pimg: imgObj.pimg
+      kind: ImkPutPixie,
+      id: imgObj.id,
+      generation: generation,
+      cacheGeneration: cacheGeneration,
+      pimg: imgObj.pimg,
     )
 
 proc sendImage*(imgObj: var ImgObj) =
   var generation: uint64
-  withLock imageCachedLock:
-    imageCached.incl(imgObj.id)
-    generation = imageGenerationLocked(imgObj.id)
-  var msg = imgObj.toImageMsg(generation)
-  imageMsgChan.send(unsafeIsolate msg)
+  var cacheGeneration: uint64
+  withLock imageMsgOrderLock:
+    withLock imageCachedLock:
+      imageCached.incl(imgObj.id)
+      generation = imageGenerationLocked(imgObj.id)
+      cacheGeneration = imageCacheGeneration
+    var msg = imgObj.toImageMsg(generation, cacheGeneration)
+    imageMsgChan.send(unsafeIsolate msg)
 
 proc sendImageCached*(imgObj: var ImgObj) =
   var cached = false
   var generation: uint64
-  withLock imageCachedLock:
-    if imgObj.id in imageCached:
-      cached = true
-    else:
-      imageCached.incl(imgObj.id)
-      generation = imageGenerationLocked(imgObj.id)
-  if not cached:
-    var msg = imgObj.toImageMsg(generation)
-    imageMsgChan.send(unsafeIsolate msg)
+  var cacheGeneration: uint64
+  withLock imageMsgOrderLock:
+    withLock imageCachedLock:
+      if imgObj.id in imageCached:
+        cached = true
+      else:
+        imageCached.incl(imgObj.id)
+        generation = imageGenerationLocked(imgObj.id)
+        cacheGeneration = imageCacheGeneration
+    if not cached:
+      var msg = imgObj.toImageMsg(generation, cacheGeneration)
+      imageMsgChan.send(unsafeIsolate msg)
 
 proc clearImage*(id: ImageId) =
   var generation: uint64
-  withLock imageCachedLock:
-    imageCached.excl(id)
-    generation = bumpImageGenerationLocked(id)
-  var msg = ImageMsg(kind: ImkClearImage, id: id, generation: generation)
-  imageMsgChan.send(unsafeIsolate msg)
+  withLock imageMsgOrderLock:
+    withLock imageCachedLock:
+      imageCached.excl(id)
+      generation = bumpImageGenerationLocked(id)
+    var msg = ImageMsg(kind: ImkClearImage, id: id, generation: generation)
+    imageMsgChan.send(unsafeIsolate msg)
 
 proc clearImages*(ids: openArray[ImageId]) =
   if ids.len == 0:
@@ -166,11 +187,23 @@ proc clearImages*(ids: openArray[ImageId]) =
   var msg = ImageMsg(kind: ImkClearImages)
   for id in ids:
     msg.ids.add(id)
-  withLock imageCachedLock:
-    for id in ids:
-      imageCached.excl(id)
-      discard bumpImageGenerationLocked(id)
-  imageMsgChan.send(unsafeIsolate msg)
+  withLock imageMsgOrderLock:
+    withLock imageCachedLock:
+      for id in ids:
+        imageCached.excl(id)
+        discard bumpImageGenerationLocked(id)
+    imageMsgChan.send(unsafeIsolate msg)
+
+proc clearImageCache*() =
+  var cacheGeneration: uint64
+  withLock imageMsgOrderLock:
+    withLock imageCachedLock:
+      imageCached.clear()
+      imageGenerations.clear()
+      imageCacheGeneration.inc()
+      cacheGeneration = imageCacheGeneration
+    var msg = ImageMsg(kind: ImkClearImageCache, cacheGeneration: cacheGeneration)
+    imageMsgChan.send(unsafeIsolate msg)
 
 proc loadImage*(filePath: string): ImageId =
   var flippy = readImage(filePath)

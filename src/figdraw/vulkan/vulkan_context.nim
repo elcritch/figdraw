@@ -89,6 +89,7 @@ type
 
   VulkanContext* = ref object of figbackend.BackendContext
     atlasSize: int
+    initialAtlasSize: int
     atlasMargin: int
     quadCount: int
     maxQuads: int
@@ -2328,6 +2329,21 @@ method putImage*(ctx: VulkanContext, imgObj: ImgObj) =
   of PixieImg:
     ctx.putImage(imgObj.id.Hash, imgObj.pimg)
 
+method removeImage*(ctx: VulkanContext, id: ImageId) =
+  ctx.entries.del(id.Hash)
+
+method clearImageAtlas*(ctx: VulkanContext) =
+  ctx.flush()
+  ctx.atlasSize = ctx.initialAtlasSize
+  ctx.entries.clear()
+  ctx.heights = newSeq[uint16](ctx.atlasSize)
+  ctx.atlasPixels = newImage(ctx.atlasSize, ctx.atlasSize)
+  ctx.atlasPixels.fill(rgba(0, 0, 0, 0))
+  ctx.atlasDirty = true
+  ctx.atlasLayoutReady = false
+  if ctx.gpuReady:
+    ctx.recreateAtlasGpu()
+
 proc drawQuad*(
     ctx: VulkanContext,
     verts: array[4, Vec2],
@@ -3624,6 +3640,7 @@ proc newContext*(
 
   result = VulkanContext()
   result.atlasSize = atlasSize
+  result.initialAtlasSize = atlasSize
   result.atlasMargin = atlasMargin
   result.maxQuads = maxQuads
   result.mat = mat4()

@@ -933,11 +933,14 @@ proc renderRoot*(
       ctx.putImage(imgObj)
     of ImkClearImage:
       trace "image cleared", id = $img.id.Hash
-      ctx.entries.del(img.id.Hash)
+      ctx.removeImage(img.id)
     of ImkClearImages:
       trace "images cleared", count = img.ids.len
       for id in img.ids:
-        ctx.entries.del(id.Hash)
+        ctx.removeImage(id)
+    of ImkClearImageCache:
+      trace "image cache cleared"
+      ctx.clearImageAtlas()
 
   for zlvl, list in nodes.layers.pairs():
     for rootIdx in list.rootIds:
@@ -984,3 +987,17 @@ proc renderFrame*[BackendState](
     var img = takeOneFrameScreenshot(renderer)
     img.writeFile("screenshot.png")
     quit()
+
+proc clearImage*[BackendState](renderer: FigRenderer[BackendState], id: ImageId) =
+  discard renderer
+  clearImage(id)
+
+proc clearImages*[BackendState](
+    renderer: FigRenderer[BackendState], ids: openArray[ImageId]
+) =
+  discard renderer
+  clearImages(ids)
+
+proc clearImageCache*[BackendState](renderer: FigRenderer[BackendState]) =
+  discard renderer
+  clearImageCache()

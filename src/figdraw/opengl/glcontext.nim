@@ -51,6 +51,7 @@ type OpenGlContext* = ref object of figbackend.BackendContext
   maskTextureWrite: int ## Index into max textures for writing.
   maskTextures: seq[Texture] ## Masks array for pushing and popping.
   atlasSize: int ## Size x size dimensions of the atlas
+  initialAtlasSize: int
   atlasMargin: int ## Default margin between images
   quadCount: int ## Number of quads drawn so far
   maxQuads: int ## Max quads to draw before issuing an OpenGL call
@@ -252,6 +253,7 @@ proc newContext*(
 
   result = OpenGlContext()
   result.atlasSize = atlasSize
+  result.initialAtlasSize = atlasSize
   result.atlasMargin = atlasMargin
   result.maxQuads = maxQuads
   result.mat = mat4()
@@ -617,6 +619,16 @@ method putImage*(ctx: OpenGlContext, imgObj: ImgObj) =
     ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
   of PixieImg:
     ctx.putImage(imgObj.id.Hash, imgObj.pimg)
+
+method removeImage*(ctx: OpenGlContext, id: ImageId) =
+  ctx.entries.del(id.Hash)
+
+method clearImageAtlas*(ctx: OpenGlContext) =
+  ctx.flush()
+  ctx.atlasSize = ctx.initialAtlasSize
+  ctx.entries.clear()
+  ctx.heights = newSeq[uint16](ctx.atlasSize)
+  ctx.atlasTexture = ctx.createAtlasTexture(ctx.atlasSize)
 
 proc flush(ctx: OpenGlContext, maskTextureRead: int = ctx.maskTextureWrite) =
   ## Flips - draws current buffer and starts a new one.

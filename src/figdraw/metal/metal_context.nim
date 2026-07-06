@@ -110,6 +110,7 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   maskTextureWrite: int ## Index of active mask stack (0 means no mask).
 
   atlasSize: int
+  initialAtlasSize: int
   atlasMargin: int
   quadCount: int
   maxQuads: int
@@ -678,6 +679,16 @@ method putImage*(ctx: MetalContext, imgObj: ImgObj) =
     ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
   of PixieImg:
     ctx.putImage(imgObj.id.Hash, imgObj.pimg)
+
+method removeImage*(ctx: MetalContext, id: ImageId) =
+  ctx.entries.del(id.Hash)
+
+method clearImageAtlas*(ctx: MetalContext) =
+  ctx.flush()
+  ctx.atlasSize = ctx.initialAtlasSize
+  ctx.entries.clear()
+  ctx.heights = newSeq[uint16](ctx.atlasSize)
+  ctx.atlasTexture.resetRetained(ctx.createAtlasTexture(ctx.atlasSize))
 
 proc checkBatch(ctx: MetalContext) =
   if ctx.quadCount == ctx.maxQuads:
@@ -2030,6 +2041,7 @@ proc newContext*(
   withAutoreleasePool:
     result = MetalContext()
     result.atlasSize = atlasSize
+    result.initialAtlasSize = atlasSize
     result.atlasMargin = atlasMargin
     result.maxQuads = maxQuads
     result.mat = mat4()

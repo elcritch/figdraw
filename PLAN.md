@@ -4,12 +4,13 @@
 
 - [x] Keep `ImageId`, `FontId`, and `TypefaceId` as the primary thread-safe handles.
 - [x] Let any thread request image upload or image clear without touching backend state directly.
-- [ ] Let any thread request font-glyph clear or atlas reset without touching backend state directly.
+- [x] Let any thread request full image atlas reset without touching backend state directly.
+- [ ] Let any thread request targeted font-glyph clear without touching backend state directly.
 - [x] Use one ordered `ImageMsg` stream for new image upload and image clear work.
 - [x] Keep the legacy `imageChan: RChan[ImgObj]` drained for source compatibility.
 - [x] Let users manually clear images when streaming large folders.
 - [ ] Add an optional managed-handle layer that uses thread-local counts and sends retain/release messages.
-- [x] Keep Phase 1 APIs additive so existing `ImageId`, `loadImage`, `FigFont`, and `loadTypeface` workflows keep working.
+- [x] Keep cache-clearing APIs additive so existing `ImageId`, `loadImage`, `FigFont`, and `loadTypeface` workflows keep working.
 
 ## Compatibility Commitments
 
@@ -32,12 +33,13 @@
 - [ ] `ImageRef` and `FontRef` are thread-affine convenience wrappers. If another thread needs ownership, send the ID and create/retain a new wrapper there.
 - [ ] Add shared/atomic managed refs later only if callers need owned refs to cross thread boundaries.
 - [x] Use `send` for image clear messages so important cache-control events are not dropped.
-- [ ] Use `send` for reset/retain/release messages so important cache-control events are not dropped.
+- [x] Use `send` for reset messages so important cache-control events are not dropped.
+- [ ] Use `send` for retain/release messages so important cache-control events are not dropped.
 - [ ] Reserve `push` only for future lossy update-style messages.
 - [x] Keep generation state in `imgutils` behind a lock for phase 1, because uploads can be produced before the render thread sees them.
-- [ ] Do not clear `fontTable`, `typefaceTable`, or `typefaceSourceTable` in the first implementation.
-- [ ] Full atlas reset clears image and glyph atlas entries; visible user images must be reloaded by application logic.
-- [ ] Text glyphs are allowed to regenerate automatically after atlas reset.
+- [x] Do not clear `fontTable`, `typefaceTable`, or `typefaceSourceTable` in the first implementation.
+- [x] Full atlas reset clears image and glyph atlas entries; visible user images must be reloaded by application logic.
+- [x] Text glyphs are allowed to regenerate automatically after atlas reset.
 
 ## Thread-Safety Principles
 
@@ -47,6 +49,7 @@
 - [ ] Destructors must never touch backend state directly.
 - [x] Use channels to move image payloads and image clear requests to the render thread.
 - [x] Keep cache generation state protected by a lock or owned by the render-thread message processor.
+- [x] Serialize logical cache mutations and image-message enqueue order.
 - [x] Prefer explicit message ordering over ad hoc direct calls.
 
 ## Image Message Channel
@@ -59,13 +62,13 @@
     ImkPutPixie
     ImkClearImage
     ImkClearImages
+    ImkClearImageCache
   ```
 
-- [ ] Add later message kinds for full reset, managed refs, and font/glyph clears:
+- [ ] Add later message kinds for managed refs and targeted font/glyph clears:
 
   ```nim
   type ImageMsgKind = enum
-    imkClearImageCache
     imkRetainImage
     imkReleaseImage
     imkClearFontGlyphs
@@ -79,6 +82,7 @@
   ```nim
   type ImageMsg = object
     generation: uint64
+    cacheGeneration: uint64
     id: ImageId
     ids: seq[ImageId]
     case kind: ImageMsgKind
@@ -86,7 +90,7 @@
       flippy: Flippy
     of ImkPutPixie:
       image: Image
-    else:
+    of ImkClearImage, ImkClearImages, ImkClearImageCache:
       discard
   ```
 
@@ -107,7 +111,7 @@
   ```
 
 - [x] Implement these procs by updating logical cache generation state and sending `ImkClearImage` or `ImkClearImages`.
-- [ ] Add renderer convenience APIs that still enqueue messages instead of mutating backend state directly:
+- [x] Add renderer convenience APIs that still enqueue messages instead of mutating backend state directly:
 
   ```nim
   proc clearImage*[BackendState](renderer: FigRenderer[BackendState], id: ImageId)
@@ -116,13 +120,14 @@
   )
   ```
 
-- [ ] Add full atlas/cache reset:
+- [x] Add full atlas/cache reset:
 
   ```nim
+  proc clearImageCache*()
   proc clearImageCache*[BackendState](renderer: FigRenderer[BackendState])
   ```
 
-- [ ] Implement full reset by sending `imkClearImageCache`.
+- [x] Implement full reset by sending `ImkClearImageCache`.
 - [ ] Document that `clearImage(id)` makes an image reloadable and removes atlas lookup state, but does not reclaim packed atlas holes.
 - [ ] Document that `clearImageCache(renderer)` is the memory relief path because it resets/recreates atlas storage.
 
@@ -131,7 +136,7 @@
 - [x] Maintain a generation for each `ImageId`.
 - [x] Stamp every upload message with the generation observed when the image was loaded.
 - [x] Increment an image generation when `clearImage(id)` is requested.
-- [ ] Increment a global cache generation when `clearImageCache(renderer)` is requested.
+- [x] Increment a global cache generation when `clearImageCache()` or `clearImageCache(renderer)` is requested.
 - [x] Skip `ImkPutFlippy` and `ImkPutPixie` messages whose generation is stale.
 - [x] Let an explicit clear win over older in-flight uploads.
 - [x] Allow a newer upload for the same `ImageId` after clear by stamping it with the new generation.
@@ -143,7 +148,7 @@
 - [x] On `ImkClearImages`, remove each listed image from backend entries.
 - [ ] On `imkClearImage`, remove atlas metadata once metadata exists.
 - [ ] On `imkClearImages`, remove atlas metadata once metadata exists.
-- [ ] On `imkClearImageCache`, reset the whole atlas and clear logical image/glyph cached state.
+- [x] On `ImkClearImageCache`, reset the whole atlas; the request path clears logical image/glyph cached state.
 - [ ] On `imkClearFontGlyphs`, remove glyph atlas entries for the font.
 - [ ] On `imkClearTypefaceGlyphs`, remove glyph atlas entries for fonts using that typeface.
 - [ ] On retain/release messages, update render-thread ownership tables used by the managed-handle layer.
@@ -173,24 +178,29 @@
 
 ## Backend Atlas Operations
 
-- [ ] Add backend methods:
+- [x] Add backend methods:
 
   ```nim
   method removeImage*(ctx: BackendContext, id: ImageId) {.base.}
   method clearImageAtlas*(ctx: BackendContext) {.base.}
+  ```
+
+- [ ] Add targeted font/glyph backend methods:
+
+  ```nim
   method clearFontGlyphs*(ctx: BackendContext, fontId: FontId) {.base.}
   method clearTypefaceGlyphs*(ctx: BackendContext, typefaceId: TypefaceId) {.base.}
   ```
 
-- [ ] Implement for OpenGL, Metal, and Vulkan.
-- [ ] `removeImage` should delete lookup/metadata entries; it does not reclaim skyline holes.
-- [ ] `clearImageAtlas` should flush pending draw batches before resetting backend atlas state.
-- [ ] Reset atlas texture to the initial size.
-- [ ] Clear backend `entries`.
+- [x] Implement `removeImage` and `clearImageAtlas` for OpenGL, Metal, and Vulkan.
+- [x] `removeImage` should delete lookup entries; it does not reclaim skyline holes.
+- [x] `clearImageAtlas` should flush pending draw batches before resetting backend atlas state.
+- [x] Reset atlas texture to the initial size.
+- [x] Clear backend `entries`.
 - [ ] Clear backend atlas metadata.
-- [ ] Reset skyline `heights`.
-- [ ] For Vulkan, recreate or mark atlas GPU storage dirty as appropriate.
-- [ ] Bump global cache generation during full reset.
+- [x] Reset skyline `heights`.
+- [x] For Vulkan, recreate or mark atlas GPU storage dirty as appropriate.
+- [x] Bump global cache generation during full reset.
 
 ## Managed Handle Layer
 
@@ -263,8 +273,8 @@
 - [x] Phase 1: add `ImageMsg`, compatibility wrappers, generation tracking, and manual `clearImage`.
 - [x] Phase 1: keep existing upload behavior working through wrappers.
 - [x] Phase 1: add stale queued upload tests.
-- [ ] Phase 2: add backend `removeImage`, `clearImageAtlas`, and `clearImageCache(renderer)`.
-- [ ] Phase 2: add atlas reset tests for image and text redraw.
+- [x] Phase 2: add backend `removeImage`, `clearImageAtlas`, and `clearImageCache(renderer)`.
+- [x] Phase 2: add atlas reset tests for image cache state and glyph regeneration.
 - [ ] Phase 3: add atlas metadata and targeted font/glyph clears.
 - [ ] Phase 3: add tests proving image clears do not delete glyph/generated entries.
 - [ ] Phase 4: add `ImageRef` and `FontRef` thread-affine managed wrappers.
@@ -278,8 +288,8 @@
 - [x] Stale queued uploads are skipped after `clearImage(id)`.
 - [x] `ImkClearImage` removes the backend entry.
 - [ ] Drawing a cleared image does not crash.
-- [ ] `imkClearImageCache` resets atlas entries and logical image markers.
-- [ ] Text redraw regenerates glyphs after a full atlas reset.
+- [x] `ImkClearImageCache` resets atlas entries and logical image markers.
+- [x] Glyph generation regenerates markers after a full atlas reset.
 - [ ] `imkClearFontGlyphs` removes only glyph entries for that font.
 - [ ] `ImageRef` first retain sends `imkRetainImage`.
 - [ ] `ImageRef` final release sends `imkReleaseImage`.
@@ -293,8 +303,8 @@
 
 - [x] Implement phase 1.
 - [x] Run focused image tests.
-- [ ] Implement phase 2.
-- [ ] Run focused render/image/text tests.
+- [x] Implement phase 2.
+- [x] Run focused render/image/glyph tests.
 - [ ] Implement phase 3.
 - [ ] Run focused font/glyph tests.
 - [ ] Implement phase 4.
