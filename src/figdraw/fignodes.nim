@@ -63,6 +63,7 @@ type
     of nkDrawable:
       drawStroke*: RenderStroke
       drawSteps*: uint16
+      drawAa*: float32
       drawOps*: seq[DrawableOp]
     of nkImage:
       image*: ImageStyle

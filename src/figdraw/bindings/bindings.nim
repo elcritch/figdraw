@@ -653,6 +653,16 @@ proc setDrawableSteps(fig: FigRef, steps: uint16) =
   fig.setDrawableKind()
   fig.inner.drawSteps = steps
 
+proc drawableAa(fig: FigRef): float32 =
+  if fig.isNil or fig.inner.kind != fdn.nkDrawable:
+    return 0.0'f32
+  fig.inner.drawAa
+
+proc setDrawableAa(fig: FigRef, aaFactor: float32) =
+  returnIfNil fig
+  fig.setDrawableKind()
+  fig.inner.drawAa = aaFactor
+
 proc drawablePointOp(fig: FigRef, x, y: float32): fdn.DrawableOp =
   fdn.drawableRect(rect(x, y, fig.inner.screenBox.w, fig.inner.screenBox.h))
 
@@ -1381,6 +1391,8 @@ exportRefObject FigRef:
     selectionLast(FigRef)
     drawableSteps(FigRef)
     setDrawableSteps(FigRef, uint16)
+    drawableAa(FigRef)
+    setDrawableAa(FigRef, float32)
     clearDrawablePoints(FigRef)
     addDrawablePoint(FigRef, float32, float32)
     drawablePointCount(FigRef)

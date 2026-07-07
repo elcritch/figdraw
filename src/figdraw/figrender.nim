@@ -898,7 +898,7 @@ proc renderDrawableArc(
     ctx.renderDrawableStrokeCap(origin + current, capRadius, stroke.fill)
     previous = current
 
-proc renderDrawable*(ctx: BackendContext, node: Fig) =
+proc renderDrawableOps(ctx: BackendContext, node: Fig) =
   let
     origin = node.screenBox.xy
     fill = node.fill
@@ -916,6 +916,22 @@ proc renderDrawable*(ctx: BackendContext, node: Fig) =
       ctx.renderDrawableBezier(origin, op, stroke, nodeSteps)
     of dkArc:
       ctx.renderDrawableArc(origin, op, stroke, nodeSteps)
+
+proc renderDrawable*(ctx: BackendContext, node: Fig) =
+  if node.drawAa <= 0.0'f32:
+    ctx.renderDrawableOps(node)
+    return
+
+  let oldAa = ctx.sdfAaFactor()
+  if oldAa == node.drawAa:
+    ctx.renderDrawableOps(node)
+    return
+
+  ctx.setSdfAaFactor(node.drawAa)
+  try:
+    ctx.renderDrawableOps(node)
+  finally:
+    ctx.setSdfAaFactor(oldAa)
 
 proc renderBoxes(ctx: BackendContext, node: Fig) =
   ## drawing boxes for rectangles

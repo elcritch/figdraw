@@ -1024,10 +1024,17 @@ method drawMtsdfImage*(
     params = params,
   )
 
-proc setSdfGlobals*(ctx: MetalContext, aaFactor: float32) =
+method sdfAaFactor*(ctx: MetalContext): float32 =
+  ctx.aaFactor
+
+method setSdfAaFactor*(ctx: MetalContext, aaFactor: float32) =
   if ctx.aaFactor == aaFactor:
     return
+  ctx.flush()
   ctx.aaFactor = aaFactor
+
+proc setSdfGlobals*(ctx: MetalContext, aaFactor: float32) =
+  ctx.setSdfAaFactor(aaFactor)
 
 proc drawUvRect(ctx: MetalContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
   ctx.checkBatch()
@@ -2052,7 +2059,7 @@ proc newContext*(
     result.atlasEntryMeta = initTable[Hash, AtlasEntryMeta]()
     result.pixelate = pixelate
     result.pixelScale = pixelScale
-    result.aaFactor = 1.2'f32
+    result.aaFactor = figbackend.DefaultSdfAaFactor
     result.frameArenas = @[]
     result.activeArena = -1
     result.inFlightFrames = @[]

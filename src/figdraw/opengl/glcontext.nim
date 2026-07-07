@@ -263,7 +263,7 @@ proc newContext*(
   result.atlasEntryMeta = initTable[Hash, AtlasEntryMeta]()
   result.pixelate = pixelate
   result.pixelScale = pixelScale
-  result.aaFactor = 1.2'f32
+  result.aaFactor = figbackend.DefaultSdfAaFactor
   result.textLcdFilteringEnabled = false
   result.textSubpixelPositioningEnabled = false
   result.textSubpixelGlyphVariantsEnabled = false
@@ -1067,10 +1067,17 @@ method drawMtsdfImage*(
     params = params,
   )
 
-proc setSdfGlobals*(ctx: OpenGlContext, aaFactor: float32) =
+method sdfAaFactor*(ctx: OpenGlContext): float32 =
+  ctx.aaFactor
+
+method setSdfAaFactor*(ctx: OpenGlContext, aaFactor: float32) =
   if ctx.aaFactor == aaFactor:
     return
+  ctx.flush()
   ctx.aaFactor = aaFactor
+
+proc setSdfGlobals*(ctx: OpenGlContext, aaFactor: float32) =
+  ctx.setSdfAaFactor(aaFactor)
 
 proc drawUvRect(ctx: OpenGlContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
   ## Adds an image rect with a path to an ctx

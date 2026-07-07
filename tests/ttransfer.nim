@@ -144,6 +144,7 @@ suite "test layers":
     drawable.drawStroke =
       RenderStroke(weight: 2.5'f32, fill: fill(rgba(200, 40, 70, 255)))
     drawable.drawSteps = 36'u16
+    drawable.drawAa = 0.85'f32
     drawable.drawOps =
       @[
         drawableLine(vec2(1.0'f32, 2.0'f32), vec2(3.0'f32, 4.0'f32)),
@@ -157,6 +158,7 @@ suite "test layers":
     check converted.drawStroke.weight == 2.5'f32
     check converted.drawStroke.fill.color == rgba(200, 40, 70, 255)
     check converted.drawSteps == 36'u16
+    check converted.drawAa == 0.85'f32
     check converted.drawOps.len == 3
     check converted.drawOps[0].kind == dkLine
     check converted.drawOps[1].kind == dkCircle

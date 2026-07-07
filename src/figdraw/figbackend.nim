@@ -30,6 +30,8 @@ elif UseVulkanBackend:
 else:
   const PreferredBackendKind* = rbOpenGL
 
+const DefaultSdfAaFactor* = 1.2'f32
+
 type SdfMode* {.pure.} = enum
   sdfModeAtlas = 0
   sdfModeClipAA = 3
@@ -219,6 +221,13 @@ method supportsAtlasUsage*(impl: BackendContext): bool {.base.} =
 
 method pixelScale*(impl: BackendContext): float32 {.base.} =
   raise newException(ValueError, "Backend pixelScale unavailable")
+
+method sdfAaFactor*(impl: BackendContext): float32 {.base.} =
+  DefaultSdfAaFactor
+
+method setSdfAaFactor*(impl: BackendContext, aaFactor: float32) {.base.} =
+  discard impl
+  discard aaFactor
 
 method hasImage*(impl: BackendContext, key: Hash): bool {.base.} =
   raise newException(ValueError, "Backend hasImage unavailable")

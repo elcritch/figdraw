@@ -7,6 +7,8 @@ type RecordingBackend = ref object of BackendContext
   mat: Mat4
   mats: seq[Mat4]
   draws: seq[Rect]
+  aaFactor: float32
+  aaChanges: seq[float32]
 
 method drawRect*(ctx: RecordingBackend, rect: Rect, color: Color) =
   discard color
@@ -57,8 +59,19 @@ method restoreTransform*(ctx: RecordingBackend) =
 method supportsAtlasUsage*(ctx: RecordingBackend): bool =
   false
 
+method sdfAaFactor*(ctx: RecordingBackend): float32 =
+  ctx.aaFactor
+
+method setSdfAaFactor*(ctx: RecordingBackend, aaFactor: float32) =
+  if ctx.aaFactor == aaFactor:
+    return
+  ctx.aaFactor = aaFactor
+  ctx.aaChanges.add aaFactor
+
 proc newRecordingBackend(): RecordingBackend =
-  RecordingBackend(mat: mat4(), mats: @[], draws: @[])
+  RecordingBackend(
+    mat: mat4(), mats: @[], draws: @[], aaFactor: DefaultSdfAaFactor, aaChanges: @[]
+  )
 
 suite "nkTransform render behavior":
   test "applies translation to child nodes":
@@ -204,3 +217,26 @@ suite "nkTransform render behavior":
     ctx.renderRoot(renders)
 
     check ctx.draws.len == 14
+
+  test "drawable aa overrides backend sdf aa and restores it":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkDrawable,
+        screenBox: rect(5.0'f32, 7.0'f32, 40.0'f32, 30.0'f32),
+        fill: fill(rgba(255, 0, 0, 255)),
+        drawAa: 0.75'f32,
+        drawOps: @[drawableRect(rect(2.0'f32, 3.0'f32, 10.0'f32, 8.0'f32))],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.draws.len == 1
+    check ctx.aaChanges.len == 2
+    check abs(ctx.aaChanges[0] - 0.75'f32) < 0.0001'f32
+    check abs(ctx.aaChanges[1] - DefaultSdfAaFactor) < 0.0001'f32
+    check abs(ctx.aaFactor - DefaultSdfAaFactor) < 0.0001'f32

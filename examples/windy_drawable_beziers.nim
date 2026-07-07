@@ -29,6 +29,7 @@ proc drawableNode(
     stroke: RenderStroke,
     ops: seq[DrawableOp],
     drawSteps: uint16 = 0'u16,
+    drawAa: float32 = 0.0'f32,
 ): Fig =
   Fig(
     kind: nkDrawable,
@@ -36,6 +37,7 @@ proc drawableNode(
     fill: fill,
     drawStroke: stroke,
     drawSteps: drawSteps,
+    drawAa: drawAa,
     drawOps: ops,
   )
 
@@ -48,11 +50,13 @@ proc addDrawableNode(
     stroke: RenderStroke,
     ops: seq[DrawableOp],
     drawSteps: uint16 = 0'u16,
+    drawAa: float32 = 0.0'f32,
 ) =
   if ops.len == 0:
     return
-  discard
-    renders.addChild(z, parentIdx, drawableNode(area, fill, stroke, ops, drawSteps))
+  discard renders.addChild(
+    z, parentIdx, drawableNode(area, fill, stroke, ops, drawSteps, drawAa)
+  )
 
 proc controlLineOps(controls: openArray[Vec2]): seq[DrawableOp] =
   if controls.len < 2:
@@ -118,6 +122,7 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
       ),
     ],
     drawSteps = 64'u16,
+    drawAa = 0.85'f32,
   )
 
   renders.addDrawableNode(
@@ -193,6 +198,7 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     RenderStroke(weight: 7.0'f32, fill: blue),
     @[drawableBezier(quadratic)],
     drawSteps = 16'u16,
+    drawAa = 0.9'f32,
   )
   renders.addDrawableNode(
     z,
@@ -202,6 +208,7 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     RenderStroke(weight: 8.0'f32, fill: rose),
     @[drawableBezier(cubic)],
     drawSteps = 64'u16,
+    drawAa = 0.9'f32,
   )
   renders.addDrawableNode(
     z,
@@ -211,6 +218,7 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     RenderStroke(weight: 5.5'f32, fill: green),
     @[drawableBezier(generic)],
     drawSteps = 256'u16,
+    drawAa = 0.9'f32,
   )
 
   renders.addDrawableNode(
