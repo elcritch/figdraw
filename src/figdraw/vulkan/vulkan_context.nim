@@ -89,12 +89,14 @@ type
 
   VulkanContext* = ref object of figbackend.BackendContext
     atlasSize: int
+    initialAtlasSize: int
     atlasMargin: int
     quadCount: int
     maxQuads: int
     mat*: Mat4
     mats: seq[Mat4]
     entries*: Table[Hash, Rect]
+    atlasEntryMeta: Table[Hash, AtlasEntryMeta]
     heights: seq[uint16]
     proj*: Mat4
     frameSize: Vec2
@@ -2253,6 +2255,7 @@ proc grow(ctx: VulkanContext) =
   info "grow atlasSize", atlasSize = ctx.atlasSize
   ctx.heights.setLen(ctx.atlasSize)
   ctx.entries.clear()
+  ctx.atlasEntryMeta.clear()
   ctx.atlasPixels = newImage(ctx.atlasSize, ctx.atlasSize)
   ctx.atlasPixels.fill(rgba(0, 0, 0, 0))
   if ctx.gpuReady:
@@ -2301,6 +2304,7 @@ method addImage*(ctx: VulkanContext, key: Hash, image: Image) =
 method putImage*(ctx: VulkanContext, path: Hash, image: Image) =
   let rect = ctx.findEmptyRect(image.width, image.height)
   ctx.entries[path] = rect / float(ctx.atlasSize)
+  ctx.markGeneratedEntry(path)
   copyIntoAtlas(ctx.atlasPixels, int(rect.x), int(rect.y), image)
   ctx.atlasDirty = true
 
@@ -2327,6 +2331,20 @@ method putImage*(ctx: VulkanContext, imgObj: ImgObj) =
     ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
   of PixieImg:
     ctx.putImage(imgObj.id.Hash, imgObj.pimg)
+  ctx.markImageEntry(imgObj.id)
+
+method clearImageAtlas*(ctx: VulkanContext) =
+  ctx.flush()
+  ctx.atlasSize = ctx.initialAtlasSize
+  ctx.entries.clear()
+  ctx.atlasEntryMeta.clear()
+  ctx.heights = newSeq[uint16](ctx.atlasSize)
+  ctx.atlasPixels = newImage(ctx.atlasSize, ctx.atlasSize)
+  ctx.atlasPixels.fill(rgba(0, 0, 0, 0))
+  ctx.atlasDirty = true
+  ctx.atlasLayoutReady = false
+  if ctx.gpuReady:
+    ctx.recreateAtlasGpu()
 
 proc drawQuad*(
     ctx: VulkanContext,
@@ -3624,11 +3642,13 @@ proc newContext*(
 
   result = VulkanContext()
   result.atlasSize = atlasSize
+  result.initialAtlasSize = atlasSize
   result.atlasMargin = atlasMargin
   result.maxQuads = maxQuads
   result.mat = mat4()
   result.mats = @[]
   result.entries = initTable[Hash, Rect]()
+  result.atlasEntryMeta = initTable[Hash, AtlasEntryMeta]()
   result.heights = newSeq[uint16](atlasSize)
   result.pixelate = pixelate
   result.pixelScale = pixelScale
@@ -3952,6 +3972,16 @@ method kind*(ctx: VulkanContext): figbackend.RendererBackendKind =
 
 method entriesPtr*(ctx: VulkanContext): ptr Table[Hash, Rect] =
   ctx.entries.addr
+
+method atlasEntryMetaPtr*(ctx: VulkanContext): var Table[Hash, AtlasEntryMeta] =
+  result = ctx.atlasEntryMeta
+
+method atlasSize*(ctx: VulkanContext): int =
+  ctx.atlasSize
+
+method atlasPackedArea*(ctx: VulkanContext): int =
+  for height in ctx.heights:
+    result += int(height)
 
 method pixelScale*(ctx: VulkanContext): float32 =
   ctx.pixelScale

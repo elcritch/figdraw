@@ -51,12 +51,14 @@ type OpenGlContext* = ref object of figbackend.BackendContext
   maskTextureWrite: int ## Index into max textures for writing.
   maskTextures: seq[Texture] ## Masks array for pushing and popping.
   atlasSize: int ## Size x size dimensions of the atlas
+  initialAtlasSize: int
   atlasMargin: int ## Default margin between images
   quadCount: int ## Number of quads drawn so far
   maxQuads: int ## Max quads to draw before issuing an OpenGL call
   mat*: Mat4 ## Current matrix
   mats: seq[Mat4] ## Matrix stack
   entries*: Table[Hash, Rect] ## Mapping of image name to atlas UV position
+  atlasEntryMeta: Table[Hash, AtlasEntryMeta]
   heights: seq[uint16] ## Height map of the free space in the atlas
   proj*: Mat4
   frameSize: Vec2 ## Dimensions of the window frame
@@ -252,10 +254,13 @@ proc newContext*(
 
   result = OpenGlContext()
   result.atlasSize = atlasSize
+  result.initialAtlasSize = atlasSize
   result.atlasMargin = atlasMargin
   result.maxQuads = maxQuads
   result.mat = mat4()
   result.mats = newSeq[Mat4]()
+  result.entries = initTable[Hash, Rect]()
+  result.atlasEntryMeta = initTable[Hash, AtlasEntryMeta]()
   result.pixelate = pixelate
   result.pixelScale = pixelScale
   result.aaFactor = 1.2'f32
@@ -529,6 +534,7 @@ proc grow(ctx: OpenGlContext) =
   ctx.heights.setLen(ctx.atlasSize)
   ctx.atlasTexture = ctx.createAtlasTexture(ctx.atlasSize)
   ctx.entries.clear()
+  ctx.atlasEntryMeta.clear()
 
 proc findEmptyRect(ctx: OpenGlContext, width, height: int): Rect =
   var imgWidth = width + ctx.atlasMargin * 2
@@ -574,6 +580,7 @@ method putImage*(ctx: OpenGlContext, path: Hash, image: Image) =
   # Reminder: This does not set mipmaps (used for text, should it?)
   let rect = ctx.findEmptyRect(image.width, image.height)
   ctx.entries[path] = rect / float(ctx.atlasSize)
+  ctx.markGeneratedEntry(path)
   updateSubImage(ctx.atlasTexture, int(rect.x), int(rect.y), image)
 
 method addImage*(ctx: OpenGlContext, key: Hash, image: Image) =
@@ -617,6 +624,15 @@ method putImage*(ctx: OpenGlContext, imgObj: ImgObj) =
     ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
   of PixieImg:
     ctx.putImage(imgObj.id.Hash, imgObj.pimg)
+  ctx.markImageEntry(imgObj.id)
+
+method clearImageAtlas*(ctx: OpenGlContext) =
+  ctx.flush()
+  ctx.atlasSize = ctx.initialAtlasSize
+  ctx.entries.clear()
+  ctx.atlasEntryMeta.clear()
+  ctx.heights = newSeq[uint16](ctx.atlasSize)
+  ctx.atlasTexture = ctx.createAtlasTexture(ctx.atlasSize)
 
 proc flush(ctx: OpenGlContext, maskTextureRead: int = ctx.maskTextureWrite) =
   ## Flips - draws current buffer and starts a new one.
@@ -1810,6 +1826,16 @@ method kind*(ctx: OpenGlContext): figbackend.RendererBackendKind =
 
 method entriesPtr*(ctx: OpenGlContext): ptr Table[Hash, Rect] =
   ctx.entries.addr
+
+method atlasEntryMetaPtr*(ctx: OpenGlContext): var Table[Hash, AtlasEntryMeta] =
+  result = ctx.atlasEntryMeta
+
+method atlasSize*(ctx: OpenGlContext): int =
+  ctx.atlasSize
+
+method atlasPackedArea*(ctx: OpenGlContext): int =
+  for height in ctx.heights:
+    result += int(height)
 
 method pixelScale*(ctx: OpenGlContext): float32 =
   ctx.pixelScale

@@ -1,10 +1,11 @@
-import std/[hashes, math, tables]
+import std/[hashes, locks, math, sets, tables]
 export tables
 
 from pkg/pixie import Image
 import pkg/chroma
 
 import ./commons
+import ./common/fonttypes
 import ./figbasics
 import ./fignodes
 
@@ -45,6 +46,34 @@ type SdfMode* {.pure.} = enum
   sdfModeBackdropBlur = 17
 
 type
+  AtlasEntryKind* = enum
+    aekImage
+    aekGlyph
+    aekGenerated
+
+  AtlasEntryMeta* = object
+    kind*: AtlasEntryKind
+    imageId*: ImageId
+    fontId*: FontId
+    typefaceId*: TypefaceId
+
+  AtlasUsage* = object
+    ## Snapshot of atlas occupancy.
+    ##
+    ## `usedArea` is the sum of live atlas entries. `packedArea` is the atlas
+    ## packer's skyline/high-water estimate and can include margins and holes,
+    ## so it is the better signal for deciding when to reset the atlas.
+    snapshotId*: uint64
+    atlasSize*: int
+    atlasArea*: int
+    usedArea*: int
+    packedArea*: int
+    entryCount*: int
+    imageCount*: int
+    glyphCount*: int
+    generatedCount*: int
+    unknownCount*: int
+
   BackendFillKind* = enum
     bfColor
     bfLinear2
@@ -140,12 +169,53 @@ func gradientColors*(fill: BackendFill): array[4, ColorRGBA] =
     result[3] = fill.sampleColor(0.5'f32)
 
 type BackendContext* = ref object of RootObj
+  imageOwners: Table[ImageId, HashSet[OwnerToken]]
+  fontOwners: Table[FontId, HashSet[OwnerToken]]
+
+var
+  atlasUsageLock: Lock
+  lastAtlasUsage: AtlasUsage
+  nextAtlasUsageSnapshotId: uint64
+
+atlasUsageLock.initLock()
+
+func usedRatio*(usage: AtlasUsage): float32 =
+  if usage.atlasArea <= 0:
+    0.0'f32
+  else:
+    usage.usedArea.float32 / usage.atlasArea.float32
+
+func packedRatio*(usage: AtlasUsage): float32 =
+  if usage.atlasArea <= 0:
+    0.0'f32
+  else:
+    usage.packedArea.float32 / usage.atlasArea.float32
 
 method kind*(impl: BackendContext): RendererBackendKind {.base.} =
   raise newException(ValueError, "Backend kind unavailable")
 
 method entriesPtr*(impl: BackendContext): ptr Table[Hash, Rect] {.base.} =
   raise newException(ValueError, "Backend entries unavailable")
+
+method atlasEntryMetaPtr*(
+    impl: BackendContext
+): var Table[Hash, AtlasEntryMeta] {.base.} =
+  raise newException(ValueError, "Backend atlas metadata unavailable")
+
+method atlasSize*(impl: BackendContext): int {.base.} =
+  raise newException(ValueError, "Backend atlas size unavailable")
+
+method atlasPackedArea*(impl: BackendContext): int {.base.} =
+  ## Approximate area consumed by the atlas packer, including holes/margins.
+  0
+
+method supportsAtlasUsage*(impl: BackendContext): bool {.base.} =
+  ## Whether this backend exposes atlas tables for usage snapshots.
+  ##
+  ## Real render backends are expected to support atlas usage snapshots. Minimal
+  ## test or recording backends that do not implement atlas table access should
+  ## override this to return false.
+  true
 
 method pixelScale*(impl: BackendContext): float32 {.base.} =
   raise newException(ValueError, "Backend pixelScale unavailable")
@@ -164,6 +234,142 @@ method updateImage*(impl: BackendContext, path: Hash, image: Image) {.base.} =
 
 method putImage*(impl: BackendContext, imgObj: ImgObj) {.base.} =
   raise newException(ValueError, "Backend putImage unavailable")
+
+func entryArea(rect: Rect, atlasSize: int): int =
+  if atlasSize <= 0:
+    return 0
+  let
+    w = max(0, round(rect.w * atlasSize.float32).int)
+    h = max(0, round(rect.h * atlasSize.float32).int)
+  w * h
+
+proc atlasUsage*(impl: BackendContext): AtlasUsage =
+  ## Computes exact live entry counts from the backend atlas tables.
+  ##
+  ## Call this from the render/backend thread. For cross-thread monitoring, use
+  ## `atlasUsageSnapshot`, which returns the last value published by rendering.
+  result.atlasSize = max(0, impl.atlasSize())
+  result.atlasArea = result.atlasSize * result.atlasSize
+  result.entryCount = impl.entriesPtr()[].len
+
+  for key, rect in impl.entriesPtr()[].pairs:
+    result.usedArea += entryArea(rect, result.atlasSize)
+    if key in impl.atlasEntryMetaPtr():
+      case impl.atlasEntryMetaPtr()[key].kind
+      of aekImage:
+        inc result.imageCount
+      of aekGlyph:
+        inc result.glyphCount
+      of aekGenerated:
+        inc result.generatedCount
+    else:
+      inc result.unknownCount
+
+  result.packedArea = impl.atlasPackedArea()
+  if result.packedArea < result.usedArea:
+    result.packedArea = result.usedArea
+  if result.atlasArea > 0:
+    result.usedArea = min(result.usedArea, result.atlasArea)
+    result.packedArea = min(result.packedArea, result.atlasArea)
+
+proc publishAtlasUsage*(impl: BackendContext) =
+  ## Render-thread helper that publishes a cheap cross-thread atlas snapshot.
+  var usage =
+    if impl.supportsAtlasUsage():
+      impl.atlasUsage()
+    else:
+      AtlasUsage()
+  withLock atlasUsageLock:
+    inc nextAtlasUsageSnapshotId
+    usage.snapshotId = nextAtlasUsageSnapshotId
+    lastAtlasUsage = usage
+
+proc atlasUsageSnapshot*(): AtlasUsage =
+  ## Returns the last atlas usage snapshot published by rendering.
+  ##
+  ## This is cheap and cross-thread safe. It may be stale until the render
+  ## thread processes cache messages and publishes another frame.
+  withLock atlasUsageLock:
+    result = lastAtlasUsage
+
+proc removeAtlasEntry*(impl: BackendContext, key: Hash) =
+  impl.entriesPtr()[].del(key)
+  impl.atlasEntryMetaPtr().del(key)
+
+proc markImageEntry*(impl: BackendContext, id: ImageId) =
+  impl.atlasEntryMetaPtr()[id.Hash] = AtlasEntryMeta(kind: aekImage, imageId: id)
+
+proc markGlyphEntry*(
+    impl: BackendContext, key: Hash, fontId: FontId, typefaceId: TypefaceId
+) =
+  impl.atlasEntryMetaPtr()[key] =
+    AtlasEntryMeta(kind: aekGlyph, fontId: fontId, typefaceId: typefaceId)
+
+proc markGeneratedEntry*(impl: BackendContext, key: Hash) =
+  impl.atlasEntryMetaPtr()[key] = AtlasEntryMeta(kind: aekGenerated)
+
+method removeImage*(impl: BackendContext, id: ImageId) {.base.} =
+  let key = id.Hash
+  if key in impl.atlasEntryMetaPtr():
+    let meta = impl.atlasEntryMetaPtr()[key]
+    if meta.kind == aekImage and meta.imageId == id:
+      impl.removeAtlasEntry(key)
+  else:
+    impl.entriesPtr()[].del(key)
+
+method clearImageAtlas*(impl: BackendContext) {.base.} =
+  impl.entriesPtr()[].clear()
+  impl.atlasEntryMetaPtr().clear()
+
+method clearFontGlyphs*(impl: BackendContext, fontId: FontId) {.base.} =
+  var keys: seq[Hash]
+  for key, meta in impl.atlasEntryMetaPtr().pairs:
+    if meta.kind == aekGlyph and meta.fontId == fontId:
+      keys.add(key)
+  for key in keys:
+    impl.removeAtlasEntry(key)
+
+method clearTypefaceGlyphs*(impl: BackendContext, typefaceId: TypefaceId) {.base.} =
+  var keys: seq[Hash]
+  for key, meta in impl.atlasEntryMetaPtr().pairs:
+    if meta.kind == aekGlyph and meta.typefaceId == typefaceId:
+      keys.add(key)
+  for key in keys:
+    impl.removeAtlasEntry(key)
+
+proc retainImageOwner*(impl: BackendContext, id: ImageId, ownerToken: OwnerToken) =
+  var owners = impl.imageOwners.getOrDefault(id, initHashSet[OwnerToken]())
+  owners.incl(ownerToken)
+  impl.imageOwners[id] = owners
+
+proc releaseImageOwner*(
+    impl: BackendContext, id: ImageId, ownerToken: OwnerToken
+): bool =
+  if id in impl.imageOwners:
+    var owners = impl.imageOwners[id]
+    owners.excl(ownerToken)
+    if owners.len == 0:
+      impl.imageOwners.del(id)
+      result = true
+    else:
+      impl.imageOwners[id] = owners
+
+proc retainFontOwner*(impl: BackendContext, fontId: FontId, ownerToken: OwnerToken) =
+  var owners = impl.fontOwners.getOrDefault(fontId, initHashSet[OwnerToken]())
+  owners.incl(ownerToken)
+  impl.fontOwners[fontId] = owners
+
+proc releaseFontOwner*(
+    impl: BackendContext, fontId: FontId, ownerToken: OwnerToken
+): bool =
+  if fontId in impl.fontOwners:
+    var owners = impl.fontOwners[fontId]
+    owners.excl(ownerToken)
+    if owners.len == 0:
+      impl.fontOwners.del(fontId)
+      result = true
+    else:
+      impl.fontOwners[fontId] = owners
 
 method drawImage*(
     impl: BackendContext,

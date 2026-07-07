@@ -91,6 +91,16 @@ type
     matrix*: Mat4
     useMatrix*: bool
 
+proc imageStyle*(
+    id: ImageId, imageFill: Fill = fill(rgba(255, 255, 255, 255))
+): ImageStyle =
+  ImageStyle(id: id, fill: imageFill)
+
+proc imageStyle*(
+    image: ImageRef, imageFill: Fill = fill(rgba(255, 255, 255, 255))
+): ImageStyle =
+  imageStyle(image.id, imageFill)
+
 proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
   when v is SomeFloat:
     if v <= 0:

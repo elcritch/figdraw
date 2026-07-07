@@ -110,12 +110,14 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   maskTextureWrite: int ## Index of active mask stack (0 means no mask).
 
   atlasSize: int
+  initialAtlasSize: int
   atlasMargin: int
   quadCount: int
   maxQuads: int
   mat*: Mat4
   mats: seq[Mat4]
   entries*: Table[Hash, Rect]
+  atlasEntryMeta: Table[Hash, AtlasEntryMeta]
   heights: seq[uint16]
   proj*: Mat4
   frameSize: Vec2
@@ -605,6 +607,7 @@ proc grow(ctx: MetalContext) =
   ctx.heights.setLen(ctx.atlasSize)
   ctx.atlasTexture.resetRetained(ctx.createAtlasTexture(ctx.atlasSize))
   ctx.entries.clear()
+  ctx.atlasEntryMeta.clear()
 
 proc findEmptyRect(ctx: MetalContext, width, height: int): Rect =
   var imgWidth = width + ctx.atlasMargin * 2
@@ -644,6 +647,7 @@ proc findEmptyRect(ctx: MetalContext, width, height: int): Rect =
 method putImage*(ctx: MetalContext, path: Hash, image: Image) =
   let rect = ctx.findEmptyRect(image.width, image.height)
   ctx.entries[path] = rect / float(ctx.atlasSize)
+  ctx.markGeneratedEntry(path)
   ctx.updateSubImage(ctx.atlasTexture.borrow, int(rect.x), int(rect.y), image)
 
 method addImage*(ctx: MetalContext, key: Hash, image: Image) =
@@ -678,6 +682,15 @@ method putImage*(ctx: MetalContext, imgObj: ImgObj) =
     ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
   of PixieImg:
     ctx.putImage(imgObj.id.Hash, imgObj.pimg)
+  ctx.markImageEntry(imgObj.id)
+
+method clearImageAtlas*(ctx: MetalContext) =
+  ctx.flush()
+  ctx.atlasSize = ctx.initialAtlasSize
+  ctx.entries.clear()
+  ctx.atlasEntryMeta.clear()
+  ctx.heights = newSeq[uint16](ctx.atlasSize)
+  ctx.atlasTexture.resetRetained(ctx.createAtlasTexture(ctx.atlasSize))
 
 proc checkBatch(ctx: MetalContext) =
   if ctx.quadCount == ctx.maxQuads:
@@ -2030,10 +2043,13 @@ proc newContext*(
   withAutoreleasePool:
     result = MetalContext()
     result.atlasSize = atlasSize
+    result.initialAtlasSize = atlasSize
     result.atlasMargin = atlasMargin
     result.maxQuads = maxQuads
     result.mat = mat4()
     result.mats = newSeq[Mat4]()
+    result.entries = initTable[Hash, Rect]()
+    result.atlasEntryMeta = initTable[Hash, AtlasEntryMeta]()
     result.pixelate = pixelate
     result.pixelScale = pixelScale
     result.aaFactor = 1.2'f32
@@ -2182,6 +2198,16 @@ method kind*(ctx: MetalContext): figbackend.RendererBackendKind =
 
 method entriesPtr*(ctx: MetalContext): ptr Table[Hash, Rect] =
   ctx.entries.addr
+
+method atlasEntryMetaPtr*(ctx: MetalContext): var Table[Hash, AtlasEntryMeta] =
+  result = ctx.atlasEntryMeta
+
+method atlasSize*(ctx: MetalContext): int =
+  ctx.atlasSize
+
+method atlasPackedArea*(ctx: MetalContext): int =
+  for height in ctx.heights:
+    result += int(height)
 
 method pixelScale*(ctx: MetalContext): float32 =
   ctx.pixelScale

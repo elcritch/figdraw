@@ -18,6 +18,15 @@ proc resetFontState() =
   #withLock imageCachedLock:
   #  imageCached.clear()
 
+proc drainImageMessages() =
+  var msg: ImageMsg
+  while tryRecvImageMsg(msg):
+    discard
+
+proc recvImageMsg(kind: ImageMsgKind): ImageMsg =
+  require tryRecvImageMsg(result)
+  check result.kind == kind
+
 template registerStaticDefaultSansTypeface(path: static[string]) =
   when defined(windows):
     registerStaticTypeface("Segoe UI", path, TTF)
@@ -1043,6 +1052,117 @@ suite "fontutils":
         check hasImage(glyph.hash().ImageId)
       inc idx
     check idx == positions.len
+
+  test "clearImageCache clears glyph markers and allows regeneration":
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+    let arrangement = placeGlyphs(uiFont, [("A".runeAt(0), vec2(12, 16))])
+
+    var glyphImageId = ImageId(0)
+    for glyph in arrangement.glyphs():
+      glyphImageId = glyph.hash().ImageId
+      break
+    require glyphImageId != ImageId(0)
+    require hasImage(glyphImageId)
+
+    clearImageCache()
+    check not hasImage(glyphImageId)
+
+    for glyph in arrangement.glyphs():
+      discard glyph.generateGlyph()
+      break
+    check hasImage(glyphImageId)
+
+  test "targeted glyph clears remove glyph markers and allow regeneration":
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+    let arrangement = placeGlyphs(uiFont, [("B".runeAt(0), vec2(12, 16))])
+
+    var glyphImageId = ImageId(0)
+    for glyph in arrangement.glyphs():
+      glyphImageId = glyph.hash().ImageId
+      break
+    require glyphImageId != ImageId(0)
+    require hasImage(glyphImageId)
+
+    clearFontGlyphs(uiFont)
+    check not hasImage(glyphImageId)
+
+    for glyph in arrangement.glyphs():
+      discard glyph.generateGlyph()
+      break
+    require hasImage(glyphImageId)
+
+    clearTypefaceGlyphs(typefaceId)
+    check not hasImage(glyphImageId)
+
+    for glyph in arrangement.glyphs():
+      discard glyph.generateGlyph()
+      break
+    check hasImage(glyphImageId)
+
+  test "FontRef retain copy move and final release send owner messages":
+    drainImageMessages()
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+
+    var owner = fontRef(uiFont)
+    let retain = recvImageMsg(ImkRetainFont)
+    check retain.fontId == owner.fontId
+
+    var copied = owner
+    var msg: ImageMsg
+    check not tryRecvImageMsg(msg)
+
+    var moved = move(copied)
+    copied = FontRef()
+    check not tryRecvImageMsg(msg)
+
+    owner = FontRef()
+    check not tryRecvImageMsg(msg)
+
+    moved = FontRef()
+    let release = recvImageMsg(ImkReleaseFont)
+    check release.fontId == retain.fontId
+    check release.ownerToken == retain.ownerToken
+
+  test "FontRef works with text helper overloads":
+    drainImageMessages()
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+    var owner = fontRef(typefaceId, 18.0'f32)
+
+    let
+      style = fs(owner, fill(rgba(20, 30, 40, 255)))
+      fontSpan = span(owner, fill(rgba(50, 60, 70, 255)), "Hello")
+      fontStyleSpan = fsp(owner, fill(rgba(80, 90, 100, 255)), "World")
+      layout = typeset(
+        rect(0, 0, 200, 40),
+        [span(owner, fill(rgba(20, 20, 20, 255)), "Hello")],
+        minContent = false,
+        wrap = true,
+      )
+      directLayout = typeset(
+        rect(0, 0, 200, 40), [(owner, "Hello")], minContent = false, wrap = true
+      )
+      placed = placeGlyphs(owner, [("A".runeAt(0), vec2(0, 0))])
+
+    check style.font == owner.font
+    check style.color == fill(rgba(20, 30, 40, 255))
+    check fontSpan[0].font == owner.font
+    check fontSpan[1] == "Hello"
+    check fontStyleSpan[0].font == owner.font
+    check fontStyleSpan[1] == "World"
+    check layout.runes.len > 0
+    check directLayout.runes.len > 0
+    check placed.runes.len == 1
+
+    clearFontGlyphs(owner)
+    owner = FontRef()
+    drainImageMessages()
 
   test "loadTypeface prefers figDataDir over other paths":
     let oldDataDir = figDataDir()

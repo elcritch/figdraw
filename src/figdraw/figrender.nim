@@ -9,6 +9,7 @@ import ./commons
 import ./figbackend
 import ./fignodes
 import ./common/fontglyphs
+import ./common/typefaces
 export figbackend
 
 when UseMetalBackend and UseOpenGlFallback:
@@ -61,6 +62,13 @@ proc backendKind*[BackendState](
 
 proc backendName*[BackendState](renderer: FigRenderer[BackendState]): string =
   backendName(renderer.backendKind())
+
+proc atlasUsage*[BackendState](renderer: FigRenderer[BackendState]): AtlasUsage =
+  ## Returns current backend atlas usage.
+  ##
+  ## Call from the render/backend thread. Use `atlasUsageSnapshot()` for a cheap
+  ## cross-thread last-known value.
+  renderer.ctx.atlasUsage()
 
 proc runtimeTextLcdFilteringRequested*(): bool =
   let v1 = getEnv("FIGDRAW_TEXT_LCD_FILTERING").strip().toLowerAscii()
@@ -387,6 +395,7 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
         )
         if img != nil:
           ctx.putImage(glyphId, img)
+          ctx.markGlyphEntry(glyphId, glyph.fontId, getFigFont(glyph.fontId).typefaceId)
         if glyphId notin ctx.entries:
           debug "missing glyph image in context",
             glyphId = glyphId, glyphRune = $glyph.rune, glyphRuneRepr = repr(glyph.rune)
@@ -894,23 +903,87 @@ proc renderRoot*(
     ctx: BackendContext, nodes: var Renders
 ) {.forbids: [AppMainThreadEff].} =
   ## draw roots for each level
-  var img: ImgObj
-  while imageChan.tryRecv(img):
-    trace "image loaded", id = $img.id.Hash
-    case img.kind
+  var legacyImg: ImgObj
+  while imageChan.tryRecv(legacyImg):
+    trace "image loaded", id = $legacyImg.id.Hash
+    case legacyImg.kind
     of PixieImg:
+      if legacyImg.pimg == nil:
+        debug "skipping nil pixie image", imageId = legacyImg.id.Hash
+        continue
+    of FlippyImg:
+      if legacyImg.flippy.mipmaps.len == 0:
+        debug "skipping empty flippy image", imageId = legacyImg.id.Hash
+        continue
+    ctx.putImage(legacyImg)
+    ctx.markImageEntry(legacyImg.id)
+
+  var img: ImageMsg
+  while tryRecvImageMsg(img):
+    case img.kind
+    of ImkPutPixie, ImkPutGlyphPixie:
+      trace "image loaded", id = $img.id.Hash
+      if not imageMessageCurrent(img):
+        debug "skipping stale pixie image", imageId = img.id.Hash
+        continue
       if img.pimg == nil:
         debug "skipping nil pixie image", imageId = img.id.Hash
         continue
-    of FlippyImg:
+      var imgObj = ImgObj(id: img.id, kind: PixieImg, pimg: img.pimg)
+      ctx.putImage(imgObj)
+      if img.kind == ImkPutGlyphPixie:
+        ctx.markGlyphEntry(img.id.Hash, img.fontId, img.typefaceId)
+      else:
+        ctx.markImageEntry(img.id)
+    of ImkPutFlippy:
+      trace "image loaded", id = $img.id.Hash
+      if not imageMessageCurrent(img):
+        debug "skipping stale flippy image", imageId = img.id.Hash
+        continue
       if img.flippy.mipmaps.len == 0:
         debug "skipping empty flippy image", imageId = img.id.Hash
         continue
-    ctx.putImage(img)
+      var imgObj = ImgObj(id: img.id, kind: FlippyImg, flippy: move(img.flippy))
+      ctx.putImage(imgObj)
+      ctx.markImageEntry(img.id)
+    of ImkClearImage:
+      trace "image cleared", id = $img.id.Hash
+      ctx.removeImage(img.id)
+    of ImkClearImages:
+      trace "images cleared", count = img.ids.len
+      for id in img.ids:
+        ctx.removeImage(id)
+    of ImkClearImageCache:
+      trace "image cache cleared"
+      ctx.clearImageAtlas()
+    of ImkClearFontGlyphs:
+      trace "font glyphs cleared", fontId = $Hash(img.fontId)
+      ctx.clearFontGlyphs(img.fontId)
+    of ImkClearTypefaceGlyphs:
+      trace "typeface glyphs cleared", typefaceId = $Hash(img.typefaceId)
+      ctx.clearTypefaceGlyphs(img.typefaceId)
+    of ImkRetainImage:
+      trace "image retained", id = $img.id.Hash
+      ctx.retainImageOwner(img.id, img.ownerToken)
+    of ImkReleaseImage:
+      trace "image released", id = $img.id.Hash
+      if ctx.releaseImageOwner(img.id, img.ownerToken):
+        forgetReleasedImage(img.id)
+        ctx.removeImage(img.id)
+    of ImkRetainFont:
+      trace "font retained", fontId = $Hash(img.fontId)
+      ctx.retainFontOwner(img.fontId, img.ownerToken)
+    of ImkReleaseFont:
+      trace "font released", fontId = $Hash(img.fontId)
+      if ctx.releaseFontOwner(img.fontId, img.ownerToken):
+        forgetReleasedFontGlyphs(img.fontId)
+        ctx.clearFontGlyphs(img.fontId)
 
   for zlvl, list in nodes.layers.pairs():
     for rootIdx in list.rootIds:
       ctx.render(list.nodes, rootIdx, -1.FigIdx)
+
+  ctx.publishAtlasUsage()
 
 proc renderFrame*[BackendState](
     renderer: FigRenderer[BackendState],
@@ -953,3 +1026,29 @@ proc renderFrame*[BackendState](
     var img = takeOneFrameScreenshot(renderer)
     img.writeFile("screenshot.png")
     quit()
+
+proc clearImage*[BackendState](renderer: FigRenderer[BackendState], id: ImageId) =
+  discard renderer
+  clearImage(id)
+
+proc clearImages*[BackendState](
+    renderer: FigRenderer[BackendState], ids: openArray[ImageId]
+) =
+  discard renderer
+  clearImages(ids)
+
+proc clearImageCache*[BackendState](renderer: FigRenderer[BackendState]) =
+  discard renderer
+  clearImageCache()
+
+proc clearFontGlyphs*[BackendState](
+    renderer: FigRenderer[BackendState], fontId: FontId
+) =
+  discard renderer
+  clearFontGlyphs(fontId)
+
+proc clearTypefaceGlyphs*[BackendState](
+    renderer: FigRenderer[BackendState], typefaceId: TypefaceId
+) =
+  discard renderer
+  clearTypefaceGlyphs(typefaceId)

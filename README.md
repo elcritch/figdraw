@@ -134,6 +134,238 @@ For a complete working example (window + GL context + render loop), see:
 - `examples/windy_renderlist.nim`
 - `examples/sdl2_renderlist.nim`
 
+### Image Cache Management
+
+Image IDs are the stable, thread-safe handles for image nodes. `ImageRef` is the
+convenience owner you keep in app state when you want FigDraw to retain an image
+while it is visible or preloaded.
+
+#### Automatic Management with `ImageRef`
+
+```nim
+type GalleryItem = object
+  image: ImageRef
+  frame: Rect
+
+var visible: seq[GalleryItem]
+
+proc show(path: string, frame: Rect) =
+  visible.add GalleryItem(image: loadImageRef(path), frame: frame)
+
+proc imageNode(item: GalleryItem): Fig =
+  Fig(
+    kind: nkImage,
+    screenBox: item.frame,
+    image: imageStyle(item.image),
+  )
+
+proc hide(index: int) =
+  visible.delete(index) # drops the ImageRef; final release queues eviction
+```
+
+For scrolling folders or galleries, keep a visible set plus a small preload
+margin. Hold `ImageRef`s in the app's gallery/cache state for visible and
+preloaded images. UI nodes still use raw `ImageId`s from `imageRef.id`, so render
+data stays cheap, copyable, and thread-safe.
+
+Do not create a short-lived `ImageRef` only to copy its ID into a longer-lived
+node:
+
+```nim
+block:
+  let image = loadImageRef("photos/frame-001.png")
+  node.image = imageStyle(image)
+
+# `image` has expired here. The node still has an ImageId, but the final
+# ImageRef release may queue the image for eviction before the node is rendered.
+```
+
+Keep the `ImageRef` alive for at least as long as any visible/preloaded node may
+use its ID.
+
+A `Table[ImageId, ImageRef]` or `Table[string, ImageRef]` is also fine when the
+key helps reconcile scroll state; the important part is that the value being held
+is the `ImageRef`.
+
+#### Manual Management with `ImageId`
+
+You can still work directly with raw IDs and manual clears when you want explicit
+control:
+
+```nim
+let id = loadImage("photos/frame-001.png")
+
+# Later, when the image scrolls out of the active range:
+clearImage(id)
+
+# Or clear several IDs at once:
+clearImages([id])
+```
+
+`clearImage(id)` and `clearImage(imageRef)` make that image reloadable and remove
+its renderer atlas lookup entry. They do not compact or reclaim holes inside the
+packed texture atlas. Use `clearImageCache()` or `clearImageCache(renderer)` as
+the memory relief path when the atlas grows past a budget; this resets the atlas
+storage and currently visible images should be loaded again by the application.
+
+### Font Cache Management
+
+Typefaces are loaded as `TypefaceId`s. `FontRef` is the convenience owner for a
+concrete `FigFont` and its rendered glyph cache. Keep the `FontRef` in app state
+while visible or preloaded text may render with that font, and pass `fontRef.font`
+to APIs that still need a raw `FigFont`.
+
+#### Automatic Management with `FontRef`
+
+```nim
+type LabelItem = object
+  font: FontRef
+  text: string
+  frame: Rect
+
+let uiTypeface = loadTypeface("data/Ubuntu.ttf")
+var labels: seq[LabelItem]
+
+proc showLabel(text: string, frame: Rect) =
+  labels.add LabelItem(
+    font: fontRef(uiTypeface, 18.0'f32),
+    text: text,
+    frame: frame,
+  )
+
+proc textNode(item: LabelItem): Fig =
+  Fig(
+    kind: nkText,
+    screenBox: item.frame,
+    textLayout: typeset(
+      item.frame,
+      [span(item.font, rgba(20, 20, 20, 255), item.text)],
+      minContent = false,
+      wrap = true,
+    ),
+  )
+
+proc hideLabel(index: int) =
+  labels.delete(index) # drops the FontRef; final release queues glyph eviction
+```
+
+Do not create a short-lived `FontRef` only to copy its `FigFont` into a
+longer-lived text node or layout:
+
+```nim
+block:
+  let font = fontRef(uiTypeface, 18.0'f32)
+  label.textLayout = typeset(
+    label.screenBox,
+    [span(font, rgba(20, 20, 20, 255), "Title")],
+    minContent = false,
+    wrap = true,
+  )
+
+# `font` has expired here. The layout may still reference glyph atlas entries,
+# but the final FontRef release may queue those glyphs for eviction.
+```
+
+Keep the `FontRef` alive for at least as long as any visible/preloaded text
+layout may render with that font.
+
+#### Manual Management with Font IDs
+
+You can still clear glyph caches explicitly when you want direct control:
+
+```nim
+let
+  uiTypeface = loadTypeface("data/Ubuntu.ttf")
+  uiFont = FigFont(typefaceId: uiTypeface, size: 18.0'f32)
+
+let layout = typeset(
+  rect(0, 0, 320, 48),
+  [span(uiFont, rgba(20, 20, 20, 255), "Cached glyphs")],
+  minContent = false,
+  wrap = true,
+)
+
+# Clear glyphs for this exact FigFont:
+let fontId = uiFont.convertFont()[0]
+clearFontGlyphs(fontId)
+
+# Or force-clear through a FontRef you already hold:
+let uiFontRef = fontRef(uiFont)
+clearFontGlyphs(uiFontRef)
+
+# Or clear all glyphs rendered from the typeface:
+clearTypefaceGlyphs(uiTypeface)
+```
+
+`clearFontGlyphs(fontId)` removes cached glyph atlas entries for one concrete
+font. `clearFontGlyphs(fontRef)` works when you already hold a managed font. If
+you import `figdraw/common/typefaces` directly, `clearFontGlyphs(font)` is also
+available for a `FigFont`. `clearTypefaceGlyphs(typefaceId)` removes glyphs for
+all sizes and styles using that typeface. `clearImageCache()` resets the shared
+atlas storage, so glyphs and images should be regenerated or reloaded by the
+application after a full reset.
+
+### Managed Ref Threading
+
+`ImageRef` and `FontRef` are thread-affine convenience wrappers. Pass raw
+`ImageId`, `FontId`, `TypefaceId`, or `FigFont` values between threads, then
+create a new ref on the target thread if that thread needs ownership. Moving or
+sharing `ImageRef`/`FontRef` values across threads is unsupported in this
+additive layer. A final ref release queues an eviction hint; the render thread
+clears only after all owner tokens for that ID are gone. Manual clear APIs remain
+force-clear requests.
+
+### Atlas Usage Queries
+
+Use `atlasUsageSnapshot()` for cheap cross-thread monitoring. It returns the last
+usage value published by the render thread, so it may be one or more frames stale
+but does not walk backend tables or block on the renderer:
+
+```nim
+type
+  GallerySlot = object
+    path: string
+    frame: Rect
+
+  GalleryItem = object
+    image: ImageRef
+    frame: Rect
+
+var visible: seq[GalleryItem]
+
+proc loadVisible(slots: openArray[GallerySlot]) =
+  visible.setLen(0)
+  for slot in slots:
+    visible.add GalleryItem(
+      image: loadImageRef(slot.path),
+      frame: slot.frame,
+    )
+
+proc resetAtlasIfNeeded[BackendState](
+    renderer: FigRenderer[BackendState],
+    slots: openArray[GallerySlot],
+) =
+  let usage = atlasUsageSnapshot()
+  if usage.snapshotId > 0 and usage.packedRatio() > 0.85'f32:
+    visible.setLen(0)          # release old ImageRefs before the full reset
+    clearImageCache(renderer)
+    loadVisible(slots)         # reload the currently visible/preloaded images
+```
+
+For exact render-thread inspection, query the renderer directly:
+
+```nim
+let usage = renderer.atlasUsage()
+echo "atlas: ", usage.atlasSize, "px"
+echo "live entries: ", usage.entryCount
+echo "packer full: ", usage.packedRatio()
+```
+
+`usedArea` is the sum of live image, glyph, and generated entries. `packedArea`
+is the atlas packer's high-water estimate, including margins and holes left by
+cleared entries. For streaming folders, prefer `packedRatio()` when deciding
+when to call `clearImageCache(renderer)` and rebuild the visible/preloaded set.
+
 ### RenderList Tree Helpers
 
 `addRoot` and `addChild` append nodes to the end of a layer. Use the insert helpers when draw order

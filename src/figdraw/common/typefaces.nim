@@ -25,6 +25,15 @@ type TypefaceSource* = object
   data*: string
   kind*: TypeFaceKinds
 
+type FontRef* = object
+  ## Thread-affine managed font handle.
+  ##
+  ## Pass raw FontId or FigFont values across threads and create a new FontRef on
+  ## the receiving thread when that thread needs ownership.
+  font*: FigFont
+  fontId*: FontId
+  managed: bool
+
 var
   typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
   fontTable*: Table[FontId, FigFont]
@@ -34,6 +43,30 @@ var
   fontLock*: Lock
 
 fontLock.initLock()
+
+proc `=destroy`*(fontRef: FontRef) =
+  if fontRef.managed:
+    releaseFontRefId(fontRef.fontId)
+
+proc `=wasMoved`*(fontRef: var FontRef) =
+  wasMoved(fontRef.font)
+  fontRef.fontId = FontId(0)
+  fontRef.managed = false
+
+proc `=dup`*(src: FontRef): FontRef =
+  if src.managed:
+    retainFontRefId(src.fontId)
+  result.font = src.font
+  result.fontId = src.fontId
+  result.managed = src.managed
+
+proc `=copy`*(dest: var FontRef, src: FontRef) =
+  if src.managed:
+    retainFontRefId(src.fontId)
+  `=destroy`(dest)
+  dest.font = src.font
+  dest.fontId = src.fontId
+  dest.managed = src.managed
 
 proc normalizeTypefaceLookupName(name: string): string =
   name.toLowerAscii()
@@ -232,6 +265,21 @@ proc convertFont*(font: FigFont): (FontId, Font) =
 
 proc convertFont*(style: FontStyle): (FontId, Font) =
   style.font.convertFont()
+
+proc fontRef*(font: FigFont): FontRef =
+  ## Retain a font cache ID for the current thread.
+  let (fontId, _) = font.convertFont()
+  retainFontRefId(fontId)
+  result.font = font
+  result.fontId = fontId
+  result.managed = true
+
+proc fontRef*(typefaceId: TypefaceId, size: float32): FontRef =
+  ## Build a FigFont from a typeface and size, then retain its font cache ID.
+  fontRef(fontWithSize(typefaceId, size))
+
+proc clearFontGlyphs*(font: FigFont) =
+  clearFontGlyphs(font.convertFont()[0])
 
 proc glyphFontFor*(uiFont: FigFont): tuple[id: FontId, font: Font, glyph: GlyphFont] =
   ## Get the GlyphFont
