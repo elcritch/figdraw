@@ -1,4 +1,4 @@
-import std/[hashes, math, sets, tables]
+import std/[hashes, locks, math, sets, tables]
 export tables
 
 from pkg/pixie import Image
@@ -56,6 +56,23 @@ type
     imageId*: ImageId
     fontId*: FontId
     typefaceId*: TypefaceId
+
+  AtlasUsage* = object
+    ## Snapshot of atlas occupancy.
+    ##
+    ## `usedArea` is the sum of live atlas entries. `packedArea` is the atlas
+    ## packer's skyline/high-water estimate and can include margins and holes,
+    ## so it is the better signal for deciding when to reset the atlas.
+    snapshotId*: uint64
+    atlasSize*: int
+    atlasArea*: int
+    usedArea*: int
+    packedArea*: int
+    entryCount*: int
+    imageCount*: int
+    glyphCount*: int
+    generatedCount*: int
+    unknownCount*: int
 
   BackendFillKind* = enum
     bfColor
@@ -155,6 +172,25 @@ type BackendContext* = ref object of RootObj
   imageOwners: Table[ImageId, HashSet[OwnerToken]]
   fontOwners: Table[FontId, HashSet[OwnerToken]]
 
+var
+  atlasUsageLock: Lock
+  lastAtlasUsage: AtlasUsage
+  nextAtlasUsageSnapshotId: uint64
+
+atlasUsageLock.initLock()
+
+func usedRatio*(usage: AtlasUsage): float32 =
+  if usage.atlasArea <= 0:
+    0.0'f32
+  else:
+    usage.usedArea.float32 / usage.atlasArea.float32
+
+func packedRatio*(usage: AtlasUsage): float32 =
+  if usage.atlasArea <= 0:
+    0.0'f32
+  else:
+    usage.packedArea.float32 / usage.atlasArea.float32
+
 method kind*(impl: BackendContext): RendererBackendKind {.base.} =
   raise newException(ValueError, "Backend kind unavailable")
 
@@ -165,6 +201,13 @@ method atlasEntryMetaPtr*(
     impl: BackendContext
 ): var Table[Hash, AtlasEntryMeta] {.base.} =
   raise newException(ValueError, "Backend atlas metadata unavailable")
+
+method atlasSize*(impl: BackendContext): int {.base.} =
+  raise newException(ValueError, "Backend atlas size unavailable")
+
+method atlasPackedArea*(impl: BackendContext): int {.base.} =
+  ## Approximate area consumed by the atlas packer, including holes/margins.
+  0
 
 method pixelScale*(impl: BackendContext): float32 {.base.} =
   raise newException(ValueError, "Backend pixelScale unavailable")
@@ -183,6 +226,59 @@ method updateImage*(impl: BackendContext, path: Hash, image: Image) {.base.} =
 
 method putImage*(impl: BackendContext, imgObj: ImgObj) {.base.} =
   raise newException(ValueError, "Backend putImage unavailable")
+
+func entryArea(rect: Rect, atlasSize: int): int =
+  if atlasSize <= 0:
+    return 0
+  let
+    w = max(0, round(rect.w * atlasSize.float32).int)
+    h = max(0, round(rect.h * atlasSize.float32).int)
+  w * h
+
+proc atlasUsage*(impl: BackendContext): AtlasUsage =
+  ## Computes exact live entry counts from the backend atlas tables.
+  ##
+  ## Call this from the render/backend thread. For cross-thread monitoring, use
+  ## `atlasUsageSnapshot`, which returns the last value published by rendering.
+  result.atlasSize = max(0, impl.atlasSize())
+  result.atlasArea = result.atlasSize * result.atlasSize
+  result.entryCount = impl.entriesPtr()[].len
+
+  for key, rect in impl.entriesPtr()[].pairs:
+    result.usedArea += entryArea(rect, result.atlasSize)
+    if key in impl.atlasEntryMetaPtr():
+      case impl.atlasEntryMetaPtr()[key].kind
+      of aekImage:
+        inc result.imageCount
+      of aekGlyph:
+        inc result.glyphCount
+      of aekGenerated:
+        inc result.generatedCount
+    else:
+      inc result.unknownCount
+
+  result.packedArea = impl.atlasPackedArea()
+  if result.packedArea < result.usedArea:
+    result.packedArea = result.usedArea
+  if result.atlasArea > 0:
+    result.usedArea = min(result.usedArea, result.atlasArea)
+    result.packedArea = min(result.packedArea, result.atlasArea)
+
+proc publishAtlasUsage*(impl: BackendContext) =
+  ## Render-thread helper that publishes a cheap cross-thread atlas snapshot.
+  var usage = impl.atlasUsage()
+  withLock atlasUsageLock:
+    inc nextAtlasUsageSnapshotId
+    usage.snapshotId = nextAtlasUsageSnapshotId
+    lastAtlasUsage = usage
+
+proc atlasUsageSnapshot*(): AtlasUsage =
+  ## Returns the last atlas usage snapshot published by rendering.
+  ##
+  ## This is cheap and cross-thread safe. It may be stale until the render
+  ## thread processes cache messages and publishes another frame.
+  withLock atlasUsageLock:
+    result = lastAtlasUsage
 
 proc removeAtlasEntry*(impl: BackendContext, key: Hash) =
   impl.entriesPtr()[].del(key)

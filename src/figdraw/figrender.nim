@@ -63,6 +63,13 @@ proc backendKind*[BackendState](
 proc backendName*[BackendState](renderer: FigRenderer[BackendState]): string =
   backendName(renderer.backendKind())
 
+proc atlasUsage*[BackendState](renderer: FigRenderer[BackendState]): AtlasUsage =
+  ## Returns current backend atlas usage.
+  ##
+  ## Call from the render/backend thread. Use `atlasUsageSnapshot()` for a cheap
+  ## cross-thread last-known value.
+  renderer.ctx.atlasUsage()
+
 proc runtimeTextLcdFilteringRequested*(): bool =
   let v1 = getEnv("FIGDRAW_TEXT_LCD_FILTERING").strip().toLowerAscii()
   if v1.len > 0:
@@ -975,6 +982,8 @@ proc renderRoot*(
   for zlvl, list in nodes.layers.pairs():
     for rootIdx in list.rootIds:
       ctx.render(list.nodes, rootIdx, -1.FigIdx)
+
+  ctx.publishAtlasUsage()
 
 proc renderFrame*[BackendState](
     renderer: FigRenderer[BackendState],

@@ -10,6 +10,8 @@ import figdraw/fignodes
 type TestContext = ref object of BackendContext
   entries: Table[Hash, Rect]
   atlasEntryMeta: Table[Hash, AtlasEntryMeta]
+  atlasSize: int
+  packedArea: int
   uploaded: seq[ImageId]
   removed: seq[ImageId]
   drawn: seq[Hash]
@@ -20,6 +22,12 @@ method entriesPtr*(ctx: TestContext): ptr Table[Hash, Rect] =
 
 method atlasEntryMetaPtr*(ctx: TestContext): var Table[Hash, AtlasEntryMeta] =
   result = ctx.atlasEntryMeta
+
+method atlasSize*(ctx: TestContext): int =
+  ctx.atlasSize
+
+method atlasPackedArea*(ctx: TestContext): int =
+  ctx.packedArea
 
 method putImage*(ctx: TestContext, imgObj: ImgObj) =
   ctx.uploaded.add(imgObj.id)
@@ -53,7 +61,9 @@ method drawImage*(
 
 proc newTestContext(): TestContext =
   TestContext(
-    entries: initTable[Hash, Rect](), atlasEntryMeta: initTable[Hash, AtlasEntryMeta]()
+    entries: initTable[Hash, Rect](),
+    atlasEntryMeta: initTable[Hash, AtlasEntryMeta](),
+    atlasSize: 16,
   )
 
 proc newRenders(): Renders =
@@ -237,6 +247,55 @@ suite "image loading":
     check key notin ctx.entries
     check key notin ctx.atlasEntryMeta
 
+  test "atlasUsage reports live entries and packer usage":
+    let
+      imageId = imgId("tests/timage_loading/atlas-usage/image")
+      glyphKey = Hash(601)
+      generatedKey = Hash(602)
+      unknownKey = Hash(603)
+      fontId = FontId(Hash(604))
+      typefaceId = TypefaceId(Hash(605))
+      ctx = newTestContext()
+    ctx.packedArea = 96
+    ctx.entries[imageId.Hash] = rect(0, 0, 0.25, 0.5)
+    ctx.entries[glyphKey] = rect(0.25, 0, 0.25, 0.25)
+    ctx.entries[generatedKey] = rect(0.5, 0, 0.125, 0.125)
+    ctx.entries[unknownKey] = rect(0.625, 0, 0.0625, 0.0625)
+    ctx.markImageEntry(imageId)
+    ctx.markGlyphEntry(glyphKey, fontId, typefaceId)
+    ctx.markGeneratedEntry(generatedKey)
+
+    let usage = ctx.atlasUsage()
+    check usage.atlasSize == 16
+    check usage.atlasArea == 256
+    check usage.usedArea == 53
+    check usage.packedArea == 96
+    check usage.entryCount == 4
+    check usage.imageCount == 1
+    check usage.glyphCount == 1
+    check usage.generatedCount == 1
+    check usage.unknownCount == 1
+    check usage.usedRatio() == 53.0'f32 / 256.0'f32
+    check usage.packedRatio() == 96.0'f32 / 256.0'f32
+
+  test "publishAtlasUsage updates cross-thread snapshot":
+    let
+      imageId = imgId("tests/timage_loading/atlas-usage/snapshot")
+      ctx = newTestContext()
+      before = atlasUsageSnapshot()
+    ctx.packedArea = 128
+    ctx.entries[imageId.Hash] = rect(0, 0, 0.5, 0.5)
+    ctx.markImageEntry(imageId)
+
+    ctx.publishAtlasUsage()
+    let usage = atlasUsageSnapshot()
+    check usage.snapshotId > before.snapshotId
+    check usage.atlasSize == 16
+    check usage.usedArea == 64
+    check usage.packedArea == 128
+    check usage.entryCount == 1
+    check usage.imageCount == 1
+
   test "targeted glyph clears remove only matching glyph entries":
     let
       fontA = FontId(Hash(301))
@@ -366,6 +425,32 @@ suite "image loading":
     check hasImage(id)
 
     clearImage(id)
+    ctx.drainImages()
+    check id.Hash notin ctx.entries
+    check not hasImage(id)
+
+    owner = ImageRef()
+    ctx.drainImages()
+
+  test "ImageRef works with imageStyle and manual clear overloads":
+    let
+      id = imgId("tests/timage_loading/image-ref-style")
+      ctx = newTestContext()
+
+    clearImage(id)
+    ctx.drainImages()
+
+    var owner = imageRef(id, newImage(1, 1))
+    ctx.drainImages()
+    let
+      defaultStyle = imageStyle(owner)
+      tintedStyle = imageStyle(owner, rgba(10, 20, 30, 255))
+    check defaultStyle.id == id
+    check defaultStyle.fill == fill(rgba(255, 255, 255, 255))
+    check tintedStyle.id == id
+    check tintedStyle.fill == fill(rgba(10, 20, 30, 255))
+
+    clearImage(owner)
     ctx.drainImages()
     check id.Hash notin ctx.entries
     check not hasImage(id)

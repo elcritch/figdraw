@@ -1830,6 +1830,13 @@ method entriesPtr*(ctx: OpenGlContext): ptr Table[Hash, Rect] =
 method atlasEntryMetaPtr*(ctx: OpenGlContext): var Table[Hash, AtlasEntryMeta] =
   result = ctx.atlasEntryMeta
 
+method atlasSize*(ctx: OpenGlContext): int =
+  ctx.atlasSize
+
+method atlasPackedArea*(ctx: OpenGlContext): int =
+  for height in ctx.heights:
+    result += int(height)
+
 method pixelScale*(ctx: OpenGlContext): float32 =
   ctx.pixelScale
 

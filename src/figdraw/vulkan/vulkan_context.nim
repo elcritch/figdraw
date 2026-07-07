@@ -3976,6 +3976,13 @@ method entriesPtr*(ctx: VulkanContext): ptr Table[Hash, Rect] =
 method atlasEntryMetaPtr*(ctx: VulkanContext): var Table[Hash, AtlasEntryMeta] =
   result = ctx.atlasEntryMeta
 
+method atlasSize*(ctx: VulkanContext): int =
+  ctx.atlasSize
+
+method atlasPackedArea*(ctx: VulkanContext): int =
+  for height in ctx.heights:
+    result += int(height)
+
 method pixelScale*(ctx: VulkanContext): float32 =
   ctx.pixelScale
 

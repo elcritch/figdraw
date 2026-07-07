@@ -6,6 +6,7 @@ import pkg/pixie/fonts
 import ./shared
 
 import ./fonttypes
+import ./imgutils
 import ./typefaces
 import ./fontglyphs
 
@@ -15,6 +16,18 @@ when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
   import ./textbackends/harfbuzzy as textBackend
 else:
   import ./textbackends/pixie as textBackend
+
+proc fs*(font: FontRef, color: Fill = fill(rgba(0, 0, 0, 255))): FontStyle =
+  fs(font.font, color)
+
+proc fsp*(font: FontRef, color: Fill, text: string): (FontStyle, string) =
+  fsp(font.font, color, text)
+
+proc span*(font: FontRef, color: Fill, text: string): (FontStyle, string) =
+  span(font.font, color, text)
+
+proc clearFontGlyphs*(font: FontRef) =
+  clearFontGlyphs(font.fontId)
 
 proc typeset*(
     box: Rect,
@@ -29,6 +42,19 @@ proc typeset*(
 proc typeset*(
     box: Rect,
     uiSpans: openArray[(FigFont, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+): GlyphArrangement =
+  var styled = newSeqOfCap[(FontStyle, string)](uiSpans.len)
+  for (font, text) in uiSpans:
+    styled.add((fs(font), text))
+  result = typeset(box, styled, hAlign, vAlign, minContent, wrap)
+
+proc typeset*(
+    box: Rect,
+    uiSpans: openArray[(FontRef, string)],
     hAlign = FontHorizontal.Left,
     vAlign = FontVertical.Top,
     minContent: bool,
@@ -111,5 +137,10 @@ proc placeGlyphs*(
 
 proc placeGlyphs*(
     font: FigFont, glyphs: openArray[(Rune, Vec2)], origin: GlyphOrigin = GlyphTopLeft
+): GlyphArrangement =
+  result = placeGlyphs(fs(font), glyphs, origin)
+
+proc placeGlyphs*(
+    font: FontRef, glyphs: openArray[(Rune, Vec2)], origin: GlyphOrigin = GlyphTopLeft
 ): GlyphArrangement =
   result = placeGlyphs(fs(font), glyphs, origin)

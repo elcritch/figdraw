@@ -2202,6 +2202,13 @@ method entriesPtr*(ctx: MetalContext): ptr Table[Hash, Rect] =
 method atlasEntryMetaPtr*(ctx: MetalContext): var Table[Hash, AtlasEntryMeta] =
   result = ctx.atlasEntryMeta
 
+method atlasSize*(ctx: MetalContext): int =
+  ctx.atlasSize
+
+method atlasPackedArea*(ctx: MetalContext): int =
+  for height in ctx.heights:
+    result += int(height)
+
 method pixelScale*(ctx: MetalContext): float32 =
   ctx.pixelScale
 

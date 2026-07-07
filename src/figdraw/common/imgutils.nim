@@ -354,6 +354,9 @@ proc clearImage*(id: ImageId) =
     var msg = ImageMsg(kind: ImkClearImage, id: id, generation: generation)
     imageMsgChan.send(unsafeIsolate msg)
 
+proc clearImage*(image: ImageRef) =
+  clearImage(image.id)
+
 proc clearImages*(ids: openArray[ImageId]) =
   if ids.len == 0:
     return
@@ -365,6 +368,14 @@ proc clearImages*(ids: openArray[ImageId]) =
       for id in ids:
         clearCachedImageLocked(id)
     imageMsgChan.send(unsafeIsolate msg)
+
+proc clearImages*(images: openArray[ImageRef]) =
+  if images.len == 0:
+    return
+  var ids = newSeqOfCap[ImageId](images.len)
+  for image in images:
+    ids.add(image.id)
+  clearImages(ids)
 
 proc clearImageCache*() =
   var cacheGeneration: uint64
