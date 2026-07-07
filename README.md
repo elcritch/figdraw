@@ -136,9 +136,61 @@ For a complete working example (window + GL context + render loop), see:
 
 ### Image Cache Management
 
-Image IDs are the stable, thread-safe handles for image nodes. Any thread may load
-or clear images by ID; the renderer receives ordered cache messages and mutates
-backend atlas state on the render thread.
+Image IDs are the stable, thread-safe handles for image nodes. `ImageRef` is the
+convenience owner you keep in app state when you want FigDraw to retain an image
+while it is visible or preloaded.
+
+#### Automatic Management with `ImageRef`
+
+```nim
+type GalleryItem = object
+  image: ImageRef
+  frame: Rect
+
+var visible: seq[GalleryItem]
+
+proc show(path: string, frame: Rect) =
+  visible.add GalleryItem(image: loadImageRef(path), frame: frame)
+
+proc imageNode(item: GalleryItem): Fig =
+  Fig(
+    kind: nkImage,
+    screenBox: item.frame,
+    image: ImageStyle(id: item.image.id),
+  )
+
+proc hide(index: int) =
+  visible.delete(index) # drops the ImageRef; final release queues eviction
+```
+
+For scrolling folders or galleries, keep a visible set plus a small preload
+margin. Hold `ImageRef`s in the app's gallery/cache state for visible and
+preloaded images. UI nodes still use raw `ImageId`s from `imageRef.id`, so render
+data stays cheap, copyable, and thread-safe.
+
+Do not create a short-lived `ImageRef` only to copy its ID into a longer-lived
+node:
+
+```nim
+block:
+  let image = loadImageRef("photos/frame-001.png")
+  node.image = ImageStyle(id: image.id)
+
+# `image` has expired here. The node still has an ImageId, but the final
+# ImageRef release may queue the image for eviction before the node is rendered.
+```
+
+Keep the `ImageRef` alive for at least as long as any visible/preloaded node may
+use its ID.
+
+A `Table[ImageId, ImageRef]` or `Table[string, ImageRef]` is also fine when the
+key helps reconcile scroll state; the important part is that the value being held
+is the `ImageRef`.
+
+#### Manual Management with `ImageId`
+
+You can still work directly with raw IDs and manual clears when you want explicit
+control:
 
 ```nim
 let id = loadImage("photos/frame-001.png")
@@ -155,22 +207,6 @@ entry. It does not compact or reclaim holes inside the packed texture atlas. Use
 `clearImageCache()` or `clearImageCache(renderer)` as the memory relief path when
 the atlas grows past a budget; this resets the atlas storage and currently visible
 images should be loaded again by the application.
-
-For scrolling folders or galleries, keep a visible set plus a small preload
-margin. Store raw `ImageId`s in UI nodes. You may optionally hold `ImageRef`s for
-visible/preloaded images:
-
-```nim
-var visible: Table[ImageId, ImageRef]
-
-proc show(path: string) =
-  let ref = loadImageRef(path)
-  visible[ref.id] = ref
-
-proc hide(id: ImageId) =
-  visible.del(id)      # final local release queues an eviction hint
-  # clearImage(id)     # force-clear when you want immediate removal
-```
 
 `ImageRef` and `FontRef` are thread-affine convenience wrappers. Pass raw
 `ImageId`, `FontId`, `TypefaceId`, or `FigFont` values between threads, then
