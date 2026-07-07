@@ -29,6 +29,9 @@ method restoreTransform*(ctx: RecordingBackend) =
   if ctx.mats.len > 0:
     ctx.mat = ctx.mats.pop()
 
+method supportsAtlasUsage*(ctx: RecordingBackend): bool =
+  false
+
 proc newRecordingBackend(): RecordingBackend =
   RecordingBackend(mat: mat4(), mats: @[], draws: @[])
 

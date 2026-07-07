@@ -2209,9 +2209,6 @@ method atlasPackedArea*(ctx: MetalContext): int =
   for height in ctx.heights:
     result += int(height)
 
-method supportsAtlasUsage*(ctx: MetalContext): bool =
-  true
-
 method pixelScale*(ctx: MetalContext): float32 =
   ctx.pixelScale
 

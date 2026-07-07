@@ -211,7 +211,11 @@ method atlasPackedArea*(impl: BackendContext): int {.base.} =
 
 method supportsAtlasUsage*(impl: BackendContext): bool {.base.} =
   ## Whether this backend exposes atlas tables for usage snapshots.
-  false
+  ##
+  ## Real render backends are expected to support atlas usage snapshots. Minimal
+  ## test or recording backends that do not implement atlas table access should
+  ## override this to return false.
+  true
 
 method pixelScale*(impl: BackendContext): float32 {.base.} =
   raise newException(ValueError, "Backend pixelScale unavailable")

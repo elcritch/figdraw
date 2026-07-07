@@ -1837,9 +1837,6 @@ method atlasPackedArea*(ctx: OpenGlContext): int =
   for height in ctx.heights:
     result += int(height)
 
-method supportsAtlasUsage*(ctx: OpenGlContext): bool =
-  true
-
 method pixelScale*(ctx: OpenGlContext): float32 =
   ctx.pixelScale
 
