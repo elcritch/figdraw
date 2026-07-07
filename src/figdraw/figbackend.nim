@@ -209,6 +209,10 @@ method atlasPackedArea*(impl: BackendContext): int {.base.} =
   ## Approximate area consumed by the atlas packer, including holes/margins.
   0
 
+method supportsAtlasUsage*(impl: BackendContext): bool {.base.} =
+  ## Whether this backend exposes atlas tables for usage snapshots.
+  false
+
 method pixelScale*(impl: BackendContext): float32 {.base.} =
   raise newException(ValueError, "Backend pixelScale unavailable")
 
@@ -266,7 +270,11 @@ proc atlasUsage*(impl: BackendContext): AtlasUsage =
 
 proc publishAtlasUsage*(impl: BackendContext) =
   ## Render-thread helper that publishes a cheap cross-thread atlas snapshot.
-  var usage = impl.atlasUsage()
+  var usage =
+    if impl.supportsAtlasUsage():
+      impl.atlasUsage()
+    else:
+      AtlasUsage()
   withLock atlasUsageLock:
     inc nextAtlasUsageSnapshotId
     usage.snapshotId = nextAtlasUsageSnapshotId

@@ -29,6 +29,9 @@ method atlasSize*(ctx: TestContext): int =
 method atlasPackedArea*(ctx: TestContext): int =
   ctx.packedArea
 
+method supportsAtlasUsage*(ctx: TestContext): bool =
+  true
+
 method putImage*(ctx: TestContext, imgObj: ImgObj) =
   ctx.uploaded.add(imgObj.id)
   ctx.entries[imgObj.id.Hash] = rect(0, 0, 1, 1)

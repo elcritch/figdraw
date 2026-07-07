@@ -3983,6 +3983,9 @@ method atlasPackedArea*(ctx: VulkanContext): int =
   for height in ctx.heights:
     result += int(height)
 
+method supportsAtlasUsage*(ctx: VulkanContext): bool =
+  true
+
 method pixelScale*(ctx: VulkanContext): float32 =
   ctx.pixelScale
 
