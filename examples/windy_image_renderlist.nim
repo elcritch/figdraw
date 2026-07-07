@@ -15,7 +15,7 @@ import figdraw/figrender as glrenderer
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
-proc makeRenderTree*(w, h: float32): Renders =
+proc makeRenderTree*(w, h: float32, image: ImageRef): Renders =
   var list = RenderList()
 
   let rootIdx = list.addRoot(
@@ -47,7 +47,7 @@ proc makeRenderTree*(w, h: float32): Renders =
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: rect(60, 60, 280, 280),
-      image: ImageStyle(fill: rgba(255, 255, 255, 255).color, id: imgId("img1.png")),
+      image: imageStyle(image),
     ),
   )
 
@@ -60,7 +60,7 @@ when isMainModule:
   else:
     setFigDataDir(getCurrentDir() / "data")
 
-  discard loadImage("img1.png")
+  let image = loadImageRef("img1.png")
 
   var app_running = true
 
@@ -85,7 +85,7 @@ when isMainModule:
   proc redraw() =
     renderer.beginFrame()
     let sz = window.logicalSize()
-    var renders = makeRenderTree(sz.x, sz.y)
+    var renders = makeRenderTree(sz.x, sz.y, image)
     renderer.renderFrame(renders, sz)
     renderer.endFrame()
 

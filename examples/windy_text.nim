@@ -90,7 +90,7 @@ proc findPhraseRange(text, phrase: string): Slice[int16] =
   result = startRune.int16 .. endRune.int16
 
 proc buildBodyTextLayout*(
-    uiFont: FigFont, textRect: Rect, modeLine: string
+    uiFont: FontRef, textRect: Rect, modeLine: string
 ): tuple[layout: GlyphArrangement, highlightRange: Slice[int16]] =
   let text =
     "Mode: " & modeLine & " (G/U/V: subpixel, L: LCD)\n\n" & "FigDraw text demo\n\n" &
@@ -123,9 +123,9 @@ proc buildBodyTextLayout*(
   result.highlightRange = highlightRange
 
 proc buildMonoWordLayouts*(
-    monoFont: FigFont, monoText: string, pad: float32, colors: openArray[Fill]
+    monoFont: FontRef, monoText: string, pad: float32, colors: openArray[Fill]
 ): seq[GlyphArrangement] =
-  let (_, monoPx) = monoFont.convertFont()
+  let (_, monoPx) = monoFont.font.convertFont()
   let monoLineHeight =
     (if monoPx.lineHeight >= 0: monoPx.lineHeight
     else: monoPx.defaultLineHeight())
@@ -140,7 +140,7 @@ proc buildMonoWordLayouts*(
   proc flushWord(
       glyphs: var seq[(Rune, Vec2)],
       layouts: var seq[GlyphArrangement],
-      monoFont: FigFont,
+      monoFont: FontRef,
       colors: seq[Fill],
       wordIdx: var int,
   ) =
@@ -172,7 +172,7 @@ proc buildMonoWordLayouts*(
   result = layouts
 
 proc makeRenderTree*(
-    w, h: float32, uiFont, monoFont: FigFont, modeLine: string
+    w, h: float32, uiFont, monoFont: FontRef, modeLine: string
 ): Renders =
   result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
   let z = 0.ZLevel
@@ -226,17 +226,17 @@ proc makeRenderTree*(
   )
 
   let monoText = "Manual glyphs: Hack Nerd Font\n$ printf(\"hello\")"
-  let (_, monoPx) = monoFont.convertFont()
+  let (_, monoPx) = monoFont.font.convertFont()
   let monoLineHeight =
     (if monoPx.lineHeight >= 0: monoPx.lineHeight
     else: monoPx.defaultLineHeight())
-  let monoPad = max(8.0'f32, monoFont.size * 0.6'f32)
+  let monoPad = max(8.0'f32, monoFont.font.size * 0.6'f32)
   var monoLines = 1
   for rune in monoText.runes:
     if rune == Rune(10):
       monoLines.inc
   let monoHeight = monoLines.float32 * monoLineHeight + monoPad * 2
-  let invertedLineHeight = uiFont.size * 1.4'f32
+  let invertedLineHeight = uiFont.font.size * 1.4'f32
   let sectionGap = 60.0'f32
 
   proc mirroredInputRect(finalRect: Rect): Rect =
@@ -434,9 +434,9 @@ when isMainModule:
   registerStaticTypeface("HackNerdFont-Regular.ttf", "../data/HackNerdFont-Regular.ttf")
 
   let typefaceId = loadTypeface(fontName, @["Ubuntu.ttf"])
-  let uiFont = FigFont(typefaceId: typefaceId, size: 28.0'f32)
+  let uiFont = fontRef(typefaceId, 28.0'f32)
   let monoTypefaceId = loadTypeface("HackNerdFont-Regular.ttf")
-  let monoFont = FigFont(typefaceId: monoTypefaceId, size: MonoFontSize)
+  let monoFont = fontRef(monoTypefaceId, MonoFontSize)
 
   let size = ivec2(900, 690)
 
