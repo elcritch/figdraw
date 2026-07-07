@@ -114,12 +114,22 @@ when (UseMetalBackend or UseVulkanBackend) and defined(macosx):
   template withoutLayerActions(body: untyped) =
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    body
-    CATransaction.commit()
+    try:
+      body
+    finally:
+      CATransaction.commit()
 
   proc safeDrawableDimension(v: int32): CGFloat =
     ## CAMetalLayer rejects zero-sized drawables during transient resize states.
     max(1'i32, v).CGFloat
+
+  proc updateDrawableSize(layer: CAMetalLayer, backingWidth, backingHeight: int32) =
+    let
+      width = safeDrawableDimension(backingWidth)
+      height = safeDrawableDimension(backingHeight)
+      current = layer.drawableSize()
+    if current.width != width or current.height != height:
+      layer.setDrawableSize(NSSize(width: width, height: height))
 
   proc backingScale(bounds: NSRect, backingWidth, backingHeight: int32): CGFloat =
     if bounds.size.width > 0:
@@ -138,9 +148,7 @@ when (UseMetalBackend or UseVulkanBackend) and defined(macosx):
       let bounds = handle.hostView.bounds()
       handle.layer.setFrame(bounds)
       handle.layer.setContentsScale(backingScale(bounds, sz.x, sz.y))
-      handle.layer.setDrawableSize(
-        NSSize(width: safeDrawableDimension(sz.x), height: safeDrawableDimension(sz.y))
-      )
+      handle.layer.updateDrawableSize(sz.x, sz.y)
 
   proc attachMetalLayer*(
       window: Window,
@@ -237,7 +245,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
           if device.isNil:
             raise newException(ValueError, "Failed to create Metal device for Vulkan")
           renderer.backendState.vulkanMetalLayer =
-            attachMetalLayer(window, device, presentsWithTransaction = true)
+            attachMetalLayer(window, device, presentsWithTransaction = false)
           vkCtx.setPresentMetalLayer(renderer.backendState.vulkanMetalLayer.layer)
           hasPresentTarget = true
         elif defined(linux) or defined(bsd) or defined(windows):

@@ -43,6 +43,14 @@ proc safeDrawableDimension(v: int32): CGFloat =
   # CAMetalLayer rejects zero-sized drawables; clamp transient 0x0 resize states.
   max(1'i32, v).CGFloat
 
+proc updateDrawableSize(layer: CAMetalLayer, backingWidth, backingHeight: int32) =
+  let
+    width = safeDrawableDimension(backingWidth)
+    height = safeDrawableDimension(backingHeight)
+    current = layer.drawableSize()
+  if current.width != width or current.height != height:
+    layer.setDrawableSize(NSSize(width: width, height: height))
+
 proc backingScale(bounds: NSRect, backingWidth, backingHeight: int32): CGFloat =
   if bounds.size.width > 0:
     return safeDrawableDimension(backingWidth) / bounds.size.width
@@ -69,12 +77,7 @@ proc attachMetalLayerToWindowPtr*(
     let bounds = result.hostView.bounds()
     result.layer.setFrame(bounds)
     result.layer.setContentsScale(backingScale(bounds, backingWidth, backingHeight))
-    result.layer.setDrawableSize(
-      NSSize(
-        width: safeDrawableDimension(backingWidth),
-        height: safeDrawableDimension(backingHeight),
-      )
-    )
+    result.layer.updateDrawableSize(backingWidth, backingHeight)
 
 proc updateMetalLayer*(
     handle: SiwinMetalLayerHandle, backingWidth, backingHeight: int32
@@ -83,12 +86,7 @@ proc updateMetalLayer*(
     let bounds = handle.hostView.bounds()
     handle.layer.setFrame(bounds)
     handle.layer.setContentsScale(backingScale(bounds, backingWidth, backingHeight))
-    handle.layer.setDrawableSize(
-      NSSize(
-        width: safeDrawableDimension(backingWidth),
-        height: safeDrawableDimension(backingHeight),
-      )
-    )
+    handle.layer.updateDrawableSize(backingWidth, backingHeight)
 
 proc setOpaque*(handle: SiwinMetalLayerHandle, opaque: bool) =
   handle.layer.setOpaque(opaque)

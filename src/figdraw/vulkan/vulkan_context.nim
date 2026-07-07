@@ -87,6 +87,11 @@ type
     rectMaskMatX: array[4, float32]
     rectMaskMatY: array[4, float32]
 
+  RetiredSwapchain = object
+    swapchain: VkSwapchainKHR
+    views: seq[VkImageView]
+    framebuffers: seq[VkFramebuffer]
+
   VulkanContext* = ref object of figbackend.BackendContext
     atlasSize: int
     initialAtlasSize: int
@@ -160,6 +165,7 @@ type
     swapchainImages: seq[VkImage]
     swapchainViews: seq[VkImageView]
     swapchainFramebuffers: seq[VkFramebuffer]
+    retiredSwapchains: seq[RetiredSwapchain]
     swapchainFormat: VkFormat
     swapchainExtent: VkExtent2D
     swapchainRequestedWidth: int32
@@ -527,6 +533,39 @@ proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
 
 proc fullFrameRect(ctx: VulkanContext): Rect =
   rect(0.0'f32, 0.0'f32, ctx.frameSize.x, ctx.frameSize.y)
+
+proc destroyRetiredSwapchain(ctx: VulkanContext, retired: RetiredSwapchain) =
+  for fb in retired.framebuffers:
+    if fb != vkNullFramebuffer:
+      vkDestroyFramebuffer(ctx.device, fb, nil)
+
+  for view in retired.views:
+    if view != vkNullImageView:
+      vkDestroyImageView(ctx.device, view, nil)
+
+  if retired.swapchain != vkNullSwapchain:
+    vkDestroySwapchainKHR(ctx.device, retired.swapchain, nil)
+
+proc destroyRetiredSwapchains(ctx: VulkanContext) =
+  for retired in ctx.retiredSwapchains:
+    ctx.destroyRetiredSwapchain(retired)
+  ctx.retiredSwapchains.setLen(0)
+
+proc retireSwapchain(ctx: VulkanContext) =
+  if ctx.swapchain == vkNullSwapchain:
+    return
+
+  ctx.retiredSwapchains.add(
+    RetiredSwapchain(
+      swapchain: ctx.swapchain,
+      views: ctx.swapchainViews,
+      framebuffers: ctx.swapchainFramebuffers,
+    )
+  )
+  ctx.swapchain = vkNullSwapchain
+  ctx.swapchainFramebuffers.setLen(0)
+  ctx.swapchainViews.setLen(0)
+  ctx.swapchainImages.setLen(0)
 
 proc destroySwapchain(ctx: VulkanContext) =
   for fb in ctx.swapchainFramebuffers:
@@ -970,6 +1009,7 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
 
   let
     replacingSwapchain = ctx.swapchain != vkNullSwapchain
+    oldSwapchain = ctx.swapchain
     surfaceFormat = chooseSwapSurfaceFormat(support.formats)
     presentMode = chooseSwapPresentMode(support.presentModes)
     extent = chooseSwapExtent(support.capabilities, width, height)
@@ -980,6 +1020,7 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
       ctx.pipeline == vkNullPipeline or ctx.pipelineLayout == vkNullPipelineLayout or
       ctx.blurRenderPass == vkNullRenderPass or ctx.blurPipeline == vkNullPipeline or
       ctx.blurPipelineLayout == vkNullPipelineLayout
+    deferOldSwapchainDestroy = replacingSwapchain and not pipelineNeedsRecreate
 
   if ColorAttachmentBit notin support.capabilities.supportedUsageFlags:
     raise newException(
@@ -1024,7 +1065,7 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
     compositeAlpha = compositeAlpha,
     presentMode = presentMode,
     clipped = VkBool32(VkTrue),
-    oldSwapchain = ctx.swapchain,
+    oldSwapchain = oldSwapchain,
   )
 
   var newSwapchain: VkSwapchainKHR
@@ -1032,7 +1073,12 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
     ctx.device, createInfo.addr, nil, newSwapchain.addr
   )
 
-  ctx.destroySwapchain()
+  if deferOldSwapchainDestroy:
+    ctx.retireSwapchain()
+  else:
+    ctx.destroySwapchain()
+    if pipelineNeedsRecreate:
+      ctx.destroyRetiredSwapchains()
   ctx.swapchain = newSwapchain
 
   var actualCount = imageCount
@@ -3537,7 +3583,10 @@ proc beginFrame*(
     debug "Acquire returned out-of-date", result = $acquireResult
     return
   if acquireResult == VkSuboptimalKhr:
+    ctx.swapchainOutOfDate = true
     debug "Acquire returned suboptimal", result = $acquireResult
+    when defined(macosx):
+      return
   else:
     checkVkResult acquireResult
   checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
@@ -3603,13 +3652,21 @@ method endFrame*(ctx: VulkanContext) =
     results = @[],
   )
   let presentResult = vkQueuePresentKHR(ctx.presentQueue, presentInfo.addr)
+  var presented = false
   if presentResult == VkErrorOutOfDateKhr:
     ctx.swapchainOutOfDate = true
     debug "Present returned out-of-date", result = $presentResult
   elif presentResult == VkSuboptimalKhr:
+    ctx.swapchainOutOfDate = true
+    presented = true
     debug "Present returned suboptimal", result = $presentResult
   elif presentResult != VkSuccess:
     checkVkResult presentResult
+  else:
+    presented = true
+
+  if presented:
+    ctx.destroyRetiredSwapchains()
 
   ctx.commandRecording = false
 
@@ -3636,6 +3693,7 @@ proc destroyGpu(ctx: VulkanContext) =
     ctx.commandBuffer = vkNullCommandBuffer
 
   ctx.destroySwapchain()
+  ctx.destroyRetiredSwapchains()
   ctx.destroyPipelineObjects()
 
   if ctx.vertShader != vkNullShaderModule:
@@ -3858,6 +3916,7 @@ proc newContext*(
   result.swapchainViews = @[]
   result.swapchainImages = @[]
   result.swapchainFramebuffers = @[]
+  result.retiredSwapchains = @[]
   result.swapchainFormat = VK_FORMAT_UNDEFINED
   result.swapchainExtent = VkExtent2D(width: 0, height: 0)
   result.swapchainRequestedWidth = 0

@@ -78,8 +78,30 @@ proc newSiwinWindow*(
 ): Window =
   let forceOpenGl = runtimeForceOpenGlRequested()
   let window =
-    when UseMetalBackend and not NeedSiwinOpenGLContext:
-      when defined(macosx):
+    when defined(macosx):
+      when UseVulkanBackend:
+        if forceOpenGl:
+          newOpenglWindowCocoa(
+            size = size,
+            title = title,
+            vsync = vsync,
+            msaa = msaa,
+            resizable = resizable,
+            frameless = frameless,
+            transparent = transparent,
+          )
+        else:
+          # Vulkan presents through CAMetalLayer. Avoid NSOpenGLView here because
+          # siwin swaps GL buffers after onRender callbacks, which can blank the
+          # Metal subview during live resize.
+          newMetalWindowCocoa(
+            size = size,
+            title = title,
+            resizable = resizable,
+            frameless = frameless,
+            transparent = transparent,
+          )
+      elif UseMetalBackend and not NeedSiwinOpenGLContext:
         newMetalWindowCocoa(
           size = size,
           title = title,
@@ -88,9 +110,6 @@ proc newSiwinWindow*(
           transparent = transparent,
         )
       else:
-        {.error: "siwinshim: Metal backend requires macOS".}
-    else:
-      when defined(macosx):
         newOpenglWindowCocoa(
           size = size,
           title = title,
@@ -100,6 +119,9 @@ proc newSiwinWindow*(
           frameless = frameless,
           transparent = transparent,
         )
+    else:
+      when UseMetalBackend and not NeedSiwinOpenGLContext:
+        {.error: "siwinshim: Metal backend requires macOS".}
       else:
         let globals = sharedSiwinGlobals()
         when UseVulkanBackend:
@@ -357,7 +379,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
           if device.isNil:
             raise newException(ValueError, "Failed to create Metal device for Vulkan")
           renderer.backendState.vulkanMetalLayer =
-            attachMetalLayer(window, device, presentsWithTransaction = true)
+            attachMetalLayer(window, device, presentsWithTransaction = false)
           vkCtx.setPresentMetalLayer(renderer.backendState.vulkanMetalLayer.layer)
           hasPresentTarget = true
         elif defined(linux) or defined(bsd):
