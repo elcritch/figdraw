@@ -140,6 +140,9 @@ suite "drawable helper render":
     check line.drawStroke.fill.color == rgba(0, 0, 0, 255)
 
   test "bezier math":
+    let defaultCurve = drawableBezier(
+      vec2(0.0'f32, 0.0'f32), vec2(12.0'f32, 20.0'f32), vec2(24.0'f32, 0.0'f32)
+    )
     let curve = drawableBezier(
       vec2(0.0'f32, 0.0'f32),
       vec2(12.0'f32, 20.0'f32),
@@ -147,6 +150,8 @@ suite "drawable helper render":
       steps = 8'u16,
     )
 
+    check DefaultDrawableBezierSteps == 48'u16
+    check defaultCurve.steps == 0'u16
     check curve.kind == dkBezier
     check curve.controls.len == 3
     check curve.controls[0].x.approxEq(0.0'f32)
@@ -155,10 +160,14 @@ suite "drawable helper render":
     check curve.steps == 8'u16
 
   test "arc math":
+    let defaultArc =
+      drawableArc(vec2(12.0'f32, 18.0'f32), 24.0'f32, 0.0'f32, 3.1415927'f32)
     let arc = drawableArc(
       vec2(12.0'f32, 18.0'f32), 24.0'f32, 0.0'f32, 3.1415927'f32, steps = 12'u16
     )
 
+    check DefaultDrawableArcSteps == 48'u16
+    check defaultArc.arcSteps == 0'u16
     check arc.kind == dkArc
     check arc.arcCenter.x.approxEq(12.0'f32)
     check arc.arcCenter.y.approxEq(18.0'f32)

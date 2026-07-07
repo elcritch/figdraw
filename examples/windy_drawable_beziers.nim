@@ -24,9 +24,20 @@ func localPoint(area: Rect, x, y: float32): Vec2 =
   vec2(area.w * x, area.h * y)
 
 proc drawableNode(
-    area: Rect, fill: Fill, stroke: RenderStroke, ops: seq[DrawableOp]
+    area: Rect,
+    fill: Fill,
+    stroke: RenderStroke,
+    ops: seq[DrawableOp],
+    drawSteps: uint16 = 0'u16,
 ): Fig =
-  Fig(kind: nkDrawable, screenBox: area, fill: fill, drawStroke: stroke, drawOps: ops)
+  Fig(
+    kind: nkDrawable,
+    screenBox: area,
+    fill: fill,
+    drawStroke: stroke,
+    drawSteps: drawSteps,
+    drawOps: ops,
+  )
 
 proc addDrawableNode(
     renders: var Renders,
@@ -36,10 +47,12 @@ proc addDrawableNode(
     fill: Fill,
     stroke: RenderStroke,
     ops: seq[DrawableOp],
+    drawSteps: uint16 = 0'u16,
 ) =
   if ops.len == 0:
     return
-  discard renders.addChild(z, parentIdx, drawableNode(area, fill, stroke, ops))
+  discard
+    renders.addChild(z, parentIdx, drawableNode(area, fill, stroke, ops, drawSteps))
 
 proc controlLineOps(controls: openArray[Vec2]): seq[DrawableOp] =
   if controls.len < 2:
@@ -96,16 +109,15 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
         min(area.w, area.h) * 0.10'f32,
         -PI.float32 * 1.10'f32,
         PI.float32 * 1.35'f32,
-        steps = 28'u16,
       ),
       drawableArc(
         arcCenter,
         min(area.w, area.h) * 0.15'f32,
         -PI.float32 * 0.85'f32,
         PI.float32 * 0.95'f32,
-        steps = 32'u16,
       ),
     ],
+    drawSteps = 64'u16,
   )
 
   renders.addDrawableNode(
@@ -179,7 +191,8 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     area,
     transparent,
     RenderStroke(weight: 7.0'f32, fill: blue),
-    @[drawableBezier(quadratic, steps = 20'u16)],
+    @[drawableBezier(quadratic)],
+    drawSteps = 16'u16,
   )
   renders.addDrawableNode(
     z,
@@ -187,7 +200,8 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     area,
     transparent,
     RenderStroke(weight: 8.0'f32, fill: rose),
-    @[drawableBezier(cubic, steps = 32'u16)],
+    @[drawableBezier(cubic)],
+    drawSteps = 64'u16,
   )
   renders.addDrawableNode(
     z,
@@ -195,7 +209,8 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     area,
     transparent,
     RenderStroke(weight: 5.5'f32, fill: green),
-    @[drawableBezier(generic, steps = 48'u16)],
+    @[drawableBezier(generic)],
+    drawSteps = 256'u16,
   )
 
   renders.addDrawableNode(

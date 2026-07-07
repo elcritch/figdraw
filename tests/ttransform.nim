@@ -173,3 +173,34 @@ suite "nkTransform render behavior":
     ctx.renderRoot(renders)
 
     check ctx.draws.len == 9
+
+  test "drawable node steps are defaults for curve ops":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkDrawable,
+        screenBox: rect(5.0'f32, 7.0'f32, 40.0'f32, 30.0'f32),
+        drawStroke: RenderStroke(weight: 2.0'f32, fill: fill(rgba(255, 0, 0, 255))),
+        drawSteps: 4'u16,
+        drawOps:
+          @[
+            drawableBezier(
+              [
+                vec2(0.0'f32, 0.0'f32),
+                vec2(10.0'f32, 20.0'f32),
+                vec2(20.0'f32, 0.0'f32),
+              ]
+            ),
+            drawableArc(
+              vec2(20.0'f32, 10.0'f32), 8.0'f32, 0.0'f32, 1.5707964'f32, steps = 2'u16
+            ),
+          ],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.draws.len == 14

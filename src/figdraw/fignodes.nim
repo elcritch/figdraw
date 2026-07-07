@@ -62,6 +62,7 @@ type
       selectionRange*: Slice[int16]
     of nkDrawable:
       drawStroke*: RenderStroke
+      drawSteps*: uint16
       drawOps*: seq[DrawableOp]
     of nkImage:
       image*: ImageStyle
@@ -82,8 +83,8 @@ static:
     "FigNode SIZE: should be smaller than 256! Got: " & $sizeof(Fig)
 
 const
-  DefaultDrawableBezierSteps* = 24'u16
-  DefaultDrawableArcSteps* = 24'u16
+  DefaultDrawableBezierSteps* = 48'u16
+  DefaultDrawableArcSteps* = 48'u16
 
 proc drawableLine*(a, b: Vec2): DrawableOp =
   DrawableOp(kind: dkLine, a: a, b: b)
@@ -102,19 +103,15 @@ proc drawableRect*(
 ): DrawableOp =
   DrawableOp(kind: dkRectangle, box: box, corners: corners)
 
-proc drawableBezier*(
-    controls: openArray[Vec2], steps: uint16 = DefaultDrawableBezierSteps
-): DrawableOp =
+proc drawableBezier*(controls: openArray[Vec2], steps: uint16 = 0'u16): DrawableOp =
+  ## Creates a stroked Bezier drawable op.
+  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or renderer default.
   DrawableOp(kind: dkBezier, controls: @controls, steps: steps)
 
-proc drawableBezier*(
-    p0, p1, p2: Vec2, steps: uint16 = DefaultDrawableBezierSteps
-): DrawableOp =
+proc drawableBezier*(p0, p1, p2: Vec2, steps: uint16 = 0'u16): DrawableOp =
   drawableBezier([p0, p1, p2], steps)
 
-proc drawableBezier*(
-    p0, p1, p2, p3: Vec2, steps: uint16 = DefaultDrawableBezierSteps
-): DrawableOp =
+proc drawableBezier*(p0, p1, p2, p3: Vec2, steps: uint16 = 0'u16): DrawableOp =
   drawableBezier([p0, p1, p2, p3], steps)
 
 proc drawableArc*(
@@ -122,9 +119,10 @@ proc drawableArc*(
     radius: float32,
     startAngle: float32,
     sweepAngle: float32,
-    steps: uint16 = DefaultDrawableArcSteps,
+    steps: uint16 = 0'u16,
 ): DrawableOp =
   ## Creates a stroked circular arc drawable op. Angles are radians.
+  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or renderer default.
   DrawableOp(
     kind: dkArc,
     arcCenter: center,
@@ -135,8 +133,7 @@ proc drawableArc*(
   )
 
 proc drawableArc*(
-    x, y, radius, startAngle, sweepAngle: float32,
-    steps: uint16 = DefaultDrawableArcSteps,
+    x, y, radius, startAngle, sweepAngle: float32, steps: uint16 = 0'u16
 ): DrawableOp =
   drawableArc(vec2(x, y), radius, startAngle, sweepAngle, steps)
 

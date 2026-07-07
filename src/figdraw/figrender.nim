@@ -827,24 +827,35 @@ proc bezierPoint(controls: openArray[Vec2], t: float32): Vec2 =
     dec count
   work[0]
 
-func drawableStepCount(steps, fallback: uint16): int =
-  if steps == 0'u16:
-    fallback.int
-  else:
-    max(1, steps.int)
+func drawableStepCount(steps, nodeSteps, fallback: uint16): int =
+  let resolved =
+    if steps != 0'u16:
+      steps
+    elif nodeSteps != 0'u16:
+      nodeSteps
+    else:
+      fallback
+  max(1, resolved.int)
 
-func bezierStepCount(op: DrawableOp): int =
-  drawableStepCount(op.steps, DefaultDrawableBezierSteps)
+func bezierStepCount(op: DrawableOp, nodeSteps: uint16): int =
+  drawableStepCount(op.steps, nodeSteps, DefaultDrawableBezierSteps)
+
+func arcStepCount(op: DrawableOp, nodeSteps: uint16): int =
+  drawableStepCount(op.arcSteps, nodeSteps, DefaultDrawableArcSteps)
 
 proc renderDrawableBezier(
-    ctx: BackendContext, origin: Vec2, op: DrawableOp, stroke: RenderStroke
+    ctx: BackendContext,
+    origin: Vec2,
+    op: DrawableOp,
+    stroke: RenderStroke,
+    nodeSteps: uint16,
 ) =
   if op.controls.len < 2:
     return
   if stroke.weight <= 0.0'f32 or fillAlphaMax(stroke.fill) == 0'u8:
     return
 
-  let steps = op.bezierStepCount()
+  let steps = op.bezierStepCount(nodeSteps)
   let capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
   var previous = bezierPoint(op.controls, 0.0'f32)
   ctx.renderDrawableStrokeCap(origin + previous, capRadius, stroke.fill)
@@ -860,11 +871,12 @@ proc renderDrawableBezier(
 func arcPoint(center: Vec2, radius, angle: float32): Vec2 =
   center + vec2(cos(angle) * radius, sin(angle) * radius)
 
-func arcStepCount(op: DrawableOp): int =
-  drawableStepCount(op.arcSteps, DefaultDrawableArcSteps)
-
 proc renderDrawableArc(
-    ctx: BackendContext, origin: Vec2, op: DrawableOp, stroke: RenderStroke
+    ctx: BackendContext,
+    origin: Vec2,
+    op: DrawableOp,
+    stroke: RenderStroke,
+    nodeSteps: uint16,
 ) =
   let radius = max(0.0'f32, op.arcRadius)
   if radius <= 0.0'f32 or op.sweepAngle == 0.0'f32:
@@ -872,7 +884,7 @@ proc renderDrawableArc(
   if stroke.weight <= 0.0'f32 or fillAlphaMax(stroke.fill) == 0'u8:
     return
 
-  let steps = op.arcStepCount()
+  let steps = op.arcStepCount(nodeSteps)
   let capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
   var previous = arcPoint(op.arcCenter, radius, op.startAngle)
   ctx.renderDrawableStrokeCap(origin + previous, capRadius, stroke.fill)
@@ -891,6 +903,7 @@ proc renderDrawable*(ctx: BackendContext, node: Fig) =
     origin = node.screenBox.xy
     fill = node.fill
     stroke = node.drawStroke
+    nodeSteps = node.drawSteps
   for op in node.drawOps:
     case op.kind
     of dkLine:
@@ -900,9 +913,9 @@ proc renderDrawable*(ctx: BackendContext, node: Fig) =
     of dkRectangle:
       ctx.renderDrawableRect(origin, op, fill, stroke)
     of dkBezier:
-      ctx.renderDrawableBezier(origin, op, stroke)
+      ctx.renderDrawableBezier(origin, op, stroke, nodeSteps)
     of dkArc:
-      ctx.renderDrawableArc(origin, op, stroke)
+      ctx.renderDrawableArc(origin, op, stroke, nodeSteps)
 
 proc renderBoxes(ctx: BackendContext, node: Fig) =
   ## drawing boxes for rectangles
