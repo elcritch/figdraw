@@ -18,8 +18,8 @@ type TestContext = ref object of BackendContext
 method entriesPtr*(ctx: TestContext): ptr Table[Hash, Rect] =
   ctx.entries.addr
 
-method atlasEntryMetaPtr*(ctx: TestContext): ptr Table[Hash, AtlasEntryMeta] =
-  ctx.atlasEntryMeta.addr
+method atlasEntryMetaPtr*(ctx: TestContext): var Table[Hash, AtlasEntryMeta] =
+  result = ctx.atlasEntryMeta
 
 method putImage*(ctx: TestContext, imgObj: ImgObj) =
   ctx.uploaded.add(imgObj.id)

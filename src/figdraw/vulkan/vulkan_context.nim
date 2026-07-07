@@ -3973,8 +3973,8 @@ method kind*(ctx: VulkanContext): figbackend.RendererBackendKind =
 method entriesPtr*(ctx: VulkanContext): ptr Table[Hash, Rect] =
   ctx.entries.addr
 
-method atlasEntryMetaPtr*(ctx: VulkanContext): ptr Table[Hash, AtlasEntryMeta] =
-  ctx.atlasEntryMeta.addr
+method atlasEntryMetaPtr*(ctx: VulkanContext): var Table[Hash, AtlasEntryMeta] =
+  result = ctx.atlasEntryMeta
 
 method pixelScale*(ctx: VulkanContext): float32 =
   ctx.pixelScale

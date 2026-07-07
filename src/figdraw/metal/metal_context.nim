@@ -2199,8 +2199,8 @@ method kind*(ctx: MetalContext): figbackend.RendererBackendKind =
 method entriesPtr*(ctx: MetalContext): ptr Table[Hash, Rect] =
   ctx.entries.addr
 
-method atlasEntryMetaPtr*(ctx: MetalContext): ptr Table[Hash, AtlasEntryMeta] =
-  ctx.atlasEntryMeta.addr
+method atlasEntryMetaPtr*(ctx: MetalContext): var Table[Hash, AtlasEntryMeta] =
+  result = ctx.atlasEntryMeta
 
 method pixelScale*(ctx: MetalContext): float32 =
   ctx.pixelScale

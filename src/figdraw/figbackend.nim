@@ -163,7 +163,7 @@ method entriesPtr*(impl: BackendContext): ptr Table[Hash, Rect] {.base.} =
 
 method atlasEntryMetaPtr*(
     impl: BackendContext
-): ptr Table[Hash, AtlasEntryMeta] {.base.} =
+): var Table[Hash, AtlasEntryMeta] {.base.} =
   raise newException(ValueError, "Backend atlas metadata unavailable")
 
 method pixelScale*(impl: BackendContext): float32 {.base.} =
@@ -185,31 +185,25 @@ method putImage*(impl: BackendContext, imgObj: ImgObj) {.base.} =
   raise newException(ValueError, "Backend putImage unavailable")
 
 proc removeAtlasEntry*(impl: BackendContext, key: Hash) =
-  let
-    entries = impl.entriesPtr()
-    metas = impl.atlasEntryMetaPtr()
-  entries[].del(key)
-  metas[].del(key)
+  impl.entriesPtr()[].del(key)
+  impl.atlasEntryMetaPtr().del(key)
 
 proc markImageEntry*(impl: BackendContext, id: ImageId) =
-  let metas = impl.atlasEntryMetaPtr()
-  metas[][id.Hash] = AtlasEntryMeta(kind: aekImage, imageId: id)
+  impl.atlasEntryMetaPtr()[id.Hash] = AtlasEntryMeta(kind: aekImage, imageId: id)
 
 proc markGlyphEntry*(
     impl: BackendContext, key: Hash, fontId: FontId, typefaceId: TypefaceId
 ) =
-  let metas = impl.atlasEntryMetaPtr()
-  metas[][key] = AtlasEntryMeta(kind: aekGlyph, fontId: fontId, typefaceId: typefaceId)
+  impl.atlasEntryMetaPtr()[key] =
+    AtlasEntryMeta(kind: aekGlyph, fontId: fontId, typefaceId: typefaceId)
 
 proc markGeneratedEntry*(impl: BackendContext, key: Hash) =
-  let metas = impl.atlasEntryMetaPtr()
-  metas[][key] = AtlasEntryMeta(kind: aekGenerated)
+  impl.atlasEntryMetaPtr()[key] = AtlasEntryMeta(kind: aekGenerated)
 
 method removeImage*(impl: BackendContext, id: ImageId) {.base.} =
   let key = id.Hash
-  let metas = impl.atlasEntryMetaPtr()
-  if key in metas[]:
-    let meta = metas[][key]
+  if key in impl.atlasEntryMetaPtr():
+    let meta = impl.atlasEntryMetaPtr()[key]
     if meta.kind == aekImage and meta.imageId == id:
       impl.removeAtlasEntry(key)
   else:
@@ -217,11 +211,11 @@ method removeImage*(impl: BackendContext, id: ImageId) {.base.} =
 
 method clearImageAtlas*(impl: BackendContext) {.base.} =
   impl.entriesPtr()[].clear()
-  impl.atlasEntryMetaPtr()[].clear()
+  impl.atlasEntryMetaPtr().clear()
 
 method clearFontGlyphs*(impl: BackendContext, fontId: FontId) {.base.} =
   var keys: seq[Hash]
-  for key, meta in impl.atlasEntryMetaPtr()[].pairs:
+  for key, meta in impl.atlasEntryMetaPtr().pairs:
     if meta.kind == aekGlyph and meta.fontId == fontId:
       keys.add(key)
   for key in keys:
@@ -229,7 +223,7 @@ method clearFontGlyphs*(impl: BackendContext, fontId: FontId) {.base.} =
 
 method clearTypefaceGlyphs*(impl: BackendContext, typefaceId: TypefaceId) {.base.} =
   var keys: seq[Hash]
-  for key, meta in impl.atlasEntryMetaPtr()[].pairs:
+  for key, meta in impl.atlasEntryMetaPtr().pairs:
     if meta.kind == aekGlyph and meta.typefaceId == typefaceId:
       keys.add(key)
   for key in keys:

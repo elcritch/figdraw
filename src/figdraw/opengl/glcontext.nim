@@ -1827,8 +1827,8 @@ method kind*(ctx: OpenGlContext): figbackend.RendererBackendKind =
 method entriesPtr*(ctx: OpenGlContext): ptr Table[Hash, Rect] =
   ctx.entries.addr
 
-method atlasEntryMetaPtr*(ctx: OpenGlContext): ptr Table[Hash, AtlasEntryMeta] =
-  ctx.atlasEntryMeta.addr
+method atlasEntryMetaPtr*(ctx: OpenGlContext): var Table[Hash, AtlasEntryMeta] =
+  result = ctx.atlasEntryMeta
 
 method pixelScale*(ctx: OpenGlContext): float32 =
   ctx.pixelScale
