@@ -40,6 +40,24 @@ method drawRoundedRectSdf*(
   transformed.y = topLeft.y
   ctx.draws.add transformed
 
+method drawQuadraticBezierSdf*(
+    ctx: RecordingBackend,
+    rect: Rect,
+    fill: BackendFill,
+    p0, p1, p2: Vec2,
+    strokeWeight: float32,
+) =
+  discard fill
+  discard p0
+  discard p1
+  discard p2
+  discard strokeWeight
+  let topLeft = (ctx.mat * vec3(rect.x, rect.y, 1.0'f32)).xy
+  var transformed = rect
+  transformed.x = topLeft.x
+  transformed.y = topLeft.y
+  ctx.draws.add transformed
+
 method translate*(ctx: RecordingBackend, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
 
@@ -136,7 +154,7 @@ suite "nkTransform render behavior":
     check abs(ctx.draws[0].x - 14.0'f32) < 0.0001'f32
     check abs(ctx.draws[0].y - 26.0'f32) < 0.0001'f32
 
-  test "renders bezier drawable as line segments with caps":
+  test "renders quadratic bezier drawable as one sdf op":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
 
     discard renders.addRoot(
@@ -162,9 +180,38 @@ suite "nkTransform render behavior":
     let ctx = newRecordingBackend()
     ctx.renderRoot(renders)
 
-    check ctx.draws.len == 9
+    check ctx.draws.len == 1
 
-  test "renders arc drawable as line segments with caps":
+  test "decomposes higher order bezier drawable into quadratic sdf spans":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkDrawable,
+        screenBox: rect(5.0'f32, 7.0'f32, 30.0'f32, 20.0'f32),
+        drawStroke: RenderStroke(weight: 2.0'f32, fill: fill(rgba(255, 0, 0, 255))),
+        drawOps:
+          @[
+            drawableBezier(
+              [
+                vec2(0.0'f32, 0.0'f32),
+                vec2(10.0'f32, 20.0'f32),
+                vec2(20.0'f32, -10.0'f32),
+                vec2(30.0'f32, 0.0'f32),
+              ],
+              steps = 4'u16,
+            )
+          ],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.draws.len == 4
+
+  test "renders arc drawable as quadratic sdf spans":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
 
     discard renders.addRoot(
@@ -185,7 +232,7 @@ suite "nkTransform render behavior":
     let ctx = newRecordingBackend()
     ctx.renderRoot(renders)
 
-    check ctx.draws.len == 9
+    check ctx.draws.len == 4
 
   test "drawable node steps are defaults for curve ops":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
@@ -216,7 +263,7 @@ suite "nkTransform render behavior":
     let ctx = newRecordingBackend()
     ctx.renderRoot(renders)
 
-    check ctx.draws.len == 14
+    check ctx.draws.len == 3
 
   test "drawable aa overrides backend sdf aa and restores it":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())

@@ -827,6 +827,46 @@ proc bezierPoint(controls: openArray[Vec2], t: float32): Vec2 =
     dec count
   work[0]
 
+func quadraticPoint(p0, p1, p2: Vec2, t: float32): Vec2 =
+  let invT = 1.0'f32 - t
+  p0 * (invT * invT) + p1 * (2.0'f32 * invT * t) + p2 * (t * t)
+
+proc includePoint(p: Vec2, minPoint, maxPoint: var Vec2) =
+  minPoint.x = min(minPoint.x, p.x)
+  minPoint.y = min(minPoint.y, p.y)
+  maxPoint.x = max(maxPoint.x, p.x)
+  maxPoint.y = max(maxPoint.y, p.y)
+
+func cross2(a, b: Vec2): float32 =
+  a.x * b.y - a.y * b.x
+
+func isFlatQuadratic(p0, p1, p2: Vec2): bool =
+  abs(cross2(p1 - p0, p2 - p1)) <= 0.0001'f32
+
+proc quadraticBounds(p0, p1, p2: Vec2, padding: float32): Rect =
+  var
+    minPoint = vec2(min(p0.x, p2.x), min(p0.y, p2.y))
+    maxPoint = vec2(max(p0.x, p2.x), max(p0.y, p2.y))
+
+  let denomX = p0.x - 2.0'f32 * p1.x + p2.x
+  if abs(denomX) > 0.000001'f32:
+    let t = (p0.x - p1.x) / denomX
+    if t > 0.0'f32 and t < 1.0'f32:
+      includePoint(quadraticPoint(p0, p1, p2, t), minPoint, maxPoint)
+
+  let denomY = p0.y - 2.0'f32 * p1.y + p2.y
+  if abs(denomY) > 0.000001'f32:
+    let t = (p0.y - p1.y) / denomY
+    if t > 0.0'f32 and t < 1.0'f32:
+      includePoint(quadraticPoint(p0, p1, p2, t), minPoint, maxPoint)
+
+  rect(
+    minPoint.x - padding,
+    minPoint.y - padding,
+    maxPoint.x - minPoint.x + padding * 2.0'f32,
+    maxPoint.y - minPoint.y + padding * 2.0'f32,
+  )
+
 func drawableStepCount(steps, nodeSteps, fallback: uint16): int =
   let resolved =
     if steps != 0'u16:
@@ -843,7 +883,38 @@ func bezierStepCount(op: DrawableOp, nodeSteps: uint16): int =
 func arcStepCount(op: DrawableOp, nodeSteps: uint16): int =
   drawableStepCount(op.arcSteps, nodeSteps, DefaultDrawableArcSteps)
 
-proc renderDrawableBezier(
+proc renderDrawableQuadraticBezierSdf(
+    ctx: BackendContext, origin: Vec2, p0, p1, p2: Vec2, stroke: RenderStroke
+) =
+  if isFlatQuadratic(p0, p1, p2):
+    ctx.renderDrawableLine(origin, drawableLine(p0, p2), stroke)
+    return
+
+  let
+    strokeWeight = max(0.0'f32, stroke.weight)
+    padding = strokeWeight * 0.5'f32 + 2.0'f32
+    a = origin + p0
+    b = origin + p1
+    c = origin + p2
+    box = quadraticBounds(a, b, c, padding)
+  if box.w <= 0.0'f32 or box.h <= 0.0'f32:
+    return
+
+  let
+    center = box.xy + box.wh * 0.5'f32
+    localA = (a - center).scaled()
+    localB = (b - center).scaled()
+    localC = (c - center).scaled()
+  ctx.drawQuadraticBezierSdf(
+    rect = box.scaled(),
+    fill = stroke.fill.toBackendFill(),
+    p0 = localA,
+    p1 = localB,
+    p2 = localC,
+    strokeWeight = strokeWeight.scaled(),
+  )
+
+proc renderDrawableBezierSegments(
     ctx: BackendContext,
     origin: Vec2,
     op: DrawableOp,
@@ -868,8 +939,104 @@ proc renderDrawableBezier(
     ctx.renderDrawableStrokeCap(origin + current, capRadius, stroke.fill)
     previous = current
 
+proc renderDrawableBezierQuadratics(
+    ctx: BackendContext,
+    origin: Vec2,
+    op: DrawableOp,
+    stroke: RenderStroke,
+    nodeSteps: uint16,
+) =
+  let steps = op.bezierStepCount(nodeSteps)
+  for step in 0 ..< steps:
+    let
+      t0 = step.float32 / steps.float32
+      t2 = (step + 1).float32 / steps.float32
+      tm = (t0 + t2) * 0.5'f32
+      p0 = bezierPoint(op.controls, t0)
+      pm = bezierPoint(op.controls, tm)
+      p2 = bezierPoint(op.controls, t2)
+      p1 = pm * 2.0'f32 - (p0 + p2) * 0.5'f32
+    ctx.renderDrawableQuadraticBezierSdf(origin, p0, p1, p2, stroke)
+
+proc renderDrawableBezier(
+    ctx: BackendContext,
+    origin: Vec2,
+    op: DrawableOp,
+    stroke: RenderStroke,
+    nodeSteps: uint16,
+) =
+  if op.controls.len < 2:
+    return
+  if stroke.weight <= 0.0'f32 or fillAlphaMax(stroke.fill) == 0'u8:
+    return
+
+  when not defined(useFigDrawTextures):
+    if op.controls.len == 3:
+      ctx.renderDrawableQuadraticBezierSdf(
+        origin, op.controls[0], op.controls[1], op.controls[2], stroke
+      )
+      return
+    if op.controls.len > 3:
+      ctx.renderDrawableBezierQuadratics(origin, op, stroke, nodeSteps)
+      return
+
+  ctx.renderDrawableBezierSegments(origin, op, stroke, nodeSteps)
+
 func arcPoint(center: Vec2, radius, angle: float32): Vec2 =
   center + vec2(cos(angle) * radius, sin(angle) * radius)
+
+when defined(useFigDrawTextures):
+  proc renderDrawableArcSegments(
+      ctx: BackendContext,
+      origin: Vec2,
+      op: DrawableOp,
+      stroke: RenderStroke,
+      nodeSteps: uint16,
+  ) =
+    let radius = max(0.0'f32, op.arcRadius)
+    if radius <= 0.0'f32 or op.sweepAngle == 0.0'f32:
+      return
+    if stroke.weight <= 0.0'f32 or fillAlphaMax(stroke.fill) == 0'u8:
+      return
+
+    let steps = op.arcStepCount(nodeSteps)
+    let capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
+    var previous = arcPoint(op.arcCenter, radius, op.startAngle)
+    ctx.renderDrawableStrokeCap(origin + previous, capRadius, stroke.fill)
+    for step in 1 .. steps:
+      let
+        t = step.float32 / steps.float32
+        angle = op.startAngle + op.sweepAngle * t
+        current = arcPoint(op.arcCenter, radius, angle)
+        segment = drawableLine(previous, current)
+      ctx.renderDrawableLine(origin, segment, stroke)
+      ctx.renderDrawableStrokeCap(origin + current, capRadius, stroke.fill)
+      previous = current
+
+when not defined(useFigDrawTextures):
+  proc renderDrawableArcQuadratics(
+      ctx: BackendContext,
+      origin: Vec2,
+      op: DrawableOp,
+      stroke: RenderStroke,
+      nodeSteps: uint16,
+  ) =
+    let
+      radius = max(0.0'f32, op.arcRadius)
+      steps = op.arcStepCount(nodeSteps)
+    for step in 0 ..< steps:
+      let
+        t0 = step.float32 / steps.float32
+        t2 = (step + 1).float32 / steps.float32
+        tm = (t0 + t2) * 0.5'f32
+        angle0 = op.startAngle + op.sweepAngle * t0
+        angle2 = op.startAngle + op.sweepAngle * t2
+        angleMid = op.startAngle + op.sweepAngle * tm
+        p0 = arcPoint(op.arcCenter, radius, angle0)
+        pm = arcPoint(op.arcCenter, radius, angleMid)
+        p2 = arcPoint(op.arcCenter, radius, angle2)
+        p1 = pm * 2.0'f32 - (p0 + p2) * 0.5'f32
+      ctx.renderDrawableQuadraticBezierSdf(origin, p0, p1, p2, stroke)
 
 proc renderDrawableArc(
     ctx: BackendContext,
@@ -884,19 +1051,10 @@ proc renderDrawableArc(
   if stroke.weight <= 0.0'f32 or fillAlphaMax(stroke.fill) == 0'u8:
     return
 
-  let steps = op.arcStepCount(nodeSteps)
-  let capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
-  var previous = arcPoint(op.arcCenter, radius, op.startAngle)
-  ctx.renderDrawableStrokeCap(origin + previous, capRadius, stroke.fill)
-  for step in 1 .. steps:
-    let
-      t = step.float32 / steps.float32
-      angle = op.startAngle + op.sweepAngle * t
-      current = arcPoint(op.arcCenter, radius, angle)
-      segment = drawableLine(previous, current)
-    ctx.renderDrawableLine(origin, segment, stroke)
-    ctx.renderDrawableStrokeCap(origin + current, capRadius, stroke.fill)
-    previous = current
+  when not defined(useFigDrawTextures):
+    ctx.renderDrawableArcQuadratics(origin, op, stroke, nodeSteps)
+  else:
+    ctx.renderDrawableArcSegments(origin, op, stroke, nodeSteps)
 
 proc renderDrawableOps(ctx: BackendContext, node: Fig) =
   let

@@ -3014,6 +3014,124 @@ method drawRoundedRectSdf*(
       shapeSize = shapeSize,
     )
 
+proc drawQuadraticBezierSdfVulkan(
+    ctx: VulkanContext,
+    rect: Rect,
+    colors: array[4, ColorRGBA],
+    p0, p1, p2: Vec2,
+    strokeWeight: float32,
+    fillMode: int = SdfFillSolidOrVertex,
+    fillMidColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillStopColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillMidPos: float32 = 0.5'f32,
+) =
+  if rect.w <= 0.0'f32 or rect.h <= 0.0'f32 or strokeWeight <= 0.0'f32:
+    return
+
+  ctx.checkBatch()
+
+  let
+    quadHalfExtents = rect.wh * 0.5'f32
+    params = vec4(quadHalfExtents.x, quadHalfExtents.y, p0.x, p0.y)
+    curve = vec4(p1.x, p1.y, p2.x, p2.y)
+
+  assert ctx.quadCount < ctx.maxQuads
+
+  let
+    at = rect.xy
+    to = rect.xy + rect.wh
+    uvAt = vec2(0.0'f32, 0.0'f32)
+    uvTo = vec2(1.0'f32, 1.0'f32)
+
+    posQuad = [
+      ceil(ctx.mat * vec2(at.x, to.y)),
+      ceil(ctx.mat * vec2(to.x, to.y)),
+      ceil(ctx.mat * vec2(to.x, at.y)),
+      ceil(ctx.mat * vec2(at.x, at.y)),
+    ]
+    uvQuad = [
+      vec2(uvAt.x, uvTo.y),
+      vec2(uvTo.x, uvTo.y),
+      vec2(uvTo.x, uvAt.y),
+      vec2(uvAt.x, uvAt.y),
+    ]
+
+  let offset = ctx.quadCount * 4
+  ctx.positions.setVert2(offset + 0, posQuad[0])
+  ctx.positions.setVert2(offset + 1, posQuad[1])
+  ctx.positions.setVert2(offset + 2, posQuad[2])
+  ctx.positions.setVert2(offset + 3, posQuad[3])
+
+  ctx.uvs.setVert2(offset + 0, uvQuad[0])
+  ctx.uvs.setVert2(offset + 1, uvQuad[1])
+  ctx.uvs.setVert2(offset + 2, uvQuad[2])
+  ctx.uvs.setVert2(offset + 3, uvQuad[3])
+
+  ctx.colors.setVertColor(offset + 0, colors[0])
+  ctx.colors.setVertColor(offset + 1, colors[1])
+  ctx.colors.setVertColor(offset + 2, colors[2])
+  ctx.colors.setVertColor(offset + 3, colors[3])
+  ctx.setFillExtraColors(offset, fillMidColor, fillStopColor)
+
+  ctx.sdfParams.setVert4(offset + 0, params)
+  ctx.sdfParams.setVert4(offset + 1, params)
+  ctx.sdfParams.setVert4(offset + 2, params)
+  ctx.sdfParams.setVert4(offset + 3, params)
+
+  ctx.sdfRadii.setVert4(offset + 0, curve)
+  ctx.sdfRadii.setVert4(offset + 1, curve)
+  ctx.sdfRadii.setVert4(offset + 2, curve)
+  ctx.sdfRadii.setVert4(offset + 3, curve)
+
+  let factors =
+    if fillMode == SdfFillSolidOrVertex:
+      vec2(strokeWeight, 0.0'f32)
+    else:
+      vec2(strokeWeight, clamp(fillMidPos, 0.01'f32, 0.99'f32))
+  ctx.sdfFactors.setVert2(offset + 0, factors)
+  ctx.sdfFactors.setVert2(offset + 1, factors)
+  ctx.sdfFactors.setVert2(offset + 2, factors)
+  ctx.sdfFactors.setVert2(offset + 3, factors)
+
+  let modeVal = encodeSdfMode(sdfModeBezierStrokeAA, fillMode)
+  ctx.sdfModeAttr[offset + 0] = modeVal
+  ctx.sdfModeAttr[offset + 1] = modeVal
+  ctx.sdfModeAttr[offset + 2] = modeVal
+  ctx.sdfModeAttr[offset + 3] = modeVal
+
+  ctx.setRectMaskVert4IfNeeded(offset)
+  inc ctx.quadCount
+
+method drawQuadraticBezierSdf*(
+    ctx: VulkanContext,
+    rect: Rect,
+    fill: figbackend.BackendFill,
+    p0, p1, p2: Vec2,
+    strokeWeight: float32,
+) =
+  if fill.kind == figbackend.bfLinear3:
+    ctx.drawQuadraticBezierSdfVulkan(
+      rect = rect,
+      colors = [fill.lin3Start, fill.lin3Start, fill.lin3Start, fill.lin3Start],
+      p0 = p0,
+      p1 = p1,
+      p2 = p2,
+      strokeWeight = strokeWeight,
+      fillMode = linear3FillMode(fill.lin3Axis),
+      fillMidColor = fill.lin3Mid,
+      fillStopColor = fill.lin3Stop,
+      fillMidPos = fill.lin3MidPos,
+    )
+  else:
+    ctx.drawQuadraticBezierSdfVulkan(
+      rect = rect,
+      colors = figbackend.gradientColors(fill),
+      p0 = p0,
+      p1 = p1,
+      p2 = p2,
+      strokeWeight = strokeWeight,
+    )
+
 proc runBackdropSeparableBlur(
     ctx: VulkanContext, blurRadius: float32, blurRect: VkRect2D
 ) =

@@ -121,7 +121,7 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
         PI.float32 * 0.95'f32,
       ),
     ],
-    drawSteps = 64'u16,
+    drawSteps = 24'u16,
     drawAa = 0.85'f32,
   )
 
@@ -197,7 +197,6 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     transparent,
     RenderStroke(weight: 7.0'f32, fill: blue),
     @[drawableBezier(quadratic)],
-    drawSteps = 16'u16,
     drawAa = 0.9'f32,
   )
   renders.addDrawableNode(
@@ -207,7 +206,7 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     transparent,
     RenderStroke(weight: 8.0'f32, fill: rose),
     @[drawableBezier(cubic)],
-    drawSteps = 64'u16,
+    drawSteps = 24'u16,
     drawAa = 0.9'f32,
   )
   renders.addDrawableNode(
@@ -217,7 +216,7 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     transparent,
     RenderStroke(weight: 5.5'f32, fill: green),
     @[drawableBezier(generic)],
-    drawSteps = 256'u16,
+    drawSteps = 32'u16,
     drawAa = 0.9'f32,
   )
 
