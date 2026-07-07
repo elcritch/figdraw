@@ -707,11 +707,11 @@ proc createPipeline(ctx: VulkanContext) =
     flags: 0.VkAttachmentDescriptionFlags,
     format: ctx.swapchainFormat,
     samples: VK_SAMPLE_COUNT_1_BIT,
-    loadOp: VK_ATTACHMENT_LOAD_OP_LOAD,
+    loadOp: VK_ATTACHMENT_LOAD_OP_CLEAR,
     storeOp: VK_ATTACHMENT_STORE_OP_STORE,
     stencilLoadOp: VK_ATTACHMENT_LOAD_OP_DONT_CARE,
     stencilStoreOp: VK_ATTACHMENT_STORE_OP_DONT_CARE,
-    initialLayout: VkImageLayout.PresentSrcKhr,
+    initialLayout: VK_IMAGE_LAYOUT_UNDEFINED,
     finalLayout: VkImageLayout.PresentSrcKhr,
   )
   var colorAttachmentRef = VkAttachmentReference(
@@ -969,11 +969,17 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
     )
 
   let
+    replacingSwapchain = ctx.swapchain != vkNullSwapchain
     surfaceFormat = chooseSwapSurfaceFormat(support.formats)
     presentMode = chooseSwapPresentMode(support.presentModes)
     extent = chooseSwapExtent(support.capabilities, width, height)
     compositeAlpha =
       chooseSwapCompositeAlpha(support.capabilities.supportedCompositeAlpha)
+    pipelineNeedsRecreate =
+      ctx.swapchainFormat != surfaceFormat.format or ctx.renderPass == vkNullRenderPass or
+      ctx.pipeline == vkNullPipeline or ctx.pipelineLayout == vkNullPipelineLayout or
+      ctx.blurRenderPass == vkNullRenderPass or ctx.blurPipeline == vkNullPipeline or
+      ctx.blurPipelineLayout == vkNullPipelineLayout
 
   if ColorAttachmentBit notin support.capabilities.supportedUsageFlags:
     raise newException(
@@ -1049,8 +1055,9 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
   ctx.swapchainRequestedHeight = height
   ctx.swapchainOutOfDate = false
 
-  ctx.createPipeline()
-  ctx.createBlurPipeline()
+  if pipelineNeedsRecreate:
+    ctx.createPipeline()
+    ctx.createBlurPipeline()
 
   ctx.swapchainFramebuffers.setLen(ctx.swapchainViews.len)
   for i in 0 ..< ctx.swapchainViews.len:
@@ -1065,11 +1072,18 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
       ctx.device, info.addr, nil, ctx.swapchainFramebuffers[i].addr
     )
 
-  info "Created Vulkan swapchain",
-    width = int(ctx.swapchainExtent.width),
-    height = int(ctx.swapchainExtent.height),
-    imageCount = ctx.swapchainImages.len,
-    format = $ctx.swapchainFormat
+  if replacingSwapchain:
+    debug "Recreated Vulkan swapchain",
+      width = int(ctx.swapchainExtent.width),
+      height = int(ctx.swapchainExtent.height),
+      imageCount = ctx.swapchainImages.len,
+      format = $ctx.swapchainFormat
+  else:
+    info "Created Vulkan swapchain",
+      width = int(ctx.swapchainExtent.width),
+      height = int(ctx.swapchainExtent.height),
+      imageCount = ctx.swapchainImages.len,
+      format = $ctx.swapchainFormat
 
 proc clearFrameVertexUploads(ctx: VulkanContext) =
   for buf in ctx.frameVertexBuffers:
@@ -1086,9 +1100,10 @@ proc ensureSwapchain(ctx: VulkanContext, width, height: int32) =
   if not ctx.presentReady or width <= 0 or height <= 0:
     return
 
-  let needsRecreate =
-    ctx.swapchain == vkNullSwapchain or ctx.swapchainOutOfDate or
+  let sizeChanged =
     ctx.swapchainRequestedWidth != width or ctx.swapchainRequestedHeight != height
+  let needsRecreate =
+    ctx.swapchain == vkNullSwapchain or ctx.swapchainOutOfDate or sizeChanged
   if not needsRecreate:
     return
 
@@ -1505,6 +1520,14 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
   if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain or ctx.renderPassBegun:
     return
 
+  let clearValue = VkClearValue(
+    color: VkClearColorValue(
+      float32: [
+        ctx.frameClearColor.r.float32, ctx.frameClearColor.g.float32,
+        ctx.frameClearColor.b.float32, ctx.frameClearColor.a.float32,
+      ]
+    )
+  )
   let renderPassInfo = VkRenderPassBeginInfo(
     sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
     pNext: nil,
@@ -1512,8 +1535,8 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
     framebuffer: ctx.swapchainFramebuffers[ctx.acquiredImageIndex.int],
     renderArea:
       newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent),
-    clearValueCount: 0,
-    pClearValues: nil,
+    clearValueCount: 1,
+    pClearValues: clearValue.addr,
   )
   vkCmdBeginRenderPass(
     ctx.commandBuffer, renderPassInfo.addr, VK_SUBPASS_CONTENTS_INLINE
@@ -1535,26 +1558,6 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
   vkCmdSetScissor(ctx.commandBuffer, 0, 1, fullScissor.addr)
 
   if ctx.frameNeedsClear:
-    let clearValue = VkClearValue(
-      color: VkClearColorValue(
-        float32: [
-          ctx.frameClearColor.r.float32, ctx.frameClearColor.g.float32,
-          ctx.frameClearColor.b.float32, ctx.frameClearColor.a.float32,
-        ]
-      )
-    )
-    var clearAttachment = VkClearAttachment(
-      aspectMask: VkImageAspectFlags{ColorBit},
-      colorAttachment: 0,
-      clearValue: clearValue,
-    )
-    var clearRect = VkClearRect(
-      rect:
-        newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent),
-      baseArrayLayer: 0,
-      layerCount: 1,
-    )
-    vkCmdClearAttachments(ctx.commandBuffer, 1, clearAttachment.addr, 1, clearRect.addr)
     ctx.frameNeedsClear = false
 
   if ctx.clipRects.len > 0:

@@ -12,16 +12,21 @@ elif defined(windows):
   import windy/platforms/win32/platform
 elif defined(macosx):
   import std/importutils
+  import std/math
   import darwin/app_kit/[nswindow, nsview]
   import darwin/objc/runtime
-  import darwin/foundation/nsgeometry
   import windy/platforms/macos/platform
-  when UseMetalBackend:
+  when UseMetalBackend or UseVulkanBackend:
+    import darwin/core_graphics/cggeometry
+    import darwin/foundation/nsgeometry
     import metalx/[cametal, metal, view]
 elif defined(linux) or defined(bsd):
   import windy/platforms/linux/platform
 else:
   {.error: "windyshim: unsupported OS".}
+
+when UseVulkanBackend:
+  import ../vulkan/vulkan_context
 
 when NeedWindyOpenGLContext:
   import figdraw/utils/glutils
@@ -37,8 +42,27 @@ proc windyBackendName*[BackendState](renderer: FigRenderer[BackendState]): strin
 proc windyWindowTitle*(suffix = "Windy RenderList"): string =
   "figdraw: " & windyBackendName() & " + " & suffix
 
+when defined(macosx) and not compiles(cocoaWindow(Window())):
+  privateAccess(Window)
+  proc cocoaWindow*(window: Window): NSWindow =
+    cast[NSWindow](cast[pointer](window.inner.int))
+
+  proc cocoaContentView*(window: Window): NSView =
+    cocoaWindow(window).contentView()
+
+proc backingSize*(window: Window): IVec2 =
+  when defined(macosx):
+    let contentView = cocoaContentView(window)
+    let backing = contentView.convertRectToBacking(contentView.bounds())
+    ivec2(
+      max(0'i32, ceil(backing.size.width).int32),
+      max(0'i32, ceil(backing.size.height).int32),
+    )
+  else:
+    window.size()
+
 proc logicalSize*(window: Window): Vec2 =
-  result = vec2(window.size()).descaled()
+  result = vec2(window.backingSize()).descaled()
 
 proc newWindyWindow*(size: IVec2, fullscreen = false, title = "FigDraw"): Window =
   let size = scaled(
@@ -63,26 +87,66 @@ proc newWindyWindow*(size: IVec2, fullscreen = false, title = "FigDraw"): Window
 
   return window
 
-when defined(macosx) and not compiles(cocoaWindow(Window())):
-  privateAccess(Window)
-  proc cocoaWindow*(window: Window): NSWindow =
-    cast[NSWindow](cast[pointer](window.inner.int))
-
-  proc cocoaContentView*(window: Window): NSView =
-    cocoaWindow(window).contentView()
-
-when UseMetalBackend:
+when (UseMetalBackend or UseVulkanBackend) and defined(macosx):
   type MetalLayerHandle* = object
     ## Small helper container so callers don't need to depend on metalx/view.
     hostView*: NSView
     layer*: CAMetalLayer
 
+  type CATransaction = ptr object of NSObject
+
+  proc begin(t: typedesc[CATransaction]) {.objc: "begin".}
+  proc commit(t: typedesc[CATransaction]) {.objc: "commit".}
+  proc setDisableActions(
+    t: typedesc[CATransaction], disabled: bool
+  ) {.objc: "setDisableActions:".}
+
+  proc setFrame(view: NSView, rect: NSRect) {.objc: "setFrame:".}
   proc setOpaque(layer: CAMetalLayer, opaque: bool) {.objc: "setOpaque:".}
+  proc setPresentsWithTransaction(
+    layer: CAMetalLayer, enabled: bool
+  ) {.objc: "setPresentsWithTransaction:".}
+
+  proc setContentsScale(
+    layer: CAMetalLayer, scale: CGFloat
+  ) {.objc: "setContentsScale:".}
+
+  template withoutLayerActions(body: untyped) =
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    body
+    CATransaction.commit()
+
+  proc safeDrawableDimension(v: int32): CGFloat =
+    ## CAMetalLayer rejects zero-sized drawables during transient resize states.
+    max(1'i32, v).CGFloat
+
+  proc backingScale(bounds: NSRect, backingWidth, backingHeight: int32): CGFloat =
+    if bounds.size.width > 0:
+      return safeDrawableDimension(backingWidth) / bounds.size.width
+    if bounds.size.height > 0:
+      return safeDrawableDimension(backingHeight) / bounds.size.height
+    1.0
+
+  proc syncMetalLayer(handle: MetalLayerHandle, window: Window) =
+    let contentBounds = cocoaContentView(window).bounds()
+    let sz = window.backingSize()
+
+    withoutLayerActions:
+      handle.hostView.setFrame(contentBounds)
+
+      let bounds = handle.hostView.bounds()
+      handle.layer.setFrame(bounds)
+      handle.layer.setContentsScale(backingScale(bounds, sz.x, sz.y))
+      handle.layer.setDrawableSize(
+        NSSize(width: safeDrawableDimension(sz.x), height: safeDrawableDimension(sz.y))
+      )
 
   proc attachMetalLayer*(
       window: Window,
       device: MTLDevice,
       pixelFormat: MTLPixelFormat = MTLPixelFormatBGRA8Unorm,
+      presentsWithTransaction = false,
   ): MetalLayerHandle =
     ## Attaches a CAMetalLayer to a Windy macOS window.
     ##
@@ -91,17 +155,14 @@ when UseMetalBackend:
     result.layer = CAMetalLayer.alloc().init()
     result.layer.setDevice(device)
     result.layer.setPixelFormat(pixelFormat)
+    result.layer.setOpaque(true)
+    result.layer.setPresentsWithTransaction(presentsWithTransaction)
     result.hostView.setLayer(result.layer)
-    # Initial sizing.
-    result.layer.setFrame(result.hostView.bounds())
-    let sz = window.size()
-    result.layer.setDrawableSize(NSSize(width: sz.x.float, height: sz.y.float))
+    result.syncMetalLayer(window)
 
   proc updateMetalLayer*(handle: MetalLayerHandle, window: Window) =
     ## Updates layer frame + drawable size (call on resize/redraw).
-    handle.layer.setFrame(handle.hostView.bounds())
-    let sz = window.size()
-    handle.layer.setDrawableSize(NSSize(width: sz.x.float, height: sz.y.float))
+    handle.syncMetalLayer(window)
 
   proc setOpaque*(handle: MetalLayerHandle, opaque: bool) =
     ## Controls CAMetalLayer opacity without exposing Objective-C details.
@@ -111,8 +172,6 @@ when UseVulkanBackend and (defined(linux) or defined(bsd)):
   import chronicles
   import std/importutils
   import x11/xlib
-
-  import ../vulkan/vulkan_context
 
   privateAccess(Window)
 
@@ -137,10 +196,6 @@ when UseVulkanBackend and defined(windows):
 
   privateAccess(Window)
 
-  # VulkanContext is defined in the shared vulkan_context module,
-  # just like we import above for the X11 code path.
-  import ../vulkan/vulkan_context
-
   proc attachVulkanSurface*(window: Window, ctx: VulkanContext) =
     let hinstance = cast[pointer](GetModuleHandleW(nil))
     let hwnd = cast[pointer](window.hWnd)
@@ -149,8 +204,10 @@ when UseVulkanBackend and defined(windows):
 type WindyRenderBackend* = object
   ## Opaque per-window backend state used by windy + FigDraw integration.
   window*: Window
-  when UseMetalBackend:
+  when UseMetalBackend and defined(macosx):
     metalLayer*: MetalLayerHandle
+  when UseVulkanBackend and defined(macosx):
+    vulkanMetalLayer*: MetalLayerHandle
 
 proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a Windy window and FigDraw renderer.
@@ -159,7 +216,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
     if renderer.forceOpenGlByEnv():
       renderer.backendState.window.makeContextCurrent()
       discard renderer.applyRuntimeBackendOverride()
-  when UseMetalBackend:
+  when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:
       try:
         renderer.backendState.metalLayer =
@@ -173,7 +230,23 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
   elif UseVulkanBackend:
     if renderer.backendKind() == rbVulkan:
       try:
-        attachVulkanSurface(window, VulkanContext(renderer.ctx))
+        let vkCtx = VulkanContext(renderer.ctx)
+        var hasPresentTarget = false
+        when defined(macosx):
+          let device = MTLCreateSystemDefaultDevice()
+          if device.isNil:
+            raise newException(ValueError, "Failed to create Metal device for Vulkan")
+          renderer.backendState.vulkanMetalLayer =
+            attachMetalLayer(window, device, presentsWithTransaction = true)
+          vkCtx.setPresentMetalLayer(renderer.backendState.vulkanMetalLayer.layer)
+          hasPresentTarget = true
+        elif defined(linux) or defined(bsd) or defined(windows):
+          attachVulkanSurface(window, vkCtx)
+          hasPresentTarget = true
+        if not hasPresentTarget:
+          raise newException(
+            ValueError, "Vulkan present target unavailable for this Windy window"
+          )
       except CatchableError as exc:
         when UseOpenGlFallback:
           renderer.useOpenGlFallback(exc.msg)
@@ -182,10 +255,14 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
 
 proc beginFrame*(renderer: FigRenderer[WindyRenderBackend]) =
   ## Per-frame pre-render backend maintenance.
-  when UseMetalBackend:
+  when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:
       let window = renderer.backendState.window
       renderer.backendState.metalLayer.updateMetalLayer(window)
+  when UseVulkanBackend and defined(macosx):
+    if renderer.backendKind() == rbVulkan:
+      let window = renderer.backendState.window
+      renderer.backendState.vulkanMetalLayer.updateMetalLayer(window)
   when NeedWindyOpenGLContext:
     if renderer.backendKind() == rbOpenGL:
       renderer.backendState.window.makeContextCurrent()
