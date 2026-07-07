@@ -150,3 +150,26 @@ suite "nkTransform render behavior":
     ctx.renderRoot(renders)
 
     check ctx.draws.len == 9
+
+  test "renders arc drawable as line segments with caps":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkDrawable,
+        screenBox: rect(5.0'f32, 7.0'f32, 30.0'f32, 20.0'f32),
+        drawStroke: RenderStroke(weight: 2.0'f32, fill: fill(rgba(255, 0, 0, 255))),
+        drawOps:
+          @[
+            drawableArc(
+              vec2(10.0'f32, 10.0'f32), 8.0'f32, 0.0'f32, 1.5707964'f32, steps = 4'u16
+            )
+          ],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.draws.len == 9

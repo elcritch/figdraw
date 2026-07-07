@@ -827,11 +827,14 @@ proc bezierPoint(controls: openArray[Vec2], t: float32): Vec2 =
     dec count
   work[0]
 
-func bezierStepCount(op: DrawableOp): int =
-  if op.steps == 0'u16:
-    DefaultDrawableBezierSteps.int
+func drawableStepCount(steps, fallback: uint16): int =
+  if steps == 0'u16:
+    fallback.int
   else:
-    max(1, op.steps.int)
+    max(1, steps.int)
+
+func bezierStepCount(op: DrawableOp): int =
+  drawableStepCount(op.steps, DefaultDrawableBezierSteps)
 
 proc renderDrawableBezier(
     ctx: BackendContext, origin: Vec2, op: DrawableOp, stroke: RenderStroke
@@ -854,6 +857,35 @@ proc renderDrawableBezier(
     ctx.renderDrawableStrokeCap(origin + current, capRadius, stroke.fill)
     previous = current
 
+func arcPoint(center: Vec2, radius, angle: float32): Vec2 =
+  center + vec2(cos(angle) * radius, sin(angle) * radius)
+
+func arcStepCount(op: DrawableOp): int =
+  drawableStepCount(op.arcSteps, DefaultDrawableArcSteps)
+
+proc renderDrawableArc(
+    ctx: BackendContext, origin: Vec2, op: DrawableOp, stroke: RenderStroke
+) =
+  let radius = max(0.0'f32, op.arcRadius)
+  if radius <= 0.0'f32 or op.sweepAngle == 0.0'f32:
+    return
+  if stroke.weight <= 0.0'f32 or fillAlphaMax(stroke.fill) == 0'u8:
+    return
+
+  let steps = op.arcStepCount()
+  let capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
+  var previous = arcPoint(op.arcCenter, radius, op.startAngle)
+  ctx.renderDrawableStrokeCap(origin + previous, capRadius, stroke.fill)
+  for step in 1 .. steps:
+    let
+      t = step.float32 / steps.float32
+      angle = op.startAngle + op.sweepAngle * t
+      current = arcPoint(op.arcCenter, radius, angle)
+      segment = drawableLine(previous, current)
+    ctx.renderDrawableLine(origin, segment, stroke)
+    ctx.renderDrawableStrokeCap(origin + current, capRadius, stroke.fill)
+    previous = current
+
 proc renderDrawable*(ctx: BackendContext, node: Fig) =
   let
     origin = node.screenBox.xy
@@ -869,6 +901,8 @@ proc renderDrawable*(ctx: BackendContext, node: Fig) =
       ctx.renderDrawableRect(origin, op, fill, stroke)
     of dkBezier:
       ctx.renderDrawableBezier(origin, op, stroke)
+    of dkArc:
+      ctx.renderDrawableArc(origin, op, stroke)
 
 proc renderBoxes(ctx: BackendContext, node: Fig) =
   ## drawing boxes for rectangles

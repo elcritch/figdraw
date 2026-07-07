@@ -154,6 +154,19 @@ suite "drawable helper render":
     check curve.controls[2].x.approxEq(24.0'f32)
     check curve.steps == 8'u16
 
+  test "arc math":
+    let arc = drawableArc(
+      vec2(12.0'f32, 18.0'f32), 24.0'f32, 0.0'f32, 3.1415927'f32, steps = 12'u16
+    )
+
+    check arc.kind == dkArc
+    check arc.arcCenter.x.approxEq(12.0'f32)
+    check arc.arcCenter.y.approxEq(18.0'f32)
+    check arc.arcRadius.approxEq(24.0'f32)
+    check arc.startAngle.approxEq(0.0'f32)
+    check arc.sweepAngle.approxEq(3.1415927'f32)
+    check arc.arcSteps == 12'u16
+
   test "renders a rotated rect line that matches expectation":
     checkRenderRegression(
       outName = "render_line_rect.png",

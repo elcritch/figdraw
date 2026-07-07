@@ -10,6 +10,7 @@ type
     dkCircle
     dkRectangle
     dkBezier
+    dkArc
 
   DrawableOp* = object
     case kind*: DrawableKind
@@ -24,6 +25,12 @@ type
     of dkBezier:
       controls*: seq[Vec2]
       steps*: uint16
+    of dkArc:
+      arcCenter*: Vec2
+      arcRadius*: float32
+      startAngle*: float32
+      sweepAngle*: float32
+      arcSteps*: uint16
 
   RenderList* = object
     nodes*: seq[Fig]
@@ -74,7 +81,9 @@ static:
   doAssert sizeof(Fig) < 256,
     "FigNode SIZE: should be smaller than 256! Got: " & $sizeof(Fig)
 
-const DefaultDrawableBezierSteps* = 24'u16
+const
+  DefaultDrawableBezierSteps* = 24'u16
+  DefaultDrawableArcSteps* = 24'u16
 
 proc drawableLine*(a, b: Vec2): DrawableOp =
   DrawableOp(kind: dkLine, a: a, b: b)
@@ -107,6 +116,29 @@ proc drawableBezier*(
     p0, p1, p2, p3: Vec2, steps: uint16 = DefaultDrawableBezierSteps
 ): DrawableOp =
   drawableBezier([p0, p1, p2, p3], steps)
+
+proc drawableArc*(
+    center: Vec2,
+    radius: float32,
+    startAngle: float32,
+    sweepAngle: float32,
+    steps: uint16 = DefaultDrawableArcSteps,
+): DrawableOp =
+  ## Creates a stroked circular arc drawable op. Angles are radians.
+  DrawableOp(
+    kind: dkArc,
+    arcCenter: center,
+    arcRadius: radius,
+    startAngle: startAngle,
+    sweepAngle: sweepAngle,
+    arcSteps: steps,
+  )
+
+proc drawableArc*(
+    x, y, radius, startAngle, sweepAngle: float32,
+    steps: uint16 = DefaultDrawableArcSteps,
+): DrawableOp =
+  drawableArc(vec2(x, y), radius, startAngle, sweepAngle, steps)
 
 proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"

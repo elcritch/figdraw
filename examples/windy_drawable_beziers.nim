@@ -1,4 +1,5 @@
 import std/strutils
+import std/math
 when not defined(emscripten):
   import std/os
 
@@ -60,8 +61,10 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     mutedBlue = rgba(26, 99, 214, 70)
     mutedRose = rgba(221, 62, 125, 70)
     mutedGreen = rgba(40, 153, 94, 70)
+    mutedInk = rgba(82, 92, 112, 120)
 
   let
+    arcCenter = localPoint(area, 0.76'f32, 0.75'f32)
     quadratic = [
       localPoint(area, 0.08'f32, 0.72'f32),
       localPoint(area, 0.29'f32, 0.10'f32),
@@ -80,6 +83,30 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
       localPoint(area, 0.64'f32, 0.80'f32),
       localPoint(area, 0.91'f32, 0.20'f32),
     ]
+
+  renders.addDrawableNode(
+    z,
+    parentIdx,
+    area,
+    transparent,
+    RenderStroke(weight: 3.0'f32, fill: mutedInk),
+    @[
+      drawableArc(
+        arcCenter,
+        min(area.w, area.h) * 0.10'f32,
+        -PI.float32 * 1.10'f32,
+        PI.float32 * 1.35'f32,
+        steps = 28'u16,
+      ),
+      drawableArc(
+        arcCenter,
+        min(area.w, area.h) * 0.15'f32,
+        -PI.float32 * 0.85'f32,
+        PI.float32 * 0.95'f32,
+        steps = 32'u16,
+      ),
+    ],
+  )
 
   renders.addDrawableNode(
     z,
@@ -244,7 +271,7 @@ proc makeRenderTree*(w, h: float32): Renders =
 when isMainModule:
   var appRunning = true
 
-  let title = windyWindowTitle("Windy Drawable Beziers")
+  let title = windyWindowTitle("Windy Drawable Beziers + Arcs")
   let size = ivec2(900, 620)
   let window = newWindyWindow(size = size, fullscreen = false, title = title)
 

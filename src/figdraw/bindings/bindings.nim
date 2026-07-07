@@ -679,6 +679,8 @@ proc drawablePointX(fig: FigRef, index: int): float32 =
       op.controls[0].x
     else:
       0'f32
+  of fdn.dkArc:
+    op.arcCenter.x
 
 proc drawablePointY(fig: FigRef, index: int): float32 =
   if fig.isNil or fig.inner.kind != fdn.nkDrawable:
@@ -698,6 +700,8 @@ proc drawablePointY(fig: FigRef, index: int): float32 =
       op.controls[0].y
     else:
       0'f32
+  of fdn.dkArc:
+    op.arcCenter.y
 
 proc setDrawablePoint(fig: FigRef, index: int, x, y: float32) =
   returnIfNil fig
