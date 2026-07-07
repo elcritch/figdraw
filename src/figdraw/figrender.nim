@@ -999,6 +999,15 @@ proc includePoint(p: Vec2, minPoint, maxPoint: var Vec2) =
 func isFlatQuadratic(p0, p1, p2: Vec2): bool =
   abs(cross2(p1 - p0, p2 - p1)) <= 0.0001'f32
 
+const
+  DrawableAdaptiveTolerancePx = 0.5'f32
+  DrawableSdfPaddingPx = 2.0'f32
+  MaxAdaptiveDrawableSteps = max(DefaultDrawableBezierSteps.int * 4, 64)
+  MaxAdaptiveCurveDepth = 8
+
+proc drawableSdfPadding(): float32 =
+  DrawableSdfPaddingPx.descaled()
+
 proc quadraticBounds(p0, p1, p2: Vec2, padding: float32): Rect =
   var
     minPoint = vec2(min(p0.x, p2.x), min(p0.y, p2.y))
@@ -1023,21 +1032,13 @@ proc quadraticBounds(p0, p1, p2: Vec2, padding: float32): Rect =
     maxPoint.y - minPoint.y + padding * 2.0'f32,
   )
 
-func drawableStepCount(steps, nodeSteps, fallback: uint16): int =
-  let resolved =
-    if steps != 0'u16:
-      steps
-    elif nodeSteps != 0'u16:
-      nodeSteps
-    else:
-      fallback
-  max(1, resolved.int)
-
-func bezierStepCount(op: DrawableOp, nodeSteps: uint16): int =
-  drawableStepCount(op.steps, nodeSteps, DefaultDrawableBezierSteps)
-
-func arcStepCount(op: DrawableOp, nodeSteps: uint16): int =
-  drawableStepCount(op.arcSteps, nodeSteps, DefaultDrawableArcSteps)
+func explicitDrawableStepCount(steps, nodeSteps: uint16): int =
+  if steps != 0'u16:
+    max(1, steps.int)
+  elif nodeSteps != 0'u16:
+    max(1, nodeSteps.int)
+  else:
+    0
 
 type DrawableQuadraticSpan = object
   p0, p1, p2: Vec2
@@ -1051,6 +1052,117 @@ func endTangent(span: DrawableQuadraticSpan): Vec2 =
   normalizedOr(
     span.p2 - span.p1, normalizedOr(span.p2 - span.p0, vec2(1.0'f32, 0.0'f32))
   )
+
+proc pointDistancePx(a, b: Vec2): float32 =
+  vectorLength((a - b).scaled())
+
+func distanceToLine(p, a, b: Vec2): float32 =
+  let ab = b - a
+  let denom = ab.x * ab.x + ab.y * ab.y
+  if denom <= 0.000001'f32:
+    return vectorLength(p - a)
+  let h = clamp(((p - a).x * ab.x + (p - a).y * ab.y) / denom, 0.0'f32, 1.0'f32)
+  vectorLength(p - (a + ab * h))
+
+proc distanceToLinePx(p, a, b: Vec2): float32 =
+  distanceToLine(p.scaled(), a.scaled(), b.scaled())
+
+func bezierQuadraticSpan(
+    controls: openArray[Vec2], t0, t2: float32
+): DrawableQuadraticSpan =
+  let
+    tm = (t0 + t2) * 0.5'f32
+    p0 = bezierPoint(controls, t0)
+    pm = bezierPoint(controls, tm)
+    p2 = bezierPoint(controls, t2)
+    p1 = pm * 2.0'f32 - (p0 + p2) * 0.5'f32
+  DrawableQuadraticSpan(p0: p0, p1: p1, p2: p2)
+
+func bezierQuadraticSpan(
+    controls: openArray[Vec2], step, steps: int
+): DrawableQuadraticSpan =
+  bezierQuadraticSpan(
+    controls, step.float32 / steps.float32, (step + 1).float32 / steps.float32
+  )
+
+proc quadraticApproxErrorPx(
+    controls: openArray[Vec2], span: DrawableQuadraticSpan, t0, t2: float32
+): float32 =
+  for localT in [0.25'f32, 0.75'f32]:
+    let
+      t = t0 + (t2 - t0) * localT
+      actual = bezierPoint(controls, t)
+      approx = quadraticPoint(span.p0, span.p1, span.p2, localT)
+    result = max(result, pointDistancePx(actual, approx))
+
+proc appendAdaptiveBezierSpan(
+    controls: openArray[Vec2],
+    t0, t2: float32,
+    depth: int,
+    spans: var seq[DrawableQuadraticSpan],
+) =
+  let span = bezierQuadraticSpan(controls, t0, t2)
+  let error = quadraticApproxErrorPx(controls, span, t0, t2)
+  if error <= DrawableAdaptiveTolerancePx or depth >= MaxAdaptiveCurveDepth or
+      spans.len >= MaxAdaptiveDrawableSteps - 1:
+    spans.add span
+  else:
+    let tm = (t0 + t2) * 0.5'f32
+    appendAdaptiveBezierSpan(controls, t0, tm, depth + 1, spans)
+    appendAdaptiveBezierSpan(controls, tm, t2, depth + 1, spans)
+
+proc adaptiveBezierSpans(controls: openArray[Vec2]): seq[DrawableQuadraticSpan] =
+  appendAdaptiveBezierSpan(controls, 0.0'f32, 1.0'f32, 0, result)
+
+proc fixedBezierSpans(
+    controls: openArray[Vec2], steps: int
+): seq[DrawableQuadraticSpan] =
+  for step in 0 ..< steps:
+    result.add bezierQuadraticSpan(controls, step, steps)
+
+proc appendAdaptiveBezierSegmentPoint(
+    controls: openArray[Vec2], t0, t2: float32, depth: int, points: var seq[Vec2]
+) =
+  let
+    p0 = bezierPoint(controls, t0)
+    p2 = bezierPoint(controls, t2)
+    tm = (t0 + t2) * 0.5'f32
+    pm = bezierPoint(controls, tm)
+    error = distanceToLinePx(pm, p0, p2)
+  if error <= DrawableAdaptiveTolerancePx or depth >= MaxAdaptiveCurveDepth or
+      points.len >= MaxAdaptiveDrawableSteps:
+    points.add p2
+  else:
+    appendAdaptiveBezierSegmentPoint(controls, t0, tm, depth + 1, points)
+    appendAdaptiveBezierSegmentPoint(controls, tm, t2, depth + 1, points)
+
+proc bezierSegmentPoints(controls: openArray[Vec2], fixedSteps: int): seq[Vec2] =
+  result.add bezierPoint(controls, 0.0'f32)
+  if fixedSteps > 0:
+    for step in 1 .. fixedSteps:
+      result.add bezierPoint(controls, step.float32 / fixedSteps.float32)
+  else:
+    appendAdaptiveBezierSegmentPoint(controls, 0.0'f32, 1.0'f32, 0, result)
+
+proc adaptiveArcStepCount(radius, sweepAngle: float32): int =
+  let
+    radiusPx = max(0.0'f32, radius.scaled())
+    absSweep = abs(sweepAngle)
+  if radiusPx <= 0.0'f32 or absSweep <= 0.0'f32:
+    return 1
+
+  let
+    cosLimit =
+      clamp(1.0'f32 - DrawableAdaptiveTolerancePx / radiusPx, -1.0'f32, 1.0'f32)
+    maxAngle = max(0.01'f32, 2.0'f32 * arccos(cosLimit))
+  clamp(ceil(absSweep / maxAngle).int, 1, MaxAdaptiveDrawableSteps)
+
+proc arcStepCount(op: DrawableOp, nodeSteps: uint16): int =
+  let explicit = explicitDrawableStepCount(op.arcSteps, nodeSteps)
+  if explicit > 0:
+    explicit
+  else:
+    adaptiveArcStepCount(op.arcRadius, op.sweepAngle)
 
 proc renderDrawableQuadraticBezierSdf(
     ctx: BackendContext,
@@ -1070,7 +1182,7 @@ proc renderDrawableQuadraticBezierSdf(
 
   let
     strokeWeight = max(0.0'f32, stroke.weight)
-    padding = strokeWeight * 0.5'f32 + 2.0'f32
+    padding = strokeWeight * 0.5'f32 + drawableSdfPadding()
     a = origin + p0
     b = origin + p1
     c = origin + p2
@@ -1105,18 +1217,22 @@ proc renderDrawableBezierSegments(
   if stroke.weight <= 0.0'f32 or fillAlphaMax(stroke.fill) == 0'u8:
     return
 
-  let steps = op.bezierStepCount(nodeSteps)
+  let
+    fixedSteps = explicitDrawableStepCount(op.steps, nodeSteps)
+    points = bezierSegmentPoints(op.controls, fixedSteps)
+  if points.len < 2:
+    return
+
   let
     cap = stroke.resolveCurveCap()
     join = stroke.resolveCurveJoin()
     capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
     segmentStroke = stroke.withCap(scButt)
-  var previous = bezierPoint(op.controls, 0.0'f32)
+  var previous = points[0]
   var previousTangent = vec2(1.0'f32, 0.0'f32)
-  for step in 1 .. steps:
+  for step in 1 ..< points.len:
     let
-      t = step.float32 / steps.float32
-      current = bezierPoint(op.controls, t)
+      current = points[step]
       segment = drawableLine(previous, current)
       tangent = current - previous
     ctx.renderDrawableLine(origin, segment, segmentStroke)
@@ -1128,25 +1244,12 @@ proc renderDrawableBezierSegments(
       ctx.renderDrawableStrokeJoin(
         origin, previous, previousTangent, tangent, capRadius, stroke.fill, join
       )
-    if step == steps:
+    if step == points.len - 1:
       ctx.renderDrawableEndpointCap(
         origin, current, tangent, capRadius, stroke, cap, isStart = false
       )
     previous = current
     previousTangent = tangent
-
-func bezierQuadraticSpan(
-    controls: openArray[Vec2], step, steps: int
-): DrawableQuadraticSpan =
-  let
-    t0 = step.float32 / steps.float32
-    t2 = (step + 1).float32 / steps.float32
-    tm = (t0 + t2) * 0.5'f32
-    p0 = bezierPoint(controls, t0)
-    pm = bezierPoint(controls, tm)
-    p2 = bezierPoint(controls, t2)
-    p1 = pm * 2.0'f32 - (p0 + p2) * 0.5'f32
-  DrawableQuadraticSpan(p0: p0, p1: p1, p2: p2)
 
 proc renderDrawableBezierQuadratics(
     ctx: BackendContext,
@@ -1155,7 +1258,12 @@ proc renderDrawableBezierQuadratics(
     stroke: RenderStroke,
     nodeSteps: uint16,
 ) =
-  let steps = op.bezierStepCount(nodeSteps)
+  let fixedSteps = explicitDrawableStepCount(op.steps, nodeSteps)
+  let spans =
+    if fixedSteps > 0:
+      fixedBezierSpans(op.controls, fixedSteps)
+    else:
+      adaptiveBezierSpans(op.controls)
   let
     cap = stroke.resolveCurveCap()
     join = stroke.resolveCurveJoin()
@@ -1163,8 +1271,7 @@ proc renderDrawableBezierQuadratics(
     spanCap = if simpleRoundSpans: scRound else: scButt
     capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
   var previousSpan: DrawableQuadraticSpan
-  for step in 0 ..< steps:
-    let span = bezierQuadraticSpan(op.controls, step, steps)
+  for step, span in spans:
     ctx.renderDrawableQuadraticBezierSdf(
       origin, span.p0, span.p1, span.p2, stroke, spanCap
     )
@@ -1183,7 +1290,7 @@ proc renderDrawableBezierQuadratics(
           stroke.fill,
           join,
         )
-      if step == steps - 1:
+      if step == spans.len - 1:
         ctx.renderDrawableEndpointCap(
           origin, span.p2, span.endTangent(), capRadius, stroke, cap, isStart = false
         )

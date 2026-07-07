@@ -1,5 +1,6 @@
 import std/[tables, unittest]
 
+import figdraw/commons
 import figdraw/figrender
 import figdraw/fignodes
 
@@ -99,6 +100,28 @@ proc newRecordingBackend(): RecordingBackend =
   RecordingBackend(
     mat: mat4(), mats: @[], draws: @[], aaFactor: DefaultSdfAaFactor, aaChanges: @[]
   )
+
+proc renderedDrawableDraws(
+    op: DrawableOp,
+    screenBox = rect(0.0'f32, 0.0'f32, 300.0'f32, 300.0'f32),
+    drawSteps = 0'u16,
+): seq[Rect] =
+  var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+  discard renders.addRoot(
+    0.ZLevel,
+    Fig(
+      kind: nkDrawable,
+      screenBox: screenBox,
+      drawStroke: RenderStroke(weight: 2.0'f32, fill: fill(rgba(255, 0, 0, 255))),
+      drawSteps: drawSteps,
+      drawOps: @[op],
+    ),
+  )
+
+  let ctx = newRecordingBackend()
+  ctx.renderRoot(renders)
+  result = ctx.draws
 
 suite "nkTransform render behavior":
   test "applies translation to child nodes":
@@ -258,6 +281,30 @@ suite "nkTransform render behavior":
 
     check ctx.draws.len == 4
 
+  test "adaptively decomposes cubic bezier drawables by screen size":
+    let
+      smallCurve = drawableBezier(
+        [
+          vec2(0.0'f32, 0.0'f32),
+          vec2(4.0'f32, 20.0'f32),
+          vec2(8.0'f32, -20.0'f32),
+          vec2(12.0'f32, 0.0'f32),
+        ]
+      )
+      largeCurve = drawableBezier(
+        [
+          vec2(0.0'f32, 0.0'f32),
+          vec2(40.0'f32, 200.0'f32),
+          vec2(80.0'f32, -200.0'f32),
+          vec2(120.0'f32, 0.0'f32),
+        ]
+      )
+      smallDraws = renderedDrawableDraws(smallCurve)
+      largeDraws = renderedDrawableDraws(largeCurve)
+
+    check smallDraws.len > 0
+    check largeDraws.len > smallDraws.len
+
   test "renders arc drawable as quadratic sdf spans":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
 
@@ -280,6 +327,16 @@ suite "nkTransform render behavior":
     ctx.renderRoot(renders)
 
     check ctx.draws.len == 4
+
+  test "adaptively decomposes arc drawables by screen size":
+    let
+      smallArc = drawableArc(vec2(16.0'f32, 16.0'f32), 8.0'f32, 0.0'f32, 3.1415927'f32)
+      largeArc = drawableArc(vec2(90.0'f32, 90.0'f32), 80.0'f32, 0.0'f32, 3.1415927'f32)
+      smallDraws = renderedDrawableDraws(smallArc)
+      largeDraws = renderedDrawableDraws(largeArc)
+
+    check smallDraws.len > 0
+    check largeDraws.len > smallDraws.len
 
   test "renders explicit bevel joins for decomposed arc drawable":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
@@ -336,6 +393,22 @@ suite "nkTransform render behavior":
     ctx.renderRoot(renders)
 
     check ctx.draws.len == 3
+
+  test "keeps quadratic sdf antialias padding in physical pixels":
+    let oldScale = figUiScale()
+    setFigUiScale(2.0'f32)
+    try:
+      let draws = renderedDrawableDraws(
+        drawableBezier(
+          vec2(0.0'f32, 0.0'f32), vec2(10.0'f32, 10.0'f32), vec2(20.0'f32, 0.0'f32)
+        )
+      )
+
+      check draws.len == 1
+      check abs(draws[0].w - 48.0'f32) < 0.0001'f32
+      check abs(draws[0].h - 18.0'f32) < 0.0001'f32
+    finally:
+      setFigUiScale(oldScale)
 
   test "drawable aa overrides backend sdf aa and restores it":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())

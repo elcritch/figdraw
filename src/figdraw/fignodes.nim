@@ -106,7 +106,7 @@ proc drawableRect*(
 
 proc drawableBezier*(controls: openArray[Vec2], steps: uint16 = 0'u16): DrawableOp =
   ## Creates a stroked Bezier drawable op.
-  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or renderer default.
+  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or uses adaptive spans.
   DrawableOp(kind: dkBezier, controls: @controls, steps: steps)
 
 proc drawableBezier*(p0, p1, p2: Vec2, steps: uint16 = 0'u16): DrawableOp =
@@ -123,7 +123,7 @@ proc drawableArc*(
     steps: uint16 = 0'u16,
 ): DrawableOp =
   ## Creates a stroked circular arc drawable op. Angles are radians.
-  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or renderer default.
+  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or uses adaptive spans.
   DrawableOp(
     kind: dkArc,
     arcCenter: center,
