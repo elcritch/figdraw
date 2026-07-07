@@ -46,17 +46,26 @@ method drawQuadraticBezierSdf*(
     fill: BackendFill,
     p0, p1, p2: Vec2,
     strokeWeight: float32,
+    cap: StrokeCap,
 ) =
   discard fill
   discard p0
   discard p1
   discard p2
   discard strokeWeight
+  discard cap
   let topLeft = (ctx.mat * vec3(rect.x, rect.y, 1.0'f32)).xy
   var transformed = rect
   transformed.x = topLeft.x
   transformed.y = topLeft.y
   ctx.draws.add transformed
+
+method drawFilledQuad*(
+    ctx: RecordingBackend, verts: array[4, Vec2], colors: array[4, ColorRGBA]
+) =
+  discard colors
+  let topLeft = (ctx.mat * vec3(verts[0].x, verts[0].y, 1.0'f32)).xy
+  ctx.draws.add rect(topLeft.x, topLeft.y, 0.0'f32, 0.0'f32)
 
 method translate*(ctx: RecordingBackend, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
@@ -182,6 +191,44 @@ suite "nkTransform render behavior":
 
     check ctx.draws.len == 1
 
+  test "renders round capped drawable line with endpoint caps":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkDrawable,
+        screenBox: rect(5.0'f32, 7.0'f32, 30.0'f32, 20.0'f32),
+        drawStroke:
+          RenderStroke(weight: 2.0'f32, fill: fill(rgba(255, 0, 0, 255)), cap: scRound),
+        drawOps: @[drawableLine(vec2(0.0'f32, 0.0'f32), vec2(10.0'f32, 0.0'f32))],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.draws.len == 3
+
+  test "renders square capped drawable line as one extended segment":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkDrawable,
+        screenBox: rect(5.0'f32, 7.0'f32, 30.0'f32, 20.0'f32),
+        drawStroke:
+          RenderStroke(weight: 2.0'f32, fill: fill(rgba(255, 0, 0, 255)), cap: scSquare),
+        drawOps: @[drawableLine(vec2(0.0'f32, 0.0'f32), vec2(10.0'f32, 0.0'f32))],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.draws.len == 1
+
   test "decomposes higher order bezier drawable into quadratic sdf spans":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
 
@@ -233,6 +280,31 @@ suite "nkTransform render behavior":
     ctx.renderRoot(renders)
 
     check ctx.draws.len == 4
+
+  test "renders explicit bevel joins for decomposed arc drawable":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkDrawable,
+        screenBox: rect(5.0'f32, 7.0'f32, 30.0'f32, 20.0'f32),
+        drawStroke: RenderStroke(
+          weight: 2.0'f32, fill: fill(rgba(255, 0, 0, 255)), cap: scButt, join: sjBevel
+        ),
+        drawOps:
+          @[
+            drawableArc(
+              vec2(10.0'f32, 10.0'f32), 8.0'f32, 0.0'f32, 1.5707964'f32, steps = 4'u16
+            )
+          ],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.draws.len == 7
 
   test "drawable node steps are defaults for curve ops":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())

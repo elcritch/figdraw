@@ -47,6 +47,14 @@ type SdfMode* {.pure.} = enum
   sdfModeMtsdfAnnular = 16
   sdfModeBackdropBlur = 17
   sdfModeBezierStrokeAA = 18
+  sdfModeBezierStrokeButtAA = 19
+  sdfModeBezierStrokeSquareAA = 20
+
+func bezierStrokeSdfMode*(cap: StrokeCap): SdfMode =
+  case cap
+  of scButt: SdfMode.sdfModeBezierStrokeButtAA
+  of scSquare: SdfMode.sdfModeBezierStrokeSquareAA
+  of scAuto, scRound: SdfMode.sdfModeBezierStrokeAA
 
 type
   AtlasEntryKind* = enum
@@ -420,12 +428,18 @@ method drawImageAdj*(
 method drawRect*(impl: BackendContext, rect: Rect, color: Color) {.base.} =
   raise newException(ValueError, "Backend drawRect unavailable")
 
+method drawFilledQuad*(
+    impl: BackendContext, verts: array[4, Vec2], colors: array[4, ColorRGBA]
+) {.base.} =
+  raise newException(ValueError, "Backend drawFilledQuad unavailable")
+
 method drawQuadraticBezierSdf*(
     impl: BackendContext,
     rect: Rect,
     fill: BackendFill,
     p0, p1, p2: Vec2,
     strokeWeight: float32,
+    cap: StrokeCap,
 ) {.base.} =
   raise newException(ValueError, "Backend drawQuadraticBezierSdf unavailable")
 

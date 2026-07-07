@@ -745,6 +745,45 @@ proc renderRoundedShape(
         doStroke = true,
       )
 
+func vectorLength(v: Vec2): float32 =
+  sqrt(v.x * v.x + v.y * v.y)
+
+func normalizedOr(v, fallback: Vec2): Vec2 =
+  let len = vectorLength(v)
+  if len <= 0.000001'f32:
+    fallback
+  else:
+    v / len
+
+func normalLeft(dir: Vec2): Vec2 =
+  vec2(-dir.y, dir.x)
+
+func cross2(a, b: Vec2): float32 =
+  a.x * b.y - a.y * b.x
+
+func resolveLineCap(stroke: RenderStroke): StrokeCap =
+  case stroke.cap
+  of scAuto: scButt
+  else: stroke.cap
+
+func resolveCurveCap(stroke: RenderStroke): StrokeCap =
+  case stroke.cap
+  of scAuto: scRound
+  else: stroke.cap
+
+func resolveCurveJoin(stroke: RenderStroke): StrokeJoin =
+  case stroke.join
+  of sjAuto: sjRound
+  else: stroke.join
+
+func withCap(stroke: RenderStroke, cap: StrokeCap): RenderStroke =
+  result = stroke
+  result.cap = cap
+
+proc renderDrawableStrokeCap(
+  ctx: BackendContext, center: Vec2, radius: float32, fill: Fill
+)
+
 proc renderDrawableLine(
     ctx: BackendContext, origin: Vec2, op: DrawableOp, stroke: RenderStroke
 ) =
@@ -756,13 +795,28 @@ proc renderDrawableLine(
     a = origin + op.a
     b = origin + op.b
     delta = b - a
-    length = sqrt(delta.x * delta.x + delta.y * delta.y)
+    length = vectorLength(delta)
   if length <= 0.0'f32:
     return
 
   let
-    center = (a + b) / 2.0'f32
-    box = rect(center.x - length / 2.0'f32, center.y - weight / 2.0'f32, length, weight)
+    cap = stroke.resolveLineCap()
+    capRadius = weight * 0.5'f32
+    dir = delta / length
+  var
+    drawA = a
+    drawB = b
+    drawLength = length
+  if cap == scSquare:
+    drawA = a - dir * capRadius
+    drawB = b + dir * capRadius
+    drawLength = length + weight
+
+  let
+    center = (drawA + drawB) / 2.0'f32
+    box = rect(
+      center.x - drawLength / 2.0'f32, center.y - weight / 2.0'f32, drawLength, weight
+    )
     scaledBox = box.scaled()
     pivot = scaledBox.xy + scaledBox.wh / 2.0'f32
     angle = arctan2(delta.y, delta.x).float32
@@ -776,6 +830,10 @@ proc renderDrawableLine(
   finally:
     ctx.restoreTransform()
 
+  if cap == scRound:
+    ctx.renderDrawableStrokeCap(a, capRadius, stroke.fill)
+    ctx.renderDrawableStrokeCap(b, capRadius, stroke.fill)
+
 proc renderDrawableStrokeCap(
     ctx: BackendContext, center: Vec2, radius: float32, fill: Fill
 ) =
@@ -788,6 +846,107 @@ proc renderDrawableStrokeCap(
   ctx.renderRoundedShape(
     box, fill, RenderStroke(), uniformCorners(radius.radiusCorner())
   )
+
+proc renderDrawableEndpointCap(
+    ctx: BackendContext,
+    origin, point, tangent: Vec2,
+    radius: float32,
+    stroke: RenderStroke,
+    cap: StrokeCap,
+    isStart: bool,
+) =
+  if radius <= 0.0'f32 or fillAlphaMax(stroke.fill) == 0'u8:
+    return
+
+  case cap
+  of scRound:
+    ctx.renderDrawableStrokeCap(origin + point, radius, stroke.fill)
+  of scSquare:
+    let
+      dir = normalizedOr(tangent, vec2(1.0'f32, 0.0'f32))
+      a =
+        if isStart:
+          point - dir * radius
+        else:
+          point
+      b =
+        if isStart:
+          point
+        else:
+          point + dir * radius
+    ctx.renderDrawableLine(origin, drawableLine(a, b), stroke.withCap(scButt))
+  of scAuto, scButt:
+    discard
+
+func lineIntersection(p, r, q, s: Vec2, hit: var Vec2): bool =
+  let denom = cross2(r, s)
+  if abs(denom) <= 0.000001'f32:
+    return false
+  let t = cross2(q - p, s) / denom
+  hit = p + r * t
+  true
+
+proc renderDrawableFilledQuad(ctx: BackendContext, verts: array[4, Vec2], fill: Fill) =
+  if fillAlphaMax(fill) == 0'u8:
+    return
+
+  let color = fillCenterColor(fill).rgba()
+  ctx.drawFilledQuad(
+    [verts[0].scaled(), verts[1].scaled(), verts[2].scaled(), verts[3].scaled()],
+    [color, color, color, color],
+  )
+
+proc renderDrawableStrokeJoin(
+    ctx: BackendContext,
+    origin, point, incomingTangent, outgoingTangent: Vec2,
+    radius: float32,
+    fill: Fill,
+    join: StrokeJoin,
+) =
+  if radius <= 0.0'f32 or fillAlphaMax(fill) == 0'u8:
+    return
+
+  case join
+  of sjRound:
+    ctx.renderDrawableStrokeCap(origin + point, radius, fill)
+  of sjBevel, sjMiter:
+    let
+      incoming = normalizedOr(incomingTangent, vec2(1.0'f32, 0.0'f32))
+      outgoing = normalizedOr(outgoingTangent, incoming)
+      turn = cross2(incoming, outgoing)
+    if abs(turn) <= 0.0001'f32:
+      return
+
+    let
+      side = if turn > 0.0'f32: -1.0'f32 else: 1.0'f32
+      incomingOuter = point + normalLeft(incoming) * (radius * side)
+      outgoingOuter = point + normalLeft(outgoing) * (radius * side)
+    if join == sjMiter:
+      var miterPoint: Vec2
+      if lineIntersection(incomingOuter, incoming, outgoingOuter, outgoing, miterPoint) and
+          vectorLength(miterPoint - point) <= radius * 4.0'f32:
+        ctx.renderDrawableFilledQuad(
+          [
+            origin + point,
+            origin + incomingOuter,
+            origin + miterPoint,
+            origin + outgoingOuter,
+          ],
+          fill,
+        )
+        return
+
+    ctx.renderDrawableFilledQuad(
+      [
+        origin + point,
+        origin + incomingOuter,
+        origin + outgoingOuter,
+        origin + outgoingOuter,
+      ],
+      fill,
+    )
+  of sjAuto:
+    discard
 
 proc renderDrawableCircle(
     ctx: BackendContext, origin: Vec2, op: DrawableOp, fill: Fill, stroke: RenderStroke
@@ -837,9 +996,6 @@ proc includePoint(p: Vec2, minPoint, maxPoint: var Vec2) =
   maxPoint.x = max(maxPoint.x, p.x)
   maxPoint.y = max(maxPoint.y, p.y)
 
-func cross2(a, b: Vec2): float32 =
-  a.x * b.y - a.y * b.x
-
 func isFlatQuadratic(p0, p1, p2: Vec2): bool =
   abs(cross2(p1 - p0, p2 - p1)) <= 0.0001'f32
 
@@ -883,11 +1039,33 @@ func bezierStepCount(op: DrawableOp, nodeSteps: uint16): int =
 func arcStepCount(op: DrawableOp, nodeSteps: uint16): int =
   drawableStepCount(op.arcSteps, nodeSteps, DefaultDrawableArcSteps)
 
+type DrawableQuadraticSpan = object
+  p0, p1, p2: Vec2
+
+func startTangent(span: DrawableQuadraticSpan): Vec2 =
+  normalizedOr(
+    span.p1 - span.p0, normalizedOr(span.p2 - span.p0, vec2(1.0'f32, 0.0'f32))
+  )
+
+func endTangent(span: DrawableQuadraticSpan): Vec2 =
+  normalizedOr(
+    span.p2 - span.p1, normalizedOr(span.p2 - span.p0, vec2(1.0'f32, 0.0'f32))
+  )
+
 proc renderDrawableQuadraticBezierSdf(
-    ctx: BackendContext, origin: Vec2, p0, p1, p2: Vec2, stroke: RenderStroke
+    ctx: BackendContext,
+    origin: Vec2,
+    p0, p1, p2: Vec2,
+    stroke: RenderStroke,
+    cap: StrokeCap = scAuto,
 ) =
+  let resolvedCap =
+    if cap == scAuto:
+      stroke.resolveCurveCap()
+    else:
+      cap
   if isFlatQuadratic(p0, p1, p2):
-    ctx.renderDrawableLine(origin, drawableLine(p0, p2), stroke)
+    ctx.renderDrawableLine(origin, drawableLine(p0, p2), stroke.withCap(resolvedCap))
     return
 
   let
@@ -912,6 +1090,7 @@ proc renderDrawableQuadraticBezierSdf(
     p1 = localB,
     p2 = localC,
     strokeWeight = strokeWeight.scaled(),
+    cap = resolvedCap,
   )
 
 proc renderDrawableBezierSegments(
@@ -927,17 +1106,47 @@ proc renderDrawableBezierSegments(
     return
 
   let steps = op.bezierStepCount(nodeSteps)
-  let capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
+  let
+    cap = stroke.resolveCurveCap()
+    join = stroke.resolveCurveJoin()
+    capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
+    segmentStroke = stroke.withCap(scButt)
   var previous = bezierPoint(op.controls, 0.0'f32)
-  ctx.renderDrawableStrokeCap(origin + previous, capRadius, stroke.fill)
+  var previousTangent = vec2(1.0'f32, 0.0'f32)
   for step in 1 .. steps:
     let
       t = step.float32 / steps.float32
       current = bezierPoint(op.controls, t)
       segment = drawableLine(previous, current)
-    ctx.renderDrawableLine(origin, segment, stroke)
-    ctx.renderDrawableStrokeCap(origin + current, capRadius, stroke.fill)
+      tangent = current - previous
+    ctx.renderDrawableLine(origin, segment, segmentStroke)
+    if step == 1:
+      ctx.renderDrawableEndpointCap(
+        origin, previous, tangent, capRadius, stroke, cap, isStart = true
+      )
+    else:
+      ctx.renderDrawableStrokeJoin(
+        origin, previous, previousTangent, tangent, capRadius, stroke.fill, join
+      )
+    if step == steps:
+      ctx.renderDrawableEndpointCap(
+        origin, current, tangent, capRadius, stroke, cap, isStart = false
+      )
     previous = current
+    previousTangent = tangent
+
+func bezierQuadraticSpan(
+    controls: openArray[Vec2], step, steps: int
+): DrawableQuadraticSpan =
+  let
+    t0 = step.float32 / steps.float32
+    t2 = (step + 1).float32 / steps.float32
+    tm = (t0 + t2) * 0.5'f32
+    p0 = bezierPoint(controls, t0)
+    pm = bezierPoint(controls, tm)
+    p2 = bezierPoint(controls, t2)
+    p1 = pm * 2.0'f32 - (p0 + p2) * 0.5'f32
+  DrawableQuadraticSpan(p0: p0, p1: p1, p2: p2)
 
 proc renderDrawableBezierQuadratics(
     ctx: BackendContext,
@@ -947,16 +1156,38 @@ proc renderDrawableBezierQuadratics(
     nodeSteps: uint16,
 ) =
   let steps = op.bezierStepCount(nodeSteps)
+  let
+    cap = stroke.resolveCurveCap()
+    join = stroke.resolveCurveJoin()
+    simpleRoundSpans = cap == scRound and join == sjRound
+    spanCap = if simpleRoundSpans: scRound else: scButt
+    capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
+  var previousSpan: DrawableQuadraticSpan
   for step in 0 ..< steps:
-    let
-      t0 = step.float32 / steps.float32
-      t2 = (step + 1).float32 / steps.float32
-      tm = (t0 + t2) * 0.5'f32
-      p0 = bezierPoint(op.controls, t0)
-      pm = bezierPoint(op.controls, tm)
-      p2 = bezierPoint(op.controls, t2)
-      p1 = pm * 2.0'f32 - (p0 + p2) * 0.5'f32
-    ctx.renderDrawableQuadraticBezierSdf(origin, p0, p1, p2, stroke)
+    let span = bezierQuadraticSpan(op.controls, step, steps)
+    ctx.renderDrawableQuadraticBezierSdf(
+      origin, span.p0, span.p1, span.p2, stroke, spanCap
+    )
+    if not simpleRoundSpans:
+      if step == 0:
+        ctx.renderDrawableEndpointCap(
+          origin, span.p0, span.startTangent(), capRadius, stroke, cap, isStart = true
+        )
+      else:
+        ctx.renderDrawableStrokeJoin(
+          origin,
+          span.p0,
+          previousSpan.endTangent(),
+          span.startTangent(),
+          capRadius,
+          stroke.fill,
+          join,
+        )
+      if step == steps - 1:
+        ctx.renderDrawableEndpointCap(
+          origin, span.p2, span.endTangent(), capRadius, stroke, cap, isStart = false
+        )
+    previousSpan = span
 
 proc renderDrawableBezier(
     ctx: BackendContext,
@@ -973,7 +1204,12 @@ proc renderDrawableBezier(
   when not defined(useFigDrawTextures):
     if op.controls.len == 3:
       ctx.renderDrawableQuadraticBezierSdf(
-        origin, op.controls[0], op.controls[1], op.controls[2], stroke
+        origin,
+        op.controls[0],
+        op.controls[1],
+        op.controls[2],
+        stroke,
+        stroke.resolveCurveCap(),
       )
       return
     if op.controls.len > 3:
@@ -1000,20 +1236,53 @@ when defined(useFigDrawTextures):
       return
 
     let steps = op.arcStepCount(nodeSteps)
-    let capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
+    let
+      cap = stroke.resolveCurveCap()
+      join = stroke.resolveCurveJoin()
+      capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
+      segmentStroke = stroke.withCap(scButt)
     var previous = arcPoint(op.arcCenter, radius, op.startAngle)
-    ctx.renderDrawableStrokeCap(origin + previous, capRadius, stroke.fill)
+    var previousTangent = vec2(1.0'f32, 0.0'f32)
     for step in 1 .. steps:
       let
         t = step.float32 / steps.float32
         angle = op.startAngle + op.sweepAngle * t
         current = arcPoint(op.arcCenter, radius, angle)
         segment = drawableLine(previous, current)
-      ctx.renderDrawableLine(origin, segment, stroke)
-      ctx.renderDrawableStrokeCap(origin + current, capRadius, stroke.fill)
+        tangent = current - previous
+      ctx.renderDrawableLine(origin, segment, segmentStroke)
+      if step == 1:
+        ctx.renderDrawableEndpointCap(
+          origin, previous, tangent, capRadius, stroke, cap, isStart = true
+        )
+      else:
+        ctx.renderDrawableStrokeJoin(
+          origin, previous, previousTangent, tangent, capRadius, stroke.fill, join
+        )
+      if step == steps:
+        ctx.renderDrawableEndpointCap(
+          origin, current, tangent, capRadius, stroke, cap, isStart = false
+        )
       previous = current
+      previousTangent = tangent
 
 when not defined(useFigDrawTextures):
+  func arcQuadraticSpan(
+      op: DrawableOp, step, steps: int, radius: float32
+  ): DrawableQuadraticSpan =
+    let
+      t0 = step.float32 / steps.float32
+      t2 = (step + 1).float32 / steps.float32
+      tm = (t0 + t2) * 0.5'f32
+      angle0 = op.startAngle + op.sweepAngle * t0
+      angle2 = op.startAngle + op.sweepAngle * t2
+      angleMid = op.startAngle + op.sweepAngle * tm
+      p0 = arcPoint(op.arcCenter, radius, angle0)
+      pm = arcPoint(op.arcCenter, radius, angleMid)
+      p2 = arcPoint(op.arcCenter, radius, angle2)
+      p1 = pm * 2.0'f32 - (p0 + p2) * 0.5'f32
+    DrawableQuadraticSpan(p0: p0, p1: p1, p2: p2)
+
   proc renderDrawableArcQuadratics(
       ctx: BackendContext,
       origin: Vec2,
@@ -1024,19 +1293,37 @@ when not defined(useFigDrawTextures):
     let
       radius = max(0.0'f32, op.arcRadius)
       steps = op.arcStepCount(nodeSteps)
+      cap = stroke.resolveCurveCap()
+      join = stroke.resolveCurveJoin()
+      simpleRoundSpans = cap == scRound and join == sjRound
+      spanCap = if simpleRoundSpans: scRound else: scButt
+      capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
+    var previousSpan: DrawableQuadraticSpan
     for step in 0 ..< steps:
-      let
-        t0 = step.float32 / steps.float32
-        t2 = (step + 1).float32 / steps.float32
-        tm = (t0 + t2) * 0.5'f32
-        angle0 = op.startAngle + op.sweepAngle * t0
-        angle2 = op.startAngle + op.sweepAngle * t2
-        angleMid = op.startAngle + op.sweepAngle * tm
-        p0 = arcPoint(op.arcCenter, radius, angle0)
-        pm = arcPoint(op.arcCenter, radius, angleMid)
-        p2 = arcPoint(op.arcCenter, radius, angle2)
-        p1 = pm * 2.0'f32 - (p0 + p2) * 0.5'f32
-      ctx.renderDrawableQuadraticBezierSdf(origin, p0, p1, p2, stroke)
+      let span = arcQuadraticSpan(op, step, steps, radius)
+      ctx.renderDrawableQuadraticBezierSdf(
+        origin, span.p0, span.p1, span.p2, stroke, spanCap
+      )
+      if not simpleRoundSpans:
+        if step == 0:
+          ctx.renderDrawableEndpointCap(
+            origin, span.p0, span.startTangent(), capRadius, stroke, cap, isStart = true
+          )
+        else:
+          ctx.renderDrawableStrokeJoin(
+            origin,
+            span.p0,
+            previousSpan.endTangent(),
+            span.startTangent(),
+            capRadius,
+            stroke.fill,
+            join,
+          )
+        if step == steps - 1:
+          ctx.renderDrawableEndpointCap(
+            origin, span.p2, span.endTangent(), capRadius, stroke, cap, isStart = false
+          )
+      previousSpan = span
 
 proc renderDrawableArc(
     ctx: BackendContext,

@@ -123,6 +123,51 @@ float sdBezier(float2 pos, float2 A, float2 B, float2 C) {
   return sqrt(res);
 }
 
+bool isBezierStrokeMode(int sdfModeInt) {
+  return sdfModeInt == 18 || sdfModeInt == 19 || sdfModeInt == 20;
+}
+
+float cross2(float2 a, float2 b) {
+  return a.x * b.y - a.y * b.x;
+}
+
+float2 safeNormalize(float2 v, float2 fallback) {
+  float len = length(v);
+  return (len <= 0.000001) ? fallback : v / len;
+}
+
+float bezierStrokeSd(
+    float dist,
+    float2 pos,
+    float2 A,
+    float2 B,
+    float2 C,
+    float halfW,
+    int sdfModeInt) {
+  if (sdfModeInt == 18) {
+    return dist - halfW;
+  }
+
+  float2 chord = C - A;
+  float2 fallback = safeNormalize(chord, float2(1.0, 0.0));
+  float2 startT = safeNormalize(B - A, fallback);
+  float2 endT = safeNormalize(C - B, fallback);
+  float startProj = dot(pos - A, startT);
+  float endProj = dot(pos - C, endT);
+  float trim = (sdfModeInt == 20) ? halfW : 0.0;
+  float tubeDist = dist;
+  if (sdfModeInt == 20) {
+    if (startProj < 0.0) {
+      tubeDist = min(tubeDist, abs(cross2(pos - A, startT)));
+    }
+    if (endProj > 0.0) {
+      tubeDist = min(tubeDist, abs(cross2(pos - C, endT)));
+    }
+  }
+  float capDist = max(-startProj - trim, endProj - trim);
+  return max(tubeDist - halfW, capDist);
+}
+
 float shadowProfile(float sd, float blurRadius) {
   // CSS-like calibration: sigma ~= blurRadius / 2
   float sigma = max(0.5 * blurRadius, 0.5);
@@ -273,6 +318,8 @@ float4 evalMainFragment(
   const int sdfModeMtsdfAnnular = 16;
   const int sdfModeBackdropBlur = 17;
   const int sdfModeBezierStrokeAA = 18;
+  const int sdfModeBezierStrokeButtAA = 19;
+  const int sdfModeBezierStrokeSquareAA = 20;
 
   int packedSdfMode = int(sdfMode);
   int fillMode = packedSdfMode / 256;
@@ -287,7 +334,7 @@ float4 evalMainFragment(
   );
 
   float dist;
-  if (sdfModeInt == sdfModeBezierStrokeAA) {
+  if (isBezierStrokeMode(sdfModeInt)) {
     dist = sdBezier(p, sdfParams.zw, sdfRadii.xy, sdfRadii.zw);
   } else {
     dist = sdRoundedBox(float2(p.x, -p.y), shapeHalfExtents, sdfRadii);
@@ -335,8 +382,18 @@ float4 evalMainFragment(
     fragColor = float4(fillColor.xyz, fillColor.w * alpha);
   } else {
     switch (sdfModeInt) {
-      case sdfModeBezierStrokeAA: {
-        float sd = dist - max(sdfFactor, 0.0) * 0.5;
+      case sdfModeBezierStrokeAA:
+      case sdfModeBezierStrokeButtAA:
+      case sdfModeBezierStrokeSquareAA: {
+        float sd = bezierStrokeSd(
+          dist,
+          p,
+          sdfParams.zw,
+          sdfRadii.xy,
+          sdfRadii.zw,
+          max(sdfFactor, 0.0) * 0.5,
+          sdfModeInt
+        );
         float cl = clamp(u.aaFactor * sd + 0.5, 0.0, 1.0);
         alpha = 1.0 - cl;
         break;
@@ -470,7 +527,6 @@ fragment float4 fs_mask(
     texture2d<float> atlasTex [[texture(0)]],
     texture2d<float> maskTex [[texture(1)]]) {
   const int sdfModeAtlas = 0;
-  const int sdfModeBezierStrokeAA = 18;
 
   float alpha;
   int packedSdfMode = int(in.sdfMode);
@@ -486,9 +542,17 @@ fragment float4 fs_mask(
       (in.uv.y - 0.5) * 2.0 * quadHalfExtents.y
     );
     float dist;
-    if (sdfModeInt == sdfModeBezierStrokeAA) {
-      dist = sdBezier(p, in.sdfParams.zw, in.sdfRadii.xy, in.sdfRadii.zw) -
-        max(in.sdfFactors.x, 0.0) * 0.5;
+    if (isBezierStrokeMode(sdfModeInt)) {
+      float bezierDist = sdBezier(p, in.sdfParams.zw, in.sdfRadii.xy, in.sdfRadii.zw);
+      dist = bezierStrokeSd(
+        bezierDist,
+        p,
+        in.sdfParams.zw,
+        in.sdfRadii.xy,
+        in.sdfRadii.zw,
+        max(in.sdfFactors.x, 0.0) * 0.5,
+        sdfModeInt
+      );
     } else {
       dist = sdRoundedBox(float2(p.x, -p.y), shapeHalfExtents, in.sdfRadii);
     }

@@ -2401,6 +2401,27 @@ proc drawQuad*(
   ctx.setRectMaskVert4IfNeeded(offset)
   inc ctx.quadCount
 
+method drawFilledQuad*(
+    ctx: VulkanContext, verts: array[4, Vec2], colors: array[4, ColorRGBA]
+) =
+  const imgKey = hash("rect")
+  if imgKey notin ctx.entries:
+    var image = newImage(4, 4)
+    image.fill(rgba(255, 255, 255, 255))
+    ctx.putImage(imgKey, image)
+
+  let
+    uv = ctx.entries[imgKey].xy + ctx.entries[imgKey].wh / 2.0'f32
+    uvQuad = [uv, uv, uv, uv]
+
+  let posQuad = [
+    ceil(ctx.mat * verts[0]),
+    ceil(ctx.mat * verts[1]),
+    ceil(ctx.mat * verts[2]),
+    ceil(ctx.mat * verts[3]),
+  ]
+  ctx.drawQuad(posQuad, uvQuad, colors)
+
 proc drawUvRectAtlasSdf(
     ctx: VulkanContext,
     at, to: Vec2,
@@ -3020,6 +3041,7 @@ proc drawQuadraticBezierSdfVulkan(
     colors: array[4, ColorRGBA],
     p0, p1, p2: Vec2,
     strokeWeight: float32,
+    cap: StrokeCap,
     fillMode: int = SdfFillSolidOrVertex,
     fillMidColor: ColorRGBA = rgba(0, 0, 0, 0),
     fillStopColor: ColorRGBA = rgba(0, 0, 0, 0),
@@ -3093,7 +3115,7 @@ proc drawQuadraticBezierSdfVulkan(
   ctx.sdfFactors.setVert2(offset + 2, factors)
   ctx.sdfFactors.setVert2(offset + 3, factors)
 
-  let modeVal = encodeSdfMode(sdfModeBezierStrokeAA, fillMode)
+  let modeVal = encodeSdfMode(figbackend.bezierStrokeSdfMode(cap), fillMode)
   ctx.sdfModeAttr[offset + 0] = modeVal
   ctx.sdfModeAttr[offset + 1] = modeVal
   ctx.sdfModeAttr[offset + 2] = modeVal
@@ -3108,6 +3130,7 @@ method drawQuadraticBezierSdf*(
     fill: figbackend.BackendFill,
     p0, p1, p2: Vec2,
     strokeWeight: float32,
+    cap: StrokeCap,
 ) =
   if fill.kind == figbackend.bfLinear3:
     ctx.drawQuadraticBezierSdfVulkan(
@@ -3117,6 +3140,7 @@ method drawQuadraticBezierSdf*(
       p1 = p1,
       p2 = p2,
       strokeWeight = strokeWeight,
+      cap = cap,
       fillMode = linear3FillMode(fill.lin3Axis),
       fillMidColor = fill.lin3Mid,
       fillStopColor = fill.lin3Stop,
@@ -3130,6 +3154,7 @@ method drawQuadraticBezierSdf*(
       p1 = p1,
       p2 = p2,
       strokeWeight = strokeWeight,
+      cap = cap,
     )
 
 proc runBackdropSeparableBlur(

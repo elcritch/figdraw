@@ -56,6 +56,18 @@ type
     DropShadow
     InnerShadow
 
+  StrokeCap* = enum
+    scAuto
+    scRound
+    scButt
+    scSquare
+
+  StrokeJoin* = enum
+    sjAuto
+    sjRound
+    sjBevel
+    sjMiter
+
   RenderShadow* = object
     style*: ShadowStyle
     fill*: Fill
@@ -67,6 +79,8 @@ type
   RenderStroke* = object
     weight*: float32
     fill*: Fill
+    cap*: StrokeCap
+    join*: StrokeJoin
 
   ImageStyle* = object
     id*: ImageId

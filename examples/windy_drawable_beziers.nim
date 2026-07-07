@@ -106,7 +106,7 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     parentIdx,
     area,
     transparent,
-    RenderStroke(weight: 3.0'f32, fill: mutedInk),
+    RenderStroke(weight: 3.0'f32, fill: mutedInk, cap: scSquare, join: sjBevel),
     @[
       drawableArc(
         arcCenter,
@@ -195,7 +195,7 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     parentIdx,
     area,
     transparent,
-    RenderStroke(weight: 7.0'f32, fill: blue),
+    RenderStroke(weight: 7.0'f32, fill: blue, cap: scButt),
     @[drawableBezier(quadratic)],
     drawAa = 0.9'f32,
   )
@@ -204,7 +204,7 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     parentIdx,
     area,
     transparent,
-    RenderStroke(weight: 8.0'f32, fill: rose),
+    RenderStroke(weight: 8.0'f32, fill: rose, cap: scSquare, join: sjBevel),
     @[drawableBezier(cubic)],
     drawSteps = 24'u16,
     drawAa = 0.9'f32,
@@ -214,7 +214,7 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
     parentIdx,
     area,
     transparent,
-    RenderStroke(weight: 5.5'f32, fill: green),
+    RenderStroke(weight: 5.5'f32, fill: green, cap: scRound, join: sjRound),
     @[drawableBezier(generic)],
     drawSteps = 32'u16,
     drawAa = 0.9'f32,
