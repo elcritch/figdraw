@@ -1,19 +1,22 @@
-import std/math
-
 import ./fignodes
 
 proc figLine*(a, b: Vec2, fill: Fill, weight: float32, zlevel: ZLevel = 0.ZLevel): Fig =
   let
     delta = b - a
-    length = sqrt(delta.x * delta.x + delta.y * delta.y)
-    center = (a + b) / 2.0'f32
+    halfWeight = max(0.0'f32, weight) / 2.0'f32
+    bounds = rect(
+      min(a.x, b.x) - halfWeight,
+      min(a.y, b.y) - halfWeight,
+      abs(delta.x) + halfWeight * 2.0'f32,
+      abs(delta.y) + halfWeight * 2.0'f32,
+    )
 
-  result = Fig(kind: nkRectangle)
+  result = Fig(kind: nkDrawable)
   result.zlevel = zlevel
-  result.screenBox =
-    rect(center.x - length / 2.0'f32, center.y - weight / 2.0'f32, length, weight)
-  result.rotation = arctan2(delta.y, delta.x).float32 * 180.0'f32 / PI.float32
+  result.screenBox = bounds
   result.fill = fill
+  result.drawStroke = RenderStroke(weight: weight, fill: fill)
+  result.drawOps.add drawableLine(a - bounds.xy, b - bounds.xy)
 
 proc figLine*(
     x1: float32,
@@ -33,12 +36,12 @@ proc figCircle*(
     clampedRadius = max(0.0'f32, radius)
     diameter = clampedRadius * 2.0'f32
 
-  result = Fig(kind: nkRectangle)
+  result = Fig(kind: nkDrawable)
   result.zlevel = zlevel
+  result.fill = fill
   result.screenBox =
     rect(center.x - clampedRadius, center.y - clampedRadius, diameter, diameter)
-  result.fill = fill
-  result.corners = [clampedRadius, clampedRadius, clampedRadius, clampedRadius]
+  result.drawOps.add drawableCircle(vec2(clampedRadius, clampedRadius), clampedRadius)
 
 proc figCircle*(
     x1: float32, y1: float32, fill: Fill, radius: float32, zlevel: ZLevel = 0.ZLevel

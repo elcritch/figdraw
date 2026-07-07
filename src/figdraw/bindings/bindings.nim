@@ -643,43 +643,70 @@ proc selectionLast(fig: FigRef): int16 =
     return -1'i16
   fig.inner.selectionRange.b.int16
 
+proc drawablePointOp(fig: FigRef, x, y: float32): fdn.DrawableOp =
+  fdn.drawableRect(rect(x, y, fig.inner.screenBox.w, fig.inner.screenBox.h))
+
 proc clearDrawablePoints(fig: FigRef) =
   returnIfNil fig
   fig.setDrawableKind()
-  fig.inner.points.setLen(0)
+  fig.inner.drawOps.setLen(0)
 
 proc addDrawablePoint(fig: FigRef, x, y: float32) =
   returnIfNil fig
   fig.setDrawableKind()
-  fig.inner.points.add vec2(x, y)
+  fig.inner.drawOps.add fig.drawablePointOp(x, y)
 
 proc drawablePointCount(fig: FigRef): int =
   if fig.isNil or fig.inner.kind != fdn.nkDrawable:
     return 0
-  fig.inner.points.len
+  fig.inner.drawOps.len
 
 proc drawablePointX(fig: FigRef, index: int): float32 =
   if fig.isNil or fig.inner.kind != fdn.nkDrawable:
     return 0'f32
-  if index < 0 or index >= fig.inner.points.len:
+  if index < 0 or index >= fig.inner.drawOps.len:
     return 0'f32
-  fig.inner.points[index].x
+  let op = fig.inner.drawOps[index]
+  case op.kind
+  of fdn.dkLine:
+    op.a.x
+  of fdn.dkCircle:
+    op.center.x
+  of fdn.dkRectangle:
+    op.box.x
+  of fdn.dkBezier:
+    if op.controls.len > 0:
+      op.controls[0].x
+    else:
+      0'f32
 
 proc drawablePointY(fig: FigRef, index: int): float32 =
   if fig.isNil or fig.inner.kind != fdn.nkDrawable:
     return 0'f32
-  if index < 0 or index >= fig.inner.points.len:
+  if index < 0 or index >= fig.inner.drawOps.len:
     return 0'f32
-  fig.inner.points[index].y
+  let op = fig.inner.drawOps[index]
+  case op.kind
+  of fdn.dkLine:
+    op.a.y
+  of fdn.dkCircle:
+    op.center.y
+  of fdn.dkRectangle:
+    op.box.y
+  of fdn.dkBezier:
+    if op.controls.len > 0:
+      op.controls[0].y
+    else:
+      0'f32
 
 proc setDrawablePoint(fig: FigRef, index: int, x, y: float32) =
   returnIfNil fig
   fig.setDrawableKind()
   if index < 0:
     return
-  if index >= fig.inner.points.len:
-    fig.inner.points.setLen(index + 1)
-  fig.inner.points[index] = vec2(x, y)
+  if index >= fig.inner.drawOps.len:
+    fig.inner.drawOps.setLen(index + 1)
+  fig.inner.drawOps[index] = fig.drawablePointOp(x, y)
 
 proc imageId(fig: FigRef): int64 =
   if fig.isNil or fig.inner.kind != fdn.nkImage:

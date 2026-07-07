@@ -5,6 +5,26 @@ import ./figbasics
 export figbasics
 
 type
+  DrawableKind* = enum
+    dkLine
+    dkCircle
+    dkRectangle
+    dkBezier
+
+  DrawableOp* = object
+    case kind*: DrawableKind
+    of dkLine:
+      a*, b*: Vec2
+    of dkCircle:
+      center*: Vec2
+      radius*: float32
+    of dkRectangle:
+      box*: Rect
+      corners*: array[DirectionCorners, uint16]
+    of dkBezier:
+      controls*: seq[Vec2]
+      steps*: uint16
+
   RenderList* = object
     nodes*: seq[Fig]
     rootIds*: seq[FigIdx]
@@ -34,7 +54,8 @@ type
       textLayout*: GlyphArrangement
       selectionRange*: Slice[int16]
     of nkDrawable:
-      points*: seq[Vec2]
+      drawStroke*: RenderStroke
+      drawOps*: seq[DrawableOp]
     of nkImage:
       image*: ImageStyle
     of nkMsdfImage:
@@ -52,6 +73,40 @@ static:
   {.warning: "Fig node size: " & $sizeof(Fig).}
   doAssert sizeof(Fig) < 256,
     "FigNode SIZE: should be smaller than 256! Got: " & $sizeof(Fig)
+
+const DefaultDrawableBezierSteps* = 24'u16
+
+proc drawableLine*(a, b: Vec2): DrawableOp =
+  DrawableOp(kind: dkLine, a: a, b: b)
+
+proc drawableLine*(x1: float32, y1: float32, x2: float32, y2: float32): DrawableOp =
+  drawableLine(vec2(x1, y1), vec2(x2, y2))
+
+proc drawableCircle*(center: Vec2, radius: float32): DrawableOp =
+  DrawableOp(kind: dkCircle, center: center, radius: radius)
+
+proc drawableCircle*(x: float32, y: float32, radius: float32): DrawableOp =
+  drawableCircle(vec2(x, y), radius)
+
+proc drawableRect*(
+    box: Rect, corners: array[DirectionCorners, uint16] = [0'u16, 0'u16, 0'u16, 0'u16]
+): DrawableOp =
+  DrawableOp(kind: dkRectangle, box: box, corners: corners)
+
+proc drawableBezier*(
+    controls: openArray[Vec2], steps: uint16 = DefaultDrawableBezierSteps
+): DrawableOp =
+  DrawableOp(kind: dkBezier, controls: @controls, steps: steps)
+
+proc drawableBezier*(
+    p0, p1, p2: Vec2, steps: uint16 = DefaultDrawableBezierSteps
+): DrawableOp =
+  drawableBezier([p0, p1, p2], steps)
+
+proc drawableBezier*(
+    p0, p1, p2, p3: Vec2, steps: uint16 = DefaultDrawableBezierSteps
+): DrawableOp =
+  drawableBezier([p0, p1, p2, p3], steps)
 
 proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"

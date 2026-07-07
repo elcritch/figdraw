@@ -16,8 +16,33 @@ method drawRect*(ctx: RecordingBackend, rect: Rect, color: Color) =
   transformed.y = topLeft.y
   ctx.draws.add transformed
 
+method drawRoundedRectSdf*(
+    ctx: RecordingBackend,
+    rect: Rect,
+    colors: array[4, ColorRGBA],
+    radii: array[DirectionCorners, float32],
+    mode: SdfMode,
+    factor: float32,
+    spread: float32,
+    shapeSize: Vec2,
+) =
+  discard colors
+  discard radii
+  discard mode
+  discard factor
+  discard spread
+  discard shapeSize
+  let topLeft = (ctx.mat * vec3(rect.x, rect.y, 1.0'f32)).xy
+  var transformed = rect
+  transformed.x = topLeft.x
+  transformed.y = topLeft.y
+  ctx.draws.add transformed
+
 method translate*(ctx: RecordingBackend, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
+
+method rotate*(ctx: RecordingBackend, angle: float32) =
+  ctx.mat = ctx.mat * rotateZ(angle)
 
 method applyTransform*(ctx: RecordingBackend, m: Mat4) =
   ctx.mat = ctx.mat * m
@@ -54,7 +79,7 @@ suite "nkTransform render behavior":
         kind: nkDrawable,
         screenBox: rect(0.0'f32, 0.0'f32, 1.0'f32, 1.0'f32),
         fill: fill(rgba(255, 0, 0, 255)),
-        points: @[vec2(2.0'f32, 2.0'f32)],
+        drawOps: @[drawableRect(rect(2.0'f32, 2.0'f32, 1.0'f32, 1.0'f32))],
       ),
     )
 
@@ -87,7 +112,7 @@ suite "nkTransform render behavior":
         kind: nkDrawable,
         screenBox: rect(0.0'f32, 0.0'f32, 1.0'f32, 1.0'f32),
         fill: fill(rgba(255, 0, 0, 255)),
-        points: @[vec2(2.0'f32, 2.0'f32)],
+        drawOps: @[drawableRect(rect(2.0'f32, 2.0'f32, 1.0'f32, 1.0'f32))],
       ),
     )
 
@@ -97,3 +122,31 @@ suite "nkTransform render behavior":
     check ctx.draws.len == 1
     check abs(ctx.draws[0].x - 14.0'f32) < 0.0001'f32
     check abs(ctx.draws[0].y - 26.0'f32) < 0.0001'f32
+
+  test "renders bezier drawable as line segments with caps":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkDrawable,
+        screenBox: rect(5.0'f32, 7.0'f32, 30.0'f32, 20.0'f32),
+        drawStroke: RenderStroke(weight: 2.0'f32, fill: fill(rgba(255, 0, 0, 255))),
+        drawOps:
+          @[
+            drawableBezier(
+              [
+                vec2(0.0'f32, 0.0'f32),
+                vec2(10.0'f32, 20.0'f32),
+                vec2(20.0'f32, 0.0'f32),
+              ],
+              steps = 4'u16,
+            )
+          ],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.draws.len == 9

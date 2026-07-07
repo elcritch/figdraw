@@ -275,16 +275,6 @@ func gradientMidPos01(fill: Fill): float32
 func fillCenterColor(fill: Fill): Color
 func gradientColors(fill: Fill): array[4, ColorRGBA]
 
-proc renderDrawable*(ctx: BackendContext, node: Fig) =
-  ## TODO: render non-node stuff?
-  let box = node.screenBox.scaled()
-  let color = fillCenterColor(node.fill)
-  for point in node.points:
-    let
-      pos = point.scaled()
-      bx = box.atXY(pos.x, pos.y)
-    ctx.drawRect(bx, color)
-
 proc glyphScreenPos*(
     nodeBox: Rect, glyphPos: Vec2, glyphDescent: float32
 ): Vec2 {.inline.} =
@@ -672,20 +662,39 @@ proc hasActiveInnerShadow(node: Fig): bool =
     return true
   return false
 
-proc renderBoxes(ctx: BackendContext, node: Fig) =
-  ## drawing boxes for rectangles
+func zeroCorners(): array[DirectionCorners, uint16] =
+  for corner in DirectionCorners:
+    result[corner] = 0'u16
 
+func uniformCorners(radius: uint16): array[DirectionCorners, uint16] =
+  for corner in DirectionCorners:
+    result[corner] = radius
+
+func radiusCorner(radius: float32): uint16 =
+  if radius <= 0.0'f32:
+    return 0'u16
+  if radius >= high(uint16).float32:
+    return high(uint16)
+  round(radius).uint16
+
+proc renderRoundedShape(
+    ctx: BackendContext,
+    shapeBox: Rect,
+    shapeFill: Fill,
+    shapeStroke: RenderStroke,
+    shapeCorners: array[DirectionCorners, uint16],
+) =
   let
-    box = node.screenBox.scaled()
-    corners = node.corners.scaledCorners()
+    box = shapeBox.scaled()
+    corners = shapeCorners.scaledCorners()
     hasGradient =
-      node.fill.kind in {flLinear2, flLinear3} and fillAlphaMax(node.fill) > 0'u8
+      shapeFill.kind in {flLinear2, flLinear3} and fillAlphaMax(shapeFill) > 0'u8
 
   if hasGradient:
     when not defined(useFigDrawTextures):
       ctx.drawRoundedRectSdf(
         rect = box,
-        fill = node.fill.toBackendFill(),
+        fill = shapeFill.toBackendFill(),
         radii = corners,
         mode = figbackend.SdfMode.sdfModeClipAA,
         factor = 4.0'f32,
@@ -693,13 +702,13 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
         shapeSize = vec2(0.0'f32, 0.0'f32),
       )
     else:
-      let fillColor = fillCenterColor(node.fill)
-      if node.corners != [0'u16, 0'u16, 0'u16, 0'u16]:
+      let fillColor = fillCenterColor(shapeFill)
+      if shapeCorners != [0'u16, 0'u16, 0'u16, 0'u16]:
         ctx.drawRoundedRect(rect = box, color = fillColor, radii = corners)
       else:
         ctx.drawRect(box, fillColor)
-  elif fillAlphaMax(node.fill) > 0'u8:
-    let fillColor = fillCenterColor(node.fill)
+  elif fillAlphaMax(shapeFill) > 0'u8:
+    let fillColor = fillCenterColor(shapeFill)
     when not defined(useFigDrawTextures):
       ctx.drawRoundedRectSdf(
         rect = box,
@@ -711,30 +720,159 @@ proc renderBoxes(ctx: BackendContext, node: Fig) =
         shapeSize = vec2(0.0'f32, 0.0'f32),
       )
     else:
-      if node.corners != [0'u16, 0'u16, 0'u16, 0'u16]:
+      if shapeCorners != [0'u16, 0'u16, 0'u16, 0'u16]:
         ctx.drawRoundedRect(rect = box, color = fillColor, radii = corners)
       else:
         ctx.drawRect(box, fillColor)
 
-  if fillAlphaMax(node.stroke.fill) > 0'u8 and node.stroke.weight > 0:
+  if fillAlphaMax(shapeStroke.fill) > 0'u8 and shapeStroke.weight > 0:
     when not defined(useFigDrawTextures):
       ctx.drawRoundedRectSdf(
         rect = box,
-        fill = node.stroke.fill.toBackendFill(),
+        fill = shapeStroke.fill.toBackendFill(),
         radii = corners,
         mode = figbackend.SdfMode.sdfModeAnnularAA,
-        factor = node.stroke.weight.scaled(),
+        factor = shapeStroke.weight.scaled(),
         spread = 0.0'f32,
         shapeSize = vec2(0.0'f32, 0.0'f32),
       )
     else:
       ctx.drawRoundedRect(
         rect = box,
-        color = fillCenterColor(node.stroke.fill),
+        color = fillCenterColor(shapeStroke.fill),
         radii = corners,
-        weight = node.stroke.weight.scaled(),
+        weight = shapeStroke.weight.scaled(),
         doStroke = true,
       )
+
+proc renderDrawableLine(
+    ctx: BackendContext, origin: Vec2, op: DrawableOp, stroke: RenderStroke
+) =
+  let weight = max(0.0'f32, stroke.weight)
+  if weight <= 0.0'f32 or fillAlphaMax(stroke.fill) == 0'u8:
+    return
+
+  let
+    a = origin + op.a
+    b = origin + op.b
+    delta = b - a
+    length = sqrt(delta.x * delta.x + delta.y * delta.y)
+  if length <= 0.0'f32:
+    return
+
+  let
+    center = (a + b) / 2.0'f32
+    box = rect(center.x - length / 2.0'f32, center.y - weight / 2.0'f32, length, weight)
+    scaledBox = box.scaled()
+    pivot = scaledBox.xy + scaledBox.wh / 2.0'f32
+    angle = arctan2(delta.y, delta.x).float32
+
+  ctx.saveTransform()
+  try:
+    ctx.translate(pivot)
+    ctx.rotate(angle)
+    ctx.translate(-pivot)
+    ctx.renderRoundedShape(box, stroke.fill, RenderStroke(), zeroCorners())
+  finally:
+    ctx.restoreTransform()
+
+proc renderDrawableStrokeCap(
+    ctx: BackendContext, center: Vec2, radius: float32, fill: Fill
+) =
+  if radius <= 0.0'f32 or fillAlphaMax(fill) == 0'u8:
+    return
+
+  let
+    diameter = radius * 2.0'f32
+    box = rect(center.x - radius, center.y - radius, diameter, diameter)
+  ctx.renderRoundedShape(
+    box, fill, RenderStroke(), uniformCorners(radius.radiusCorner())
+  )
+
+proc renderDrawableCircle(
+    ctx: BackendContext, origin: Vec2, op: DrawableOp, fill: Fill, stroke: RenderStroke
+) =
+  let radius = max(0.0'f32, op.radius)
+  if radius <= 0.0'f32:
+    return
+
+  let
+    diameter = radius * 2.0'f32
+    box = rect(
+      origin.x + op.center.x - radius,
+      origin.y + op.center.y - radius,
+      diameter,
+      diameter,
+    )
+  ctx.renderRoundedShape(box, fill, stroke, uniformCorners(radius.radiusCorner()))
+
+proc renderDrawableRect(
+    ctx: BackendContext, origin: Vec2, op: DrawableOp, fill: Fill, stroke: RenderStroke
+) =
+  let box = rect(origin.x + op.box.x, origin.y + op.box.y, op.box.w, op.box.h)
+  ctx.renderRoundedShape(box, fill, stroke, op.corners)
+
+proc bezierPoint(controls: openArray[Vec2], t: float32): Vec2 =
+  if controls.len == 0:
+    return vec2(0.0'f32, 0.0'f32)
+
+  var work = newSeq[Vec2](controls.len)
+  for i, point in controls:
+    work[i] = point
+
+  var count = controls.len
+  while count > 1:
+    for i in 0 ..< (count - 1):
+      work[i] = work[i] * (1.0'f32 - t) + work[i + 1] * t
+    dec count
+  work[0]
+
+func bezierStepCount(op: DrawableOp): int =
+  if op.steps == 0'u16:
+    DefaultDrawableBezierSteps.int
+  else:
+    max(1, op.steps.int)
+
+proc renderDrawableBezier(
+    ctx: BackendContext, origin: Vec2, op: DrawableOp, stroke: RenderStroke
+) =
+  if op.controls.len < 2:
+    return
+  if stroke.weight <= 0.0'f32 or fillAlphaMax(stroke.fill) == 0'u8:
+    return
+
+  let steps = op.bezierStepCount()
+  let capRadius = max(0.0'f32, stroke.weight) / 2.0'f32
+  var previous = bezierPoint(op.controls, 0.0'f32)
+  ctx.renderDrawableStrokeCap(origin + previous, capRadius, stroke.fill)
+  for step in 1 .. steps:
+    let
+      t = step.float32 / steps.float32
+      current = bezierPoint(op.controls, t)
+      segment = drawableLine(previous, current)
+    ctx.renderDrawableLine(origin, segment, stroke)
+    ctx.renderDrawableStrokeCap(origin + current, capRadius, stroke.fill)
+    previous = current
+
+proc renderDrawable*(ctx: BackendContext, node: Fig) =
+  let
+    origin = node.screenBox.xy
+    fill = node.fill
+    stroke = node.drawStroke
+  for op in node.drawOps:
+    case op.kind
+    of dkLine:
+      ctx.renderDrawableLine(origin, op, stroke)
+    of dkCircle:
+      ctx.renderDrawableCircle(origin, op, fill, stroke)
+    of dkRectangle:
+      ctx.renderDrawableRect(origin, op, fill, stroke)
+    of dkBezier:
+      ctx.renderDrawableBezier(origin, op, stroke)
+
+proc renderBoxes(ctx: BackendContext, node: Fig) =
+  ## drawing boxes for rectangles
+  ctx.renderRoundedShape(node.screenBox, node.fill, node.stroke, node.corners)
 
 proc renderImage(ctx: BackendContext, node: Fig) =
   if node.image.id.int == 0:
