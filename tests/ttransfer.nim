@@ -136,3 +136,45 @@ suite "test layers":
     check converted.transform.translation == transformNode.transform.translation
     check converted.transform.useMatrix == true
     check converted.transform.matrix == transformNode.transform.matrix
+
+  test "transfer keeps nkDrawable ops and shared paint":
+    var drawable = Fig(kind: nkDrawable)
+    drawable.screenBox = rect(1.0'f32, 2.0'f32, 30.0'f32, 20.0'f32)
+    drawable.fill = fill(rgba(10, 20, 30, 255))
+    drawable.drawStroke =
+      RenderStroke(weight: 2.5'f32, fill: fill(rgba(200, 40, 70, 255)))
+    drawable.drawSteps = 36'u16
+    drawable.drawAa = 0.85'f32
+    drawable.drawOps =
+      @[
+        drawableLine(vec2(1.0'f32, 2.0'f32), vec2(3.0'f32, 4.0'f32)),
+        drawableCircle(vec2(8.0'f32, 9.0'f32), 5.0'f32),
+        drawableArc(vec2(12.0'f32, 13.0'f32), 7.0'f32, 0.0'f32, 1.0'f32),
+      ]
+
+    let converted = drawable.toRenderFig()
+    check converted.kind == nkDrawable
+    check converted.fill.color == rgba(10, 20, 30, 255)
+    check converted.drawStroke.weight == 2.5'f32
+    check converted.drawStroke.fill.color == rgba(200, 40, 70, 255)
+    check converted.drawSteps == 36'u16
+    check converted.drawAa == 0.85'f32
+    check converted.drawOps.len == 3
+    check converted.drawOps[0].kind == dkLine
+    check converted.drawOps[1].kind == dkCircle
+    check converted.drawOps[2].kind == dkArc
+    check converted.drawOps[2].arcCenter == vec2(12.0'f32, 13.0'f32)
+
+  test "transfer converts legacy drawable points to rect ops":
+    var legacy = FigTest(kind: nkDrawable)
+    legacy.screenBox = rect(0.0'f32, 0.0'f32, 7.0'f32, 9.0'f32)
+    legacy.stroke = RenderStroke(weight: 1.5'f32, fill: fill(rgba(90, 100, 110, 255)))
+    legacy.points = @[vec2(2.0'f32, 3.0'f32)]
+
+    let converted = legacy.toRenderFig()
+    check converted.kind == nkDrawable
+    check converted.drawStroke.weight == 1.5'f32
+    check converted.drawStroke.fill.color == rgba(90, 100, 110, 255)
+    check converted.drawOps.len == 1
+    check converted.drawOps[0].kind == dkRectangle
+    check converted.drawOps[0].box == rect(2.0'f32, 3.0'f32, 7.0'f32, 9.0'f32)

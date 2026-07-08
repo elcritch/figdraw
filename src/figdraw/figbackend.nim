@@ -30,6 +30,8 @@ elif UseVulkanBackend:
 else:
   const PreferredBackendKind* = rbOpenGL
 
+const DefaultSdfAaFactor* = 1.2'f32
+
 type SdfMode* {.pure.} = enum
   sdfModeAtlas = 0
   sdfModeClipAA = 3
@@ -44,6 +46,15 @@ type SdfMode* {.pure.} = enum
   sdfModeMsdfAnnular = 15
   sdfModeMtsdfAnnular = 16
   sdfModeBackdropBlur = 17
+  sdfModeBezierStrokeAA = 18
+  sdfModeBezierStrokeButtAA = 19
+  sdfModeBezierStrokeSquareAA = 20
+
+func bezierStrokeSdfMode*(cap: StrokeCap): SdfMode =
+  case cap
+  of scButt: SdfMode.sdfModeBezierStrokeButtAA
+  of scSquare: SdfMode.sdfModeBezierStrokeSquareAA
+  of scAuto, scRound: SdfMode.sdfModeBezierStrokeAA
 
 type
   AtlasEntryKind* = enum
@@ -219,6 +230,13 @@ method supportsAtlasUsage*(impl: BackendContext): bool {.base.} =
 
 method pixelScale*(impl: BackendContext): float32 {.base.} =
   raise newException(ValueError, "Backend pixelScale unavailable")
+
+method sdfAaFactor*(impl: BackendContext): float32 {.base.} =
+  DefaultSdfAaFactor
+
+method setSdfAaFactor*(impl: BackendContext, aaFactor: float32) {.base.} =
+  discard impl
+  discard aaFactor
 
 method hasImage*(impl: BackendContext, key: Hash): bool {.base.} =
   raise newException(ValueError, "Backend hasImage unavailable")
@@ -409,6 +427,21 @@ method drawImageAdj*(
 
 method drawRect*(impl: BackendContext, rect: Rect, color: Color) {.base.} =
   raise newException(ValueError, "Backend drawRect unavailable")
+
+method drawFilledQuad*(
+    impl: BackendContext, verts: array[4, Vec2], colors: array[4, ColorRGBA]
+) {.base.} =
+  raise newException(ValueError, "Backend drawFilledQuad unavailable")
+
+method drawQuadraticBezierSdf*(
+    impl: BackendContext,
+    rect: Rect,
+    fill: BackendFill,
+    p0, p1, p2: Vec2,
+    strokeWeight: float32,
+    cap: StrokeCap,
+) {.base.} =
+  raise newException(ValueError, "Backend drawQuadraticBezierSdf unavailable")
 
 method drawRoundedRectSdf*(
     impl: BackendContext,

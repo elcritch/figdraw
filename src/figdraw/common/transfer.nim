@@ -142,7 +142,20 @@ proc toRenderFig*[N](current: N): Fig =
     result.textLayout = current.textLayout
     result.selectionRange = current.selectionRange
   of nkDrawable:
-    result.points = current.points.mapIt(it)
+    when compiles(current.drawStroke):
+      result.drawStroke = current.drawStroke
+    elif compiles(current.stroke):
+      result.drawStroke = current.stroke
+    when compiles(current.drawSteps):
+      result.drawSteps = current.drawSteps
+    when compiles(current.drawAa):
+      result.drawAa = current.drawAa
+    when compiles(current.drawOps):
+      result.drawOps = current.drawOps.mapIt(it)
+    elif compiles(current.points):
+      result.drawOps = current.points.mapIt(
+        drawableRect(rect(it.x, it.y, result.screenBox.w, result.screenBox.h))
+      )
   else:
     discard
 

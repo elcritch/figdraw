@@ -87,6 +87,11 @@ type
     rectMaskMatX: array[4, float32]
     rectMaskMatY: array[4, float32]
 
+  RetiredSwapchain = object
+    swapchain: VkSwapchainKHR
+    views: seq[VkImageView]
+    framebuffers: seq[VkFramebuffer]
+
   VulkanContext* = ref object of figbackend.BackendContext
     atlasSize: int
     initialAtlasSize: int
@@ -160,6 +165,7 @@ type
     swapchainImages: seq[VkImage]
     swapchainViews: seq[VkImageView]
     swapchainFramebuffers: seq[VkFramebuffer]
+    retiredSwapchains: seq[RetiredSwapchain]
     swapchainFormat: VkFormat
     swapchainExtent: VkExtent2D
     swapchainRequestedWidth: int32
@@ -527,6 +533,39 @@ proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
 
 proc fullFrameRect(ctx: VulkanContext): Rect =
   rect(0.0'f32, 0.0'f32, ctx.frameSize.x, ctx.frameSize.y)
+
+proc destroyRetiredSwapchain(ctx: VulkanContext, retired: RetiredSwapchain) =
+  for fb in retired.framebuffers:
+    if fb != vkNullFramebuffer:
+      vkDestroyFramebuffer(ctx.device, fb, nil)
+
+  for view in retired.views:
+    if view != vkNullImageView:
+      vkDestroyImageView(ctx.device, view, nil)
+
+  if retired.swapchain != vkNullSwapchain:
+    vkDestroySwapchainKHR(ctx.device, retired.swapchain, nil)
+
+proc destroyRetiredSwapchains(ctx: VulkanContext) =
+  for retired in ctx.retiredSwapchains:
+    ctx.destroyRetiredSwapchain(retired)
+  ctx.retiredSwapchains.setLen(0)
+
+proc retireSwapchain(ctx: VulkanContext) =
+  if ctx.swapchain == vkNullSwapchain:
+    return
+
+  ctx.retiredSwapchains.add(
+    RetiredSwapchain(
+      swapchain: ctx.swapchain,
+      views: ctx.swapchainViews,
+      framebuffers: ctx.swapchainFramebuffers,
+    )
+  )
+  ctx.swapchain = vkNullSwapchain
+  ctx.swapchainFramebuffers.setLen(0)
+  ctx.swapchainViews.setLen(0)
+  ctx.swapchainImages.setLen(0)
 
 proc destroySwapchain(ctx: VulkanContext) =
   for fb in ctx.swapchainFramebuffers:
@@ -969,11 +1008,19 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
     )
 
   let
+    replacingSwapchain = ctx.swapchain != vkNullSwapchain
+    oldSwapchain = ctx.swapchain
     surfaceFormat = chooseSwapSurfaceFormat(support.formats)
     presentMode = chooseSwapPresentMode(support.presentModes)
     extent = chooseSwapExtent(support.capabilities, width, height)
     compositeAlpha =
       chooseSwapCompositeAlpha(support.capabilities.supportedCompositeAlpha)
+    pipelineNeedsRecreate =
+      ctx.swapchainFormat != surfaceFormat.format or ctx.renderPass == vkNullRenderPass or
+      ctx.pipeline == vkNullPipeline or ctx.pipelineLayout == vkNullPipelineLayout or
+      ctx.blurRenderPass == vkNullRenderPass or ctx.blurPipeline == vkNullPipeline or
+      ctx.blurPipelineLayout == vkNullPipelineLayout
+    deferOldSwapchainDestroy = replacingSwapchain and not pipelineNeedsRecreate
 
   if ColorAttachmentBit notin support.capabilities.supportedUsageFlags:
     raise newException(
@@ -1018,7 +1065,7 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
     compositeAlpha = compositeAlpha,
     presentMode = presentMode,
     clipped = VkBool32(VkTrue),
-    oldSwapchain = ctx.swapchain,
+    oldSwapchain = oldSwapchain,
   )
 
   var newSwapchain: VkSwapchainKHR
@@ -1026,7 +1073,12 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
     ctx.device, createInfo.addr, nil, newSwapchain.addr
   )
 
-  ctx.destroySwapchain()
+  if deferOldSwapchainDestroy:
+    ctx.retireSwapchain()
+  else:
+    ctx.destroySwapchain()
+    if pipelineNeedsRecreate:
+      ctx.destroyRetiredSwapchains()
   ctx.swapchain = newSwapchain
 
   var actualCount = imageCount
@@ -1049,8 +1101,9 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
   ctx.swapchainRequestedHeight = height
   ctx.swapchainOutOfDate = false
 
-  ctx.createPipeline()
-  ctx.createBlurPipeline()
+  if pipelineNeedsRecreate:
+    ctx.createPipeline()
+    ctx.createBlurPipeline()
 
   ctx.swapchainFramebuffers.setLen(ctx.swapchainViews.len)
   for i in 0 ..< ctx.swapchainViews.len:
@@ -1065,11 +1118,18 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
       ctx.device, info.addr, nil, ctx.swapchainFramebuffers[i].addr
     )
 
-  info "Created Vulkan swapchain",
-    width = int(ctx.swapchainExtent.width),
-    height = int(ctx.swapchainExtent.height),
-    imageCount = ctx.swapchainImages.len,
-    format = $ctx.swapchainFormat
+  if replacingSwapchain:
+    debug "Recreated Vulkan swapchain",
+      width = int(ctx.swapchainExtent.width),
+      height = int(ctx.swapchainExtent.height),
+      imageCount = ctx.swapchainImages.len,
+      format = $ctx.swapchainFormat
+  else:
+    info "Created Vulkan swapchain",
+      width = int(ctx.swapchainExtent.width),
+      height = int(ctx.swapchainExtent.height),
+      imageCount = ctx.swapchainImages.len,
+      format = $ctx.swapchainFormat
 
 proc clearFrameVertexUploads(ctx: VulkanContext) =
   for buf in ctx.frameVertexBuffers:
@@ -1086,9 +1146,10 @@ proc ensureSwapchain(ctx: VulkanContext, width, height: int32) =
   if not ctx.presentReady or width <= 0 or height <= 0:
     return
 
-  let needsRecreate =
-    ctx.swapchain == vkNullSwapchain or ctx.swapchainOutOfDate or
+  let sizeChanged =
     ctx.swapchainRequestedWidth != width or ctx.swapchainRequestedHeight != height
+  let needsRecreate =
+    ctx.swapchain == vkNullSwapchain or ctx.swapchainOutOfDate or sizeChanged
   if not needsRecreate:
     return
 
@@ -2401,6 +2462,27 @@ proc drawQuad*(
   ctx.setRectMaskVert4IfNeeded(offset)
   inc ctx.quadCount
 
+method drawFilledQuad*(
+    ctx: VulkanContext, verts: array[4, Vec2], colors: array[4, ColorRGBA]
+) =
+  const imgKey = hash("rect")
+  if imgKey notin ctx.entries:
+    var image = newImage(4, 4)
+    image.fill(rgba(255, 255, 255, 255))
+    ctx.putImage(imgKey, image)
+
+  let
+    uv = ctx.entries[imgKey].xy + ctx.entries[imgKey].wh / 2.0'f32
+    uvQuad = [uv, uv, uv, uv]
+
+  let posQuad = [
+    ceil(ctx.mat * verts[0]),
+    ceil(ctx.mat * verts[1]),
+    ceil(ctx.mat * verts[2]),
+    ceil(ctx.mat * verts[3]),
+  ]
+  ctx.drawQuad(posQuad, uvQuad, colors)
+
 proc drawUvRectAtlasSdf(
     ctx: VulkanContext,
     at, to: Vec2,
@@ -2536,10 +2618,17 @@ method drawMtsdfImage*(
     params = params,
   )
 
-proc setSdfGlobals*(ctx: VulkanContext, aaFactor: float32) =
+method sdfAaFactor*(ctx: VulkanContext): float32 =
+  ctx.aaFactor
+
+method setSdfAaFactor*(ctx: VulkanContext, aaFactor: float32) =
   if ctx.aaFactor == aaFactor:
     return
+  ctx.flush()
   ctx.aaFactor = aaFactor
+
+proc setSdfGlobals*(ctx: VulkanContext, aaFactor: float32) =
+  ctx.setSdfAaFactor(aaFactor)
 
 proc drawUvRect(ctx: VulkanContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
   ctx.checkBatch()
@@ -3007,6 +3096,128 @@ method drawRoundedRectSdf*(
       shapeSize = shapeSize,
     )
 
+proc drawQuadraticBezierSdfVulkan(
+    ctx: VulkanContext,
+    rect: Rect,
+    colors: array[4, ColorRGBA],
+    p0, p1, p2: Vec2,
+    strokeWeight: float32,
+    cap: StrokeCap,
+    fillMode: int = SdfFillSolidOrVertex,
+    fillMidColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillStopColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillMidPos: float32 = 0.5'f32,
+) =
+  if rect.w <= 0.0'f32 or rect.h <= 0.0'f32 or strokeWeight <= 0.0'f32:
+    return
+
+  ctx.checkBatch()
+
+  let
+    quadHalfExtents = rect.wh * 0.5'f32
+    params = vec4(quadHalfExtents.x, quadHalfExtents.y, p0.x, p0.y)
+    curve = vec4(p1.x, p1.y, p2.x, p2.y)
+
+  assert ctx.quadCount < ctx.maxQuads
+
+  let
+    at = rect.xy
+    to = rect.xy + rect.wh
+    uvAt = vec2(0.0'f32, 0.0'f32)
+    uvTo = vec2(1.0'f32, 1.0'f32)
+
+    posQuad = [
+      ceil(ctx.mat * vec2(at.x, to.y)),
+      ceil(ctx.mat * vec2(to.x, to.y)),
+      ceil(ctx.mat * vec2(to.x, at.y)),
+      ceil(ctx.mat * vec2(at.x, at.y)),
+    ]
+    uvQuad = [
+      vec2(uvAt.x, uvTo.y),
+      vec2(uvTo.x, uvTo.y),
+      vec2(uvTo.x, uvAt.y),
+      vec2(uvAt.x, uvAt.y),
+    ]
+
+  let offset = ctx.quadCount * 4
+  ctx.positions.setVert2(offset + 0, posQuad[0])
+  ctx.positions.setVert2(offset + 1, posQuad[1])
+  ctx.positions.setVert2(offset + 2, posQuad[2])
+  ctx.positions.setVert2(offset + 3, posQuad[3])
+
+  ctx.uvs.setVert2(offset + 0, uvQuad[0])
+  ctx.uvs.setVert2(offset + 1, uvQuad[1])
+  ctx.uvs.setVert2(offset + 2, uvQuad[2])
+  ctx.uvs.setVert2(offset + 3, uvQuad[3])
+
+  ctx.colors.setVertColor(offset + 0, colors[0])
+  ctx.colors.setVertColor(offset + 1, colors[1])
+  ctx.colors.setVertColor(offset + 2, colors[2])
+  ctx.colors.setVertColor(offset + 3, colors[3])
+  ctx.setFillExtraColors(offset, fillMidColor, fillStopColor)
+
+  ctx.sdfParams.setVert4(offset + 0, params)
+  ctx.sdfParams.setVert4(offset + 1, params)
+  ctx.sdfParams.setVert4(offset + 2, params)
+  ctx.sdfParams.setVert4(offset + 3, params)
+
+  ctx.sdfRadii.setVert4(offset + 0, curve)
+  ctx.sdfRadii.setVert4(offset + 1, curve)
+  ctx.sdfRadii.setVert4(offset + 2, curve)
+  ctx.sdfRadii.setVert4(offset + 3, curve)
+
+  let factors =
+    if fillMode == SdfFillSolidOrVertex:
+      vec2(strokeWeight, 0.0'f32)
+    else:
+      vec2(strokeWeight, clamp(fillMidPos, 0.01'f32, 0.99'f32))
+  ctx.sdfFactors.setVert2(offset + 0, factors)
+  ctx.sdfFactors.setVert2(offset + 1, factors)
+  ctx.sdfFactors.setVert2(offset + 2, factors)
+  ctx.sdfFactors.setVert2(offset + 3, factors)
+
+  let modeVal = encodeSdfMode(figbackend.bezierStrokeSdfMode(cap), fillMode)
+  ctx.sdfModeAttr[offset + 0] = modeVal
+  ctx.sdfModeAttr[offset + 1] = modeVal
+  ctx.sdfModeAttr[offset + 2] = modeVal
+  ctx.sdfModeAttr[offset + 3] = modeVal
+
+  ctx.setRectMaskVert4IfNeeded(offset)
+  inc ctx.quadCount
+
+method drawQuadraticBezierSdf*(
+    ctx: VulkanContext,
+    rect: Rect,
+    fill: figbackend.BackendFill,
+    p0, p1, p2: Vec2,
+    strokeWeight: float32,
+    cap: StrokeCap,
+) =
+  if fill.kind == figbackend.bfLinear3:
+    ctx.drawQuadraticBezierSdfVulkan(
+      rect = rect,
+      colors = [fill.lin3Start, fill.lin3Start, fill.lin3Start, fill.lin3Start],
+      p0 = p0,
+      p1 = p1,
+      p2 = p2,
+      strokeWeight = strokeWeight,
+      cap = cap,
+      fillMode = linear3FillMode(fill.lin3Axis),
+      fillMidColor = fill.lin3Mid,
+      fillStopColor = fill.lin3Stop,
+      fillMidPos = fill.lin3MidPos,
+    )
+  else:
+    ctx.drawQuadraticBezierSdfVulkan(
+      rect = rect,
+      colors = figbackend.gradientColors(fill),
+      p0 = p0,
+      p1 = p1,
+      p2 = p2,
+      strokeWeight = strokeWeight,
+      cap = cap,
+    )
+
 proc runBackdropSeparableBlur(
     ctx: VulkanContext, blurRadius: float32, blurRect: VkRect2D
 ) =
@@ -3331,6 +3542,24 @@ method popRectMask*(ctx: VulkanContext) =
   if rectMask.kind == rmkMask:
     ctx.popMask()
 
+when defined(macosx):
+  proc consumeAcquiredImage(ctx: VulkanContext) =
+    ## Skip a visually stale acquired image while still consuming the acquire semaphore.
+    let
+      waitSemaphores = [ctx.imageAvailableSemaphore]
+      waitStages = [VkPipelineStageFlags{ColorAttachmentOutputBit}]
+      commandBuffers: array[0, VkCommandBuffer] = []
+      signalSemaphores: array[0, VkSemaphore] = []
+
+    checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
+    let submitInfo = newVkSubmitInfo(
+      waitSemaphores = waitSemaphores,
+      waitDstStageMask = waitStages,
+      commandBuffers = commandBuffers,
+      signalSemaphores = signalSemaphores,
+    )
+    checkVkResult vkQueueSubmit(ctx.queue, 1, submitInfo.addr, ctx.inFlightFence)
+
 proc beginFrame*(
     ctx: VulkanContext,
     frameSize: Vec2,
@@ -3384,7 +3613,11 @@ proc beginFrame*(
     debug "Acquire returned out-of-date", result = $acquireResult
     return
   if acquireResult == VkSuboptimalKhr:
+    ctx.swapchainOutOfDate = true
     debug "Acquire returned suboptimal", result = $acquireResult
+    when defined(macosx):
+      ctx.consumeAcquiredImage()
+      return
   else:
     checkVkResult acquireResult
   checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
@@ -3450,13 +3683,21 @@ method endFrame*(ctx: VulkanContext) =
     results = @[],
   )
   let presentResult = vkQueuePresentKHR(ctx.presentQueue, presentInfo.addr)
+  var presented = false
   if presentResult == VkErrorOutOfDateKhr:
     ctx.swapchainOutOfDate = true
     debug "Present returned out-of-date", result = $presentResult
   elif presentResult == VkSuboptimalKhr:
+    ctx.swapchainOutOfDate = true
+    presented = true
     debug "Present returned suboptimal", result = $presentResult
   elif presentResult != VkSuccess:
     checkVkResult presentResult
+  else:
+    presented = true
+
+  if presented:
+    ctx.destroyRetiredSwapchains()
 
   ctx.commandRecording = false
 
@@ -3483,6 +3724,7 @@ proc destroyGpu(ctx: VulkanContext) =
     ctx.commandBuffer = vkNullCommandBuffer
 
   ctx.destroySwapchain()
+  ctx.destroyRetiredSwapchains()
   ctx.destroyPipelineObjects()
 
   if ctx.vertShader != vkNullShaderModule:
@@ -3652,7 +3894,7 @@ proc newContext*(
   result.heights = newSeq[uint16](atlasSize)
   result.pixelate = pixelate
   result.pixelScale = pixelScale
-  result.aaFactor = 1.2'f32
+  result.aaFactor = figbackend.DefaultSdfAaFactor
   result.textLcdFilteringEnabled = false
   result.textSubpixelPositioningEnabled = false
   result.textSubpixelGlyphVariantsEnabled = false
@@ -3705,6 +3947,7 @@ proc newContext*(
   result.swapchainViews = @[]
   result.swapchainImages = @[]
   result.swapchainFramebuffers = @[]
+  result.retiredSwapchains = @[]
   result.swapchainFormat = VK_FORMAT_UNDEFINED
   result.swapchainExtent = VkExtent2D(width: 0, height: 0)
   result.swapchainRequestedWidth = 0

@@ -87,38 +87,94 @@ template checkRenderRegression(
       diffImg.writeFile(joinPath(outDir, outName.replace(".png", ".diff.png")))
     check diffScore <= diffThreshold
 
-suite "line helper render":
+suite "drawable helper render":
   test "circle math":
     let circle = figCircle(80.0'f32, 50.0'f32, rgba(0, 0, 0, 255), 24.0'f32)
 
-    check circle.kind == nkRectangle
+    check circle.kind == nkDrawable
     check circle.screenBox.x.approxEq(56.0'f32)
     check circle.screenBox.y.approxEq(26.0'f32)
     check circle.screenBox.w.approxEq(48.0'f32)
     check circle.screenBox.h.approxEq(48.0'f32)
-    check circle.corners == [24'u16, 24'u16, 24'u16, 24'u16]
+    check circle.fill.color == rgba(0, 0, 0, 255)
+    check circle.drawOps.len == 1
+    check circle.drawOps[0].kind == dkCircle
+    check circle.drawOps[0].center.x.approxEq(24.0'f32)
+    check circle.drawOps[0].center.y.approxEq(24.0'f32)
+    check circle.drawOps[0].radius.approxEq(24.0'f32)
 
   test "horizontal line math":
     let line =
       figLine(10.0'f32, 20.0'f32, 110.0'f32, 20.0'f32, rgba(0, 0, 0, 255), 8.0'f32)
 
-    check line.kind == nkRectangle
-    check line.screenBox.x.approxEq(10.0'f32)
+    check line.kind == nkDrawable
+    check line.screenBox.x.approxEq(6.0'f32)
     check line.screenBox.y.approxEq(16.0'f32)
-    check line.screenBox.w.approxEq(100.0'f32)
+    check line.screenBox.w.approxEq(108.0'f32)
     check line.screenBox.h.approxEq(8.0'f32)
-    check line.rotation.approxEq(0.0'f32)
+    check line.drawOps.len == 1
+    check line.drawOps[0].kind == dkLine
+    check line.drawOps[0].a.x.approxEq(4.0'f32)
+    check line.drawOps[0].a.y.approxEq(4.0'f32)
+    check line.drawOps[0].b.x.approxEq(104.0'f32)
+    check line.drawOps[0].b.y.approxEq(4.0'f32)
+    check line.drawStroke.weight.approxEq(8.0'f32)
+    check line.drawStroke.fill.color == rgba(0, 0, 0, 255)
 
   test "vertical line math":
     let line =
       figLine(40.0'f32, 25.0'f32, 40.0'f32, 145.0'f32, rgba(0, 0, 0, 255), 12.0'f32)
 
-    check line.kind == nkRectangle
-    check line.screenBox.x.approxEq(-20.0'f32)
-    check line.screenBox.y.approxEq(79.0'f32)
-    check line.screenBox.w.approxEq(120.0'f32)
-    check line.screenBox.h.approxEq(12.0'f32)
-    check line.rotation.approxEq(90.0'f32)
+    check line.kind == nkDrawable
+    check line.screenBox.x.approxEq(34.0'f32)
+    check line.screenBox.y.approxEq(19.0'f32)
+    check line.screenBox.w.approxEq(12.0'f32)
+    check line.screenBox.h.approxEq(132.0'f32)
+    check line.drawOps.len == 1
+    check line.drawOps[0].kind == dkLine
+    check line.drawOps[0].a.x.approxEq(6.0'f32)
+    check line.drawOps[0].a.y.approxEq(6.0'f32)
+    check line.drawOps[0].b.x.approxEq(6.0'f32)
+    check line.drawOps[0].b.y.approxEq(126.0'f32)
+    check line.drawStroke.weight.approxEq(12.0'f32)
+    check line.drawStroke.fill.color == rgba(0, 0, 0, 255)
+
+  test "bezier math":
+    let defaultCurve = drawableBezier(
+      vec2(0.0'f32, 0.0'f32), vec2(12.0'f32, 20.0'f32), vec2(24.0'f32, 0.0'f32)
+    )
+    let curve = drawableBezier(
+      vec2(0.0'f32, 0.0'f32),
+      vec2(12.0'f32, 20.0'f32),
+      vec2(24.0'f32, 0.0'f32),
+      steps = 8'u16,
+    )
+
+    check DefaultDrawableBezierSteps == 48'u16
+    check defaultCurve.steps == 0'u16
+    check curve.kind == dkBezier
+    check curve.controls.len == 3
+    check curve.controls[0].x.approxEq(0.0'f32)
+    check curve.controls[1].y.approxEq(20.0'f32)
+    check curve.controls[2].x.approxEq(24.0'f32)
+    check curve.steps == 8'u16
+
+  test "arc math":
+    let defaultArc =
+      drawableArc(vec2(12.0'f32, 18.0'f32), 24.0'f32, 0.0'f32, 3.1415927'f32)
+    let arc = drawableArc(
+      vec2(12.0'f32, 18.0'f32), 24.0'f32, 0.0'f32, 3.1415927'f32, steps = 12'u16
+    )
+
+    check DefaultDrawableArcSteps == 48'u16
+    check defaultArc.arcSteps == 0'u16
+    check arc.kind == dkArc
+    check arc.arcCenter.x.approxEq(12.0'f32)
+    check arc.arcCenter.y.approxEq(18.0'f32)
+    check arc.arcRadius.approxEq(24.0'f32)
+    check arc.startAngle.approxEq(0.0'f32)
+    check arc.sweepAngle.approxEq(3.1415927'f32)
+    check arc.arcSteps == 12'u16
 
   test "renders a rotated rect line that matches expectation":
     checkRenderRegression(

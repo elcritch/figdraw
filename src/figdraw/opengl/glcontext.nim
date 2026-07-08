@@ -263,7 +263,7 @@ proc newContext*(
   result.atlasEntryMeta = initTable[Hash, AtlasEntryMeta]()
   result.pixelate = pixelate
   result.pixelScale = pixelScale
-  result.aaFactor = 1.2'f32
+  result.aaFactor = figbackend.DefaultSdfAaFactor
   result.textLcdFilteringEnabled = false
   result.textSubpixelPositioningEnabled = false
   result.textSubpixelGlyphVariantsEnabled = false
@@ -474,6 +474,7 @@ proc newContext*(
   result.maskShader.bindAttrib("vertexSdfParams", result.sdfParams.buffer)
   result.maskShader.bindAttrib("vertexSdfRadii", result.sdfRadii.buffer)
   result.maskShader.bindAttrib("vertexSdfMode", result.sdfModeAttr.buffer)
+  result.maskShader.bindAttrib("vertexSdfFactors", result.sdfFactors.buffer)
   result.maskShader.bindAttrib("vertexSubpixelShift", result.subpixelShifts.buffer)
 
   # Fullscreen triangle buffers for blur passes.
@@ -899,6 +900,27 @@ proc drawQuad*(
 
   inc ctx.quadCount
 
+method drawFilledQuad*(
+    ctx: OpenGlContext, verts: array[4, Vec2], colors: array[4, ColorRGBA]
+) =
+  const imgKey = hash("rect")
+  if imgKey notin ctx.entries:
+    var image = newImage(4, 4)
+    image.fill(rgba(255, 255, 255, 255))
+    ctx.putImage(imgKey, image)
+
+  let
+    uv = ctx.entries[imgKey].xy + ctx.entries[imgKey].wh / 2.0'f32
+    uvQuad = [uv, uv, uv, uv]
+
+  let posQuad = [
+    ceil(ctx.mat * verts[0]),
+    ceil(ctx.mat * verts[1]),
+    ceil(ctx.mat * verts[2]),
+    ceil(ctx.mat * verts[3]),
+  ]
+  ctx.drawQuad(posQuad, uvQuad, colors)
+
 type SdfMode* = figbackend.SdfMode
 
 const
@@ -1067,10 +1089,17 @@ method drawMtsdfImage*(
     params = params,
   )
 
-proc setSdfGlobals*(ctx: OpenGlContext, aaFactor: float32) =
+method sdfAaFactor*(ctx: OpenGlContext): float32 =
+  ctx.aaFactor
+
+method setSdfAaFactor*(ctx: OpenGlContext, aaFactor: float32) =
   if ctx.aaFactor == aaFactor:
     return
+  ctx.flush()
   ctx.aaFactor = aaFactor
+
+proc setSdfGlobals*(ctx: OpenGlContext, aaFactor: float32) =
+  ctx.setSdfAaFactor(aaFactor)
 
 proc drawUvRect(ctx: OpenGlContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color) =
   ## Adds an image rect with a path to an ctx
@@ -1517,6 +1546,130 @@ method drawRoundedRectSdf*(
       factor = factor,
       spread = spread,
       shapeSize = shapeSize,
+    )
+
+proc drawQuadraticBezierSdfOpenGl(
+    ctx: OpenGlContext,
+    rect: Rect,
+    colors: array[4, ColorRGBA],
+    p0, p1, p2: Vec2,
+    strokeWeight: float32,
+    cap: StrokeCap,
+    fillMode: int = SdfFillSolidOrVertex,
+    fillMidColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillStopColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillMidPos: float32 = 0.5'f32,
+) =
+  if rect.w <= 0.0'f32 or rect.h <= 0.0'f32 or strokeWeight <= 0.0'f32:
+    return
+
+  ctx.activeShader = (if ctx.maskBegun: ctx.maskShader else: ctx.mainShader)
+  ctx.checkBatch()
+
+  let
+    quadHalfExtents = rect.wh * 0.5'f32
+    params = vec4(quadHalfExtents.x, quadHalfExtents.y, p0.x, p0.y)
+    curve = vec4(p1.x, p1.y, p2.x, p2.y)
+
+  assert ctx.quadCount < ctx.maxQuads
+
+  let
+    at = rect.xy
+    to = rect.xy + rect.wh
+    uvAt = vec2(0.0'f32, 0.0'f32)
+    uvTo = vec2(1.0'f32, 1.0'f32)
+
+    posQuad = [
+      ceil(ctx.mat * vec2(at.x, to.y)),
+      ceil(ctx.mat * vec2(to.x, to.y)),
+      ceil(ctx.mat * vec2(to.x, at.y)),
+      ceil(ctx.mat * vec2(at.x, at.y)),
+    ]
+    uvQuad = [
+      vec2(uvAt.x, uvTo.y),
+      vec2(uvTo.x, uvTo.y),
+      vec2(uvTo.x, uvAt.y),
+      vec2(uvAt.x, uvAt.y),
+    ]
+
+  let offset = ctx.quadCount * 4
+  ctx.positions.data.setVert2(offset + 0, posQuad[0])
+  ctx.positions.data.setVert2(offset + 1, posQuad[1])
+  ctx.positions.data.setVert2(offset + 2, posQuad[2])
+  ctx.positions.data.setVert2(offset + 3, posQuad[3])
+
+  ctx.uvs.data.setVert2(offset + 0, uvQuad[0])
+  ctx.uvs.data.setVert2(offset + 1, uvQuad[1])
+  ctx.uvs.data.setVert2(offset + 2, uvQuad[2])
+  ctx.uvs.data.setVert2(offset + 3, uvQuad[3])
+
+  ctx.colors.data.setVertColor(offset + 0, colors[0])
+  ctx.colors.data.setVertColor(offset + 1, colors[1])
+  ctx.colors.data.setVertColor(offset + 2, colors[2])
+  ctx.colors.data.setVertColor(offset + 3, colors[3])
+  ctx.setFillExtraColors(offset, fillMidColor, fillStopColor)
+
+  ctx.sdfParams.data.setVert4(offset + 0, params)
+  ctx.sdfParams.data.setVert4(offset + 1, params)
+  ctx.sdfParams.data.setVert4(offset + 2, params)
+  ctx.sdfParams.data.setVert4(offset + 3, params)
+
+  ctx.sdfRadii.data.setVert4(offset + 0, curve)
+  ctx.sdfRadii.data.setVert4(offset + 1, curve)
+  ctx.sdfRadii.data.setVert4(offset + 2, curve)
+  ctx.sdfRadii.data.setVert4(offset + 3, curve)
+
+  let factors =
+    if fillMode == SdfFillSolidOrVertex:
+      vec2(strokeWeight, 0.0'f32)
+    else:
+      vec2(strokeWeight, clamp(fillMidPos, 0.01'f32, 0.99'f32))
+  ctx.sdfFactors.data.setVert2(offset + 0, factors)
+  ctx.sdfFactors.data.setVert2(offset + 1, factors)
+  ctx.sdfFactors.data.setVert2(offset + 2, factors)
+  ctx.sdfFactors.data.setVert2(offset + 3, factors)
+
+  let modeVal = encodeSdfMode(figbackend.bezierStrokeSdfMode(cap), fillMode)
+  ctx.sdfModeAttr.data[offset + 0] = modeVal
+  ctx.sdfModeAttr.data[offset + 1] = modeVal
+  ctx.sdfModeAttr.data[offset + 2] = modeVal
+  ctx.sdfModeAttr.data[offset + 3] = modeVal
+  ctx.setQuadSubpixelShift(offset)
+  ctx.setRectMaskVert4IfNeeded(offset)
+
+  inc ctx.quadCount
+
+method drawQuadraticBezierSdf*(
+    ctx: OpenGlContext,
+    rect: Rect,
+    fill: figbackend.BackendFill,
+    p0, p1, p2: Vec2,
+    strokeWeight: float32,
+    cap: StrokeCap,
+) =
+  if fill.kind == figbackend.bfLinear3:
+    ctx.drawQuadraticBezierSdfOpenGl(
+      rect = rect,
+      colors = [fill.lin3Start, fill.lin3Start, fill.lin3Start, fill.lin3Start],
+      p0 = p0,
+      p1 = p1,
+      p2 = p2,
+      strokeWeight = strokeWeight,
+      cap = cap,
+      fillMode = linear3FillMode(fill.lin3Axis),
+      fillMidColor = fill.lin3Mid,
+      fillStopColor = fill.lin3Stop,
+      fillMidPos = fill.lin3MidPos,
+    )
+  else:
+    ctx.drawQuadraticBezierSdfOpenGl(
+      rect = rect,
+      colors = figbackend.gradientColors(fill),
+      p0 = p0,
+      p1 = p1,
+      p2 = p2,
+      strokeWeight = strokeWeight,
+      cap = cap,
     )
 
 proc runBackdropSeparableBlur(ctx: OpenGlContext, blurRadius: float32) =

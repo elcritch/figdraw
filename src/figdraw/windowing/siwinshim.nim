@@ -1,4 +1,4 @@
-import std/[os, strutils]
+import std/[math, os, strutils]
 import vmath
 
 import siwin/[window as siWindow, windowOpengl as siWindowOpengl]
@@ -78,8 +78,30 @@ proc newSiwinWindow*(
 ): Window =
   let forceOpenGl = runtimeForceOpenGlRequested()
   let window =
-    when UseMetalBackend and not NeedSiwinOpenGLContext:
-      when defined(macosx):
+    when defined(macosx):
+      when UseVulkanBackend:
+        if forceOpenGl:
+          newOpenglWindowCocoa(
+            size = size,
+            title = title,
+            vsync = vsync,
+            msaa = msaa,
+            resizable = resizable,
+            frameless = frameless,
+            transparent = transparent,
+          )
+        else:
+          # Vulkan presents through CAMetalLayer. Avoid NSOpenGLView here because
+          # siwin swaps GL buffers after onRender callbacks, which can blank the
+          # Metal subview during live resize.
+          newMetalWindowCocoa(
+            size = size,
+            title = title,
+            resizable = resizable,
+            frameless = frameless,
+            transparent = transparent,
+          )
+      elif UseMetalBackend and not NeedSiwinOpenGLContext:
         newMetalWindowCocoa(
           size = size,
           title = title,
@@ -88,9 +110,6 @@ proc newSiwinWindow*(
           transparent = transparent,
         )
       else:
-        {.error: "siwinshim: Metal backend requires macOS".}
-    else:
-      when defined(macosx):
         newOpenglWindowCocoa(
           size = size,
           title = title,
@@ -100,6 +119,9 @@ proc newSiwinWindow*(
           frameless = frameless,
           transparent = transparent,
         )
+    else:
+      when UseMetalBackend and not NeedSiwinOpenGLContext:
+        {.error: "siwinshim: Metal backend requires macOS".}
       else:
         let globals = sharedSiwinGlobals()
         when UseVulkanBackend:
@@ -215,9 +237,11 @@ proc newSiwinWindow*(
 proc backingSize*(window: Window): IVec2 =
   when defined(macosx):
     let contentView = cast[NSView](WindowCocoa(window).nativeViewHandle())
-    let frame = contentView.frame
-    let backing = contentView.convertRectToBacking(frame)
-    ivec2(backing.size.width.int32, backing.size.height.int32)
+    let backing = contentView.convertRectToBacking(contentView.bounds())
+    ivec2(
+      max(0'i32, ceil(backing.size.width).int32),
+      max(0'i32, ceil(backing.size.height).int32),
+    )
   else:
     window.size
 
@@ -243,11 +267,11 @@ proc logicalSize*(window: Window): Vec2 =
 proc contentScale*(window: Window): float32 =
   when defined(macosx):
     let contentView = cast[NSView](WindowCocoa(window).nativeViewHandle())
-    let frame = contentView.frame
-    if frame.size.width <= 0:
+    let bounds = contentView.bounds()
+    if bounds.size.width <= 0:
       return 1.0
-    let backing = contentView.convertRectToBacking(frame)
-    (backing.size.width / frame.size.width).float32
+    let backing = contentView.convertRectToBacking(bounds)
+    (backing.size.width / bounds.size.width).float32
   elif defined(linux) or defined(bsd):
     let backendScale = window.uiScale()
     let scale = if backendScale > 0: backendScale else: 1.0
@@ -288,11 +312,17 @@ when (UseMetalBackend or UseVulkanBackend) and defined(macosx):
       window: Window,
       device: siwinmetal.MTLDevice,
       pixelFormat: siwinmetal.MTLPixelFormat = siwinmetal.MTLPixelFormatBGRA8Unorm,
+      presentsWithTransaction = false,
   ): MetalLayerHandle =
     ## Attaches a CAMetalLayer to a siwin macOS window.
     let sz = window.backingSize()
     result = siwinmetal.attachMetalLayerToWindowPtr(
-      WindowCocoa(window).nativeWindowHandle(), sz.x, sz.y, device, pixelFormat
+      WindowCocoa(window).nativeWindowHandle(),
+      sz.x,
+      sz.y,
+      device,
+      pixelFormat,
+      presentsWithTransaction,
     )
 
   proc updateMetalLayer*(handle: MetalLayerHandle, window: Window) =
@@ -348,12 +378,8 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
           let device = siwinmetal.MTLCreateSystemDefaultDevice()
           if device.isNil:
             raise newException(ValueError, "Failed to create Metal device for Vulkan")
-          renderer.backendState.vulkanMetalLayer = siwinmetal.attachMetalLayerToWindowPtr(
-            WindowCocoa(window).nativeWindowHandle(),
-            window.backingSize().x,
-            window.backingSize().y,
-            device,
-          )
+          renderer.backendState.vulkanMetalLayer =
+            attachMetalLayer(window, device, presentsWithTransaction = false)
           vkCtx.setPresentMetalLayer(renderer.backendState.vulkanMetalLayer.layer)
           hasPresentTarget = true
         elif defined(linux) or defined(bsd):
