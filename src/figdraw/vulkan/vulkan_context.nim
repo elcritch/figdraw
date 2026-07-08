@@ -746,11 +746,11 @@ proc createPipeline(ctx: VulkanContext) =
     flags: 0.VkAttachmentDescriptionFlags,
     format: ctx.swapchainFormat,
     samples: VK_SAMPLE_COUNT_1_BIT,
-    loadOp: VK_ATTACHMENT_LOAD_OP_CLEAR,
+    loadOp: VK_ATTACHMENT_LOAD_OP_LOAD,
     storeOp: VK_ATTACHMENT_STORE_OP_STORE,
     stencilLoadOp: VK_ATTACHMENT_LOAD_OP_DONT_CARE,
     stencilStoreOp: VK_ATTACHMENT_STORE_OP_DONT_CARE,
-    initialLayout: VK_IMAGE_LAYOUT_UNDEFINED,
+    initialLayout: VkImageLayout.PresentSrcKhr,
     finalLayout: VkImageLayout.PresentSrcKhr,
   )
   var colorAttachmentRef = VkAttachmentReference(
@@ -1566,14 +1566,6 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
   if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain or ctx.renderPassBegun:
     return
 
-  let clearValue = VkClearValue(
-    color: VkClearColorValue(
-      float32: [
-        ctx.frameClearColor.r.float32, ctx.frameClearColor.g.float32,
-        ctx.frameClearColor.b.float32, ctx.frameClearColor.a.float32,
-      ]
-    )
-  )
   let renderPassInfo = VkRenderPassBeginInfo(
     sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
     pNext: nil,
@@ -1581,8 +1573,8 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
     framebuffer: ctx.swapchainFramebuffers[ctx.acquiredImageIndex.int],
     renderArea:
       newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent),
-    clearValueCount: 1,
-    pClearValues: clearValue.addr,
+    clearValueCount: 0,
+    pClearValues: nil,
   )
   vkCmdBeginRenderPass(
     ctx.commandBuffer, renderPassInfo.addr, VK_SUBPASS_CONTENTS_INLINE
@@ -1604,6 +1596,26 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
   vkCmdSetScissor(ctx.commandBuffer, 0, 1, fullScissor.addr)
 
   if ctx.frameNeedsClear:
+    let clearValue = VkClearValue(
+      color: VkClearColorValue(
+        float32: [
+          ctx.frameClearColor.r.float32, ctx.frameClearColor.g.float32,
+          ctx.frameClearColor.b.float32, ctx.frameClearColor.a.float32,
+        ]
+      )
+    )
+    var clearAttachment = VkClearAttachment(
+      aspectMask: VkImageAspectFlags{ColorBit},
+      colorAttachment: 0,
+      clearValue: clearValue,
+    )
+    var clearRect = VkClearRect(
+      rect:
+        newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent),
+      baseArrayLayer: 0,
+      layerCount: 1,
+    )
+    vkCmdClearAttachments(ctx.commandBuffer, 1, clearAttachment.addr, 1, clearRect.addr)
     ctx.frameNeedsClear = false
 
   if ctx.clipRects.len > 0:
@@ -3530,22 +3542,23 @@ method popRectMask*(ctx: VulkanContext) =
   if rectMask.kind == rmkMask:
     ctx.popMask()
 
-proc consumeAcquiredImage(ctx: VulkanContext) =
-  ## Skip a visually stale acquired image while still consuming the acquire semaphore.
-  let
-    waitSemaphores = [ctx.imageAvailableSemaphore]
-    waitStages = [VkPipelineStageFlags{ColorAttachmentOutputBit}]
-    commandBuffers: array[0, VkCommandBuffer] = []
-    signalSemaphores: array[0, VkSemaphore] = []
+when defined(macosx):
+  proc consumeAcquiredImage(ctx: VulkanContext) =
+    ## Skip a visually stale acquired image while still consuming the acquire semaphore.
+    let
+      waitSemaphores = [ctx.imageAvailableSemaphore]
+      waitStages = [VkPipelineStageFlags{ColorAttachmentOutputBit}]
+      commandBuffers: array[0, VkCommandBuffer] = []
+      signalSemaphores: array[0, VkSemaphore] = []
 
-  checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
-  let submitInfo = newVkSubmitInfo(
-    waitSemaphores = waitSemaphores,
-    waitDstStageMask = waitStages,
-    commandBuffers = commandBuffers,
-    signalSemaphores = signalSemaphores,
-  )
-  checkVkResult vkQueueSubmit(ctx.queue, 1, submitInfo.addr, ctx.inFlightFence)
+    checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
+    let submitInfo = newVkSubmitInfo(
+      waitSemaphores = waitSemaphores,
+      waitDstStageMask = waitStages,
+      commandBuffers = commandBuffers,
+      signalSemaphores = signalSemaphores,
+    )
+    checkVkResult vkQueueSubmit(ctx.queue, 1, submitInfo.addr, ctx.inFlightFence)
 
 proc beginFrame*(
     ctx: VulkanContext,
