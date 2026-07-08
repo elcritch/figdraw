@@ -3530,6 +3530,23 @@ method popRectMask*(ctx: VulkanContext) =
   if rectMask.kind == rmkMask:
     ctx.popMask()
 
+proc consumeAcquiredImage(ctx: VulkanContext) =
+  ## Skip a visually stale acquired image while still consuming the acquire semaphore.
+  let
+    waitSemaphores = [ctx.imageAvailableSemaphore]
+    waitStages = [VkPipelineStageFlags{ColorAttachmentOutputBit}]
+    commandBuffers: array[0, VkCommandBuffer] = []
+    signalSemaphores: array[0, VkSemaphore] = []
+
+  checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
+  let submitInfo = newVkSubmitInfo(
+    waitSemaphores = waitSemaphores,
+    waitDstStageMask = waitStages,
+    commandBuffers = commandBuffers,
+    signalSemaphores = signalSemaphores,
+  )
+  checkVkResult vkQueueSubmit(ctx.queue, 1, submitInfo.addr, ctx.inFlightFence)
+
 proc beginFrame*(
     ctx: VulkanContext,
     frameSize: Vec2,
@@ -3586,6 +3603,7 @@ proc beginFrame*(
     ctx.swapchainOutOfDate = true
     debug "Acquire returned suboptimal", result = $acquireResult
     when defined(macosx):
+      ctx.consumeAcquiredImage()
       return
   else:
     checkVkResult acquireResult
