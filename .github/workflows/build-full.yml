@@ -95,8 +95,10 @@ jobs:
       run: |
         test -f "${{ matrix.vulkan_icd }}"
         test -f C:/swiftshader/vk_swiftshader.dll
+        test -f C:/swiftshader/vulkan-1.dll
         MSYS2_ARG_CONV_EXCL='*' C:/Windows/System32/reg.exe QUERY \
           'HKLM\SOFTWARE\Khronos\Vulkan\Drivers'
+        echo "C:/swiftshader" >> "$GITHUB_PATH"
 
     - name: Setup software OpenGL/Vulkan (Mesa) + Xvfb (X11)
       if: runner.os == 'Linux' && matrix.display == 'x11'
