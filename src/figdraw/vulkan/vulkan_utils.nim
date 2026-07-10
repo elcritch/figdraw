@@ -175,11 +175,12 @@ proc chooseSwapCompositeAlpha*(
 proc chooseSwapExtent*(
     capabilities: VkSurfaceCapabilitiesKHR, width, height: int32
 ): VkExtent2D =
-  if capabilities.currentExtent.width != 0xFFFFFFFF'u32:
+  if capabilities.currentExtent.width != 0xFFFFFFFF'u32 and
+      capabilities.currentExtent.width > 0 and capabilities.currentExtent.height > 0:
     return capabilities.currentExtent
 
-  result.width = width.uint32
-  result.height = height.uint32
+  result.width = max(1'i32, width).uint32
+  result.height = max(1'i32, height).uint32
   result.width = max(
     capabilities.minImageExtent.width,
     min(capabilities.maxImageExtent.width, result.width),
