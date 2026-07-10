@@ -50,6 +50,20 @@ proc renderAndScreenshotOnce*(
       size = ivec2(windowW.int32, windowH.int32), fullscreen = false, title = title
     )
     try:
+      when defined(windows):
+        window.visible = true
+        window.size = ivec2(windowW.int32, windowH.int32)
+        var windowReady = false
+        for _ in 0 ..< 50:
+          pollEvents()
+          let clientSize = window.backingSize()
+          if clientSize.x > 0 and clientSize.y > 0:
+            windowReady = true
+            break
+          sleep(10)
+        if not windowReady:
+          raise newException(WindyError, "Win32 window has no drawable client area")
+
       let renderer = glrenderer.newFigRenderer(
         atlasSize = atlasSize, backendState = WindyRenderBackend()
       )
@@ -70,8 +84,8 @@ proc renderAndScreenshotOnce*(
       result.writeFile(outputPath)
     except VulkanError as exc:
       raise newException(WindyError, "Vulkan device not available: " & exc.msg)
-    except ValueError:
-      raise newException(WindyError, "Vulkan device not available")
+    except ValueError as exc:
+      raise newException(WindyError, "Vulkan device not available: " & exc.msg)
     finally:
       window.close()
   else:
