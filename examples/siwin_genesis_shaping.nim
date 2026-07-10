@@ -23,8 +23,8 @@ const
 
 const
   HebrewGenesis319 =
-    "בְּזֵעַת אַפֶּיךָ תֹּאכַל לֶחֶם עַד שׁוּבְךָ אֶל־הָאֲדָמָה " &
-    "כִּי מִמֶּנָּה לֻקָּחְתָּ כִּי־עָפָר אַתָּה וְאֶל־עָפָר תָּשׁוּב׃"
+    "בזעת אפיך תאכל לחם עד שובך אל־האדמה כי ממנה לקחת " &
+    "כי־עפר אתה ואל־עפר תשוב׃"
   EnglishGenesis319 =
     "In the sweat of thy face shalt thou eat bread, till thou return unto the ground; " &
     "for out of it wast thou taken: for dust thou art, and unto dust shalt thou return."
