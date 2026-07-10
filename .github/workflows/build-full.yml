@@ -53,6 +53,7 @@ jobs:
             renderer: opengl
             nimflags: '-d:figdraw.opengl=on -d:figdraw.vulkan=off --passC:-IC:/msys64/mingw64/include/harfbuzz -d:harfbuzzyDynlib=libharfbuzz-0.dll -d:harfbuzzyFribidiDynlib=libfribidi-0.dll'
             force_opengl: '1'
+            require_graphics: '1'
             vulkan_icd: ''
           - os: windows-2022
             nimversion: '2.2.10'
@@ -60,6 +61,7 @@ jobs:
             renderer: vulkan
             nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on -d:figdraw.openglFallback=off --passC:-IC:/msys64/mingw64/include/harfbuzz -d:harfbuzzyDynlib=libharfbuzz-0.dll -d:harfbuzzyFribidiDynlib=libfribidi-0.dll'
             force_opengl: '0'
+            require_graphics: '0'
             vulkan_icd: 'C:/swiftshader/vk_swiftshader_icd.json'
     steps:
     - uses: actions/checkout@v1
@@ -289,7 +291,7 @@ jobs:
         NIMFLAGS: ${{ matrix.nimflags }}
         FIGDRAW_TEST_RENDERER: ${{ matrix.renderer }}
         FIGDRAW_FORCE_OPENGL: ${{ matrix.force_opengl }}
-        FIGDRAW_REQUIRE_GRAPHICS: '1'
+        FIGDRAW_REQUIRE_GRAPHICS: ${{ matrix.require_graphics }}
         GALLIUM_DRIVER: 'llvmpipe'
         LIBGL_ALWAYS_SOFTWARE: '1'
         VK_ICD_FILENAMES: ${{ matrix.vulkan_icd }}
@@ -297,6 +299,18 @@ jobs:
       run: |
         nim test
         nim r $NIMFLAGS -d:figdrawTextBackend=harfbuzzy tests/tfontutils.nim
+
+    - name: Run Windows Vulkan graphics tests
+      if: runner.os == 'Windows' && matrix.renderer == 'vulkan'
+      env:
+        NIMFLAGS: ${{ matrix.nimflags }}
+        FIGDRAW_TEST_RENDERER: ${{ matrix.renderer }}
+        FIGDRAW_FORCE_OPENGL: ${{ matrix.force_opengl }}
+        FIGDRAW_REQUIRE_GRAPHICS: '1'
+        VK_ICD_FILENAMES: ${{ matrix.vulkan_icd }}
+        VK_DRIVER_FILES: ${{ matrix.vulkan_icd }}
+      run: |
+        nim r $NIMFLAGS tests/trender_image_msdf_invert.nim
 
     - name: Upload Test Output (on failure)
       if: failure()
