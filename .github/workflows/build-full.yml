@@ -60,7 +60,7 @@ jobs:
             renderer: vulkan
             nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on -d:figdraw.openglFallback=off --passC:-IC:/msys64/mingw64/include/harfbuzz -d:harfbuzzyDynlib=libharfbuzz-0.dll -d:harfbuzzyFribidiDynlib=libfribidi-0.dll'
             force_opengl: '0'
-            vulkan_icd: 'C:/msys64/mingw64/share/vulkan/icd.d/lvp_icd.x86_64.json'
+            vulkan_icd: 'C:/swiftshader/vk_swiftshader_icd.json'
     steps:
     - uses: actions/checkout@v1
 
@@ -80,17 +80,21 @@ jobs:
           mingw-w64-x86_64-fribidi
         echo "C:/msys64/mingw64/bin" >> "$GITHUB_PATH"
 
-    - name: Install Windows software Vulkan (Mesa Lavapipe)
+    - name: Install Windows software Vulkan (SwiftShader)
+      if: runner.os == 'Windows' && matrix.renderer == 'vulkan'
+      uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
+      with:
+        install_runtime_only: true
+        install_swiftshader: true
+        swiftshader_destination: 'C:\swiftshader'
+        cache: true
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Verify Windows software Vulkan
       if: runner.os == 'Windows' && matrix.renderer == 'vulkan'
       run: |
-        C:/msys64/usr/bin/pacman.exe -S --noconfirm --needed \
-          mingw-w64-x86_64-mesa
         test -f "${{ matrix.vulkan_icd }}"
-        test -f C:/msys64/mingw64/bin/vulkan_lvp.dll
-        MSYS2_ARG_CONV_EXCL='*' C:/Windows/System32/reg.exe ADD \
-          'HKLM\SOFTWARE\Khronos\Vulkan\Drivers' \
-          /v 'C:\msys64\mingw64\share\vulkan\icd.d\lvp_icd.x86_64.json' \
-          /t REG_DWORD /d 0 /f
+        test -f C:/swiftshader/vk_swiftshader.dll
         MSYS2_ARG_CONV_EXCL='*' C:/Windows/System32/reg.exe QUERY \
           'HKLM\SOFTWARE\Khronos\Vulkan\Drivers'
 
