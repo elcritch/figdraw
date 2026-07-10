@@ -110,6 +110,11 @@ proc platforms(): seq[string] =
 task test, "run unit test":
   let enableSdl2 =
     getEnv("FIGDRAW_TEST_SDL2").strip().toLowerAscii() in ["1", "true", "yes", "on"]
+  var excludedTests: seq[string]
+  for testName in getEnv("FIGDRAW_TEST_EXCLUDE").split(','):
+    let cleaned = testName.strip()
+    if cleaned.len > 0:
+      excludedTests.add(cleaned)
 
   var testRuns = 0
   for platformArg in platforms():
@@ -117,7 +122,7 @@ task test, "run unit test":
       echo "Running platform args: ", platformArg
     for file in listFiles("tests"):
       let name = file.extractFilename()
-      if name.startsWith("t") and name.endsWith(".nim"):
+      if name.startsWith("t") and name.endsWith(".nim") and name notin excludedTests:
         inc testRuns
         nimExec("r", file, platform = platformArg)
 

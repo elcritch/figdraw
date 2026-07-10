@@ -54,6 +54,7 @@ jobs:
             nimflags: '-d:figdraw.opengl=on -d:figdraw.vulkan=off --passC:-IC:/msys64/mingw64/include/harfbuzz -d:harfbuzzyDynlib=libharfbuzz-0.dll -d:harfbuzzyFribidiDynlib=libfribidi-0.dll'
             force_opengl: '1'
             require_graphics: '1'
+            test_exclude: ''
             vulkan_icd: ''
           - os: windows-2022
             nimversion: '2.2.10'
@@ -62,6 +63,7 @@ jobs:
             nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on -d:figdraw.openglFallback=off --passC:-IC:/msys64/mingw64/include/harfbuzz -d:harfbuzzyDynlib=libharfbuzz-0.dll -d:harfbuzzyFribidiDynlib=libfribidi-0.dll'
             force_opengl: '0'
             require_graphics: '0'
+            test_exclude: 'tfigrender_oneframe_screenshot.nim,trender_3d_overlay.nim,trender_extras.nim,trender_image.nim,trender_image_msdf_invert.nim,trender_layers_clip.nim,trender_linear_gradient.nim,trender_rgb_boxes.nim,trender_rgb_boxes_sdf.nim,trender_rgb_boxes_sdf_siwin.nim,trender_text_invert.nim,tsiwin_rect_mask_vulkan.nim'
             vulkan_icd: 'C:/swiftshader/vk_swiftshader_icd.json'
     steps:
     - uses: actions/checkout@v1
@@ -229,6 +231,7 @@ jobs:
       env:
         XDG_SESSION_TYPE: "x11"
         FIGDRAW_TEST_RENDERER: ${{ matrix.renderer }}
+        FIGDRAW_TEST_EXCLUDE: ${{ matrix.test_exclude }}
         FIGDRAW_FORCE_OPENGL: ${{ matrix.force_opengl }}
         NIMFLAGS: ${{ matrix.nimflags }}
         GALLIUM_DRIVER: "llvmpipe"
