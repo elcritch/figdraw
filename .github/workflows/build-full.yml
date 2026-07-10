@@ -51,7 +51,7 @@ jobs:
             nimversion: '2.2.10'
             display: none
             renderer: opengl
-            nimflags: '-d:figdraw.opengl=on -d:figdraw.vulkan=off'
+            nimflags: '-d:figdraw.opengl=on -d:figdraw.vulkan=off --passC:-IC:/msys64/mingw64/include/harfbuzz -d:harfbuzzyDynlib=libharfbuzz-0.dll -d:harfbuzzyFribidiDynlib=libfribidi-0.dll'
             force_opengl: '1'
     steps:
     - uses: actions/checkout@v1
@@ -63,6 +63,14 @@ jobs:
         version: '26.0.3'
         build-type: 'release-msvc'
         deployment-choice: '1'
+
+    - name: Install Windows text shaping dependencies
+      if: runner.os == 'Windows'
+      run: |
+        C:/msys64/usr/bin/pacman.exe -S --noconfirm --needed \
+          mingw-w64-x86_64-harfbuzz \
+          mingw-w64-x86_64-fribidi
+        echo "C:/msys64/mingw64/bin" >> "$GITHUB_PATH"
 
     - name: Setup software OpenGL/Vulkan (Mesa) + Xvfb (X11)
       if: runner.os == 'Linux' && matrix.display == 'x11'
@@ -257,6 +265,7 @@ jobs:
         LIBGL_ALWAYS_SOFTWARE: '1'
       run: |
         nim test
+        nim r -d:figdrawTextBackend=harfbuzzy tests/tfontutils.nim
 
     - name: Build Tests (Vulkan Compile Check)
       if: runner.os == 'Windows'
