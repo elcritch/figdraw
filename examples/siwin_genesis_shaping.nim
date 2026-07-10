@@ -1,6 +1,8 @@
 when not defined(emscripten):
   import std/os
 
+import std/[math, times]
+
 import chroma
 import chronicles
 
@@ -16,6 +18,8 @@ logScope:
 const
   RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
   DemoWindowTitle = "Siwin Scripture Shaping"
+  CarouselHoldSeconds = 15.0'f32
+  CarouselSlideSeconds = 1.4'f32
   ExampleDir = currentSourcePath().parentDir
   RepoDir = ExampleDir.parentDir
   UbuntuFontFile = RepoDir / "data" / "Ubuntu.ttf"
@@ -32,16 +36,18 @@ const
     "Οὕτω γὰρ ἠγάπησεν ὁ Θεὸς τὸν κόσμον, ὥστε τὸν υἱὸν αὐτοῦ " &
     "τὸν μονογενῆ ἔδωκεν, ἵνα πᾶς ὁ πιστεύων εἰς αὐτὸν μὴ ἀπόληται, " &
     "ἀλλ᾽ ἔχῃ ζωὴν αἰώνιον."
-  EnglishJohn316 =
-    "For God so loved the world, that he gave his only begotten Son, " &
-    "that whosoever believeth in him should not perish, but have everlasting life."
 
 type DemoFonts = object
   title: FigFont
   label: FigFont
+  metric: FigFont
   hebrew: FigFont
   greek: FigFont
   english: FigFont
+
+type PanelPose = object
+  xOffset: float32
+  opacity: float32
 
 proc requireFile(path: string) =
   if not fileExists(path):
@@ -50,6 +56,60 @@ proc requireFile(path: string) =
 func uniformCorners(radius: float32): array[DirectionCorners, uint16] =
   for corner in DirectionCorners:
     result[corner] = radius.uint16
+
+func clamp01(v: float32): float32 =
+  max(0.0'f32, min(1.0'f32, v))
+
+func faded(color: ColorRGBA, opacity: float32): ColorRGBA =
+  rgba(color.r, color.g, color.b, (color.a.float32 * opacity.clamp01()).uint8)
+
+func moved(box: Rect, dx: float32): Rect =
+  rect(box.x + dx, box.y, box.w, box.h)
+
+func smoothStep(t: float32): float32 =
+  let x = t.clamp01()
+  x * x * (3.0'f32 - 2.0'f32 * x)
+
+func carouselTime(t: float32): float32 =
+  let
+    cycle = (CarouselHoldSeconds + CarouselSlideSeconds) * 2.0'f32
+    cycles = floor((t / cycle).float64).float32
+  t - cycles * cycle
+
+func carouselPose(t: float32, panelIndex: int, travel: float32): PanelPose =
+  let
+    segment = CarouselHoldSeconds + CarouselSlideSeconds
+    cycleT = carouselTime(t)
+
+  if cycleT < CarouselHoldSeconds:
+    if panelIndex == 0:
+      result = PanelPose(xOffset: 0.0'f32, opacity: 1.0'f32)
+    else:
+      result = PanelPose(xOffset: travel, opacity: 0.0'f32)
+  elif cycleT < segment:
+    let eased = smoothStep((cycleT - CarouselHoldSeconds) / CarouselSlideSeconds)
+    if panelIndex == 0:
+      result = PanelPose(xOffset: -travel * eased, opacity: 1.0'f32 - eased)
+    else:
+      result = PanelPose(xOffset: travel * (1.0'f32 - eased), opacity: eased)
+  elif cycleT < segment + CarouselHoldSeconds:
+    if panelIndex == 1:
+      result = PanelPose(xOffset: 0.0'f32, opacity: 1.0'f32)
+    else:
+      result = PanelPose(xOffset: travel, opacity: 0.0'f32)
+  else:
+    let eased =
+      smoothStep((cycleT - segment - CarouselHoldSeconds) / CarouselSlideSeconds)
+    if panelIndex == 1:
+      result = PanelPose(xOffset: -travel * eased, opacity: 1.0'f32 - eased)
+    else:
+      result = PanelPose(xOffset: travel * (1.0'f32 - eased), opacity: eased)
+
+func layoutStats(label: string, layout: GlyphArrangement): string =
+  label & "  glyphs " & $layout.arrangedGlyphs.len & "  lines " & $layout.lines.len
+
+func layoutStats(label: string, glyphCount, lineCount: int): string =
+  label & "  glyphs " & $glyphCount & "  lines " & $lineCount
 
 proc initDemoFonts(): DemoFonts =
   requireFile(UbuntuFontFile)
@@ -79,6 +139,13 @@ proc initDemoFonts(): DemoFonts =
       typefaceId: ubuntu,
       size: 15.0'f32,
       lineHeight: 20.0'f32,
+      fallbackTypefaceIds: @[hebrew],
+      features: commonFeatures,
+    ),
+    metric: FigFont(
+      typefaceId: ubuntu,
+      size: 13.0'f32,
+      lineHeight: 18.0'f32,
       fallbackTypefaceIds: @[hebrew],
       features: commonFeatures,
     ),
@@ -138,6 +205,22 @@ proc addTextLayout(
     Fig(kind: nkText, screenBox: box, fill: clearColor, textLayout: layout),
   )
 
+proc spanLayout(
+    box: Rect,
+    spans: openArray[(FontStyle, string)],
+    hAlign = Left,
+    vAlign = Top,
+    wrap = true,
+): GlyphArrangement =
+  typeset(
+    rect(0, 0, box.w, box.h),
+    spans,
+    hAlign = hAlign,
+    vAlign = vAlign,
+    minContent = false,
+    wrap = wrap,
+  )
+
 proc textLayout(
     box: Rect,
     font: FigFont,
@@ -147,14 +230,7 @@ proc textLayout(
     vAlign = Top,
     wrap = true,
 ): GlyphArrangement =
-  typeset(
-    rect(0, 0, box.w, box.h),
-    [(fs(font, fill), text)],
-    hAlign = hAlign,
-    vAlign = vAlign,
-    minContent = false,
-    wrap = wrap,
-  )
+  spanLayout(box, [(fs(font, fill), text)], hAlign, vAlign, wrap)
 
 proc addText(
     renders: var Renders,
@@ -170,128 +246,410 @@ proc addText(
   let layout = textLayout(box, font, text, fill, hAlign, vAlign, wrap)
   renders.addTextLayout(parent, box, layout)
 
-proc addDivider(renders: var Renders, parent: FigIdx, box: Rect) =
-  discard renders.addRect(
-    parent, box, linear(rgba(218, 225, 234, 0), rgba(174, 188, 206, 180), axis = fgaX)
-  )
-
-proc addVerseSection(
+proc addColorSwatches(
     renders: var Renders,
     parent: FigIdx,
     box: Rect,
-    reference: string,
-    sourceText: string,
-    sourceFont: FigFont,
-    sourceAlign: FontHorizontal,
-    englishText: string,
-    fonts: DemoFonts,
+    colors: array[3, ColorRGBA],
+    opacity: float32,
 ) =
   let
-    labelBox = rect(box.x, box.y, box.w, 22.0'f32)
-    sourceBox = rect(box.x, labelBox.y + labelBox.h + 8.0'f32, box.w, box.h * 0.46'f32)
-    dividerBox = rect(box.x, sourceBox.y + sourceBox.h + 12.0'f32, box.w, 1.0'f32)
-    englishBox = rect(
-      box.x,
-      dividerBox.y + 18.0'f32,
-      box.w,
-      max(42.0'f32, box.y + box.h - dividerBox.y - 18.0'f32),
+    gap = 7.0'f32
+    swatchW = max(12.0'f32, (box.w - gap * 2.0'f32) / 3.0'f32)
+  for i, color in colors:
+    discard renders.addRect(
+      parent,
+      rect(box.x + (swatchW + gap) * i.float32, box.y, swatchW, box.h),
+      faded(color, opacity),
+      corners = 4.0'f32,
     )
 
-  renders.addText(
-    parent,
-    labelBox,
-    fonts.label,
-    reference,
-    rgba(86, 96, 110, 235),
-    hAlign = Center,
-    wrap = false,
-  )
-  let sourceLayout = textLayout(
-    sourceBox,
-    sourceFont,
-    sourceText,
-    rgba(22, 28, 38, 255),
-    hAlign = sourceAlign,
-    vAlign = Middle,
-    wrap = true,
-  )
-  renders.addTextLayout(parent, sourceBox, sourceLayout)
-  renders.addDivider(parent, dividerBox)
-  renders.addText(
-    parent,
-    englishBox,
-    fonts.english,
-    englishText & "  (KJV)",
-    rgba(38, 48, 62, 255),
-    hAlign = Center,
-    vAlign = Top,
-    wrap = true,
-  )
-
-proc addVersePanel(renders: var Renders, root: FigIdx, panel: Rect, fonts: DemoFonts) =
-  let panelIdx = renders.addRect(
+proc addCardFrame(
+    renders: var Renders,
+    root: FigIdx,
+    box: Rect,
+    colors: array[3, ColorRGBA],
+    opacity: float32,
+): FigIdx =
+  result = renders.addRect(
     root,
-    panel,
-    rgba(255, 255, 255, 248),
-    corners = 18.0'f32,
-    stroke = RenderStroke(weight: 1.0'f32, fill: rgba(194, 202, 214, 255)),
+    box,
+    faded(rgba(255, 255, 255, 255), opacity),
+    corners = 8.0'f32,
+    stroke = RenderStroke(weight: 1.0'f32, fill: faded(rgba(0, 0, 0, 32), opacity)),
     shadows = [
       RenderShadow(
         style: DropShadow,
-        blur: 22.0'f32,
-        spread: 5.0'f32,
+        blur: 20.0'f32,
+        spread: 0.0'f32,
         x: 0.0'f32,
-        y: 12.0'f32,
-        fill: rgba(24, 32, 48, 36),
+        y: 8.0'f32,
+        fill: faded(rgba(0, 0, 0, 24), opacity),
       ),
       RenderShadow(),
       RenderShadow(),
       RenderShadow(),
     ],
   )
+  renders.addColorSwatches(
+    result,
+    rect(box.x + 22.0'f32, box.y + 16.0'f32, box.w - 44.0'f32, 8.0'f32),
+    colors,
+    opacity,
+  )
 
+proc addMetricStrip(
+    renders: var Renders,
+    parent: FigIdx,
+    box: Rect,
+    text: string,
+    font: FigFont,
+    colors: array[3, ColorRGBA],
+    opacity: float32,
+) =
+  renders.addRect(
+    parent,
+    box,
+    linear(faded(colors[0], opacity), faded(colors[1], opacity), axis = fgaX),
+    corners = 5.0'f32,
+  )
+  renders.addText(
+    parent,
+    box,
+    font,
+    text,
+    faded(rgba(255, 255, 255, 235), opacity),
+    hAlign = Center,
+    vAlign = Middle,
+    wrap = false,
+  )
+
+proc addQuoteCard(
+    renders: var Renders,
+    root: FigIdx,
+    box: Rect,
+    reference: string,
+    language: string,
+    text: string,
+    font: FigFont,
+    hAlign: FontHorizontal,
+    fonts: DemoFonts,
+    colors: array[3, ColorRGBA],
+    opacity: float32,
+): GlyphArrangement {.discardable.} =
+  if opacity <= 0.01'f32:
+    return
+
+  let card = renders.addCardFrame(root, box, colors, opacity)
   let
-    pad = max(22.0'f32, min(panel.w, panel.h) * 0.07'f32)
-    contentW = panel.w - pad * 2.0'f32
-    titleBox = rect(panel.x + pad, panel.y + pad, contentW, 38.0'f32)
-    metaBox = rect(panel.x + pad, titleBox.y + titleBox.h + 4.0'f32, contentW, 24.0'f32)
-    sectionTop = metaBox.y + metaBox.h + 22.0'f32
-    sectionGap = 26.0'f32
-    sectionH =
-      max(180.0'f32, (panel.y + panel.h - pad - sectionTop - sectionGap) * 0.5'f32)
-    genesisBox = rect(panel.x + pad, sectionTop, contentW, sectionH)
-    johnBox =
-      rect(panel.x + pad, sectionTop + sectionH + sectionGap, contentW, sectionH)
+    pad = 22.0'f32
+    contentW = box.w - pad * 2.0'f32
+    titleBox = rect(box.x + pad, box.y + 36.0'f32, contentW, 30.0'f32)
+    langBox = rect(box.x + pad, titleBox.y + titleBox.h + 4.0'f32, contentW, 20.0'f32)
+    metricBox = rect(box.x + pad, box.y + box.h - 43.0'f32, contentW, 30.0'f32)
+    textBox = rect(
+      box.x + pad,
+      langBox.y + langBox.h + 10.0'f32,
+      contentW,
+      max(40.0'f32, metricBox.y - langBox.y - langBox.h - 22.0'f32),
+    )
 
   renders.addText(
-    panelIdx,
+    card,
     titleBox,
-    fonts.title,
-    "Genesis 3:19 and John 3:16",
-    linear(rgba(36, 45, 58, 255), rgba(72, 95, 130, 255), axis = fgaX),
-    hAlign = Center,
+    fonts.label,
+    reference,
+    faded(rgba(40, 45, 50, 255), opacity),
     wrap = false,
   )
   renders.addText(
-    panelIdx,
-    metaBox,
+    card,
+    langBox,
+    fonts.metric,
+    language,
+    faded(rgba(74, 84, 94, 235), opacity),
+    wrap = false,
+  )
+  result = textLayout(
+    textBox,
+    font,
+    text,
+    faded(rgba(18, 20, 24, 255), opacity),
+    hAlign = hAlign,
+    vAlign = Middle,
+    wrap = true,
+  )
+  renders.addTextLayout(card, textBox, result)
+  renders.addMetricStrip(
+    card, metricBox, layoutStats(language, result), fonts.metric, colors, opacity
+  )
+
+proc addKnuthLine(
+    renders: var Renders,
+    parent: FigIdx,
+    bodyBox: Rect,
+    firstY: float32,
+    lineH: float32,
+    lineIndex: int,
+    spans: openArray[(FontStyle, string)],
+    glyphCount: var int,
+    renderedLines: var int,
+) =
+  let
+    lineBox = rect(bodyBox.x, firstY + lineH * lineIndex.float32, bodyBox.w, lineH)
+    layout = spanLayout(lineBox, spans, hAlign = Center, vAlign = Middle, wrap = false)
+  glyphCount += layout.arrangedGlyphs.len
+  inc renderedLines
+  renders.addTextLayout(parent, lineBox, layout)
+
+proc addKnuthJohnCard(
+    renders: var Renders,
+    root: FigIdx,
+    box: Rect,
+    fonts: DemoFonts,
+    colors: array[3, ColorRGBA],
+    opacity: float32,
+) =
+  if opacity <= 0.01'f32:
+    return
+
+  let card = renders.addCardFrame(root, box, colors, opacity)
+  let
+    pad = 22.0'f32
+    contentW = box.w - pad * 2.0'f32
+    titleBox = rect(box.x + pad, box.y + 36.0'f32, contentW, 30.0'f32)
+    langBox = rect(box.x + pad, titleBox.y + titleBox.h + 4.0'f32, contentW, 20.0'f32)
+    metricBox = rect(box.x + pad, box.y + box.h - 43.0'f32, contentW, 30.0'f32)
+    bodyBox = rect(
+      box.x + pad,
+      langBox.y + langBox.h + 8.0'f32,
+      contentW,
+      max(120.0'f32, metricBox.y - langBox.y - langBox.h - 20.0'f32),
+    )
+    lineCount = 9
+    footerH = 24.0'f32
+    heightLineH =
+      max(17.0'f32, min(36.0'f32, (bodyBox.h - footerH - 8.0'f32) / 9.4'f32))
+    textSize = max(14.0'f32, min(heightLineH * 0.86'f32, bodyBox.w / 15.0'f32))
+    lineH = max(17.0'f32, textSize * 1.18'f32)
+    quoteFont = FigFont(
+      typefaceId: fonts.english.typefaceId,
+      size: textSize,
+      lineHeight: lineH,
+      fallbackTypefaceIds: fonts.english.fallbackTypefaceIds,
+      features: fonts.english.features,
+      variations: fonts.english.variations,
+    )
+    footerFont = FigFont(
+      typefaceId: fonts.english.typefaceId,
+      size: max(15.0'f32, textSize * 0.64'f32),
+      lineHeight: footerH,
+      fallbackTypefaceIds: fonts.english.fallbackTypefaceIds,
+      features: fonts.english.features,
+      variations: fonts.english.variations,
+    )
+    blackStyle = fs(quoteFont, faded(rgba(12, 14, 16, 255), opacity))
+    redStyle = fs(quoteFont, faded(rgba(214, 0, 44, 255), opacity))
+    blueFill = faded(rgba(0, 118, 188, 255), opacity)
+    linesH = lineH * lineCount.float32
+    firstY = bodyBox.y + max(0.0'f32, (bodyBox.h - linesH - footerH) * 0.42'f32)
+
+  renders.addText(
+    card,
+    titleBox,
     fonts.label,
-    "Hebrew and Greek shaping with KJV English text  |  backend: " & figdrawTextBackend,
-    rgba(92, 102, 116, 235),
-    hAlign = Center,
+    "John 3:16",
+    faded(rgba(40, 45, 50, 255), opacity),
+    wrap = false,
+  )
+  renders.addText(
+    card,
+    langBox,
+    fonts.metric,
+    "English, after Knuth john316.pdf",
+    faded(rgba(74, 84, 94, 235), opacity),
     wrap = false,
   )
 
-  renders.addVerseSection(
-    panelIdx, genesisBox, "Genesis 3:19", HebrewGenesis319, fonts.hebrew, Right,
-    EnglishGenesis319, fonts,
+  var
+    glyphCount = 0
+    renderedLines = 0
+
+  renders.addKnuthLine(
+    card,
+    bodyBox,
+    firstY,
+    lineH,
+    0,
+    [(blackStyle, "Yes, this is how God")],
+    glyphCount,
+    renderedLines,
   )
-  renders.addVerseSection(
-    panelIdx, johnBox, "John 3:16", GreekJohn316, fonts.greek, Center, EnglishJohn316,
-    fonts,
+  renders.addKnuthLine(
+    card,
+    bodyBox,
+    firstY,
+    lineH,
+    1,
+    [(blackStyle, "loved the world:")],
+    glyphCount,
+    renderedLines,
+  )
+  renders.addKnuthLine(
+    card,
+    bodyBox,
+    firstY,
+    lineH,
+    2,
+    [(blackStyle, "He "), (redStyle, "G"), (blackStyle, "ave his")],
+    glyphCount,
+    renderedLines,
+  )
+  renders.addKnuthLine(
+    card,
+    bodyBox,
+    firstY,
+    lineH,
+    3,
+    [(redStyle, "O"), (blackStyle, "nly Child;")],
+    glyphCount,
+    renderedLines,
+  )
+  renders.addKnuthLine(
+    card,
+    bodyBox,
+    firstY,
+    lineH,
+    4,
+    [(redStyle, "S"), (blackStyle, "o that all")],
+    glyphCount,
+    renderedLines,
+  )
+  renders.addKnuthLine(
+    card,
+    bodyBox,
+    firstY,
+    lineH,
+    5,
+    [(redStyle, "P"), (blackStyle, "eople with faith in him")],
+    glyphCount,
+    renderedLines,
+  )
+  renders.addKnuthLine(
+    card,
+    bodyBox,
+    firstY,
+    lineH,
+    6,
+    [(blackStyle, "can "), (redStyle, "E"), (blackStyle, "scape destruction and")],
+    glyphCount,
+    renderedLines,
+  )
+  renders.addKnuthLine(
+    card,
+    bodyBox,
+    firstY,
+    lineH,
+    7,
+    [(redStyle, "L"), (blackStyle, "ive a full life,")],
+    glyphCount,
+    renderedLines,
+  )
+  renders.addKnuthLine(
+    card,
+    bodyBox,
+    firstY,
+    lineH,
+    8,
+    [(blackStyle, "now and forever")],
+    glyphCount,
+    renderedLines,
   )
 
-proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
+  let footerLayout = textLayout(
+    rect(bodyBox.x, bodyBox.y + bodyBox.h - footerH, bodyBox.w - 12.0'f32, footerH),
+    footerFont,
+    "JOHN 3:16",
+    blueFill,
+    hAlign = Right,
+    vAlign = Middle,
+    wrap = false,
+  )
+  glyphCount += footerLayout.arrangedGlyphs.len
+  inc renderedLines
+  renders.addTextLayout(
+    card,
+    rect(bodyBox.x, bodyBox.y + bodyBox.h - footerH, bodyBox.w - 12.0'f32, footerH),
+    footerLayout,
+  )
+  renders.addMetricStrip(
+    card,
+    metricBox,
+    layoutStats("Knuth-style English", glyphCount, renderedLines),
+    fonts.metric,
+    colors,
+    opacity,
+  )
+
+func cardPair(page: Rect): tuple[first: Rect, second: Rect] =
+  let gap = 20.0'f32
+  if page.w >= 760.0'f32:
+    let cardW = (page.w - gap) * 0.5'f32
+    result = (
+      first: rect(page.x, page.y, cardW, page.h),
+      second: rect(page.x + cardW + gap, page.y, cardW, page.h),
+    )
+  else:
+    let cardH = (page.h - gap) * 0.5'f32
+    result = (
+      first: rect(page.x, page.y, page.w, cardH),
+      second: rect(page.x, page.y + cardH + gap, page.w, cardH),
+    )
+
+proc addGenesisPage(
+    renders: var Renders, root: FigIdx, page: Rect, fonts: DemoFonts, pose: PanelPose
+) =
+  let
+    cards = cardPair(page.moved(pose.xOffset))
+    hebrewColors: array[3, ColorRGBA] =
+      [rgba(21, 135, 115, 245), rgba(45, 92, 145, 245), rgba(214, 143, 42, 245)]
+    englishColors: array[3, ColorRGBA] =
+      [rgba(214, 143, 42, 245), rgba(156, 86, 52, 245), rgba(45, 92, 145, 245)]
+  renders.addQuoteCard(
+    root, cards.first, "Genesis 3:19", "Hebrew", HebrewGenesis319, fonts.hebrew, Right,
+    fonts, hebrewColors, pose.opacity,
+  )
+  renders.addQuoteCard(
+    root, cards.second, "Genesis 3:19", "English KJV", EnglishGenesis319, fonts.english,
+    Center, fonts, englishColors, pose.opacity,
+  )
+
+proc addJohnPage(
+    renders: var Renders, root: FigIdx, page: Rect, fonts: DemoFonts, pose: PanelPose
+) =
+  let
+    cards = cardPair(page.moved(pose.xOffset))
+    greekColors: array[3, ColorRGBA] =
+      [rgba(114, 68, 160, 245), rgba(58, 112, 188, 245), rgba(166, 62, 86, 245)]
+    englishColors: array[3, ColorRGBA] =
+      [rgba(214, 0, 44, 245), rgba(12, 14, 16, 245), rgba(0, 118, 188, 245)]
+  renders.addQuoteCard(
+    root, cards.first, "John 3:16", "Greek", GreekJohn316, fonts.greek, Center, fonts,
+    greekColors, pose.opacity,
+  )
+  renders.addKnuthJohnCard(root, cards.second, fonts, englishColors, pose.opacity)
+
+proc addGenesisPanel(
+    renders: var Renders, root: FigIdx, box: Rect, fonts: DemoFonts, pose: PanelPose
+) =
+  renders.addGenesisPage(root, box, fonts, pose)
+
+proc addJohnPanel(
+    renders: var Renders, root: FigIdx, box: Rect, fonts: DemoFonts, pose: PanelPose
+) =
+  renders.addJohnPage(root, box, fonts, pose)
+
+proc makeRenderTree*(w, h: float32, fonts: DemoFonts, timeSec = 0.0'f32): Renders =
   result = Renders()
 
   let root = result.addRoot(
@@ -304,14 +662,47 @@ proc makeRenderTree*(w, h: float32, fonts: DemoFonts): Renders =
   )
 
   let
-    margin = max(26.0'f32, min(w, h) * 0.08'f32)
-    panel = rect(
-      margin,
-      margin,
-      max(480.0'f32, w - margin * 2.0'f32),
-      max(360.0'f32, h - margin * 2.0'f32),
+    pad = 28.0'f32
+    titleHeight = 70.0'f32
+    usableW = max(360.0'f32, w - pad * 2.0'f32)
+    stage = rect(
+      pad, pad + titleHeight, usableW, max(340.0'f32, h - pad * 2.0'f32 - titleHeight)
     )
-  result.addVersePanel(root, panel, fonts)
+    panelW = min(980.0'f32, max(460.0'f32, usableW * 0.96'f32))
+    panelH = min(620.0'f32, max(340.0'f32, stage.h))
+    panel = rect(
+      stage.x + (stage.w - panelW) * 0.5'f32,
+      stage.y + (stage.h - panelH) * 0.5'f32,
+      panelW,
+      panelH,
+    )
+    travel = usableW + panelW * 0.5'f32
+    genesisPose = carouselPose(timeSec, 0, travel)
+    johnPose = carouselPose(timeSec, 1, travel)
+
+  result.addText(
+    root,
+    rect(pad, pad, usableW, 34.0'f32),
+    fonts.title,
+    "Scripture Text Shaping",
+    linear(rgba(30, 42, 58, 255), rgba(45, 92, 145, 255), axis = fgaX),
+    wrap = false,
+  )
+  result.addText(
+    root,
+    rect(pad, pad + 34.0'f32, usableW, 24.0'f32),
+    fonts.metric,
+    "backend: " & figdrawTextBackend,
+    rgba(74, 84, 94, 255),
+    wrap = false,
+  )
+
+  if genesisPose.opacity <= johnPose.opacity:
+    result.addGenesisPanel(root, panel, fonts, genesisPose)
+    result.addJohnPanel(root, panel, fonts, johnPose)
+  else:
+    result.addJohnPanel(root, panel, fonts, johnPose)
+    result.addGenesisPanel(root, panel, fonts, genesisPose)
 
 when isMainModule:
   var appRunning = true
@@ -340,16 +731,13 @@ when isMainModule:
     windowH = appWindow.backingSize().y,
     scale = appWindow.contentScale()
 
-  var
-    renders = makeRenderTree(0.0'f32, 0.0'f32, fonts)
-    lastSize = vec2(0.0'f32, 0.0'f32)
+  let animStart = epochTime()
+  var renders = makeRenderTree(0.0'f32, 0.0'f32, fonts, 0.0'f32)
 
   proc redraw() =
     renderer.beginFrame()
     let sz = appWindow.logicalSize()
-    if sz != lastSize:
-      lastSize = sz
-      renders = makeRenderTree(sz.x, sz.y, fonts)
+    renders = makeRenderTree(sz.x, sz.y, fonts, (epochTime() - animStart).float32)
     renderer.renderFrame(renders, sz)
     renderer.endFrame()
 

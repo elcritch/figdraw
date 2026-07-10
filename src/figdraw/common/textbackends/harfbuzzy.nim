@@ -315,6 +315,34 @@ proc buildWrappedLines(
   if lineStart < glyphCount:
     result.add lineStart .. glyphCount - 1
 
+func lineSourceStart(arrangement: GlyphArrangement, line: Slice[int]): int =
+  result = high(int)
+  for glyphIndex in line:
+    let source = arrangement.arrangedGlyphs[glyphIndex].source
+    if source.runeStart < source.runeEnd:
+      result = min(result, source.runeStart)
+  if result == high(int):
+    result = 0
+
+func linesNeedLogicalReverse(
+    arrangement: GlyphArrangement, lines: openArray[Slice[int]]
+): bool =
+  if lines.len < 2:
+    return false
+
+  var previous = arrangement.lineSourceStart(lines[0])
+  for i in 1 ..< lines.len:
+    let current = arrangement.lineSourceStart(lines[i])
+    if current < previous:
+      return true
+    if current > previous:
+      return false
+    previous = current
+
+proc reorderLogicalLines(arrangement: var GlyphArrangement) =
+  if arrangement.linesNeedLogicalReverse(arrangement.lines):
+    arrangement.lines.reverse()
+
 proc reflowLines(arrangement: var GlyphArrangement) =
   var lineTop = 0.0'f32
   for line in arrangement.lines:
@@ -454,6 +482,7 @@ proc typeset*(
       else:
         @[0 .. result.arrangedGlyphs.len - 1]
     if wrap:
+      result.reorderLogicalLines()
       result.reflowLines()
 
   var alignmentBox = box

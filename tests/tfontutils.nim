@@ -636,6 +636,42 @@ suite "fontutils":
         check glyphCount > 0
         check maxX - minX <= box.w + 0.1'f32
 
+    test "harfbuzzy wrapped Hebrew lines stay in logical order":
+      let fontPath =
+        getCurrentDir() / "examples" / "fonts" / "NotoSansHebrew-wdth-wght.ttf"
+      require fileExists(fontPath)
+
+      let typefaceId = loadTypeface(fontPath)
+      let uiFont = FigFont(typefaceId: typefaceId, size: 24.0'f32)
+      let box = rect(0, 0, 145, 260)
+      let spans = [
+        (
+          fs(uiFont),
+          "אחד שנים שלשה ארבעה חמשה ששה שבעה שמונה תשעה עשרה",
+        )
+      ]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Right, vAlign = Top, minContent = false, wrap = true
+      )
+
+      check arrangement.lines.len > 1
+
+      var previousLineStart = -1
+      for line in arrangement.lines:
+        var
+          lineStart = high(int)
+          lineY = float32.high
+        for glyphIndex in line:
+          let glyph = arrangement.arrangedGlyphs[glyphIndex]
+          if glyph.source.runeStart < glyph.source.runeEnd:
+            lineStart = min(lineStart, glyph.source.runeStart)
+          lineY = min(lineY, glyph.rect.y)
+
+        check lineStart >= previousLineStart
+        check lineY < float32.high
+        previousLineStart = lineStart
+
     test "harfbuzzy wrap keeps ligature source ranges on one line":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
