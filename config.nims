@@ -85,25 +85,25 @@ proc platforms(): seq[string] =
       hasX11Display = getEnv("DISPLAY").len != 0
       testRenderer = getEnv("FIGDRAW_TEST_RENDERER").strip().toLowerAscii()
 
-    proc addPlatform(sessionType: string) =
+    proc addPlatform(platformArgs: var seq[string], sessionType: string) =
       case testRenderer
       of "opengl":
-        result.add "XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=1 "
+        platformArgs.add("XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=1 ")
       of "vulkan":
-        result.add "XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=0 "
+        platformArgs.add("XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=0 ")
       else:
-        result.add "XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=0 "
-        result.add "XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=1 "
+        platformArgs.add("XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=0 ")
+        platformArgs.add("XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=1 ")
 
     if sessionType == "wayland":
-      addPlatform("wayland")
+      addPlatform(result, "wayland")
     elif sessionType == "x11":
-      addPlatform("x11")
+      addPlatform(result, "x11")
     else:
       if hasWaylandDisplay:
-        addPlatform("wayland")
+        addPlatform(result, "wayland")
       if hasX11Display:
-        addPlatform("x11")
+        addPlatform(result, "x11")
   else:
     @[""]
 
