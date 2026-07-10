@@ -56,12 +56,27 @@ proc firstLoadableSystemFontPath(candidates: openArray[string]): string =
   ""
 
 when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
-  proc firstLoadableNamedSystemFontPath(candidates: openArray[string]): string =
+  proc firstLoadableNamedSystemFontPath(
+      candidates: openArray[string], requiredText: string
+  ): string =
+    proc supportsRequiredRunes(typeface: Typeface): bool =
+      for rune in requiredText.runes:
+        if not typeface.hasGlyph(rune):
+          return false
+      true
+
     let preferred = findSystemFontFile(candidates)
     if preferred.len > 0:
       try:
-        discard readTypeface(preferred)
-        return preferred
+        if readTypeface(preferred).supportsRequiredRunes():
+          return preferred
+      except PixieError:
+        discard
+
+    for path in systemFontFiles():
+      try:
+        if readTypeface(path).supportsRequiredRunes():
+          return path
       except PixieError:
         discard
     ""
@@ -1062,11 +1077,13 @@ suite "fontutils":
         check caret.sourceRune == 8
 
     test "harfbuzzy shapes Arabic when a system Arabic font is available":
+      const arabicText = "سلام"
       let fontPath = firstLoadableNamedSystemFontPath(
         [
           "Noto Naskh Arabic", "Noto Sans Arabic", "Geeza Pro", "Arial Unicode",
           "Arial", "DejaVu Sans",
-        ]
+        ],
+        arabicText,
       )
       if fontPath.len == 0:
         check true
@@ -1074,7 +1091,7 @@ suite "fontutils":
         let typefaceId = loadTypeface(fontPath)
         let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
         let box = rect(0, 0, 320, 90)
-        let spans = [(fs(uiFont), "سلام")]
+        let spans = [(fs(uiFont), arabicText)]
 
         let arrangement = typeset(
           box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false
