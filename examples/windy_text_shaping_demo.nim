@@ -10,6 +10,7 @@ else:
 
 import figdraw/commons
 import figdraw/common/fonttypes
+import figdraw/extras/systemfonts
 import figdraw/fignodes
 import figdraw/figrender as glrenderer
 
@@ -22,16 +23,20 @@ const
   HebrewFontFile = ExampleDir / "fonts" / "NotoSansHebrew-wdth-wght.ttf"
   DevanagariFontFile = ExampleDir / "fonts" / "NotoSansDevanagari-wdth-wght.ttf"
   CodeFontFile = ExampleDir / "fonts" / "FiraCode-wght.ttf"
+  HebrewSystemFontCandidates = [
+    "SF Hebrew", "SFHebrew", "IBM Plex Sans Hebrew", "Noto Sans Hebrew",
+    "DejaVu Sans Hebrew", "Arial Hebrew",
+  ]
 
 const
   ArabicBody =
-    "السلام عليكم ورحمة الله وبركاته\n" &
+    "السلام عليكم ورحمة الله وبركاته " &
     "النص العربي يحتاج إلى تشكيل واتجاه صحيح ولف أسطر هادئ."
   HebrewBody =
-    "שָׁלוֹם עוֹלָם וּבְרוּכִים הַבָּאִים\n" &
+    "שָׁלוֹם עוֹלָם וּבְרוּכִים הַבָּאִים " &
     "טֶקְסְט עִבְרִי צָרִיךְ נִקּוּד, כִּוּוּן נָכוֹן וּשְׁבִירַת שׁוּרוֹת יַצִּיבָה."
   DevanagariBody =
-    "नमस्ते दुनिया और आपका स्वागत है\n" &
+    "नमस्ते दुनिया और आपका स्वागत है " &
     "देवनागरी पाठ को मात्रा, संयुक्ताक्षर और स्थिर पंक्ति-विन्यास चाहिए."
 
 type DemoFonts = object
@@ -53,6 +58,64 @@ proc requireFile(path: string) =
   if not fileExists(path):
     raise newException(IOError, "Missing demo asset: " & path)
 
+func normalizedFontName(name: string): string =
+  result = newStringOfCap(name.len)
+  for ch in name.toLowerAscii():
+    if ch in {'a' .. 'z', '0' .. '9'}:
+      result.add(ch)
+
+func isStyledFontName(name: string): bool =
+  let normalized = name.normalizedFontName()
+  for style in [
+    "bold", "italic", "oblique", "semibold", "black", "heavy", "light", "thin",
+    "medium", "condensed",
+  ]:
+    if normalized.contains(style):
+      return true
+
+func supportedSystemTypeface(path: string): bool =
+  splitFile(path).ext.toLowerAscii() in [".ttf", ".otf"]
+
+proc findPreferredSystemFont(candidates: openArray[string]): string =
+  var fonts: seq[tuple[path, stem, normalized: string]]
+  for path in systemFontFiles():
+    if path.supportedSystemTypeface():
+      let stem = splitFile(path).name
+      fonts.add((path: path, stem: stem, normalized: stem.normalizedFontName()))
+
+  for candidate in candidates:
+    let wanted = candidate.normalizedFontName()
+    for font in fonts:
+      if font.normalized == wanted:
+        return font.path
+
+  for candidate in candidates:
+    let wanted = candidate.normalizedFontName()
+    for font in fonts:
+      if font.normalized.contains(wanted) and not font.stem.isStyledFontName():
+        return font.path
+
+  for candidate in candidates:
+    let wanted = candidate.normalizedFontName()
+    for font in fonts:
+      if font.normalized.contains(wanted) or wanted.contains(font.normalized):
+        return font.path
+
+proc preferredSystemTypefacePath(
+    candidates: openArray[string], fallbackPath: string
+): string =
+  result = findPreferredSystemFont(candidates)
+  if result.len > 0:
+    info "using preferred system typeface", requested = candidates[0], path = result
+  else:
+    result = fallbackPath
+    info "using bundled fallback typeface", requested = candidates[0], path = result
+
+func uniqueTypefaces(ids: openArray[TypefaceId]): seq[TypefaceId] =
+  for id in ids:
+    if id notin result:
+      result.add(id)
+
 proc initDemoFonts(): DemoFonts =
   for path in [
     UbuntuFontFile, ArabicFontFile, HebrewFontFile, DevanagariFontFile, CodeFontFile
@@ -62,14 +125,32 @@ proc initDemoFonts(): DemoFonts =
   let
     ubuntu = loadTypeface(UbuntuFontFile)
     arabic = loadTypeface(ArabicFontFile)
-    hebrew = loadTypeface(HebrewFontFile)
+    hebrewPath = preferredSystemTypefacePath(HebrewSystemFontCandidates, HebrewFontFile)
+    hebrew = loadTypeface(hebrewPath, [HebrewFontFile])
+    bundledHebrew =
+      if hebrewPath == HebrewFontFile:
+        hebrew
+      else:
+        loadTypeface(HebrewFontFile)
     devanagari = loadTypeface(DevanagariFontFile)
     code = loadTypeface(CodeFontFile)
     commonFeatures = @[fontFeature("kern"), fontFeature("liga")]
+    markFeatures =
+      @[
+        fontFeature("kern"),
+        fontFeature("liga"),
+        fontFeature("mark"),
+        fontFeature("mkmk"),
+      ]
     codePlainFeatures =
       @[fontFeature("kern"), fontFeature("liga", 0), fontFeature("calt", 0)]
     codeFeatures = @[fontFeature("kern"), fontFeature("liga"), fontFeature("calt")]
-    fallbackTypefaces = @[arabic, hebrew, devanagari]
+    fallbackTypefaces = uniqueTypefaces([arabic, hebrew, bundledHebrew, devanagari])
+    hebrewVariations =
+      if hebrewPath == HebrewFontFile:
+        @[fontVariation("wght", 560.0'f32), fontVariation("wdth", 96.0'f32)]
+      else:
+        @[]
 
   result = DemoFonts(
     title: FigFont(
@@ -107,21 +188,21 @@ proc initDemoFonts(): DemoFonts =
     arabic: FigFont(
       typefaceId: arabic,
       size: 32.0'f32,
-      fallbackTypefaceIds: @[hebrew, devanagari, ubuntu],
+      fallbackTypefaceIds: uniqueTypefaces([hebrew, bundledHebrew, devanagari, ubuntu]),
       features: commonFeatures,
       variations: @[fontVariation("wght", 560.0'f32)],
     ),
     hebrew: FigFont(
       typefaceId: hebrew,
       size: 32.0'f32,
-      fallbackTypefaceIds: @[arabic, devanagari, ubuntu],
-      features: commonFeatures,
-      variations: @[fontVariation("wght", 560.0'f32), fontVariation("wdth", 96.0'f32)],
+      fallbackTypefaceIds: uniqueTypefaces([bundledHebrew, arabic, devanagari, ubuntu]),
+      features: markFeatures,
+      variations: hebrewVariations,
     ),
     devanagari: FigFont(
       typefaceId: devanagari,
       size: 32.0'f32,
-      fallbackTypefaceIds: @[arabic, hebrew, ubuntu],
+      fallbackTypefaceIds: uniqueTypefaces([arabic, hebrew, bundledHebrew, ubuntu]),
       features: commonFeatures,
       variations: @[fontVariation("wght", 560.0'f32), fontVariation("wdth", 100.0'f32)],
     ),

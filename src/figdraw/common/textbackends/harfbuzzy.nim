@@ -19,6 +19,13 @@ type
     byteStarts: seq[int]
     byteEnds: seq[int]
 
+  ShapedSpan = object
+    style: FontStyle
+    text: string
+    byteOffset: int
+
+  Paragraph = seq[ShapedSpan]
+
   HarfbuzzFontInfo = object
     typeface: hb.Typeface
     fontId: FontId
@@ -42,6 +49,46 @@ proc applyFontCase(text: string, fontCase: FontCase): string =
     text.toLower()
   of TitleCase:
     text.title()
+
+proc splitParagraphs(spans: openArray[(FontStyle, string)]): seq[Paragraph] =
+  result.add(@[])
+
+  var byteOffset = 0
+  for (style, text) in spans:
+    var
+      partStart = 0
+      byteIndex = 0
+    while byteIndex < text.len:
+      let ch = text[byteIndex]
+      if ch == '\n' or ch == '\r':
+        if byteIndex > partStart:
+          result[^1].add(
+            ShapedSpan(
+              style: style,
+              text: text[partStart ..< byteIndex],
+              byteOffset: byteOffset + partStart,
+            )
+          )
+
+        var breakLen = 1
+        if ch == '\r' and byteIndex + 1 < text.len and text[byteIndex + 1] == '\n':
+          breakLen = 2
+        byteIndex += breakLen
+        partStart = byteIndex
+        result.add(@[])
+      else:
+        inc byteIndex
+
+    if partStart < text.len:
+      result[^1].add(
+        ShapedSpan(
+          style: style,
+          text: text[partStart ..< text.len],
+          byteOffset: byteOffset + partStart,
+        )
+      )
+
+    byteOffset += text.len
 
 proc runeRangeForBytes(
     decoded: DecodedSource, byteStart, byteEnd: int
@@ -274,21 +321,23 @@ proc preferredLineBreakAfter(arrangement: GlyphArrangement, glyphIndex: int): bo
   false
 
 proc buildWrappedLines(
-    arrangement: GlyphArrangement, boxWidth: float32, safeBreakAfter: openArray[bool]
+    arrangement: GlyphArrangement,
+    boxWidth: float32,
+    safeBreakAfter: openArray[bool],
+    glyphRange: Slice[int],
 ): seq[Slice[int]] =
-  let glyphCount = arrangement.arrangedGlyphs.len
-  if glyphCount == 0:
+  if arrangement.arrangedGlyphs.len == 0 or glyphRange.a > glyphRange.b:
     return
   if boxWidth <= 0:
-    return @[0 .. glyphCount - 1]
+    return @[glyphRange]
 
   var
-    lineStart = 0
+    lineStart = glyphRange.a
     lineWidth = 0.0'f32
     lastBreak = -1
-    glyphIndex = 0
+    glyphIndex = glyphRange.a
 
-  while glyphIndex < glyphCount:
+  while glyphIndex <= glyphRange.b:
     let glyph = arrangement.arrangedGlyphs[glyphIndex]
     let width = glyph.glyphWrapWidth()
 
@@ -312,8 +361,8 @@ proc buildWrappedLines(
       lastBreak = glyphIndex
     inc glyphIndex
 
-  if lineStart < glyphCount:
-    result.add lineStart .. glyphCount - 1
+  if lineStart <= glyphRange.b:
+    result.add lineStart .. glyphRange.b
 
 func lineSourceStart(arrangement: GlyphArrangement, line: Slice[int]): int =
   result = high(int)
@@ -339,9 +388,26 @@ func linesNeedLogicalReverse(
       return false
     previous = current
 
-proc reorderLogicalLines(arrangement: var GlyphArrangement) =
-  if arrangement.linesNeedLogicalReverse(arrangement.lines):
-    arrangement.lines.reverse()
+proc addParagraphLines(
+    arrangement: var GlyphArrangement,
+    glyphRange: Slice[int],
+    boxWidth: float32,
+    safeBreakAfter: openArray[bool],
+    wrap: bool,
+) =
+  if glyphRange.a > glyphRange.b:
+    return
+
+  var lines =
+    if wrap:
+      arrangement.buildWrappedLines(boxWidth, safeBreakAfter, glyphRange)
+    else:
+      @[glyphRange]
+
+  if arrangement.linesNeedLogicalReverse(lines):
+    lines.reverse()
+  for line in lines:
+    arrangement.lines.add(line)
 
 proc reflowLines(arrangement: var GlyphArrangement) =
   var lineTop = 0.0'f32
@@ -465,24 +531,26 @@ proc typeset*(
     sourceRunes: decoded.runes,
   )
 
+  let paragraphs = splitParagraphs(shapedSpans)
   var pen = vec2(0, 0)
-  var byteOffset = 0
   var safeBreakAfter: seq[bool]
-  for (style, text) in shapedSpans:
-    let baseline = glyphFontFor(style.font).glyph.descentAdj
-    if result.arrangedGlyphs.len == 0:
-      pen.y = baseline
-    result.appendShapedSpan(decoded, style, text, byteOffset, pen, safeBreakAfter)
-    byteOffset += text.len
+  for paragraph in paragraphs:
+    let glyphStart = result.arrangedGlyphs.len
+    pen.x = 0
+    for span in paragraph:
+      if span.text.len > 0:
+        let baseline = glyphFontFor(span.style.font).glyph.descentAdj
+        if result.arrangedGlyphs.len == 0:
+          pen.y = baseline
+        result.appendShapedSpan(
+          decoded, span.style, span.text, span.byteOffset, pen, safeBreakAfter
+        )
+
+    let glyphStop = result.arrangedGlyphs.len - 1
+    result.addParagraphLines(glyphStart .. glyphStop, box.w, safeBreakAfter, wrap)
 
   if result.arrangedGlyphs.len > 0:
-    result.lines =
-      if wrap:
-        result.buildWrappedLines(box.w, safeBreakAfter)
-      else:
-        @[0 .. result.arrangedGlyphs.len - 1]
-    if wrap:
-      result.reorderLogicalLines()
+    if wrap or paragraphs.len > 1:
       result.reflowLines()
 
   var alignmentBox = box

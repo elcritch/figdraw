@@ -636,6 +636,34 @@ suite "fontutils":
         check glyphCount > 0
         check maxX - minX <= box.w + 0.1'f32
 
+    test "harfbuzzy hard line breaks do not render newline glyphs":
+      let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      let uiFont = FigFont(typefaceId: typefaceId, size: 24.0'f32)
+      let box = rect(0, 0, 260, 120)
+      let text = "alpha\nbeta"
+
+      let arrangement = typeset(
+        box,
+        [(fs(uiFont), text)],
+        hAlign = Left,
+        vAlign = Top,
+        minContent = false,
+        wrap = false,
+      )
+
+      check arrangement.sourceRunes.len == 10
+      check arrangement.lines.len == 2
+      for glyph in arrangement.arrangedGlyphs:
+        check glyph.rune != Rune(10)
+
+      var lineY: array[2, float32]
+      for i, line in arrangement.lines:
+        lineY[i] = float32.high
+        for glyphIndex in line:
+          lineY[i] = min(lineY[i], arrangement.arrangedGlyphs[glyphIndex].rect.y)
+      check lineY[0] < lineY[1]
+
     test "harfbuzzy wrapped Hebrew lines stay in logical order":
       let fontPath =
         getCurrentDir() / "examples" / "fonts" / "NotoSansHebrew-wdth-wght.ttf"
@@ -670,6 +698,43 @@ suite "fontutils":
 
         check lineStart >= previousLineStart
         check lineY < float32.high
+        previousLineStart = lineStart
+
+    test "harfbuzzy Hebrew hard line breaks stay in logical order":
+      let fontPath =
+        getCurrentDir() / "examples" / "fonts" / "NotoSansHebrew-wdth-wght.ttf"
+      require fileExists(fontPath)
+
+      let typefaceId = loadTypeface(fontPath)
+      let uiFont = FigFont(
+        typefaceId: typefaceId,
+        size: 24.0'f32,
+        features: @[fontFeature("kern"), fontFeature("liga"), fontFeature("mark")],
+      )
+      let box = rect(0, 0, 145, 260)
+      let spans = [
+        (
+          fs(uiFont),
+          "אחד שנים שלשה\nארבעה חמשה ששה שבעה שמונה",
+        )
+      ]
+
+      let arrangement = typeset(
+        box, spans, hAlign = Right, vAlign = Top, minContent = false, wrap = true
+      )
+
+      check arrangement.lines.len > 1
+
+      var previousLineStart = -1
+      for line in arrangement.lines:
+        var lineStart = high(int)
+        for glyphIndex in line:
+          let glyph = arrangement.arrangedGlyphs[glyphIndex]
+          check glyph.rune != Rune(10)
+          if glyph.source.runeStart < glyph.source.runeEnd:
+            lineStart = min(lineStart, glyph.source.runeStart)
+
+        check lineStart >= previousLineStart
         previousLineStart = lineStart
 
     test "harfbuzzy wrap keeps ligature source ranges on one line":

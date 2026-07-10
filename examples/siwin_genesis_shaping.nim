@@ -1,7 +1,7 @@
 when not defined(emscripten):
   import std/os
 
-import std/[math, times]
+import std/[math, strutils, times]
 
 import chroma
 import chronicles
@@ -9,6 +9,7 @@ import chronicles
 import figdraw/windowing/siwinshim
 
 import figdraw/commons
+import figdraw/extras/systemfonts
 import figdraw/fignodes
 import figdraw/figrender as glrenderer
 
@@ -18,24 +19,41 @@ logScope:
 const
   RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
   DemoWindowTitle = "Siwin Scripture Shaping"
-  CarouselHoldSeconds = 15.0'f32
+  CarouselHoldSeconds = 7.0'f32
   CarouselSlideSeconds = 1.4'f32
   ExampleDir = currentSourcePath().parentDir
   RepoDir = ExampleDir.parentDir
   UbuntuFontFile = RepoDir / "data" / "Ubuntu.ttf"
   HebrewFontFile = ExampleDir / "fonts" / "NotoSansHebrew-wdth-wght.ttf"
+  EnglishSerifFontCandidates = [
+    "New York", "Georgia", "Times New Roman", "Palatino", "PT Serif", "IBM Plex Serif",
+    "Noto Serif", "DejaVu Serif", "Liberation Serif", "Cambria", "Constantia", "Times",
+  ]
+  GreekSerifFontCandidates = [
+    "New Athena Unicode", "Gentium Plus", "GFS Didot", "GFS Porson", "Noto Serif",
+    "Times New Roman", "Palatino", "Georgia", "DejaVu Serif", "Liberation Serif",
+    "Cambria", "Times",
+  ]
 
 const
-  HebrewGenesis319 =
-    "בזעת אפיך תאכל לחם עד שובך אל־האדמה כי ממנה לקחת " &
-    "כי־עפר אתה ואל־עפר תשוב׃"
-  EnglishGenesis319 =
-    "In the sweat of thy face shalt thou eat bread, till thou return unto the ground; " &
-    "for out of it wast thou taken: for dust thou art, and unto dust shalt thou return."
-  GreekJohn316 =
-    "Οὕτω γὰρ ἠγάπησεν ὁ Θεὸς τὸν κόσμον, ὥστε τὸν υἱὸν αὐτοῦ " &
-    "τὸν μονογενῆ ἔδωκεν, ἵνα πᾶς ὁ πιστεύων εἰς αὐτὸν μὴ ἀπόληται, " &
-    "ἀλλ᾽ ἔχῃ ζωὴν αἰώνιον."
+  HebrewGenesis319Rows = [
+    "בְּזֵעַת אַפֶּיךָ תֹּאכַל לֶחֶם",
+    "עַד שׁוּבְךָ אֶל־הָאֲדָמָה",
+    "כִּי מִמֶּנָּה לֻקָּחְתָּ",
+    "כִּי־עָפָר אַתָּה", "וְאֶל־עָפָר תָּשׁוּב׃",
+  ]
+  EnglishGenesis319Rows = [
+    "In the sweat of thy face shalt thou eat bread,",
+    "till thou return unto the ground;", "for out of it wast thou taken:",
+    "for dust thou art,", "and unto dust shalt thou return.",
+  ]
+  GreekJohn316Rows = [
+    "Οὕτω γὰρ ἠγάπησεν ὁ Θεὸς", "τὸν κόσμον,",
+    "ὥστε τὸν υἱὸν αὐτοῦ",
+    "τὸν μονογενῆ ἔδωκεν,", "ἵνα πᾶς",
+    "ὁ πιστεύων εἰς αὐτὸν", "μὴ ἀπόληται,",
+    "ἀλλ᾽ ἔχῃ ζωὴν", "αἰώνιον.",
+  ]
 
 type DemoFonts = object
   title: FigFont
@@ -52,6 +70,58 @@ type PanelPose = object
 proc requireFile(path: string) =
   if not fileExists(path):
     raise newException(IOError, "Missing demo asset: " & path)
+
+func normalizedFontName(name: string): string =
+  result = newStringOfCap(name.len)
+  for ch in name.toLowerAscii():
+    if ch in {'a' .. 'z', '0' .. '9'}:
+      result.add(ch)
+
+func isStyledFontName(name: string): bool =
+  let normalized = name.normalizedFontName()
+  for style in [
+    "bold", "italic", "oblique", "semibold", "black", "heavy", "light", "thin",
+    "medium", "condensed",
+  ]:
+    if normalized.contains(style):
+      return true
+
+proc findPreferredSystemFont(
+    candidates: openArray[string]
+): tuple[path: string, family: string] =
+  var fonts: seq[tuple[path, stem, normalized: string]]
+  for path in systemFontFiles():
+    let stem = splitFile(path).name
+    fonts.add((path: path, stem: stem, normalized: stem.normalizedFontName()))
+
+  for candidate in candidates:
+    let wanted = candidate.normalizedFontName()
+    for font in fonts:
+      if font.normalized == wanted:
+        return (path: font.path, family: candidate)
+
+  for candidate in candidates:
+    let wanted = candidate.normalizedFontName()
+    for font in fonts:
+      if font.normalized.contains(wanted) and not font.stem.isStyledFontName():
+        return (path: font.path, family: candidate)
+
+  for candidate in candidates:
+    let wanted = candidate.normalizedFontName()
+    for font in fonts:
+      if font.normalized.contains(wanted) or wanted.contains(font.normalized):
+        return (path: font.path, family: candidate)
+
+proc preferredSystemTypefacePath(
+    candidates: openArray[string], fallbackPath: string
+): string =
+  let systemFont = findPreferredSystemFont(candidates)
+  result = systemFont.path
+  if result.len > 0:
+    info "using preferred system typeface", requested = systemFont.family, path = result
+  else:
+    result = fallbackPath
+    info "using bundled fallback typeface", requested = candidates[0], path = result
 
 func uniformCorners(radius: float32): array[DirectionCorners, uint16] =
   for corner in DirectionCorners:
@@ -105,9 +175,6 @@ func carouselPose(t: float32, panelIndex: int, travel: float32): PanelPose =
     else:
       result = PanelPose(xOffset: travel * (1.0'f32 - eased), opacity: eased)
 
-func layoutStats(label: string, layout: GlyphArrangement): string =
-  label & "  glyphs " & $layout.arrangedGlyphs.len & "  lines " & $layout.lines.len
-
 func layoutStats(label: string, glyphCount, lineCount: int): string =
   label & "  glyphs " & $glyphCount & "  lines " & $lineCount
 
@@ -118,6 +185,22 @@ proc initDemoFonts(): DemoFonts =
   let
     ubuntu = loadTypeface(UbuntuFontFile)
     hebrew = loadTypeface(HebrewFontFile)
+    englishSerifPath =
+      preferredSystemTypefacePath(EnglishSerifFontCandidates, UbuntuFontFile)
+    greekSerifPath =
+      preferredSystemTypefacePath(GreekSerifFontCandidates, UbuntuFontFile)
+    englishSerif =
+      if englishSerifPath == UbuntuFontFile:
+        ubuntu
+      else:
+        loadTypeface(englishSerifPath, [UbuntuFontFile])
+    greekSerif =
+      if greekSerifPath == englishSerifPath:
+        englishSerif
+      elif greekSerifPath == UbuntuFontFile:
+        ubuntu
+      else:
+        loadTypeface(greekSerifPath, [UbuntuFontFile])
     commonFeatures = @[fontFeature("kern"), fontFeature("liga"), fontFeature("mark")]
     hebrewFeatures =
       @[
@@ -158,17 +241,17 @@ proc initDemoFonts(): DemoFonts =
       variations: @[fontVariation("wght", 560.0'f32), fontVariation("wdth", 98.0'f32)],
     ),
     greek: FigFont(
-      typefaceId: ubuntu,
+      typefaceId: greekSerif,
       size: 30.0'f32,
       lineHeight: 42.0'f32,
-      fallbackTypefaceIds: @[hebrew],
+      fallbackTypefaceIds: @[englishSerif, ubuntu, hebrew],
       features: commonFeatures,
     ),
     english: FigFont(
-      typefaceId: ubuntu,
+      typefaceId: englishSerif,
       size: 22.0'f32,
       lineHeight: 31.0'f32,
-      fallbackTypefaceIds: @[hebrew],
+      fallbackTypefaceIds: @[ubuntu, hebrew],
       features: commonFeatures,
     ),
   )
@@ -324,83 +407,159 @@ proc addMetricStrip(
     wrap = false,
   )
 
-proc addQuoteCard(
-    renders: var Renders,
-    root: FigIdx,
-    box: Rect,
-    reference: string,
-    language: string,
-    text: string,
-    font: FigFont,
-    hAlign: FontHorizontal,
-    fonts: DemoFonts,
-    colors: array[3, ColorRGBA],
-    opacity: float32,
-): GlyphArrangement {.discardable.} =
-  if opacity <= 0.01'f32:
-    return
+func textBoxWidth(layout: GlyphArrangement): float32 =
+  max(layout.bounding.w, 0.0'f32)
 
-  let card = renders.addCardFrame(root, box, colors, opacity)
-  let
-    pad = 22.0'f32
-    contentW = box.w - pad * 2.0'f32
-    titleBox = rect(box.x + pad, box.y + 36.0'f32, contentW, 30.0'f32)
-    langBox = rect(box.x + pad, titleBox.y + titleBox.h + 4.0'f32, contentW, 20.0'f32)
-    metricBox = rect(box.x + pad, box.y + box.h - 43.0'f32, contentW, 30.0'f32)
-    textBox = rect(
-      box.x + pad,
-      langBox.y + langBox.h + 10.0'f32,
-      contentW,
-      max(40.0'f32, metricBox.y - langBox.y - langBox.h - 22.0'f32),
-    )
+proc measureText(font: FigFont, text: string): float32 =
+  if text.len == 0:
+    return 0.0'f32
 
-  renders.addText(
-    card,
-    titleBox,
-    fonts.label,
-    reference,
-    faded(rgba(40, 45, 50, 255), opacity),
-    wrap = false,
-  )
-  renders.addText(
-    card,
-    langBox,
-    fonts.metric,
-    language,
-    faded(rgba(74, 84, 94, 235), opacity),
-    wrap = false,
-  )
-  result = textLayout(
-    textBox,
+  let layout = textLayout(
+    rect(0, 0, 10000.0'f32, max(font.lineHeight, font.size)),
     font,
     text,
-    faded(rgba(18, 20, 24, 255), opacity),
-    hAlign = hAlign,
-    vAlign = Middle,
-    wrap = true,
+    clearColor,
+    wrap = false,
   )
-  renders.addTextLayout(card, textBox, result)
-  renders.addMetricStrip(
-    card, metricBox, layoutStats(language, result), fonts.metric, colors, opacity
+  layout.textBoxWidth()
+
+proc maxMeasuredText(font: FigFont, texts: openArray[string]): float32 =
+  for text in texts:
+    result = max(result, font.measureText(text))
+
+func cardHeaderFont(fonts: DemoFonts, textSize, lineHeight: float32): FigFont =
+  FigFont(
+    typefaceId: fonts.english.typefaceId,
+    size: max(15.0'f32, textSize * 0.64'f32),
+    lineHeight: lineHeight,
+    fallbackTypefaceIds: fonts.english.fallbackTypefaceIds,
+    features: fonts.english.features,
+    variations: fonts.english.variations,
   )
 
-proc addKnuthLine(
+proc addCardHeaderText(
+    renders: var Renders,
+    parent: FigIdx,
+    box: Rect,
+    font: FigFont,
+    text: string,
+    fill: Fill,
+    uppercase = false,
+) =
+  let displayText =
+    if uppercase:
+      text.toUpperAscii()
+    else:
+      text
+  let layout = textLayout(
+    box, font, displayText, fill, hAlign = Left, vAlign = Middle, wrap = false
+  )
+  renders.addTextLayout(parent, box, layout)
+
+proc addKnuthTextPart(
+    renders: var Renders,
+    parent: FigIdx,
+    box: Rect,
+    font: FigFont,
+    text: string,
+    fill: Fill,
+    hAlign: FontHorizontal,
+    glyphCount: var int,
+) =
+  if text.len == 0:
+    return
+
+  let layout =
+    textLayout(box, font, text, fill, hAlign = hAlign, vAlign = Middle, wrap = false)
+  glyphCount += layout.arrangedGlyphs.len
+  renders.addTextLayout(parent, box, layout)
+
+proc addKnuthCenteredLine(
     renders: var Renders,
     parent: FigIdx,
     bodyBox: Rect,
     firstY: float32,
     lineH: float32,
     lineIndex: int,
-    spans: openArray[(FontStyle, string)],
+    font: FigFont,
+    text: string,
+    fill: Fill,
+    glyphCount: var int,
+    renderedLines: var int,
+) =
+  let lineBox = rect(bodyBox.x, firstY + lineH * lineIndex.float32, bodyBox.w, lineH)
+  renders.addKnuthTextPart(parent, lineBox, font, text, fill, Center, glyphCount)
+  inc renderedLines
+
+proc addKnuthAcrosticLine(
+    renders: var Renders,
+    parent: FigIdx,
+    bodyBox: Rect,
+    firstY: float32,
+    lineH: float32,
+    lineIndex: int,
+    redX: float32,
+    font: FigFont,
+    prefix, redLetter, suffix: string,
+    blackFill, redFill: Fill,
     glyphCount: var int,
     renderedLines: var int,
 ) =
   let
-    lineBox = rect(bodyBox.x, firstY + lineH * lineIndex.float32, bodyBox.w, lineH)
-    layout = spanLayout(lineBox, spans, hAlign = Center, vAlign = Middle, wrap = false)
-  glyphCount += layout.arrangedGlyphs.len
+    y = firstY + lineH * lineIndex.float32
+    redW = max(1.0'f32, font.measureText(redLetter))
+    suffixX = redX + redW
+    prefixBox = rect(bodyBox.x, y, max(0.0'f32, redX - bodyBox.x), lineH)
+    redBox = rect(redX, y, redW, lineH)
+    suffixBox = rect(suffixX, y, max(0.0'f32, bodyBox.x + bodyBox.w - suffixX), lineH)
+
+  renders.addKnuthTextPart(
+    parent, prefixBox, font, prefix, blackFill, Right, glyphCount
+  )
+  renders.addKnuthTextPart(parent, redBox, font, redLetter, redFill, Left, glyphCount)
+  renders.addKnuthTextPart(parent, suffixBox, font, suffix, blackFill, Left, glyphCount)
   inc renderedLines
-  renders.addTextLayout(parent, lineBox, layout)
+
+proc addKnuthLeftLine(
+    renders: var Renders,
+    parent: FigIdx,
+    bodyBox: Rect,
+    firstY: float32,
+    lineH: float32,
+    lineIndex: int,
+    x: float32,
+    font: FigFont,
+    text: string,
+    fill: Fill,
+    glyphCount: var int,
+    renderedLines: var int,
+) =
+  let lineBox = rect(
+    x,
+    firstY + lineH * lineIndex.float32,
+    max(0.0'f32, bodyBox.x + bodyBox.w - x),
+    lineH,
+  )
+  renders.addKnuthTextPart(parent, lineBox, font, text, fill, Left, glyphCount)
+  inc renderedLines
+
+proc addFixedLineRow(
+    renders: var Renders,
+    parent: FigIdx,
+    bodyBox: Rect,
+    firstY: float32,
+    lineH: float32,
+    lineIndex: int,
+    font: FigFont,
+    text: string,
+    fill: Fill,
+    hAlign: FontHorizontal,
+    glyphCount: var int,
+    renderedLines: var int,
+) =
+  let lineBox = rect(bodyBox.x, firstY + lineH * lineIndex.float32, bodyBox.w, lineH)
+  renders.addKnuthTextPart(parent, lineBox, font, text, fill, hAlign, glyphCount)
+  inc renderedLines
 
 proc addKnuthJohnCard(
     renders: var Renders,
@@ -417,8 +576,9 @@ proc addKnuthJohnCard(
   let
     pad = 22.0'f32
     contentW = box.w - pad * 2.0'f32
-    titleBox = rect(box.x + pad, box.y + 36.0'f32, contentW, 30.0'f32)
-    langBox = rect(box.x + pad, titleBox.y + titleBox.h + 4.0'f32, contentW, 20.0'f32)
+    titleLineH = 24.0'f32
+    titleBox = rect(box.x + pad, box.y + 36.0'f32, contentW, titleLineH)
+    langBox = rect(box.x + pad, titleBox.y + titleBox.h + 4.0'f32, contentW, titleLineH)
     metricBox = rect(box.x + pad, box.y + box.h - 43.0'f32, contentW, 30.0'f32)
     bodyBox = rect(
       box.x + pad,
@@ -427,9 +587,7 @@ proc addKnuthJohnCard(
       max(120.0'f32, metricBox.y - langBox.y - langBox.h - 20.0'f32),
     )
     lineCount = 9
-    footerH = 24.0'f32
-    heightLineH =
-      max(17.0'f32, min(36.0'f32, (bodyBox.h - footerH - 8.0'f32) / 9.4'f32))
+    heightLineH = max(17.0'f32, min(36.0'f32, (bodyBox.h - 8.0'f32) / 9.4'f32))
     textSize = max(14.0'f32, min(heightLineH * 0.86'f32, bodyBox.w / 15.0'f32))
     lineH = max(17.0'f32, textSize * 1.18'f32)
     quoteFont = FigFont(
@@ -440,152 +598,151 @@ proc addKnuthJohnCard(
       features: fonts.english.features,
       variations: fonts.english.variations,
     )
-    footerFont = FigFont(
-      typefaceId: fonts.english.typefaceId,
-      size: max(15.0'f32, textSize * 0.64'f32),
-      lineHeight: footerH,
-      fallbackTypefaceIds: fonts.english.fallbackTypefaceIds,
-      features: fonts.english.features,
-      variations: fonts.english.variations,
-    )
-    blackStyle = fs(quoteFont, faded(rgba(12, 14, 16, 255), opacity))
-    redStyle = fs(quoteFont, faded(rgba(214, 0, 44, 255), opacity))
+    headerFont = cardHeaderFont(fonts, textSize, titleLineH)
+    blackFill = faded(rgba(12, 14, 16, 255), opacity)
+    redFill = faded(rgba(214, 0, 44, 255), opacity)
     blueFill = faded(rgba(0, 118, 188, 255), opacity)
+    languageFill = faded(rgba(74, 84, 94, 235), opacity)
     linesH = lineH * lineCount.float32
-    firstY = bodyBox.y + max(0.0'f32, (bodyBox.h - linesH - footerH) * 0.42'f32)
+    firstY = bodyBox.y + max(0.0'f32, (bodyBox.h - linesH) * 0.42'f32)
+    canPrefixW = quoteFont.measureText("can ")
+    longestSuffixW = quoteFont.maxMeasuredText(
+      [
+        "ave his", "nly Child;", "o that all", "eople with faith in him",
+        "scape destruction and", "ive a full life,",
+      ]
+    )
+    longestRedW = quoteFont.maxMeasuredText(["G", "O", "S", "P", "E", "L"])
+    idealRedX = bodyBox.x + bodyBox.w * 0.34'f32
+    minRedX = bodyBox.x + canPrefixW
+    maxRedX = bodyBox.x + bodyBox.w - longestRedW - longestSuffixW
+    redX = max(minRedX, min(idealRedX, maxRedX))
+    finalLineX = max(bodyBox.x, redX - canPrefixW)
 
-  renders.addText(
-    card,
-    titleBox,
-    fonts.label,
-    "John 3:16",
-    faded(rgba(40, 45, 50, 255), opacity),
-    wrap = false,
+  renders.addCardHeaderText(
+    card, titleBox, headerFont, "John 3:16", blueFill, uppercase = true
   )
-  renders.addText(
-    card,
-    langBox,
-    fonts.metric,
-    "English, after Knuth john316.pdf",
-    faded(rgba(74, 84, 94, 235), opacity),
-    wrap = false,
+  renders.addCardHeaderText(
+    card, langBox, headerFont, "English, after Knuth john316.pdf", languageFill
   )
 
   var
     glyphCount = 0
     renderedLines = 0
 
-  renders.addKnuthLine(
-    card,
-    bodyBox,
-    firstY,
-    lineH,
-    0,
-    [(blackStyle, "Yes, this is how God")],
-    glyphCount,
-    renderedLines,
+  renders.addKnuthCenteredLine(
+    card, bodyBox, firstY, lineH, 0, quoteFont, "Yes, this is how God", blackFill,
+    glyphCount, renderedLines,
   )
-  renders.addKnuthLine(
-    card,
-    bodyBox,
-    firstY,
-    lineH,
-    1,
-    [(blackStyle, "loved the world:")],
-    glyphCount,
-    renderedLines,
+  renders.addKnuthCenteredLine(
+    card, bodyBox, firstY, lineH, 1, quoteFont, "loved the world:", blackFill,
+    glyphCount, renderedLines,
   )
-  renders.addKnuthLine(
-    card,
-    bodyBox,
-    firstY,
-    lineH,
-    2,
-    [(blackStyle, "He "), (redStyle, "G"), (blackStyle, "ave his")],
-    glyphCount,
-    renderedLines,
+  renders.addKnuthAcrosticLine(
+    card, bodyBox, firstY, lineH, 2, redX, quoteFont, "He ", "G", "ave his", blackFill,
+    redFill, glyphCount, renderedLines,
   )
-  renders.addKnuthLine(
-    card,
-    bodyBox,
-    firstY,
-    lineH,
-    3,
-    [(redStyle, "O"), (blackStyle, "nly Child;")],
-    glyphCount,
-    renderedLines,
+  renders.addKnuthAcrosticLine(
+    card, bodyBox, firstY, lineH, 3, redX, quoteFont, "", "O", "nly Child;", blackFill,
+    redFill, glyphCount, renderedLines,
   )
-  renders.addKnuthLine(
-    card,
-    bodyBox,
-    firstY,
-    lineH,
-    4,
-    [(redStyle, "S"), (blackStyle, "o that all")],
-    glyphCount,
-    renderedLines,
+  renders.addKnuthAcrosticLine(
+    card, bodyBox, firstY, lineH, 4, redX, quoteFont, "", "S", "o that all", blackFill,
+    redFill, glyphCount, renderedLines,
   )
-  renders.addKnuthLine(
-    card,
-    bodyBox,
-    firstY,
-    lineH,
-    5,
-    [(redStyle, "P"), (blackStyle, "eople with faith in him")],
-    glyphCount,
-    renderedLines,
+  renders.addKnuthAcrosticLine(
+    card, bodyBox, firstY, lineH, 5, redX, quoteFont, "", "P",
+    "eople with faith in him", blackFill, redFill, glyphCount, renderedLines,
   )
-  renders.addKnuthLine(
-    card,
-    bodyBox,
-    firstY,
-    lineH,
-    6,
-    [(blackStyle, "can "), (redStyle, "E"), (blackStyle, "scape destruction and")],
-    glyphCount,
-    renderedLines,
+  renders.addKnuthAcrosticLine(
+    card, bodyBox, firstY, lineH, 6, redX, quoteFont, "can ", "E",
+    "scape destruction and", blackFill, redFill, glyphCount, renderedLines,
   )
-  renders.addKnuthLine(
-    card,
-    bodyBox,
-    firstY,
-    lineH,
-    7,
-    [(redStyle, "L"), (blackStyle, "ive a full life,")],
-    glyphCount,
-    renderedLines,
+  renders.addKnuthAcrosticLine(
+    card, bodyBox, firstY, lineH, 7, redX, quoteFont, "", "L", "ive a full life,",
+    blackFill, redFill, glyphCount, renderedLines,
   )
-  renders.addKnuthLine(
-    card,
-    bodyBox,
-    firstY,
-    lineH,
-    8,
-    [(blackStyle, "now and forever")],
-    glyphCount,
-    renderedLines,
+  renders.addKnuthLeftLine(
+    card, bodyBox, firstY, lineH, 8, finalLineX, quoteFont, "now and forever.",
+    blackFill, glyphCount, renderedLines,
   )
 
-  let footerLayout = textLayout(
-    rect(bodyBox.x, bodyBox.y + bodyBox.h - footerH, bodyBox.w - 12.0'f32, footerH),
-    footerFont,
-    "JOHN 3:16",
-    blueFill,
-    hAlign = Right,
-    vAlign = Middle,
-    wrap = false,
-  )
-  glyphCount += footerLayout.arrangedGlyphs.len
-  inc renderedLines
-  renders.addTextLayout(
-    card,
-    rect(bodyBox.x, bodyBox.y + bodyBox.h - footerH, bodyBox.w - 12.0'f32, footerH),
-    footerLayout,
-  )
   renders.addMetricStrip(
     card,
     metricBox,
     layoutStats("Knuth-style English", glyphCount, renderedLines),
+    fonts.metric,
+    colors,
+    opacity,
+  )
+
+proc addFixedLineQuoteCard(
+    renders: var Renders,
+    root: FigIdx,
+    box: Rect,
+    reference: string,
+    language: string,
+    rows: openArray[string],
+    font: FigFont,
+    fonts: DemoFonts,
+    colors: array[3, ColorRGBA],
+    opacity: float32,
+    hAlign: FontHorizontal = Center,
+) =
+  if opacity <= 0.01'f32 or rows.len == 0:
+    return
+
+  let card = renders.addCardFrame(root, box, colors, opacity)
+  let
+    pad = 22.0'f32
+    contentW = box.w - pad * 2.0'f32
+    titleLineH = 24.0'f32
+    titleBox = rect(box.x + pad, box.y + 36.0'f32, contentW, titleLineH)
+    langBox = rect(box.x + pad, titleBox.y + titleBox.h + 4.0'f32, contentW, titleLineH)
+    metricBox = rect(box.x + pad, box.y + box.h - 43.0'f32, contentW, 30.0'f32)
+    bodyBox = rect(
+      box.x + pad,
+      langBox.y + langBox.h + 8.0'f32,
+      contentW,
+      max(120.0'f32, metricBox.y - langBox.y - langBox.h - 20.0'f32),
+    )
+    rowCount = rows.len
+    heightLineH =
+      max(17.0'f32, min(36.0'f32, (bodyBox.h - 8.0'f32) / (rowCount.float32 + 0.4'f32)))
+    lineH = max(17.0'f32, heightLineH * 1.01'f32)
+    textSize = max(14.0'f32, min(font.size, min(lineH * 0.7'f32, bodyBox.w / 18.0'f32)))
+    quoteFont = FigFont(
+      typefaceId: font.typefaceId,
+      size: textSize,
+      lineHeight: lineH,
+      fallbackTypefaceIds: font.fallbackTypefaceIds,
+      features: font.features,
+      variations: font.variations,
+    )
+    headerFont = cardHeaderFont(fonts, textSize, titleLineH)
+    firstY = bodyBox.y + max(0.0'f32, (bodyBox.h - lineH * rowCount.float32) * 0.42'f32)
+    textFill = faded(rgba(18, 20, 24, 255), opacity)
+    blueFill = faded(rgba(0, 118, 188, 255), opacity)
+    languageFill = faded(rgba(74, 84, 94, 235), opacity)
+
+  renders.addCardHeaderText(
+    card, titleBox, headerFont, reference, blueFill, uppercase = true
+  )
+  renders.addCardHeaderText(card, langBox, headerFont, language, languageFill)
+
+  var
+    glyphCount = 0
+    renderedLines = 0
+  for i, row in rows:
+    renders.addFixedLineRow(
+      card, bodyBox, firstY, lineH, i, quoteFont, row, textFill, hAlign, glyphCount,
+      renderedLines,
+    )
+
+  renders.addMetricStrip(
+    card,
+    metricBox,
+    layoutStats(language, glyphCount, renderedLines),
     fonts.metric,
     colors,
     opacity,
@@ -615,13 +772,13 @@ proc addGenesisPage(
       [rgba(21, 135, 115, 245), rgba(45, 92, 145, 245), rgba(214, 143, 42, 245)]
     englishColors: array[3, ColorRGBA] =
       [rgba(214, 143, 42, 245), rgba(156, 86, 52, 245), rgba(45, 92, 145, 245)]
-  renders.addQuoteCard(
-    root, cards.first, "Genesis 3:19", "Hebrew", HebrewGenesis319, fonts.hebrew, Right,
+  renders.addFixedLineQuoteCard(
+    root, cards.first, "Genesis 3:19", "Hebrew", HebrewGenesis319Rows, fonts.hebrew,
     fonts, hebrewColors, pose.opacity,
   )
-  renders.addQuoteCard(
-    root, cards.second, "Genesis 3:19", "English KJV", EnglishGenesis319, fonts.english,
-    Center, fonts, englishColors, pose.opacity,
+  renders.addFixedLineQuoteCard(
+    root, cards.second, "Genesis 3:19", "English KJV", EnglishGenesis319Rows,
+    fonts.english, fonts, englishColors, pose.opacity,
   )
 
 proc addJohnPage(
@@ -633,8 +790,8 @@ proc addJohnPage(
       [rgba(114, 68, 160, 245), rgba(58, 112, 188, 245), rgba(166, 62, 86, 245)]
     englishColors: array[3, ColorRGBA] =
       [rgba(214, 0, 44, 245), rgba(12, 14, 16, 245), rgba(0, 118, 188, 245)]
-  renders.addQuoteCard(
-    root, cards.first, "John 3:16", "Greek", GreekJohn316, fonts.greek, Center, fonts,
+  renders.addFixedLineQuoteCard(
+    root, cards.first, "John 3:16", "Greek", GreekJohn316Rows, fonts.greek, fonts,
     greekColors, pose.opacity,
   )
   renders.addKnuthJohnCard(root, cards.second, fonts, englishColors, pose.opacity)
