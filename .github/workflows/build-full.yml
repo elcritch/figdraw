@@ -87,6 +87,12 @@ jobs:
           mingw-w64-x86_64-mesa
         test -f "${{ matrix.vulkan_icd }}"
         test -f C:/msys64/mingw64/bin/vulkan_lvp.dll
+        MSYS2_ARG_CONV_EXCL='*' C:/Windows/System32/reg.exe ADD \
+          'HKLM\SOFTWARE\Khronos\Vulkan\Drivers' \
+          /v 'C:\msys64\mingw64\share\vulkan\icd.d\lvp_icd.x86_64.json' \
+          /t REG_DWORD /d 0 /f
+        MSYS2_ARG_CONV_EXCL='*' C:/Windows/System32/reg.exe QUERY \
+          'HKLM\SOFTWARE\Khronos\Vulkan\Drivers'
 
     - name: Setup software OpenGL/Vulkan (Mesa) + Xvfb (X11)
       if: runner.os == 'Linux' && matrix.display == 'x11'
