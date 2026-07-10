@@ -111,32 +111,47 @@ task test, "run unit test":
   let enableSdl2 =
     getEnv("FIGDRAW_TEST_SDL2").strip().toLowerAscii() in ["1", "true", "yes", "on"]
 
+  var testRuns = 0
   for platformArg in platforms():
     if platformArg != "":
       echo "Running platform args: ", platformArg
     for file in listFiles("tests"):
-      if file.startsWith("tests/t") and file.endsWith(".nim"):
+      let name = file.extractFilename()
+      if name.startsWith("t") and name.endsWith(".nim"):
+        inc testRuns
         nimExec("r", file, platform = platformArg)
 
+  if testRuns == 0:
+    quit "No test files were discovered"
+  echo "Ran ", testRuns, " test files"
+
   for file in listFiles("examples"):
-    if file.startsWith("examples/windy_") and file.endsWith(".nim"):
+    let name = file.extractFilename()
+    if name.startsWith("windy_") and name.endsWith(".nim"):
       nimExec("c", file)
-    elif file.startsWith("examples/siwin_") and file.endsWith(".nim"):
+    elif name.startsWith("siwin_") and name.endsWith(".nim"):
       nimExec("c", file)
-    elif file.startsWith("examples/sdl2_") and file.endsWith(".nim"):
+    elif name.startsWith("sdl2_") and name.endsWith(".nim"):
       if enableSdl2:
         nimExec("c", file, "-d:figdraw.metal=off -d:figdraw.vulkan=off")
       else:
         echo "Skipping SDL2 example (set FIGDRAW_TEST_SDL2=1 to enable): ", file
 
 task test_compile, "compile unit tests without running":
+  var testCount = 0
   for file in listFiles("tests"):
-    if file.startsWith("tests/t") and file.endsWith(".nim"):
+    let name = file.extractFilename()
+    if name.startsWith("t") and name.endsWith(".nim"):
+      inc testCount
       nimExec("c", file)
+  if testCount == 0:
+    quit "No test files were discovered"
+  echo "Compiled ", testCount, " test files"
 
 task test_emscripten, "build emscripten examples":
   for file in listFiles("examples"):
-    if file.startsWith("examples/windy_") and file.endsWith(".nim"):
+    let name = file.extractFilename()
+    if name.startsWith("windy_") and name.endsWith(".nim"):
       nimExec("c", file, "-d:emscripten")
 
 task bindings, "Generate bindings":

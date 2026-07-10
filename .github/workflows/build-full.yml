@@ -15,6 +15,7 @@ jobs:
       run:
         shell: bash
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
@@ -49,8 +50,9 @@ jobs:
           - os: windows-2022
             nimversion: '2.2.10'
             display: none
-            renderer: native
-            nimflags: '-d:figdraw.vulkan=off'
+            renderer: opengl
+            nimflags: '-d:figdraw.opengl=on -d:figdraw.vulkan=off'
+            force_opengl: '1'
     steps:
     - uses: actions/checkout@v1
 
@@ -241,6 +243,8 @@ jobs:
       if: runner.os == 'Windows'
       env:
         NIMFLAGS: ${{ matrix.nimflags }}
+        FIGDRAW_FORCE_OPENGL: ${{ matrix.force_opengl }}
+        FIGDRAW_REQUIRE_GRAPHICS: '1'
       run: |
         nim test
 
