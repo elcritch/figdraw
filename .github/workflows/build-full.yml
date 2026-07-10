@@ -293,6 +293,7 @@ jobs:
       env:
         NIMFLAGS: ${{ matrix.nimflags }}
         FIGDRAW_TEST_RENDERER: ${{ matrix.renderer }}
+        FIGDRAW_TEST_EXCLUDE: ${{ matrix.test_exclude }}
         FIGDRAW_FORCE_OPENGL: ${{ matrix.force_opengl }}
         FIGDRAW_REQUIRE_GRAPHICS: ${{ matrix.require_graphics }}
         GALLIUM_DRIVER: 'llvmpipe'
