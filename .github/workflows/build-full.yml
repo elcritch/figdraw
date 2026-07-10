@@ -265,7 +265,7 @@ jobs:
         LIBGL_ALWAYS_SOFTWARE: '1'
       run: |
         nim test
-        nim r -d:figdrawTextBackend=harfbuzzy tests/tfontutils.nim
+        nim r $NIMFLAGS -d:figdrawTextBackend=harfbuzzy tests/tfontutils.nim
 
     - name: Build Tests (Vulkan Compile Check)
       if: runner.os == 'Windows'
