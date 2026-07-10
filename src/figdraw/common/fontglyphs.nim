@@ -14,6 +14,18 @@ import ./textrasters/pixie_raster
 
 export applyLcdFilter
 
+proc clearGlyphRasterFontCache*(fontId: FontId) =
+  when figdrawTextBackend == "harfbuzzy":
+    clearGlyphIdFontCache(fontId)
+  else:
+    discard
+
+proc clearGlyphRasterTypefaceCache*(typefaceId: TypefaceId) =
+  when figdrawTextBackend == "harfbuzzy":
+    clearGlyphIdTypefaceCache(typefaceId)
+  else:
+    discard
+
 type GlyphPosition* = ref object ## Represents a glyph position after typesetting.
   fontId*: FontId
   glyphId*: FontGlyphId
@@ -225,6 +237,8 @@ proc convertArrangement*(
     hAlign: FontHorizontal,
     vAlign: FontVertical,
     gfonts: seq[GlyphFont],
+    minContent = false,
+    wrap = false,
 ): GlyphArrangement =
   var
     lines = newSeqOfCap[Slice[int]](arrangement.lines.len())
@@ -240,7 +254,7 @@ proc convertArrangement*(
   result = GlyphArrangement(
     contentHash: block:
       var h = Hash(0)
-      h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign)
+      h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign, minContent, wrap)
       h = h !& hash(figUiScale())
       !$h,
     lines: lines,

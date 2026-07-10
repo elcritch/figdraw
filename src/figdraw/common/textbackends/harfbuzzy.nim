@@ -1,4 +1,4 @@
-import std/[algorithm, hashes, math, sequtils, strutils, unicode]
+import std/[algorithm, hashes, math, sequtils, strutils, tables, unicode]
 
 import pkg/harfbuzzy as hb
 import pkg/vmath
@@ -16,28 +16,98 @@ const hbGlyphFlagUnsafeToBreak = 0x00000001'u32
 type
   DecodedSource = object
     runes: seq[Rune]
-    byteStarts: seq[int]
-    byteEnds: seq[int]
+    displayByteStarts: seq[int]
+    displayByteEnds: seq[int]
+    sourceByteStarts: seq[int]
+    sourceByteEnds: seq[int]
+    sourceRuneStarts: seq[int]
+    sourceRuneEnds: seq[int]
 
   ShapedSpan = object
     style: FontStyle
     text: string
     byteOffset: int
 
-  Paragraph = seq[ShapedSpan]
+  Paragraph = object
+    spans: seq[ShapedSpan]
+    byteStart: int
+    lineStyle: FontStyle
+    hasLineStyle: bool
+
+  ShapedGroup = object
+    style: FontStyle
+    spans: seq[ShapedSpan]
 
   HarfbuzzFontInfo = object
     typeface: hb.Typeface
     fontId: FontId
     glyphFont: GlyphFont
 
-proc decodeSource(text: string): DecodedSource =
+var harfbuzzTypefaceCache {.threadvar.}: Table[FontId, hb.Typeface]
+
+proc decodeText(
+    text: string
+): tuple[runes: seq[Rune], byteStarts: seq[int], byteEnds: seq[int]] =
   var byteOffset = 0
   for rune in text.runes:
     result.runes.add rune
     result.byteStarts.add byteOffset
     byteOffset += ($rune).len
     result.byteEnds.add byteOffset
+
+proc decodeSource(
+    sourceSpans, displaySpans: openArray[(FontStyle, string)]
+): DecodedSource =
+  var
+    sourceByteOffset = 0
+    sourceRuneOffset = 0
+    displayByteOffset = 0
+
+  for spanIndex in 0 ..< sourceSpans.len:
+    let
+      sourceText = sourceSpans[spanIndex][1]
+      displayText = displaySpans[spanIndex][1]
+      source = decodeText(sourceText)
+      display = decodeText(displayText)
+
+    result.runes.add source.runes
+    for displayIndex in 0 ..< display.runes.len:
+      let
+        mappedStart =
+          if source.runes.len == 0:
+            0
+          else:
+            min(
+              displayIndex * source.runes.len div max(display.runes.len, 1),
+              source.runes.len - 1,
+            )
+        mappedEnd =
+          if source.runes.len == 0:
+            0
+          else:
+            max(
+              mappedStart + 1,
+              min(
+                ((displayIndex + 1) * source.runes.len + display.runes.len - 1) div
+                  max(display.runes.len, 1),
+                source.runes.len,
+              ),
+            )
+
+      result.displayByteStarts.add displayByteOffset + display.byteStarts[displayIndex]
+      result.displayByteEnds.add displayByteOffset + display.byteEnds[displayIndex]
+      result.sourceRuneStarts.add sourceRuneOffset + mappedStart
+      result.sourceRuneEnds.add sourceRuneOffset + mappedEnd
+      if source.runes.len > 0:
+        result.sourceByteStarts.add sourceByteOffset + source.byteStarts[mappedStart]
+        result.sourceByteEnds.add sourceByteOffset + source.byteEnds[mappedEnd - 1]
+      else:
+        result.sourceByteStarts.add sourceByteOffset
+        result.sourceByteEnds.add sourceByteOffset
+
+    sourceByteOffset += sourceText.len
+    sourceRuneOffset += source.runes.len
+    displayByteOffset += displayText.len
 
 proc applyFontCase(text: string, fontCase: FontCase): string =
   case fontCase
@@ -51,10 +121,14 @@ proc applyFontCase(text: string, fontCase: FontCase): string =
     text.title()
 
 proc splitParagraphs(spans: openArray[(FontStyle, string)]): seq[Paragraph] =
-  result.add(@[])
+  result.add Paragraph(byteStart: 0)
 
   var byteOffset = 0
   for (style, text) in spans:
+    if not result[^1].hasLineStyle:
+      result[^1].lineStyle = style
+      result[^1].hasLineStyle = true
+
     var
       partStart = 0
       byteIndex = 0
@@ -62,7 +136,7 @@ proc splitParagraphs(spans: openArray[(FontStyle, string)]): seq[Paragraph] =
       let ch = text[byteIndex]
       if ch == '\n' or ch == '\r':
         if byteIndex > partStart:
-          result[^1].add(
+          result[^1].spans.add(
             ShapedSpan(
               style: style,
               text: text[partStart ..< byteIndex],
@@ -75,12 +149,14 @@ proc splitParagraphs(spans: openArray[(FontStyle, string)]): seq[Paragraph] =
           breakLen = 2
         byteIndex += breakLen
         partStart = byteIndex
-        result.add(@[])
+        result.add Paragraph(
+          byteStart: byteOffset + byteIndex, lineStyle: style, hasLineStyle: true
+        )
       else:
         inc byteIndex
 
     if partStart < text.len:
-      result[^1].add(
+      result[^1].spans.add(
         ShapedSpan(
           style: style,
           text: text[partStart ..< text.len],
@@ -90,26 +166,61 @@ proc splitParagraphs(spans: openArray[(FontStyle, string)]): seq[Paragraph] =
 
     byteOffset += text.len
 
+proc shapingGroups(paragraph: Paragraph): seq[ShapedGroup] =
+  for span in paragraph.spans:
+    if result.len > 0 and result[^1].style.font == span.style.font:
+      result[^1].spans.add span
+    else:
+      result.add ShapedGroup(style: span.style, spans: @[span])
+
+proc text(group: ShapedGroup): string =
+  for span in group.spans:
+    result.add span.text
+
+proc byteOffset(group: ShapedGroup): int =
+  if group.spans.len > 0:
+    result = group.spans[0].byteOffset
+
+proc fillForByte(group: ShapedGroup, byteOffset: int): Fill =
+  for span in group.spans:
+    if byteOffset >= span.byteOffset and byteOffset < span.byteOffset + span.text.len:
+      return span.style.color
+  result = group.style.color
+
 proc runeRangeForBytes(
     decoded: DecodedSource, byteStart, byteEnd: int
 ): GlyphSourceRange =
-  result.byteStart = byteStart
-  result.byteEnd = byteEnd
+  result.byteStart = high(int)
+  result.byteEnd = 0
   result.runeStart = decoded.runes.len
-  result.runeEnd = decoded.runes.len
+  result.runeEnd = 0
 
-  for i in 0 ..< decoded.runes.len:
-    if decoded.byteEnds[i] > byteStart:
-      result.runeStart = i
-      break
+  for i in 0 ..< decoded.displayByteStarts.len:
+    if decoded.displayByteEnds[i] > byteStart and decoded.displayByteStarts[i] < byteEnd:
+      result.byteStart = min(result.byteStart, decoded.sourceByteStarts[i])
+      result.byteEnd = max(result.byteEnd, decoded.sourceByteEnds[i])
+      result.runeStart = min(result.runeStart, decoded.sourceRuneStarts[i])
+      result.runeEnd = max(result.runeEnd, decoded.sourceRuneEnds[i])
 
-  for i in result.runeStart ..< decoded.runes.len:
-    if decoded.byteStarts[i] >= byteEnd:
-      result.runeEnd = i
-      break
-  if result.runeEnd == decoded.runes.len and byteEnd >= byteStart:
-    result.runeEnd = decoded.runes.len
-  if result.runeStart > result.runeEnd:
+  if result.byteStart == high(int):
+    result.byteStart = 0
+    result.runeStart = 0
+
+proc sourceInsertionForDisplayByte(
+    decoded: DecodedSource, byteOffset: int
+): GlyphSourceRange =
+  for i in 0 ..< decoded.displayByteStarts.len:
+    if decoded.displayByteStarts[i] >= byteOffset:
+      result.byteStart = decoded.sourceByteStarts[i]
+      result.byteEnd = result.byteStart
+      result.runeStart = decoded.sourceRuneStarts[i]
+      result.runeEnd = result.runeStart
+      return
+
+  if decoded.sourceByteEnds.len > 0:
+    result.byteStart = decoded.sourceByteEnds[^1]
+    result.byteEnd = result.byteStart
+    result.runeStart = decoded.sourceRuneEnds[^1]
     result.runeEnd = result.runeStart
 
 proc firstRune(decoded: DecodedSource, source: GlyphSourceRange): Rune =
@@ -171,12 +282,16 @@ proc toHarfbuzzVariations(variations: openArray[FontVariation]): seq[hb.Variatio
   for variation in variations:
     result.add hb.initVariation(hb.toTag(variation.tag), variation.value)
 
-proc initHarfbuzzTypeface(font: FigFont): hb.Typeface =
+proc initHarfbuzzTypeface(font: FigFont, fontId: FontId): hb.Typeface =
+  if fontId in harfbuzzTypefaceCache:
+    return harfbuzzTypefaceCache[fontId]
+
   let source = getTypefaceSource(font.typefaceId)
   let blob = hb.initBlob(source.data)
-  let face = hb.initFace(blob)
+  let face = hb.initFace(blob, source.faceIndex)
   result = hb.initTypeface(face)
   result.font.setVariations(font.variations.toHarfbuzzVariations())
+  harfbuzzTypefaceCache[fontId] = result
 
 proc fallbackFont(font: FigFont, typefaceId: TypefaceId): FigFont =
   result = font
@@ -193,7 +308,7 @@ proc initHarfbuzzFontInfos(font: FigFont): seq[HarfbuzzFontInfo] =
       figFont = font.fallbackFont(typefaceId)
       fontInfo = glyphFontFor(figFont)
     result.add HarfbuzzFontInfo(
-      typeface: initHarfbuzzTypeface(figFont),
+      typeface: initHarfbuzzTypeface(figFont, fontInfo.id),
       fontId: fontInfo.id,
       glyphFont: fontInfo.glyph,
     )
@@ -205,8 +320,21 @@ proc shapeParagraph(
   for info in fontInfos:
     typefaces.add info.typeface
 
+  var features = font.features
+  if font.noKerningAdjustments:
+    var hasKerningFeature = false
+    for feature in features:
+      if feature.tag.toLowerAscii() == "kern":
+        hasKerningFeature = true
+        break
+    if not hasKerningFeature:
+      features.add fontFeature("kern", 0)
+
   let context = hb.initShapeContext(
-    typefaces, hb.ParagraphOptions(features: font.features.toHarfbuzzFeatures())
+    typefaces,
+    hb.ParagraphOptions(
+      features: features.toHarfbuzzFeatures(), flags: {hb.beginningOfText, hb.endOfText}
+    ),
   )
   context.shapeParagraph(text)
 
@@ -335,31 +463,44 @@ proc buildWrappedLines(
     lineStart = glyphRange.a
     lineWidth = 0.0'f32
     lastBreak = -1
+    lastSafeBreak = -1
     glyphIndex = glyphRange.a
 
   while glyphIndex <= glyphRange.b:
     let glyph = arrangement.arrangedGlyphs[glyphIndex]
     let width = glyph.glyphWrapWidth()
-
+    var startNextLine = false
     if glyphIndex > lineStart and lineWidth + width > boxWidth:
-      if lastBreak >= lineStart and lastBreak < glyphIndex:
-        result.add lineStart .. lastBreak
-        lineStart = lastBreak + 1
-      else:
-        result.add lineStart .. glyphIndex - 1
-        lineStart = glyphIndex
-      lineWidth = 0
-      lastBreak = -1
-      glyphIndex = lineStart
-      continue
+      let breakIndex =
+        if lastBreak >= lineStart and lastBreak < glyphIndex:
+          lastBreak
+        elif lastSafeBreak >= lineStart and lastSafeBreak < glyphIndex:
+          lastSafeBreak
+        else:
+          -1
+      if breakIndex >= lineStart:
+        result.add lineStart .. breakIndex
+        lineStart = breakIndex + 1
+        lineWidth = 0
+        lastBreak = -1
+        lastSafeBreak = -1
+        glyphIndex = lineStart
+        startNextLine = true
 
-    lineWidth += width
-    let
-      breakAfter = glyphIndex >= safeBreakAfter.len or safeBreakAfter[glyphIndex]
-      preferredBreakAfter = arrangement.preferredLineBreakAfter(glyphIndex)
-    if preferredBreakAfter and breakAfter:
-      lastBreak = glyphIndex
-    inc glyphIndex
+    if not startNextLine:
+      lineWidth += width
+      let
+        breakAfter = glyphIndex >= safeBreakAfter.len or safeBreakAfter[glyphIndex]
+        preferredBreakAfter = arrangement.preferredLineBreakAfter(glyphIndex)
+        clusterBoundary =
+          glyphIndex == glyphRange.b or
+          arrangement.arrangedGlyphs[glyphIndex].source !=
+          arrangement.arrangedGlyphs[glyphIndex + 1].source
+      if breakAfter and clusterBoundary:
+        lastSafeBreak = glyphIndex
+      if preferredBreakAfter and breakAfter:
+        lastBreak = glyphIndex
+      inc glyphIndex
 
   if lineStart <= glyphRange.b:
     result.add lineStart .. glyphRange.b
@@ -428,18 +569,53 @@ proc reflowLines(arrangement: var GlyphArrangement) =
       lineX += oldGlyph.glyphWrapWidth()
     lineTop += lineHeight
 
-proc appendShapedSpan(
+proc addGlyphSpan(
+    arrangement: var GlyphArrangement, glyphFont: GlyphFont, color: Fill
+) =
+  let glyphIndex = arrangement.arrangedGlyphs.len
+  if arrangement.spans.len > 0 and arrangement.spans[^1].b == glyphIndex - 1 and
+      arrangement.fonts[^1] == glyphFont and arrangement.spanColors[^1] == color:
+    arrangement.spans[^1].b = glyphIndex
+  else:
+    arrangement.spans.add glyphIndex .. glyphIndex
+    arrangement.fonts.add glyphFont
+    arrangement.spanColors.add color
+
+proc appendEmptyLineGlyph(
     arrangement: var GlyphArrangement,
     decoded: DecodedSource,
-    style: FontStyle,
-    text: string,
-    byteOffset: int,
+    displayByteOffset: int,
+    glyphFont: GlyphFont,
+    color: Fill,
+    safeBreakAfter: var seq[bool],
+) =
+  let source = decoded.sourceInsertionForDisplayByte(displayByteOffset)
+  arrangement.addGlyphSpan(glyphFont, color)
+  arrangement.arrangedGlyphs.add ArrangedGlyph(
+    fontId: glyphFont.fontId,
+    source: source,
+    rune: Rune(0),
+    isWhitespace: true,
+    pos: vec2(0, glyphFont.descentAdj),
+    rect: rect(0, 0, 0, glyphFont.lineHeight),
+  )
+  arrangement.runes.add Rune(0)
+  arrangement.positions.add vec2(0, glyphFont.descentAdj)
+  arrangement.selectionRects.add rect(0, 0, 0, glyphFont.lineHeight)
+  safeBreakAfter.add true
+
+proc appendShapedGroup(
+    arrangement: var GlyphArrangement,
+    decoded: DecodedSource,
+    group: ShapedGroup,
     pen: var Vec2,
     safeBreakAfter: var seq[bool],
 ) =
   let
-    fontInfos = initHarfbuzzFontInfos(style.font)
-    paragraph = fontInfos.shapeParagraph(style.font, text)
+    groupText = group.text()
+    groupByteOffset = group.byteOffset()
+    fontInfos = initHarfbuzzFontInfos(group.style.font)
+    paragraph = fontInfos.shapeParagraph(group.style.font, groupText)
 
   for run in paragraph.visualRuns:
     if run.glyphRun.glyphs.len == 0:
@@ -452,19 +628,17 @@ proc appendShapedSpan(
         else:
           0
       fontInfo = fontInfos[fontIndex]
-      scale = fontInfo.typeface.pxScale(style.font)
-      spanStart = arrangement.arrangedGlyphs.len
-
-    arrangement.fonts.add fontInfo.glyphFont
-    arrangement.spanColors.add style.color
+      scale = fontInfo.typeface.pxScale(group.style.font)
 
     for runGlyphIndex, glyph in run.glyphRun.glyphs:
       let
         cluster = int(glyph.cluster)
         nextCluster = run.nextClusterBoundary(cluster)
-        source =
-          decoded.runeRangeForBytes(byteOffset + cluster, byteOffset + nextCluster)
+        source = decoded.runeRangeForBytes(
+          groupByteOffset + cluster, groupByteOffset + nextCluster
+        )
         rune = decoded.firstRune(source)
+        color = group.fillForByte(groupByteOffset + cluster)
         advance = vec2(glyph.xAdvance.float32 * scale, -glyph.yAdvance.float32 * scale)
         offset = vec2(glyph.xOffset.float32 * scale, -glyph.yOffset.float32 * scale)
         pos = pen + offset
@@ -476,6 +650,7 @@ proc appendShapedSpan(
           glyph.codepoint, fontInfo.glyphFont, scale
         )
 
+      arrangement.addGlyphSpan(fontInfo.glyphFont, color)
       arrangement.arrangedGlyphs.add ArrangedGlyph(
         fontId: fontInfo.fontId,
         glyphId: FontGlyphId(glyph.codepoint.uint32),
@@ -499,9 +674,6 @@ proc appendShapedSpan(
 
       pen += advance
 
-    let spanStop = arrangement.arrangedGlyphs.len - 1
-    arrangement.spans.add spanStart .. spanStop
-
 proc typeset*(
     box: Rect,
     uiSpans: openArray[(FontStyle, string)],
@@ -518,14 +690,13 @@ proc typeset*(
   for (style, text) in uiSpans:
     shapedSpans.add((style, text.applyFontCase(style.font.fontCase)))
 
-  let sourceText = shapedSpans.mapIt(it[1]).join("")
-  let decoded = decodeSource(sourceText)
+  let decoded = decodeSource(uiSpans, shapedSpans)
   let fontSizes = shapedSpans.mapIt(it[0].font.size.float)
 
   result = GlyphArrangement(
     contentHash: block:
       var h = Hash(0)
-      h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign)
+      h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign, minContent, wrap)
       h = h !& hash(figUiScale())
       !$h,
     sourceRunes: decoded.runes,
@@ -537,21 +708,27 @@ proc typeset*(
   for paragraph in paragraphs:
     let glyphStart = result.arrangedGlyphs.len
     pen.x = 0
-    for span in paragraph:
-      if span.text.len > 0:
-        let baseline = glyphFontFor(span.style.font).glyph.descentAdj
+    for group in paragraph.shapingGroups():
+      if group.spans.len > 0:
+        let groupGlyphFont = glyphFontFor(group.style.font).glyph
+        let baseline = groupGlyphFont.descentAdj
         if result.arrangedGlyphs.len == 0:
           pen.y = baseline
-        result.appendShapedSpan(
-          decoded, span.style, span.text, span.byteOffset, pen, safeBreakAfter
-        )
+        result.appendShapedGroup(decoded, group, pen, safeBreakAfter)
+
+    if result.arrangedGlyphs.len == glyphStart and paragraphs.len > 1 and
+        paragraph.hasLineStyle:
+      let emptyLineFont = glyphFontFor(paragraph.lineStyle.font).glyph
+      result.appendEmptyLineGlyph(
+        decoded, paragraph.byteStart, emptyLineFont, paragraph.lineStyle.color,
+        safeBreakAfter,
+      )
 
     let glyphStop = result.arrangedGlyphs.len - 1
     result.addParagraphLines(glyphStart .. glyphStop, box.w, safeBreakAfter, wrap)
 
-  if result.arrangedGlyphs.len > 0:
-    if wrap or paragraphs.len > 1:
-      result.reflowLines()
+  if wrap or paragraphs.len > 1 or result.arrangedGlyphs.len == 0:
+    result.reflowLines()
 
   var alignmentBox = box
   if minContent:

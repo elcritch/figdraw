@@ -1,4 +1,4 @@
-import std/math
+import std/[math, tables]
 
 import pkg/chroma
 import pkg/harfbuzzy/raw as hbraw
@@ -60,10 +60,23 @@ type
   DrawPathState = object
     path: Path
 
-  HbFontHandles = object
+  HbFontHandlePayload = object
     blob: hbraw.HbBlob
     face: hbraw.HbFace
     font: hbraw.HbFont
+
+  HbFontHandles = ref HbFontHandlePayload
+
+proc `=destroy`(handles: HbFontHandlePayload) =
+  if handles.font != nil:
+    hbraw.hb_font_destroy(handles.font)
+  if handles.face != nil:
+    hbraw.hb_face_destroy(handles.face)
+  if handles.blob != nil:
+    hbraw.hb_blob_destroy(handles.blob)
+
+var hbFontCache {.threadvar.}: Table[FontId, HbFontHandles]
+var harfbuzzVersionChecked {.threadvar.}: bool
 
 proc hb_draw_funcs_create(): HbDrawFuncs {.
   cdecl, importc: "hb_draw_funcs_create", dynlib: hbraw.hbLib
@@ -112,9 +125,9 @@ proc hb_draw_funcs_set_close_path_func(
   destroy: hbraw.HbDestroyFunc,
 ) {.cdecl, importc: "hb_draw_funcs_set_close_path_func", dynlib: hbraw.hbLib.}
 
-proc hb_font_draw_glyph_or_fail(
+proc hb_font_draw_glyph(
   font: hbraw.HbFont, glyph: hbraw.HbCodepoint, funcs: HbDrawFuncs, drawData: pointer
-): hbraw.HbBool {.cdecl, importc: "hb_font_draw_glyph_or_fail", dynlib: hbraw.hbLib.}
+) {.cdecl, importc: "hb_font_draw_glyph", dynlib: hbraw.hbLib.}
 
 proc hbTag(tag: string): hbraw.HbTag =
   if tag.len == 0 or tag.len > 4:
@@ -207,18 +220,14 @@ proc createDrawFuncs(): HbDrawFuncs =
   hb_draw_funcs_set_close_path_func(result, drawClosePath, nil, nil)
   hb_draw_funcs_make_immutable(result)
 
-proc destroy(handles: var HbFontHandles) =
-  if handles.font != nil:
-    hbraw.hb_font_destroy(handles.font)
-    handles.font = nil
-  if handles.face != nil:
-    hbraw.hb_face_destroy(handles.face)
-    handles.face = nil
-  if handles.blob != nil:
-    hbraw.hb_blob_destroy(handles.blob)
-    handles.blob = nil
-
 proc initHbFont(fontId: FontId): HbFontHandles =
+  if not harfbuzzVersionChecked:
+    if hbraw.hb_version_atleast(7, 0, 0) == 0:
+      raise newException(
+        ValueError, "the Harfbuzzy raster backend requires HarfBuzz 7.0 or newer"
+      )
+    harfbuzzVersionChecked = true
+
   let
     font = getFigFont(fontId)
     source = getTypefaceSource(font.typefaceId)
@@ -226,6 +235,7 @@ proc initHbFont(fontId: FontId): HbFontHandles =
   if source.data.len == 0:
     raise newException(ValueError, "typeface source data is empty")
 
+  new(result)
   result.blob = hbraw.hb_blob_create(
     source.data.cstring,
     cuint(source.data.len),
@@ -236,14 +246,12 @@ proc initHbFont(fontId: FontId): HbFontHandles =
   if result.blob == nil:
     raise newException(ValueError, "could not create HarfBuzz blob")
 
-  result.face = hbraw.hb_face_create(result.blob, 0)
+  result.face = hbraw.hb_face_create(result.blob, cuint(source.faceIndex))
   if result.face == nil:
-    result.destroy()
     raise newException(ValueError, "could not create HarfBuzz face")
 
   result.font = hbraw.hb_font_create(result.face)
   if result.font == nil:
-    result.destroy()
     raise newException(ValueError, "could not create HarfBuzz font")
 
   hbraw.hb_ot_font_set_funcs(result.font)
@@ -252,17 +260,29 @@ proc initHbFont(fontId: FontId): HbFontHandles =
     hbraw.hb_font_set_scale(result.font, cint(upem), cint(upem))
   result.font.setVariations(font.variations)
 
+proc cachedHbFont(fontId: FontId): HbFontHandles =
+  if fontId notin hbFontCache:
+    hbFontCache[fontId] = initHbFont(fontId)
+  hbFontCache[fontId]
+
+proc clearGlyphIdFontCache*(fontId: FontId) =
+  hbFontCache.del(fontId)
+
+proc clearGlyphIdTypefaceCache*(typefaceId: TypefaceId) =
+  var fontIds: seq[FontId]
+  for fontId in hbFontCache.keys:
+    if getFigFont(fontId).typefaceId == typefaceId:
+      fontIds.add fontId
+  for fontId in fontIds:
+    hbFontCache.del(fontId)
+
 proc drawGlyphPath(font: hbraw.HbFont, glyphId: FontGlyphId): Path =
   let funcs = createDrawFuncs()
   defer:
     hb_draw_funcs_destroy(funcs)
 
   var state = DrawPathState(path: newPath())
-  let ok = hb_font_draw_glyph_or_fail(
-    font, hbraw.HbCodepoint(uint32(glyphId)), funcs, addr state
-  )
-  if ok == 0:
-    return nil
+  hb_font_draw_glyph(font, hbraw.HbCodepoint(uint32(glyphId)), funcs, addr state)
   state.path
 
 proc imageBoundsFor(path: Path, fallbackSize: Vec2): Rect =
@@ -286,9 +306,7 @@ proc renderGlyphIdGlyph*(
     upload = true,
 ): Image {.discardable.} =
   ## Renders one glyph by shaped font glyph id through HarfBuzz draw callbacks.
-  var handles = initHbFont(fontId)
-  defer:
-    handles.destroy()
+  let handles = cachedHbFont(fontId)
 
   let
     figFont = getFigFont(fontId)
@@ -316,8 +334,7 @@ proc renderGlyphIdGlyph*(
   path.transform(transform)
 
   let
-    fallbackSize =
-      vec2(max(glyphRect.w.scaled(), 1.0'f32), max(glyphRect.h.scaled(), 1.0'f32))
+    fallbackSize = vec2(1.0'f32, 1.0'f32)
     bounds = imageBoundsFor(path, fallbackSize)
     imageWidth = max(ceil(bounds.x + bounds.w).int, 1)
     imageHeight = max(ceil(bounds.y + bounds.h).int, 1)

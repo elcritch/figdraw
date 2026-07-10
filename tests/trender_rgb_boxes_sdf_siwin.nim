@@ -106,6 +106,8 @@ suite "siwin rgb boxes render (sdf)":
           title = "figdraw test: rgb boxes (sdf, siwin)",
         )
       except ValueError:
+        if getEnv("FIGDRAW_REQUIRE_GRAPHICS") == "1":
+          raise
         skip()
         break renderOnce
 

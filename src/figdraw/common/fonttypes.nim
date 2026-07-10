@@ -40,6 +40,8 @@ type
     size*: float32 ## Font size in pixels.
     lineHeight*: float32
     descentAdj*: float32
+    underline*: bool
+    strikethrough*: bool
       ## The line height in pixels or autoLineHeight for the font's default line height.
 
   FontFeature* = object
@@ -798,12 +800,16 @@ proc getContentHash*(
     uiSpans: openArray[(FontStyle, string)],
     hAlign = FontHorizontal.Left,
     vAlign = FontVertical.Top,
+    minContent = false,
+    wrap = false,
 ): Hash =
   var h = Hash(0)
   h = h !& hash(size)
   h = h !& hash(uiSpans)
   h = h !& hash(hAlign)
   h = h !& hash(vAlign)
+  h = h !& hash(minContent)
+  h = h !& hash(wrap)
   result = !$h
 
 proc getContentHash*(
@@ -811,8 +817,10 @@ proc getContentHash*(
     uiSpans: openArray[(FigFont, string)],
     hAlign = FontHorizontal.Left,
     vAlign = FontVertical.Top,
+    minContent = false,
+    wrap = false,
 ): Hash =
   var styled = newSeqOfCap[(FontStyle, string)](uiSpans.len)
   for (font, text) in uiSpans:
     styled.add((fs(font), text))
-  result = getContentHash(size, styled, hAlign, vAlign)
+  result = getContentHash(size, styled, hAlign, vAlign, minContent, wrap)

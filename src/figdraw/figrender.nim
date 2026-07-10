@@ -318,6 +318,68 @@ proc glyphLocalPos*(glyphPos: Vec2, glyphDescent: float32): Vec2 {.inline.} =
   ## Converts a local glyph baseline position into local glyph top-left coordinates.
   vec2(glyphPos.x.scaled(), scaled(glyphPos.y - glyphDescent))
 
+proc drawTextDecoration(
+    ctx: BackendContext, decoration: Rect, color: Fill
+) {.forbids: [AppMainThreadEff].} =
+  if decoration.w <= 0 or decoration.h <= 0:
+    return
+  ctx.drawRoundedRectSdf(
+    rect = decoration.scaled(),
+    fill = color.toBackendFill(),
+    radii = [0.0'f32, 0.0'f32, 0.0'f32, 0.0'f32],
+    mode = figbackend.SdfMode.sdfModeClipAA,
+    factor = 4.0'f32,
+    spread = 0.0'f32,
+    shapeSize = vec2(0.0'f32, 0.0'f32),
+  )
+
+proc renderTextDecorations(
+    ctx: BackendContext, arrangement: GlyphArrangement
+) {.forbids: [AppMainThreadEff].} =
+  for spanIndex, span in arrangement.spans:
+    if spanIndex >= arrangement.fonts.len:
+      break
+    let font = arrangement.fonts[spanIndex]
+    if font.underline or font.strikethrough:
+      let color =
+        if spanIndex < arrangement.spanColors.len:
+          arrangement.spanColors[spanIndex]
+        else:
+          fill(rgba(0, 0, 0, 255))
+      let thickness = max(round(font.size / 16.0'f32), 1.0'f32)
+      for line in arrangement.lines:
+        let
+          start = max(span.a, line.a)
+          stop = min(span.b, line.b)
+        if start <= stop:
+          var
+            minX = float32.high
+            maxX = -float32.high
+            minY = float32.high
+            maxY = -float32.high
+          for glyphIndex in start .. stop:
+            let glyphRect = arrangement.glyphRect(glyphIndex)
+            minX = min(minX, glyphRect.x)
+            maxX = max(maxX, glyphRect.x + glyphRect.w)
+            minY = min(minY, glyphRect.y)
+            maxY = max(maxY, glyphRect.y + glyphRect.h)
+
+          if minX < maxX and minY < maxY:
+            if font.underline:
+              ctx.drawTextDecoration(
+                rect(minX, maxY - thickness * 1.5'f32, maxX - minX, thickness), color
+              )
+            if font.strikethrough:
+              ctx.drawTextDecoration(
+                rect(
+                  minX,
+                  minY + (maxY - minY) * 0.5'f32 - thickness * 0.5'f32,
+                  maxX - minX,
+                  thickness,
+                ),
+                color,
+              )
+
 proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} =
   ## Render characters (glyphs)
   let
@@ -354,6 +416,8 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
             spread = 0.0'f32,
             shapeSize = vec2(0.0'f32, 0.0'f32),
           )
+
+    ctx.renderTextDecorations(node.textLayout)
 
     for glyph in node.textLayout.glyphs():
       if glyph.isWhitespace:
@@ -1711,9 +1775,11 @@ proc renderRoot*(
       ctx.clearImageAtlas()
     of ImkClearFontGlyphs:
       trace "font glyphs cleared", fontId = $Hash(img.fontId)
+      clearGlyphRasterFontCache(img.fontId)
       ctx.clearFontGlyphs(img.fontId)
     of ImkClearTypefaceGlyphs:
       trace "typeface glyphs cleared", typefaceId = $Hash(img.typefaceId)
+      clearGlyphRasterTypefaceCache(img.typefaceId)
       ctx.clearTypefaceGlyphs(img.typefaceId)
     of ImkRetainImage:
       trace "image retained", id = $img.id.Hash
@@ -1730,6 +1796,7 @@ proc renderRoot*(
       trace "font released", fontId = $Hash(img.fontId)
       if ctx.releaseFontOwner(img.fontId, img.ownerToken):
         forgetReleasedFontGlyphs(img.fontId)
+        clearGlyphRasterFontCache(img.fontId)
         ctx.clearFontGlyphs(img.fontId)
 
   for zlvl, list in nodes.layers.pairs():

@@ -109,6 +109,8 @@ suite "opengl rgb boxes render":
           title = "figdraw test: rgb boxes",
         )
       except WindyError:
+        if getEnv("FIGDRAW_REQUIRE_GRAPHICS") == "1":
+          raise
         skip()
         break renderOnce
 

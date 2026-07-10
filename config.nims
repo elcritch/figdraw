@@ -19,7 +19,8 @@ when defined(macosx) and defined(figdraw.moltenvkBrew):
 when defined(linux):
   proc pkgConfigFlags(kind: string, packages: openArray[string]): string =
     for pkg in packages:
-      let exists = gorgeEx("sh -c 'pkg-config --exists " & pkg & " && printf yes'").output.strip()
+      let exists =
+        gorgeEx("sh -c 'pkg-config --exists " & pkg & " && printf yes'").output.strip()
       if exists == "yes":
         let flags = gorgeEx("pkg-config --" & kind & " " & pkg).output.strip()
         if flags.len > 0:
@@ -51,10 +52,16 @@ when defined(linux):
     WaylandDependencies = "wayland-client wayland-egl wayland-egl-backend"
     AuxDependencies = "gl glesv2 egl"
 
-  let linuxCflags =
-    pkgConfigFlags("cflags", XorgDependencies.splitWhitespace() & WaylandDependencies.splitWhitespace() & AuxDependencies.splitWhitespace())
-  let linuxLibs =
-    pkgConfigFlags("libs", XorgDependencies.splitWhitespace() & WaylandDependencies.splitWhitespace() & AuxDependencies.splitWhitespace())
+  let linuxCflags = pkgConfigFlags(
+    "cflags",
+    XorgDependencies.splitWhitespace() & WaylandDependencies.splitWhitespace() &
+      AuxDependencies.splitWhitespace(),
+  )
+  let linuxLibs = pkgConfigFlags(
+    "libs",
+    XorgDependencies.splitWhitespace() & WaylandDependencies.splitWhitespace() &
+      AuxDependencies.splitWhitespace(),
+  )
   if linuxCflags.len > 0:
     switch("passC", linuxCflags)
   if linuxLibs.len > 0:
@@ -76,19 +83,27 @@ proc platforms(): seq[string] =
       sessionType = getEnv("XDG_SESSION_TYPE").toLowerAscii()
       hasWaylandDisplay = getEnv("WAYLAND_DISPLAY").len != 0
       hasX11Display = getEnv("DISPLAY").len != 0
+      testRenderer = getEnv("FIGDRAW_TEST_RENDERER").strip().toLowerAscii()
+
+    proc addPlatform(platformArgs: var seq[string], sessionType: string) =
+      case testRenderer
+      of "opengl":
+        platformArgs.add("XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=1 ")
+      of "vulkan":
+        platformArgs.add("XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=0 ")
+      else:
+        platformArgs.add("XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=0 ")
+        platformArgs.add("XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=1 ")
+
     if sessionType == "wayland":
-      result.add "XDG_SESSION_TYPE=wayland FIGDRAW_FORCE_OPENGL=0 "
-      result.add "XDG_SESSION_TYPE=wayland FIGDRAW_FORCE_OPENGL=1 "
+      addPlatform(result, "wayland")
     elif sessionType == "x11":
-      result.add "XDG_SESSION_TYPE=x11 FIGDRAW_FORCE_OPENGL=0 "
-      result.add "XDG_SESSION_TYPE=x11 FIGDRAW_FORCE_OPENGL=1 "
+      addPlatform(result, "x11")
     else:
       if hasWaylandDisplay:
-        result.add "XDG_SESSION_TYPE=wayland FIGDRAW_FORCE_OPENGL=0 "
-        result.add "XDG_SESSION_TYPE=wayland FIGDRAW_FORCE_OPENGL=1 "
+        addPlatform(result, "wayland")
       if hasX11Display:
-        result.add "XDG_SESSION_TYPE=x11 FIGDRAW_FORCE_OPENGL=0 "
-        result.add "XDG_SESSION_TYPE=x11 FIGDRAW_FORCE_OPENGL=1 "
+        addPlatform(result, "x11")
   else:
     @[""]
 
@@ -96,32 +111,47 @@ task test, "run unit test":
   let enableSdl2 =
     getEnv("FIGDRAW_TEST_SDL2").strip().toLowerAscii() in ["1", "true", "yes", "on"]
 
+  var testRuns = 0
   for platformArg in platforms():
     if platformArg != "":
       echo "Running platform args: ", platformArg
     for file in listFiles("tests"):
-      if file.startsWith("tests/t") and file.endsWith(".nim"):
+      let name = file.extractFilename()
+      if name.startsWith("t") and name.endsWith(".nim"):
+        inc testRuns
         nimExec("r", file, platform = platformArg)
 
+  if testRuns == 0:
+    quit "No test files were discovered"
+  echo "Ran ", testRuns, " test files"
+
   for file in listFiles("examples"):
-    if file.startsWith("examples/windy_") and file.endsWith(".nim"):
+    let name = file.extractFilename()
+    if name.startsWith("windy_") and name.endsWith(".nim"):
       nimExec("c", file)
-    elif file.startsWith("examples/siwin_") and file.endsWith(".nim"):
+    elif name.startsWith("siwin_") and name.endsWith(".nim"):
       nimExec("c", file)
-    elif file.startsWith("examples/sdl2_") and file.endsWith(".nim"):
+    elif name.startsWith("sdl2_") and name.endsWith(".nim"):
       if enableSdl2:
         nimExec("c", file, "-d:figdraw.metal=off -d:figdraw.vulkan=off")
       else:
         echo "Skipping SDL2 example (set FIGDRAW_TEST_SDL2=1 to enable): ", file
 
 task test_compile, "compile unit tests without running":
+  var testCount = 0
   for file in listFiles("tests"):
-    if file.startsWith("tests/t") and file.endsWith(".nim"):
+    let name = file.extractFilename()
+    if name.startsWith("t") and name.endsWith(".nim"):
+      inc testCount
       nimExec("c", file)
+  if testCount == 0:
+    quit "No test files were discovered"
+  echo "Compiled ", testCount, " test files"
 
 task test_emscripten, "build emscripten examples":
   for file in listFiles("examples"):
-    if file.startsWith("examples/windy_") and file.endsWith(".nim"):
+    let name = file.extractFilename()
+    if name.startsWith("windy_") and name.endsWith(".nim"):
       nimExec("c", file, "-d:emscripten")
 
 task bindings, "Generate bindings":

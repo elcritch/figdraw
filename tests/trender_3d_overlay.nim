@@ -321,8 +321,8 @@ suite "opengl 3d overlay render":
     if fileExists(outPath):
       removeFile(outPath)
     block renderOnce:
-      when UseMetalBackend:
-        # The overlay test relies on an OpenGL context to draw the background.
+      when UseMetalBackend or defined(windows):
+        # The raw OpenGL overlay path is unsupported on Metal and Windows llvmpipe.
         skip()
         break renderOnce
       var img: Image

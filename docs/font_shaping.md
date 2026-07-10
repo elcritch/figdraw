@@ -67,9 +67,11 @@ Important fields:
 - `variations`: OpenType variable-axis coordinates such as
   `fontVariation("wght", 650.0'f32)`.
 
-These fields are part of `FigFont` hashing, so shaped layout, glyph cache ids,
-and glyph-id rasterization stay separated by fallback chain, feature set, and
-variable-font coordinates.
+These fields remain part of layout hashing. Raster font ids are narrower: they
+use the resolved typeface, size, case transform, variable coordinates, and UI
+scale. The shaped glyph id distinguishes feature-dependent output without
+duplicating raster images for fallback chains, decoration, or line-height
+changes.
 
 `GlyphPosition`, yielded by `glyphs(arrangement)`, mirrors the glyph-id-first
 shape used by render code:
@@ -192,6 +194,8 @@ The Harfbuzzy adapter converts shaped runs into FigDraw data:
 - `glyph.cluster` is retained for source mapping and break logic.
 - The adapter shapes through a Harfbuzzy `ShapeContext` built from the primary
   typeface plus `FigFont.fallbackTypefaceIds`.
+- Adjacent spans with the same shaping font are shaped together even when their
+  fills differ, preserving contextual shaping across paint-only boundaries.
 - OpenType features from `FigFont.features` are passed to paragraph shaping.
 - Variable axes from `FigFont.variations` are applied to each Harfbuzzy font
   before shaping.
@@ -208,8 +212,9 @@ The Harfbuzzy adapter converts shaped runs into FigDraw data:
 The backend wraps greedily over shaped glyphs. It prefers whitespace clusters
 when the next shaped glyph is safe to break before, recognizes soft hyphen,
 zero-width space, hyphen-like separators, and common CJK/Kana/Hangul adjacent
-break opportunities, and falls back to hard shaped-glyph boundaries for
-overlong text. It never splits inside a shaped glyph.
+break opportunities, and otherwise uses only safe cluster boundaries. A cluster
+without a safe boundary is allowed to overflow instead of being split without
+reshaping.
 
 Line slices are aligned after wrapping. Vertical alignment is applied to the
 whole arrangement. When `minContent` is enabled, Harfbuzzy expands the alignment
@@ -234,6 +239,10 @@ Raster dispatch follows the selected backend:
 
 Selection and hit testing use source ranges, not glyph ids.
 
+The glyph-id raster provider requires HarfBuzz 7.0 or newer. It currently
+extracts monochrome outlines; color bitmap, SVG, and COLR paint data require a
+separate color-font raster path.
+
 ## Regression Coverage
 
 The test suite covers:
@@ -242,6 +251,10 @@ The test suite covers:
 - Ligature source mapping and source-rune iteration.
 - Wrapping at shaped glyph boundaries.
 - Preserving ligature ranges on one line.
+- Preserving shaping across paint-only span boundaries.
+- Consecutive hard breaks and zero-width line placeholders.
+- Original source mapping after font-case transforms.
+- `noKerningAdjustments` translation to the OpenType `kern` feature.
 - CJK wrapping without whitespace using the dependency test font.
 - Combining marks and Hebrew marks through source-range selection and hit
   testing.

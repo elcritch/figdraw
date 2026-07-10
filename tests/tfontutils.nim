@@ -1,4 +1,4 @@
-import std/[hashes, os, unittest, tables, locks, unicode]
+import std/[hashes, os, tables, unicode, unittest]
 
 import pkg/pixie
 import pkg/pixie/fonts
@@ -56,12 +56,27 @@ proc firstLoadableSystemFontPath(candidates: openArray[string]): string =
   ""
 
 when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
-  proc firstLoadableNamedSystemFontPath(candidates: openArray[string]): string =
+  proc firstLoadableNamedSystemFontPath(
+      candidates: openArray[string], requiredText: string
+  ): string =
+    proc supportsRequiredRunes(typeface: Typeface): bool =
+      for rune in requiredText.runes:
+        if not typeface.hasGlyph(rune):
+          return false
+      true
+
     let preferred = findSystemFontFile(candidates)
     if preferred.len > 0:
       try:
-        discard readTypeface(preferred)
-        return preferred
+        if readTypeface(preferred).supportsRequiredRunes():
+          return preferred
+      except PixieError:
+        discard
+
+    for path in systemFontFiles():
+      try:
+        if readTypeface(path).supportsRequiredRunes():
+          return path
       except PixieError:
         discard
     ""
@@ -118,16 +133,64 @@ suite "fontutils":
     check id1 in typefaceSourceTable
     check typefaceSourceTable[id1].data == fontData
 
+  test "typeface ids distinguish different bytes with the same name":
+    let
+      ubuntuData = readFile(figDataDir() / "Ubuntu.ttf")
+      hackData = readFile(figDataDir() / "HackNerdFont-Regular.ttf")
+      ubuntuId = loadTypeface("same-name.ttf", ubuntuData, TTF)
+      hackId = loadTypeface("same-name.ttf", hackData, TTF)
+
+    check ubuntuId != hackId
+    check getTypefaceSource(ubuntuId).data == ubuntuData
+    check getTypefaceSource(hackId).data == hackData
+
+  test "typeface ids reuse identical bytes loaded through aliases":
+    let
+      fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      firstId = loadTypeface("first-name.ttf", fontData, TTF)
+      secondId = loadTypeface("second-name.ttf", fontData, TTF)
+
+    check firstId == secondId
+
   test "convertFont caches pixie font":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
     let uiFont = FigFont(typefaceId: typefaceId, size: 20.0'f32)
 
-    let (fontId1, pf1) = uiFont.convertFont()
-    let (fontId2, pf2) = uiFont.convertFont()
+    let fontId1 = uiFont.convertFont()[0]
+    let fontId2 = uiFont.convertFont()[0]
 
     check fontId1 == fontId2
     check fontId1 in fontTable
+
+  test "raster font ids ignore shaping-only settings":
+    let
+      fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      baseFont = FigFont(typefaceId: typefaceId, size: 20.0'f32)
+      shapingFont = FigFont(
+        typefaceId: typefaceId,
+        size: 20.0'f32,
+        fallbackTypefaceIds: @[typefaceId],
+        features: @[fontFeature("liga", 0)],
+        noKerningAdjustments: true,
+        underline: true,
+      )
+
+    check baseFont.convertFont()[0] == shapingFont.convertFont()[0]
+
+  test "layout content hashes include wrapping policy":
+    let
+      fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      uiFont = FigFont(typefaceId: typefaceId, size: 20.0'f32)
+      spans = [(fs(uiFont), "alpha beta")]
+      size = vec2(100, 40)
+
+    check getContentHash(size, spans, Left, Top, false, false) !=
+      getContentHash(size, spans, Left, Top, false, true)
+    check getContentHash(size, spans, Left, Top, false, true) !=
+      getContentHash(size, spans, Left, Top, true, true)
 
   test "lineHeight affects computed lineHeight":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
@@ -139,6 +202,23 @@ suite "fontutils":
 
     check abs(pf.lineHeight - expected) < 0.01'f32
     check abs(getLineHeightImpl(uiFont).scaled() - expected) < 0.01'f32
+
+  test "text decorations are carried into glyph font spans":
+    let
+      fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      uiFont = FigFont(
+        typefaceId: typefaceId, size: 24.0'f32, underline: true, strikethrough: true
+      )
+      arrangement = typeset(
+        rect(0, 0, 200, 60), [(fs(uiFont), "Decorated")], Left, Top, false, false
+      )
+
+    check arrangement.fonts.len > 0
+    for font in arrangement.fonts:
+      check font.size == uiFont.size
+      check font.underline
+      check font.strikethrough
 
   test "getTypesetImpl returns consistent hashes and generated glyph images":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
@@ -452,6 +532,42 @@ suite "fontutils":
       check arrangement.glyphIndexAt(hitPoint) == ligatureGlyph
       check arrangement.sourceRuneRangeAt(hitPoint) == 1 .. 3
 
+    test "paint-only span boundaries preserve shaping continuity":
+      let
+        fontData = readFile(figDataDir() / "Ubuntu.ttf")
+        typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+        uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
+        box = rect(0, 0, 300, 80)
+        whole = typeset(box, [(fs(uiFont), "office")], Left, Top, false, false)
+        split = typeset(
+          box,
+          [
+            (fs(uiFont, rgba(220, 40, 40, 255).color), "of"),
+            (fs(uiFont, rgba(40, 90, 220, 255).color), "fice"),
+          ],
+          Left,
+          Top,
+          false,
+          false,
+        )
+
+      check split.arrangedGlyphs.len == whole.arrangedGlyphs.len
+      check split.glyphRangeFor(1 .. 3).len == 1
+      check split.spans.len == 2
+      check split.spanColors.len == 2
+
+    test "font case preserves original source text and byte ranges":
+      let
+        fontData = readFile(figDataDir() / "Ubuntu.ttf")
+        typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+        source = "a" & $Rune(0x017f) & "b"
+        uiFont = FigFont(typefaceId: typefaceId, size: 28.0'f32, fontCase: UpperCase)
+        arrangement =
+          typeset(rect(0, 0, 240, 60), [(fs(uiFont), source)], Left, Top, false, false)
+
+      check arrangement.sourceRunes == source.toRunes()
+      check arrangement.glyphRangeForRawBytes(1 .. 2).len > 0
+
     test "OpenType features can disable discretionary ligature shaping":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
@@ -663,6 +779,40 @@ suite "fontutils":
         for glyphIndex in line:
           lineY[i] = min(lineY[i], arrangement.arrangedGlyphs[glyphIndex].rect.y)
       check lineY[0] < lineY[1]
+
+    test "harfbuzzy preserves empty hard-break lines":
+      let
+        fontData = readFile(figDataDir() / "Ubuntu.ttf")
+        typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+        uiFont = FigFont(typefaceId: typefaceId, size: 24.0'f32)
+        arrangement = typeset(
+          rect(0, 0, 260, 180), [(fs(uiFont), "a\n\nb")], Left, Top, false, false
+        )
+
+      check arrangement.lines.len == 3
+      check arrangement.lines[1].len == 1
+      let
+        firstLine = arrangement.arrangedGlyphs[arrangement.lines[0].a].rect
+        emptyLine = arrangement.arrangedGlyphs[arrangement.lines[1].a].rect
+        lastLine = arrangement.arrangedGlyphs[arrangement.lines[2].a].rect
+      check emptyLine.w == 0
+      check emptyLine.h > 0
+      check firstLine.y < emptyLine.y
+      check emptyLine.y < lastLine.y
+
+    test "noKerningAdjustments disables Harfbuzz kerning":
+      let
+        fontData = readFile(figDataDir() / "Ubuntu.ttf")
+        typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+        defaultFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
+        noKerningFont =
+          FigFont(typefaceId: typefaceId, size: 32.0'f32, noKerningAdjustments: true)
+        box = rect(0, 0, 240, 80)
+        defaultLayout = typeset(box, [(fs(defaultFont), "AV")], Left, Top, false, false)
+        noKerningLayout =
+          typeset(box, [(fs(noKerningFont), "AV")], Left, Top, false, false)
+
+      check noKerningLayout.bounding.w > defaultLayout.bounding.w
 
     test "harfbuzzy wrapped Hebrew lines stay in logical order":
       let fontPath =
@@ -927,11 +1077,13 @@ suite "fontutils":
         check caret.sourceRune == 8
 
     test "harfbuzzy shapes Arabic when a system Arabic font is available":
+      const arabicText = "سلام"
       let fontPath = firstLoadableNamedSystemFontPath(
         [
           "Noto Naskh Arabic", "Noto Sans Arabic", "Geeza Pro", "Arial Unicode",
           "Arial", "DejaVu Sans",
-        ]
+        ],
+        arabicText,
       )
       if fontPath.len == 0:
         check true
@@ -939,7 +1091,7 @@ suite "fontutils":
         let typefaceId = loadTypeface(fontPath)
         let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
         let box = rect(0, 0, 320, 90)
-        let spans = [(fs(uiFont), "سلام")]
+        let spans = [(fs(uiFont), arabicText)]
 
         let arrangement = typeset(
           box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false

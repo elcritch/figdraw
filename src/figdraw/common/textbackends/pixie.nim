@@ -40,7 +40,12 @@ proc typeset*(
     let lineGap = (lineHeight / pf.scale) - pf.typeface.ascent + pf.typeface.descent
     let baselineOffset = round((pf.typeface.ascent + lineGap / 2) * pf.scale)
     gfonts.add GlyphFont(
-      fontId: fontId, lineHeight: lineHeight, descentAdj: baselineOffset
+      fontId: fontId,
+      size: style.font.size,
+      lineHeight: lineHeight,
+      descentAdj: baselineOffset,
+      underline: style.font.underline,
+      strikethrough: style.font.strikethrough,
     )
 
   var ha: HorizontalAlignment
@@ -63,7 +68,9 @@ proc typeset*(
 
   let arrangement =
     pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
-  result = convertArrangement(arrangement, box, uiSpans, hAlign, vAlign, gfonts)
+  result = convertArrangement(
+    arrangement, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap
+  )
 
   let content = result.calcMinMaxContent()
   result.minSize = content.minSize
@@ -76,22 +83,25 @@ proc typeset*(
     let arr = pixie.typeset(
       spans, bounds = wh, hAlign = LeftAlign, vAlign = TopAlign, wrap = wrap
     )
-    let minResult = convertArrangement(arr, box, uiSpans, hAlign, vAlign, gfonts)
+    let minResult =
+      convertArrangement(arr, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap)
 
-    let minContent = minResult.calcMinMaxContent()
+    let minContentSize = minResult.calcMinMaxContent()
     trace "minContent:",
       boxWh = box.wh,
       wh = wh,
-      minSize = minContent.minSize,
-      maxSize = minContent.maxSize,
-      bounding = minContent.bounding,
+      minSize = minContentSize.minSize,
+      maxSize = minContentSize.maxSize,
+      bounding = minContentSize.bounding,
       boundH = result.bounding.h
 
-    if minContent.bounding.h > result.bounding.h:
-      let wh = vec2(wh.x, minContent.bounding.h)
+    if minContentSize.bounding.h > result.bounding.h:
+      let wh = vec2(wh.x, minContentSize.bounding.h)
       let minAdjusted =
         pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
-      result = convertArrangement(minAdjusted, box, uiSpans, hAlign, vAlign, gfonts)
+      result = convertArrangement(
+        minAdjusted, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap
+      )
       let contentAdjusted = result.calcMinMaxContent()
       result.minSize = contentAdjusted.minSize
       result.maxSize = contentAdjusted.maxSize
