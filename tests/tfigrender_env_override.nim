@@ -1,5 +1,6 @@
 import std/[os, unittest]
 
+import figdraw/commons
 import figdraw/figrender
 
 proc withCleanEnv(body: proc()) =
@@ -43,23 +44,30 @@ proc withCleanEnv(body: proc()) =
   body()
 
 suite "figrender env overrides":
-  test "force opengl wins over backend selection":
-    withCleanEnv proc() =
-      putEnv("FIGDRAW_BACKEND", "vulkan")
-      putEnv("FIGDRAW_FORCE_OPENGL", "1")
-      check runtimeForceOpenGlRequested() == true
+  when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    test "force opengl wins over backend selection":
+      withCleanEnv proc() =
+        putEnv("FIGDRAW_BACKEND", "vulkan")
+        putEnv("FIGDRAW_FORCE_OPENGL", "1")
+        check runtimeForceOpenGlRequested() == true
 
-  test "backend=opengl enables override":
-    withCleanEnv proc() =
-      putEnv("FIGDRAW_BACKEND", "opengl")
-      delEnv("FIGDRAW_FORCE_OPENGL")
-      check runtimeForceOpenGlRequested() == true
+    test "backend=opengl enables override":
+      withCleanEnv proc() =
+        putEnv("FIGDRAW_BACKEND", "opengl")
+        delEnv("FIGDRAW_FORCE_OPENGL")
+        check runtimeForceOpenGlRequested() == true
 
-  test "backend=vulkan without force does not enable opengl override":
-    withCleanEnv proc() =
-      putEnv("FIGDRAW_BACKEND", "vulkan")
-      delEnv("FIGDRAW_FORCE_OPENGL")
-      check runtimeForceOpenGlRequested() == false
+    test "backend=vulkan without force does not enable opengl override":
+      withCleanEnv proc() =
+        putEnv("FIGDRAW_BACKEND", "vulkan")
+        delEnv("FIGDRAW_FORCE_OPENGL")
+        check runtimeForceOpenGlRequested() == false
+  else:
+    test "backend selection cannot enable an unavailable fallback":
+      withCleanEnv proc() =
+        putEnv("FIGDRAW_BACKEND", "opengl")
+        putEnv("FIGDRAW_FORCE_OPENGL", "1")
+        check runtimeForceOpenGlRequested() == false
 
   test "text flags default to disabled":
     withCleanEnv proc() =
