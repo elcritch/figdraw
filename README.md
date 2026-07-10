@@ -529,6 +529,10 @@ Install the optional Harfbuzzy dependency when trying the repo:
 atlas install --feature:windy --feature:harfbuzz
 ```
 
+The pure glyph-id raster backend requires HarfBuzz 7.0 or newer plus FriBidi.
+For example, install `libharfbuzz-dev libfribidi-dev` on Ubuntu or
+`harfbuzz fribidi` with Homebrew before compiling it.
+
 Add the `harfbuzz` feature when using FigDraw from another project:
 
 ```nim
@@ -604,6 +608,11 @@ Use the source-aware helpers for selection, hit testing, and carets:
 - `sourceRuneRangeAt(point)`: source range under a local text-layout point.
 - `caretPositionsFor(sourceRune)`: visual caret rectangles for a source
   insertion index, including split positions at bidi boundaries.
+
+Font collection paths (`.ttc` and `.otc`) are supported; FigDraw selects the
+face whose name best matches the requested font and carries that face index
+through shaping and rasterization. The current Harfbuzzy raster path renders
+monochrome outlines, not color bitmap, SVG, or COLR glyph paint data.
 
 See [docs/font_shaping.md](docs/font_shaping.md) for the data model details and
 [examples/windy_text_shaping_demo.nim](examples/windy_text_shaping_demo.nim) for

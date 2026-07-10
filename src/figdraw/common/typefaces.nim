@@ -1,15 +1,14 @@
-import std/isolation
 import std/os
 import std/strutils
 import std/locks
 import std/math
+import std/tables
 
 import pkg/vmath
 import pkg/pixie
 import pkg/pixie/fonts
 import pkg/chronicles
 
-import ./rchannels
 import ./imgutils
 import ./fonttypes
 import ./shared
@@ -24,6 +23,7 @@ type TypefaceSource* = object
   name*: string
   data*: string
   kind*: TypeFaceKinds
+  faceIndex*: int
 
 type FontRef* = object
   ## Thread-affine managed font handle.
@@ -41,12 +41,14 @@ var
   staticTypefaceTable*:
     Table[string, tuple[name: string, data: string, kind: TypeFaceKinds]]
   fontLock*: Lock
+  fontUiScaleTable: Table[FontId, float32]
 
 fontLock.initLock()
 
-proc `=destroy`*(fontRef: FontRef) =
+proc `=destroy`*(fontRef: var FontRef) =
   if fontRef.managed:
     releaseFontRefId(fontRef.fontId)
+  `=destroy`(fontRef.font)
 
 proc `=wasMoved`*(fontRef: var FontRef) =
   wasMoved(fontRef.font)
@@ -61,10 +63,11 @@ proc `=dup`*(src: FontRef): FontRef =
   result.managed = src.managed
 
 proc `=copy`*(dest: var FontRef, src: FontRef) =
+  let font = src.font
   if src.managed:
     retainFontRefId(src.fontId)
   `=destroy`(dest)
-  dest.font = src.font
+  dest.font = font
   dest.fontId = src.fontId
   dest.managed = src.managed
 
@@ -86,8 +89,9 @@ proc lookupTypefaceNames(name: string): seq[string] =
 proc registerStaticTypefaceData(name, data: string, kind: TypeFaceKinds) =
   ## Registers a static typeface blob that can be found by loadTypeface.
   let entry = (name: name, data: data, kind: kind)
-  for key in lookupTypefaceNames(name):
-    staticTypefaceTable[key] = entry
+  withLock(fontLock):
+    for key in lookupTypefaceNames(name):
+      staticTypefaceTable[key] = entry
 
 template registerStaticTypeface*(
     name: static[string], path: static[string], kind: static[TypeFaceKinds] = TTF
@@ -130,9 +134,86 @@ proc readTypefaceImpl(
 
 proc typefaceKindFromPath(path: string): TypeFaceKinds =
   case splitFile(path).ext.toLowerAscii()
-  of ".otf": OTF
+  of ".otf", ".otc": OTF
   of ".svg": SVG
   else: TTF
+
+proc isTypefaceCollection(path: string): bool =
+  splitFile(path).ext.toLowerAscii() in [".ttc", ".otc"]
+
+proc readTypefacePath(
+    path, requestedName: string
+): tuple[typeface: Typeface, source: TypefaceSource] {.raises: [PixieError].} =
+  if path.isTypefaceCollection():
+    let typefaces = readTypefaces(path)
+    if typefaces.len == 0:
+      raise newException(PixieError, "typeface collection is empty")
+
+    let requested = requestedName.normalizeTypefaceLookupName()
+    var faceIndex = 0
+    for index, typeface in typefaces:
+      let faceName = typeface.name().normalizeTypefaceLookupName()
+      if requested.len > 0 and faceName.len > 0 and (
+        faceName == requested or faceName.contains(requested) or
+        requested.contains(faceName)
+      ):
+        faceIndex = index
+        break
+
+    result.typeface = typefaces[faceIndex]
+    result.typeface.filePath = path & "#" & $faceIndex
+    try:
+      result.source = TypefaceSource(
+        name: path,
+        data: readFile(path),
+        kind: typefaceKindFromPath(path),
+        faceIndex: faceIndex,
+      )
+    except IOError as e:
+      raise newException(PixieError, e.msg, e)
+  else:
+    try:
+      let data = readFile(path)
+      let kind = typefaceKindFromPath(path)
+      result.typeface = readTypefaceImpl(path, data, kind)
+      result.source = TypefaceSource(name: path, data: data, kind: kind)
+    except IOError as e:
+      raise newException(PixieError, e.msg, e)
+
+proc sameTypefaceSource(a, b: TypefaceSource): bool {.inline.} =
+  a.kind == b.kind and a.faceIndex == b.faceIndex and a.data == b.data
+
+proc typefaceIdForLocked(source: TypefaceSource): TypefaceId =
+  let sourceHash = hash((source.kind, source.faceIndex, source.data))
+  for salt in 0 .. 100:
+    let candidateHash =
+      if salt == 0:
+        sourceHash
+      else:
+        hash((sourceHash, salt))
+    if candidateHash != Hash(0):
+      let candidate = TypefaceId(candidateHash)
+      if candidate notin typefaceSourceTable or
+          typefaceSourceTable[candidate].sameTypefaceSource(source):
+        return candidate
+
+  raise newException(ValueError, "could not allocate a collision-free typeface id")
+
+proc registerTypeface(typeface: Typeface, source: TypefaceSource): TypefaceId =
+  withLock(fontLock):
+    result = typefaceIdForLocked(source)
+    if result notin typefaceTable:
+      typefaceTable[result] = typeface
+      typefaceSourceTable[result] = source
+
+proc staticTypefaceEntry(
+    name: string, entry: var tuple[name: string, data: string, kind: TypeFaceKinds]
+): bool =
+  withLock(fontLock):
+    for key in lookupTypefaceNames(name):
+      if key in staticTypefaceTable:
+        entry = staticTypefaceTable[key]
+        return true
 
 proc loadTypeface*(name: string, fallbackNames: openArray[string] = []): TypefaceId =
   ## loads a font from a file and adds it to the font index
@@ -167,34 +248,27 @@ proc loadTypeface*(name: string, fallbackNames: openArray[string] = []): Typefac
     let typefacePath = resolveTypefacePath(candidate)
     if typefacePath.len > 0:
       try:
-        typeface = readTypeface(typefacePath)
-        source = TypefaceSource(
-          name: typefacePath,
-          data: readFile(typefacePath),
-          kind: typefaceKindFromPath(typefacePath),
-        )
+        (typeface, source) = readTypefacePath(typefacePath, candidate)
         loaded = true
         break
       except PixieError:
         warn "failed to read resolved typeface path",
           requested = name, candidate = candidate, path = typefacePath
 
-    for key in lookupTypefaceNames(candidate):
-      if key in staticTypefaceTable:
-        let staticEntry = staticTypefaceTable[key]
-        try:
-          info "resolved typeface from static registry",
-            requested = name, candidate = candidate, staticName = staticEntry.name
-          typeface =
-            readTypefaceImpl(staticEntry.name, staticEntry.data, staticEntry.kind)
-          source = TypefaceSource(
-            name: staticEntry.name, data: staticEntry.data, kind: staticEntry.kind
-          )
-          loaded = true
-          break
-        except PixieError:
-          warn "failed to read static registered typeface",
-            requested = name, candidate = candidate, staticName = staticEntry.name
+    var staticEntry: tuple[name: string, data: string, kind: TypeFaceKinds]
+    if candidate.staticTypefaceEntry(staticEntry):
+      try:
+        info "resolved typeface from static registry",
+          requested = name, candidate = candidate, staticName = staticEntry.name
+        typeface =
+          readTypefaceImpl(staticEntry.name, staticEntry.data, staticEntry.kind)
+        source = TypefaceSource(
+          name: staticEntry.name, data: staticEntry.data, kind: staticEntry.kind
+        )
+        loaded = true
+      except PixieError:
+        warn "failed to read static registered typeface",
+          requested = name, candidate = candidate, staticName = staticEntry.name
     if loaded:
       break
 
@@ -204,32 +278,22 @@ proc loadTypeface*(name: string, fallbackNames: openArray[string] = []): Typefac
       "Unable to resolve typeface '" & name & "' with fallback names: " & $fallbackNames,
     )
 
-  let id = typeface.getId()
-
-  doAssert Hash(id) != 0
-  if id in typefaceTable:
-    doAssert typefaceTable[id] == typeface
-  typefaceTable[id] = typeface
-  typefaceSourceTable[id] = source
-  result = id
+  result = registerTypeface(typeface, source)
 
 proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId =
   ## loads a font from buffer and adds it to the font index
 
-  let
-    typeface = readTypefaceImpl(name, data, kind)
-    id = typeface.getId()
-
-  typefaceTable[id] = typeface
-  typefaceSourceTable[id] = TypefaceSource(name: name, data: data, kind: kind)
-  result = id
+  let typeface = readTypefaceImpl(name, data, kind)
+  result =
+    registerTypeface(typeface, TypefaceSource(name: name, data: data, kind: kind))
 
 proc getTypefaceSource*(id: TypefaceId): TypefaceSource =
-  if id notin typefaceSourceTable:
-    raise newException(
-      ValueError, "typeface source data is not available for id " & $Hash(id)
-    )
-  typefaceSourceTable[id]
+  withLock(fontLock):
+    if id notin typefaceSourceTable:
+      raise newException(
+        ValueError, "typeface source data is not available for id " & $Hash(id)
+      )
+    result = typefaceSourceTable[id]
 
 proc getFigFont*(fontId: FontId): FigFont =
   withLock(fontLock):
@@ -237,31 +301,63 @@ proc getFigFont*(fontId: FontId): FigFont =
       raise newException(ValueError, "font is not available for id " & $Hash(fontId))
     result = fontTable[fontId]
 
-proc pixieFont(font: FigFont): (FontId, Font) =
-  let
-    id = FontId(hash((font.getId(), figUiScale())))
+proc pixieFont(font: FigFont): Font =
+  var typeface: Typeface
+  withLock(fontLock):
+    if font.typefaceId notin typefaceTable:
+      raise newException(ValueError, "typeface is not available")
     typeface = typefaceTable[font.typefaceId]
 
-  var pxfont = newFont(typeface)
-  pxfont.size = font.size
-  pxfont.typeface = typeface
-  pxfont.textCase = parseEnum[TextCase]($font.fontCase)
-  pxfont.lineHeight = font.lineHeight
-  pxfont.underline = font.underline
-  pxfont.strikethrough = font.strikethrough
-  pxfont.noKerningAdjustments = font.noKerningAdjustments
+  result = newFont(typeface)
+  result.size = font.size
+  result.typeface = typeface
+  result.textCase = parseEnum[TextCase]($font.fontCase)
+  result.lineHeight = font.lineHeight
+  result.underline = font.underline
+  result.strikethrough = font.strikethrough
+  result.noKerningAdjustments = font.noKerningAdjustments
 
   if font.lineHeight == 0.0'f32:
-    pxfont.lineHeight = pxfont.defaultLineHeight()
-  result = (id, pxfont)
+    result.lineHeight = result.defaultLineHeight()
+
+proc rasterFont(font: FigFont): FigFont =
+  FigFont(
+    typefaceId: font.typefaceId,
+    size: font.size,
+    fontCase: font.fontCase,
+    variations: font.variations,
+  )
+
+proc registerFont(font: FigFont): FontId =
+  let
+    raster = font.rasterFont()
+    uiScale = figUiScale()
+    fontHash = hash((raster.getId(), uiScale))
+
+  withLock(fontLock):
+    for salt in 0 .. 100:
+      let candidateHash =
+        if salt == 0:
+          fontHash
+        else:
+          hash((fontHash, salt))
+      if candidateHash != Hash(0):
+        let candidate = FontId(candidateHash)
+        if candidate notin fontTable:
+          fontTable[candidate] = raster
+          fontUiScaleTable[candidate] = uiScale
+          return candidate
+        if fontTable[candidate] == raster and
+            fontUiScaleTable.getOrDefault(candidate, uiScale) == uiScale:
+          return candidate
+
+  raise newException(ValueError, "could not allocate a collision-free font id")
 
 proc convertFont*(font: FigFont): (FontId, Font) =
   ## does the typesetting using pixie, then converts to Figuro's internal
   ## types
 
-  result = font.pixieFont()
-  if not fontTable.hasKey(result[0]):
-    fontTable[result[0]] = font
+  result = (font.registerFont(), font.pixieFont())
 
 proc convertFont*(style: FontStyle): (FontId, Font) =
   style.font.convertFont()
@@ -291,7 +387,14 @@ proc glyphFontFor*(uiFont: FigFont): tuple[id: FontId, font: Font, glyph: GlyphF
   result = (
     id: fontId,
     font: pf,
-    glyph: GlyphFont(fontId: fontId, lineHeight: lineHeight, descentAdj: baselineOffset),
+    glyph: GlyphFont(
+      fontId: fontId,
+      size: uiFont.size,
+      lineHeight: lineHeight,
+      descentAdj: baselineOffset,
+      underline: uiFont.underline,
+      strikethrough: uiFont.strikethrough,
+    ),
   )
 
 proc getLineHeightImpl*(font: FigFont): float32 =
@@ -312,7 +415,7 @@ proc getPixieFont*(fontId: FontId): Font =
   var uifont: FigFont
   withLock(fontLock):
     uifont = fontTable[fontId]
-  result = uifont.pixieFont()[1]
+  result = uifont.pixieFont()
   result.size = result.size.getScaledFont()
   #result.size = result.size
   result.lineHeight = result.lineHeight.scaled()

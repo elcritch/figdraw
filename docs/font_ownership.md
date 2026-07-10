@@ -21,9 +21,10 @@ image ownership by font.
 - OpenType feature settings
 - variable font coordinates
 
-`FigFont.hash` includes these fields, and `FontId` is derived from that hash.
-The Pixie path also folds `figUiScale()` into the cached font id so raster
-entries are separated by scale.
+`FigFont.hash` includes these fields for layout identity. `FontId` is a raster
+identity derived from the resolved typeface, size, case transform, variable
+coordinates, and `figUiScale()`, so shaping-only settings do not duplicate
+identical glyph images.
 
 Glyph cache identity is currently:
 

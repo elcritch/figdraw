@@ -19,7 +19,8 @@ when defined(macosx) and defined(figdraw.moltenvkBrew):
 when defined(linux):
   proc pkgConfigFlags(kind: string, packages: openArray[string]): string =
     for pkg in packages:
-      let exists = gorgeEx("sh -c 'pkg-config --exists " & pkg & " && printf yes'").output.strip()
+      let exists =
+        gorgeEx("sh -c 'pkg-config --exists " & pkg & " && printf yes'").output.strip()
       if exists == "yes":
         let flags = gorgeEx("pkg-config --" & kind & " " & pkg).output.strip()
         if flags.len > 0:
@@ -51,10 +52,16 @@ when defined(linux):
     WaylandDependencies = "wayland-client wayland-egl wayland-egl-backend"
     AuxDependencies = "gl glesv2 egl"
 
-  let linuxCflags =
-    pkgConfigFlags("cflags", XorgDependencies.splitWhitespace() & WaylandDependencies.splitWhitespace() & AuxDependencies.splitWhitespace())
-  let linuxLibs =
-    pkgConfigFlags("libs", XorgDependencies.splitWhitespace() & WaylandDependencies.splitWhitespace() & AuxDependencies.splitWhitespace())
+  let linuxCflags = pkgConfigFlags(
+    "cflags",
+    XorgDependencies.splitWhitespace() & WaylandDependencies.splitWhitespace() &
+      AuxDependencies.splitWhitespace(),
+  )
+  let linuxLibs = pkgConfigFlags(
+    "libs",
+    XorgDependencies.splitWhitespace() & WaylandDependencies.splitWhitespace() &
+      AuxDependencies.splitWhitespace(),
+  )
   if linuxCflags.len > 0:
     switch("passC", linuxCflags)
   if linuxLibs.len > 0:
@@ -76,19 +83,27 @@ proc platforms(): seq[string] =
       sessionType = getEnv("XDG_SESSION_TYPE").toLowerAscii()
       hasWaylandDisplay = getEnv("WAYLAND_DISPLAY").len != 0
       hasX11Display = getEnv("DISPLAY").len != 0
+      testRenderer = getEnv("FIGDRAW_TEST_RENDERER").strip().toLowerAscii()
+
+    proc addPlatform(sessionType: string) =
+      case testRenderer
+      of "opengl":
+        result.add "XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=1 "
+      of "vulkan":
+        result.add "XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=0 "
+      else:
+        result.add "XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=0 "
+        result.add "XDG_SESSION_TYPE=" & sessionType & " FIGDRAW_FORCE_OPENGL=1 "
+
     if sessionType == "wayland":
-      result.add "XDG_SESSION_TYPE=wayland FIGDRAW_FORCE_OPENGL=0 "
-      result.add "XDG_SESSION_TYPE=wayland FIGDRAW_FORCE_OPENGL=1 "
+      addPlatform("wayland")
     elif sessionType == "x11":
-      result.add "XDG_SESSION_TYPE=x11 FIGDRAW_FORCE_OPENGL=0 "
-      result.add "XDG_SESSION_TYPE=x11 FIGDRAW_FORCE_OPENGL=1 "
+      addPlatform("x11")
     else:
       if hasWaylandDisplay:
-        result.add "XDG_SESSION_TYPE=wayland FIGDRAW_FORCE_OPENGL=0 "
-        result.add "XDG_SESSION_TYPE=wayland FIGDRAW_FORCE_OPENGL=1 "
+        addPlatform("wayland")
       if hasX11Display:
-        result.add "XDG_SESSION_TYPE=x11 FIGDRAW_FORCE_OPENGL=0 "
-        result.add "XDG_SESSION_TYPE=x11 FIGDRAW_FORCE_OPENGL=1 "
+        addPlatform("x11")
   else:
     @[""]
 

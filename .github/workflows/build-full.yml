@@ -9,28 +9,48 @@ on:
 
 jobs:
   tests:
+    name: ${{ matrix.os }}-${{ matrix.display }}-${{ matrix.renderer }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
     strategy:
       matrix:
-        nimversion:
-          - '2.2.10'
-        os:
-          - ubuntu-24.04
-          - macos-14
-          - windows-2022
-        display:
-          - none
-        exclude:
-          - os: ubuntu-24.04
-            display: none
         include:
           - os: ubuntu-24.04
+            nimversion: '2.2.10'
             display: x11
+            renderer: opengl
+            nimflags: '-d:figdraw.opengl=on -d:figdraw.vulkan=off'
+            force_opengl: '1'
           - os: ubuntu-24.04
+            nimversion: '2.2.10'
+            display: x11
+            renderer: vulkan
+            nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on'
+            force_opengl: '0'
+          - os: ubuntu-24.04
+            nimversion: '2.2.10'
             display: wayland
+            renderer: opengl
+            nimflags: '-d:figdraw.opengl=on -d:figdraw.vulkan=off'
+            force_opengl: '1'
+          - os: ubuntu-24.04
+            nimversion: '2.2.10'
+            display: wayland
+            renderer: vulkan
+            nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on'
+            force_opengl: '0'
+          - os: macos-14
+            nimversion: '2.2.10'
+            display: none
+            renderer: native
+            nimflags: ''
+          - os: windows-2022
+            nimversion: '2.2.10'
+            display: none
+            renderer: native
+            nimflags: '-d:figdraw.vulkan=off'
     steps:
     - uses: actions/checkout@v1
 
@@ -102,7 +122,7 @@ jobs:
         fi
 
     - name: Vulkan diagnostics
-      if: runner.os == 'Linux'
+      if: runner.os == 'Linux' && matrix.renderer == 'vulkan'
       run: |
         ls -la /usr/share/vulkan/icd.d || true
         vulkaninfo --summary || true
@@ -140,7 +160,7 @@ jobs:
       uses: actions/cache@v3
       with:
         path: deps/
-        key: ${{ runner.os }}-${{ matrix.display }}-${{ hashFiles('figdraw.nimble') }}
+        key: ${{ runner.os }}-${{ matrix.display }}-${{ matrix.renderer }}-${{ hashFiles('figdraw.nimble') }}
 
     - name: Install Deps
       run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib,harfbuzz
@@ -160,18 +180,25 @@ jobs:
       if: runner.os == 'Linux' && matrix.display == 'x11'
       env:
         XDG_SESSION_TYPE: "x11"
+        FIGDRAW_TEST_RENDERER: ${{ matrix.renderer }}
+        FIGDRAW_FORCE_OPENGL: ${{ matrix.force_opengl }}
+        NIMFLAGS: ${{ matrix.nimflags }}
         GALLIUM_DRIVER: "llvmpipe"
         LIBGL_ALWAYS_SOFTWARE: "1"
         MESA_GL_VERSION_OVERRIDE: "3.3"
         MESA_GLSL_VERSION_OVERRIDE: "330"
       run: |
         xvfb-run -a nim test
+        nim r -d:figdrawTextBackend=harfbuzzy tests/tfontutils.nim
 
     - name: Build Tests
       if: runner.os == 'Linux' && matrix.display == 'wayland'
       env:
         XDG_SESSION_TYPE: "wayland"
         WAYLAND_DISPLAY: "wayland-1"
+        FIGDRAW_TEST_RENDERER: ${{ matrix.renderer }}
+        FIGDRAW_FORCE_OPENGL: ${{ matrix.force_opengl }}
+        NIMFLAGS: ${{ matrix.nimflags }}
         GALLIUM_DRIVER: "llvmpipe"
         LIBGL_ALWAYS_SOFTWARE: "1"
         MESA_GL_VERSION_OVERRIDE: "3.3"
@@ -199,8 +226,11 @@ jobs:
         done
         [[ -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ]] || (cat "${RUNNER_TEMP}/weston.log" && exit 1)
 
-        vulkaninfo --summary || true
+        if [[ "${{ matrix.renderer }}" == "vulkan" ]]; then
+          vulkaninfo --summary || true
+        fi
         nim test
+        nim r -d:figdrawTextBackend=harfbuzzy tests/tfontutils.nim
 
     - name: Build Tests
       if: runner.os == 'macOS'
@@ -210,12 +240,12 @@ jobs:
     - name: Build Tests
       if: runner.os == 'Windows'
       env:
-        NIMFLAGS: "-d:figdraw.vulkan=off"
+        NIMFLAGS: ${{ matrix.nimflags }}
       run: |
         nim test
 
     - name: Build Tests (Vulkan Compile Check)
-      if: runner.os == 'Linux' || runner.os == 'Windows'
+      if: runner.os == 'Windows'
       env:
         NIMFLAGS: "-d:figdraw.opengl=off -d:figdraw.vulkan=on"
       run: |
@@ -225,7 +255,7 @@ jobs:
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: tests-output-${{ runner.os }}-${{ matrix.display }}-nim${{ matrix.nimversion }}
+        name: tests-output-${{ runner.os }}-${{ matrix.display }}-${{ matrix.renderer }}-nim${{ matrix.nimversion }}
         path: |
           tests/output/
           ${{ runner.temp }}/weston.log
