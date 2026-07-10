@@ -70,8 +70,8 @@ proc renderAndScreenshotOnce*(
       result.writeFile(outputPath)
     except VulkanError as exc:
       raise newException(WindyError, "Vulkan device not available: " & exc.msg)
-    except ValueError:
-      raise newException(WindyError, "Vulkan device not available")
+    except ValueError as exc:
+      raise newException(WindyError, "Vulkan device not available: " & exc.msg)
     finally:
       window.close()
   else:
