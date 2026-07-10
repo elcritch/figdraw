@@ -56,6 +56,14 @@ jobs:
     steps:
     - uses: actions/checkout@v1
 
+    - name: Setup software OpenGL (Mesa)
+      if: runner.os == 'Windows'
+      uses: ssciwr/setup-mesa-dist-win@v3.0.0
+      with:
+        version: '26.0.3'
+        build-type: 'release-msvc'
+        deployment-choice: '1'
+
     - name: Setup software OpenGL/Vulkan (Mesa) + Xvfb (X11)
       if: runner.os == 'Linux' && matrix.display == 'x11'
       timeout-minutes: 15
@@ -245,6 +253,8 @@ jobs:
         NIMFLAGS: ${{ matrix.nimflags }}
         FIGDRAW_FORCE_OPENGL: ${{ matrix.force_opengl }}
         FIGDRAW_REQUIRE_GRAPHICS: '1'
+        GALLIUM_DRIVER: 'llvmpipe'
+        LIBGL_ALWAYS_SOFTWARE: '1'
       run: |
         nim test
 
