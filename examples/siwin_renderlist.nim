@@ -6,11 +6,9 @@ import chronicles
 
 when defined(useNativeDynlib):
   import figdraw/dynlib
-  import figdraw/dynlib as glrenderer
 else:
   import chroma
   import figdraw
-  import figdraw as glrenderer
   import figdraw/windowing/siwinshim
 
 logScope:
@@ -111,13 +109,11 @@ when isMainModule:
   let title = siwinWindowTitle("Siwin RenderList")
   let size = ivec2(800, 600)
   when UseVulkanBackend:
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
     let appWindow = newSiwinWindow(renderer, size = size, title = title, vsync = true)
   else:
     let appWindow = newSiwinWindow(size = size, title = title, vsync = true)
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
   var frames = 0
   var fpsFrames = 0

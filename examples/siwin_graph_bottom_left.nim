@@ -3,13 +3,12 @@ when defined(emscripten):
 else:
   import std/[os, times, math]
 
-import chroma
-
-import figdraw/windowing/siwinshim
-
-import figdraw/commons
-import figdraw/fignodes
-import figdraw/figrender
+when defined(useNativeDynlib):
+  import figdraw/dynlib
+else:
+  import chroma
+  import figdraw
+  import figdraw/windowing/siwinshim
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const FontName {.strdefine: "figdraw.defaultfont".}: string = "Ubuntu.ttf"
@@ -89,16 +88,10 @@ proc makeRenderTree(windowW, windowH: float32, uiFont: FigFont): Renders =
       gy = plotRect.y + t * plotRect.h
 
     result.addRectNode(
-      z,
-      sceneIdx,
-      rect(gx, plotRect.y, 1.0'f32, plotRect.h),
-      rgba(225, 229, 238, 255),
+      z, sceneIdx, rect(gx, plotRect.y, 1.0'f32, plotRect.h), rgba(225, 229, 238, 255)
     )
     result.addRectNode(
-      z,
-      sceneIdx,
-      rect(plotRect.x, gy, plotRect.w, 1.0'f32),
-      rgba(225, 229, 238, 255),
+      z, sceneIdx, rect(plotRect.x, gy, plotRect.w, 1.0'f32), rgba(225, 229, 238, 255)
     )
 
   result.addRectNode(
@@ -160,10 +153,8 @@ proc makeRenderTree(windowW, windowH: float32, uiFont: FigFont): Renders =
   )
 
   let legendText =
-    "Legend\n" &
-    "Red points: y = 0.5 + 0.35*sin(2πx)\n" &
-    "Green point: origin (0, 0)\n" &
-    "Axes: bottom-left coordinates"
+    "Legend\n" & "Red points: y = 0.5 + 0.35*sin(2πx)\n" &
+    "Green point: origin (0, 0)\n" & "Axes: bottom-left coordinates"
   let legendSelectionRange = 0'i16 .. 5'i16
   let legendTextRect = rect(
     legendRect.x + legendPadding,

@@ -2,14 +2,14 @@ when defined(emscripten):
   import std/[times, unicode, strutils]
 else:
   import std/[os, times, unicode, strutils]
-import chroma
 import pkg/pixie/fonts
 
-import figdraw/windowing/siwinshim
-
-import figdraw/commons
-import figdraw/fignodes
-import figdraw/figrender as glrenderer
+when defined(useNativeDynlib):
+  import figdraw/dynlib
+else:
+  import chroma
+  import figdraw
+  import figdraw/windowing/siwinshim
 when not UseMetalBackend:
   import figdraw/utils/glutils
 
@@ -33,7 +33,7 @@ proc textStatusLine(mode: TextSubpixelMode, lcdFilteringEnabled: bool): string =
   "LCD: " & lcdMode & ", subpixel: " & subpixelModeDescription(mode)
 
 proc applyTextSampling[BackendState](
-    renderer: glrenderer.FigRenderer[BackendState],
+    renderer: FigRenderer[BackendState],
     mode: TextSubpixelMode,
     lcdFilteringEnabled: bool,
 ) =
@@ -50,7 +50,7 @@ proc applyTextSampling[BackendState](
     renderer.setTextSubpixelGlyphVariants(true)
 
 proc detectTextSubpixelMode[BackendState](
-    renderer: glrenderer.FigRenderer[BackendState]
+    renderer: FigRenderer[BackendState]
 ): TextSubpixelMode =
   let
     subpixel = renderer.textSubpixelPositioning()
@@ -62,7 +62,7 @@ proc detectTextSubpixelMode[BackendState](
   tsmOff
 
 proc detectLcdFilteringEnabled[BackendState](
-    renderer: glrenderer.FigRenderer[BackendState]
+    renderer: FigRenderer[BackendState]
 ): bool =
   renderer.textLcdFiltering()
 
@@ -425,8 +425,7 @@ when isMainModule:
   var fpsFrames = 0
   var fpsStart = epochTime()
   when UseVulkanBackend:
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 4096, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 4096, backendState = SiwinRenderBackend())
     let appWindow = newSiwinWindow(
       renderer,
       size = size,
@@ -437,8 +436,7 @@ when isMainModule:
     let appWindow = newSiwinWindow(
       size = size, fullscreen = false, title = siwinWindowTitle("Siwin + Text")
     )
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 4096, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 4096, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
   appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin + Text")

@@ -2,13 +2,12 @@ import std/times
 import std/strutils
 when not defined(emscripten):
   import std/os
-import chroma
-
-import figdraw/windowing/siwinshim
-
-import figdraw/commons
-import figdraw/fignodes
-import figdraw/figrender as glrenderer
+when defined(useNativeDynlib):
+  import figdraw/dynlib
+else:
+  import chroma
+  import figdraw
+  import figdraw/windowing/siwinshim
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
@@ -163,14 +162,12 @@ when isMainModule:
   var fpsFrames = 0
   var fpsStart = epochTime()
   when UseVulkanBackend:
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
     let appWindow =
       newSiwinWindow(renderer, size = size, fullscreen = false, title = title)
   else:
     let appWindow = newSiwinWindow(size = size, fullscreen = false, title = title)
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
 
   renderer.setupBackend(appWindow)

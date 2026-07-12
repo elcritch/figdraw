@@ -3,13 +3,12 @@ when defined(emscripten):
 else:
   import std/[os, times, monotimes, strformat, strutils]
 
-import figdraw/windowing/siwinshim
-
-import chroma
-
-import figdraw/commons
-import figdraw/fignodes
-import figdraw/figrender
+when defined(useNativeDynlib):
+  import figdraw/dynlib
+else:
+  import chroma
+  import figdraw
+  import figdraw/windowing/siwinshim
 
 import renderlist_100_common
 

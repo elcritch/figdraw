@@ -1,14 +1,14 @@
 when not defined(emscripten):
   import std/os
 
-import chroma
 import chronicles
 
-import figdraw/windowing/siwinshim
-
-import figdraw/commons
-import figdraw/fignodes
-import figdraw/figrender as glrenderer
+when defined(useNativeDynlib):
+  import figdraw/dynlib
+else:
+  import chroma
+  import figdraw
+  import figdraw/windowing/siwinshim
 import figdraw/utils/drawutils
 
 logScope:
@@ -170,14 +170,12 @@ when isMainModule:
   let title = siwinWindowTitle("Siwin Dashed + Dotted Borders")
   let size = ivec2(900, 620)
   when UseVulkanBackend:
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 512, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 512, backendState = SiwinRenderBackend())
     let appWindow =
       newSiwinWindow(renderer, size = size, fullscreen = false, title = title)
   else:
     let appWindow = newSiwinWindow(size = size, fullscreen = false, title = title)
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 512, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 512, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
   appWindow.title =

@@ -3,15 +3,16 @@ when not defined(emscripten):
 
 import std/[math, strutils, times]
 
-import chroma
 import chronicles
 
-import figdraw/windowing/siwinshim
+when defined(useNativeDynlib):
+  import figdraw/dynlib
+else:
+  import chroma
+  import figdraw
+  import figdraw/windowing/siwinshim
 
-import figdraw/commons
 import figdraw/extras/systemfonts
-import figdraw/fignodes
-import figdraw/figrender as glrenderer
 
 logScope:
   scope = "siwin_scripture_shaping"
@@ -870,14 +871,12 @@ when isMainModule:
     fonts = initDemoFonts()
 
   when UseVulkanBackend:
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
     let appWindow =
       newSiwinWindow(renderer, size = size, fullscreen = false, title = title)
   else:
     let appWindow = newSiwinWindow(size = size, fullscreen = false, title = title)
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
   appWindow.title = siwinWindowTitle(renderer, appWindow, DemoWindowTitle)

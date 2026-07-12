@@ -2,13 +2,12 @@ when defined(emscripten):
   import std/[times, math, strformat, strutils]
 else:
   import std/[os, times, math, strformat, strutils]
-import chroma
-
-import figdraw/windowing/siwinshim
-
-import figdraw/commons
-import figdraw/fignodes
-import figdraw/figrender as glrenderer
+when defined(useNativeDynlib):
+  import figdraw/dynlib
+else:
+  import chroma
+  import figdraw
+  import figdraw/windowing/siwinshim
 import figdraw/utils/glutils
 import pkg/opengl
 
@@ -519,13 +518,11 @@ when isMainModule:
   let title = siwinWindowTitle("Siwin 3D + overlay")
   let size = ivec2(900, 640)
   when UseVulkanBackend:
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
     let appWindow = newSiwinWindow(renderer, size = size, title = title, vsync = true)
   else:
     let appWindow = newSiwinWindow(size = size, title = title, vsync = true)
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
   appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin 3D + overlay")

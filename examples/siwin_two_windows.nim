@@ -2,11 +2,9 @@ import std/[os, times]
 
 when defined(useNativeDynlib):
   import figdraw/dynlib
-  import figdraw/dynlib as glrenderer
 else:
   import chroma
   import figdraw
-  import figdraw as glrenderer
   import figdraw/windowing/siwinshim
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
@@ -104,8 +102,7 @@ proc newDemoWindow(
     size: IVec2, titleSuffix: string, palette: WindowPalette
 ): DemoWindow =
   when UseVulkanBackend:
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
     let window = newSiwinWindow(
       renderer,
       size = size,
@@ -120,8 +117,7 @@ proc newDemoWindow(
       title = siwinWindowTitle(titleSuffix),
       vsync = true,
     )
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
   let useAutoScale = window.configureUiScale()
   renderer.setupBackend(window)
   window.title = siwinWindowTitle(renderer, window, titleSuffix)

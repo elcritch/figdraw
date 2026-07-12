@@ -67,14 +67,12 @@ when isMainModule:
   var fpsFrames = 0
   var fpsStart = epochTime()
   when UseVulkanBackend:
-    let renderer =
-      newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
     let appWindow =
       newSiwinWindow(renderer, size = size, fullscreen = false, title = title)
   else:
     let appWindow = newSiwinWindow(size = size, fullscreen = false, title = title)
-    let renderer =
-      newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
 
   renderer.setupBackend(appWindow)
