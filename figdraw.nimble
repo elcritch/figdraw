@@ -46,7 +46,7 @@ feature "metal":
   requires "https://github.com/elcritch/metalx#head"
 feature "sharedlib":
   requires "gh:treeform/genny#81d9659"
-  requires "gh:elcritch/binny >= 0.4.1"
+  requires "gh:elcritch/binny >= 0.4.2"
 
 task nativeDynlib, "Build and stage the native Nim dynamic library":
   let compiler = getEnv("FIGDRAW_NATIVE_NIM", "../Nim/bin/nim")
