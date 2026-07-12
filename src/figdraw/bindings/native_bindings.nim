@@ -34,21 +34,9 @@ type
   DrawableOps* = seq[DrawableOp]
   ArrangedGlyphs* = seq[ArrangedGlyph]
   Rects* = seq[Rect]
-
-  NativeIntRange* = object
-    a*, b*: int
-
-  NativeIntRanges* = seq[NativeIntRange]
-
-  NativeTextCaretPosition* = object
-    sourceRune*: int
-    glyphIndex*: int
-    lineIndex*: int
-    affinity*: TextCaretAffinity
-    pos*: Vec2
-    rect*: Rect
-
-  NativeTextCaretPositions* = seq[NativeTextCaretPosition]
+  IntSlice* = Slice[int]
+  IntSlices* = seq[IntSlice]
+  TextCaretPositions* = seq[TextCaretPosition]
 
   NativeWindowSize* = object
     w*, h*: int32
@@ -237,77 +225,6 @@ proc typeset*(
     wrap = true,
 ): GlyphArrangement {.exportabi.} =
   fontutils.typeset(box, spans, hAlign, vAlign, minContent, wrap)
-
-func nativeRange(value: Slice[int]): NativeIntRange {.inline.} =
-  NativeIntRange(a: value.a, b: value.b)
-
-proc nativeGlyphCount*(arrangement: GlyphArrangement): int {.exportabi.} =
-  arrangement.glyphCount()
-
-proc nativeGlyphSourceRange*(
-    arrangement: GlyphArrangement, glyphIndex: int
-): GlyphSourceRange {.exportabi.} =
-  arrangement.glyphSourceRange(glyphIndex)
-
-proc nativeGlyphRect*(
-    arrangement: GlyphArrangement, glyphIndex: int
-): Rect {.exportabi.} =
-  arrangement.glyphRect(glyphIndex)
-
-proc nativeGlyphFont*(
-    arrangement: GlyphArrangement, glyphIndex: int
-): GlyphFont {.exportabi.} =
-  arrangement.glyphFont(glyphIndex)
-
-proc nativeGlyphRangeFor*(
-    arrangement: GlyphArrangement, sourceStart, sourceEnd: int
-): NativeIntRange {.exportabi.} =
-  arrangement.glyphRangeFor(sourceStart .. sourceEnd).nativeRange()
-
-proc nativeLineGlyphRanges*(
-    arrangement: GlyphArrangement
-): NativeIntRanges {.exportabi.} =
-  for line in arrangement.lineGlyphRanges():
-    result.add line.nativeRange()
-
-proc nativeLayoutContentSize*(arrangement: GlyphArrangement): Vec2 {.exportabi.} =
-  arrangement.layoutContentSize()
-
-proc nativeSourceRuneCount*(arrangement: GlyphArrangement): int {.exportabi.} =
-  arrangement.sourceRuneCount()
-
-proc nativeGlyphIndexAt*(
-    arrangement: GlyphArrangement, point: Vec2
-): int {.exportabi.} =
-  arrangement.glyphIndexAt(point)
-
-proc nativeSourceRuneRangeAt*(
-    arrangement: GlyphArrangement, point: Vec2
-): NativeIntRange {.exportabi.} =
-  arrangement.sourceRuneRangeAt(point).nativeRange()
-
-proc nativeSelectionRectsFor*(
-    arrangement: GlyphArrangement, sourceStart, sourceEnd: int
-): Rects {.exportabi.} =
-  arrangement.selectionRectsFor(sourceStart .. sourceEnd)
-
-proc nativeCaretPositionsFor*(
-    arrangement: GlyphArrangement, sourceRune: int
-): NativeTextCaretPositions {.exportabi.} =
-  for caret in arrangement.caretPositionsFor(sourceRune):
-    result.add NativeTextCaretPosition(
-      sourceRune: caret.sourceRune,
-      glyphIndex: caret.glyphIndex,
-      lineIndex: caret.lineIndex,
-      affinity: caret.affinity,
-      pos: caret.pos,
-      rect: caret.rect,
-    )
-
-proc nativeNearestSourceRuneForCaretPoint*(
-    arrangement: GlyphArrangement, point: Vec2
-): int {.exportabi.} =
-  arrangement.nearestSourceRuneForCaretPoint(point)
 
 proc newFigSiwinApp*(
     width, height: int32,
