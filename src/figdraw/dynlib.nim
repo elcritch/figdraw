@@ -87,6 +87,31 @@ proc color*(value: ColorRGBA): figdraw_native_abi.Fill =
 converter toFill*(value: ColorRGBA): figdraw_native_abi.Fill =
   fill(value)
 
+proc cornerToU16(v: uint16): uint16 {.inline.} =
+  v
+
+proc cornerToU16(v: SomeInteger): uint16 {.inline.} =
+  if v <= 0:
+    return 0'u16
+  min(v.int, high(uint16).int).uint16
+
+proc cornerToU16(v: SomeFloat): uint16 {.inline.} =
+  if v <= 0.0:
+    return 0'u16
+  min(v.round().int, high(uint16).int).uint16
+
+converter toCornerRadii*[T: SomeNumber](
+    a: array[4, T]
+): array[DirectionCorners, uint16] =
+  for i in 0 ..< 4:
+    result[DirectionCorners(i)] = cornerToU16(a[i])
+
+converter toCornerRadii*[T: SomeNumber](
+    a: array[DirectionCorners, T]
+): array[DirectionCorners, uint16] =
+  for c in DirectionCorners:
+    result[c] = cornerToU16(a[c])
+
 let clearColor* = fill(rgba(0, 0, 0, 0))
 
 proc fs*(font: FigFont, color: figdraw_native_abi.Fill = fill(rgba(0, 0, 0, 255))): FontStyle =
