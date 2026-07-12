@@ -59,7 +59,7 @@ type
   NativeSiwinApp* = object
     raw*: pointer
 
-  NativeImage* = object
+  Image* = object
     raw*: pointer
 
   SiwinApp = ref object
@@ -89,7 +89,7 @@ template defineHandleHooks(HandleType, RefType: typedesc) =
       dest.raw = source.raw
 
 defineHandleHooks(NativeSiwinApp, SiwinApp)
-defineHandleHooks(NativeImage, Image)
+defineHandleHooks(Image, pixie.Image)
 
 proc wrap(value: SiwinApp): NativeSiwinApp =
   retainRaw[SiwinApp](cast[pointer](value))
@@ -98,12 +98,12 @@ proc wrap(value: SiwinApp): NativeSiwinApp =
 template siwinApp(value: NativeSiwinApp): SiwinApp =
   cast[SiwinApp](value.raw)
 
-proc wrap(value: Image): NativeImage =
-  retainRaw[Image](cast[pointer](value))
+proc wrap(value: pixie.Image): Image =
+  retainRaw[pixie.Image](cast[pointer](value))
   result.raw = cast[pointer](value)
 
-template image(value: NativeImage): Image =
-  cast[Image](value.raw)
+template image(value: Image): pixie.Image =
+  cast[pixie.Image](value.raw)
 
 func siwinPlacement(value: NativePopupPlacement): PopupPlacement =
   PopupPlacement(
@@ -136,69 +136,67 @@ func nativePlacement(value: PopupPlacement): NativePopupPlacement =
 proc isNil*(value: NativeSiwinApp): bool {.exportabi.} =
   value.raw == nil
 
-proc isNil*(value: NativeImage): bool {.exportabi.} =
+proc isNil*(value: Image): bool {.exportabi.} =
   value.raw == nil
 
-proc newPixieImage*(width, height: int): NativeImage {.exportabi.} =
+proc newPixieImage*(width, height: int): Image {.exportabi.} =
   wrap(pixie.newImage(width, height))
 
-proc readPixieImage*(filePath: string): NativeImage {.exportabi.} =
+proc readPixieImage*(filePath: string): Image {.exportabi.} =
   wrap(pixie.readImage(filePath))
 
-proc decodePixieImage*(data: string): NativeImage {.exportabi.} =
+proc decodePixieImage*(data: string): Image {.exportabi.} =
   wrap(pixie.decodeImage(data))
 
-proc encodePng*(value: NativeImage): string {.exportabi.} =
+proc encodePng*(value: Image): string {.exportabi.} =
   png.encodePng(value.image)
 
-proc writePixieImage*(value: NativeImage, filePath: string) {.exportabi.} =
+proc writePixieImage*(value: Image, filePath: string) {.exportabi.} =
   value.image.writeFile(filePath)
 
-proc copyImage*(value: NativeImage): NativeImage {.exportabi.} =
+proc copyImage*(value: Image): Image {.exportabi.} =
   wrap(value.image.copy())
 
-proc resizeImage*(value: NativeImage, width, height: int): NativeImage {.exportabi.} =
+proc resizeImage*(value: Image, width, height: int): Image {.exportabi.} =
   wrap(value.image.resize(width, height))
 
-proc cropImage*(
-    value: NativeImage, x, y, width, height: int
-): NativeImage {.exportabi.} =
+proc cropImage*(value: Image, x, y, width, height: int): Image {.exportabi.} =
   wrap(value.image.subImage(x, y, width, height))
 
-proc imageWidth*(value: NativeImage): int {.exportabi.} =
+proc imageWidth*(value: Image): int {.exportabi.} =
   value.image.width
 
-proc imageHeight*(value: NativeImage): int {.exportabi.} =
+proc imageHeight*(value: Image): int {.exportabi.} =
   value.image.height
 
-proc imagePixel*(value: NativeImage, x, y: int): ColorRGBA {.exportabi.} =
+proc imagePixel*(value: Image, x, y: int): ColorRGBA {.exportabi.} =
   value.image[x, y].rgba()
 
-proc setImagePixel*(value: NativeImage, x, y: int, color: ColorRGBA) {.exportabi.} =
+proc setImagePixel*(value: Image, x, y: int, color: ColorRGBA) {.exportabi.} =
   value.image[x, y] = color
 
-proc fillImage*(value: NativeImage, color: ColorRGBA) {.exportabi.} =
+proc fillImage*(value: Image, color: ColorRGBA) {.exportabi.} =
   value.image.fill(color)
 
-proc flipImageHorizontal*(value: NativeImage) {.exportabi.} =
+proc flipImageHorizontal*(value: Image) {.exportabi.} =
   value.image.flipHorizontal()
 
-proc flipImageVertical*(value: NativeImage) {.exportabi.} =
+proc flipImageVertical*(value: Image) {.exportabi.} =
   value.image.flipVertical()
 
-proc rotateImage90*(value: NativeImage) {.exportabi.} =
+proc rotateImage90*(value: Image) {.exportabi.} =
   value.image.rotate90()
 
-proc applyImageOpacity*(value: NativeImage, opacity: float32) {.exportabi.} =
+proc applyImageOpacity*(value: Image, opacity: float32) {.exportabi.} =
   value.image.applyOpacity(opacity)
 
-proc invertImage*(value: NativeImage) {.exportabi.} =
+proc invertImage*(value: Image) {.exportabi.} =
   value.image.invert()
 
-proc imageIsTransparent*(value: NativeImage): bool {.exportabi.} =
+proc imageIsTransparent*(value: Image): bool {.exportabi.} =
   value.image.isTransparent()
 
-proc imageIsOpaque*(value: NativeImage): bool {.exportabi.} =
+proc imageIsOpaque*(value: Image): bool {.exportabi.} =
   value.image.isOpaque()
 
 proc figImageId*(name: string): ImageId {.exportabi.} =
@@ -207,7 +205,7 @@ proc figImageId*(name: string): ImageId {.exportabi.} =
 proc loadFigImage*(filePath: string): ImageId {.exportabi.} =
   loadImage(filePath)
 
-proc putFigImage*(id: ImageId, value: NativeImage) {.exportabi.} =
+proc putFigImage*(id: ImageId, value: Image) {.exportabi.} =
   loadImage(id, value.image)
 
 proc clearFigImage*(id: ImageId) {.exportabi.} =
@@ -499,7 +497,7 @@ proc siwinSetCanBecomeMainWindow*(
 ) {.exportabi.} =
   siwinApp(appHandle).window.canBecomeMainWindow = enabled
 
-proc siwinSetIcon*(appHandle: NativeSiwinApp, value: NativeImage) {.exportabi.} =
+proc siwinSetIcon*(appHandle: NativeSiwinApp, value: Image) {.exportabi.} =
   let image = value.image
   if image.isNil or image.data.len == 0:
     siwinApp(appHandle).window.icon = nil
