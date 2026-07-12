@@ -4,13 +4,11 @@ else:
   import std/[os, times, strutils]
 
 when defined(useNativeDynlib):
-  import figdraw/bindings/native_bindings
+  import figdraw/dynlib
 else:
   import figdraw/windowing/siwinshim
   import chroma
-  import figdraw/commons
-  import figdraw/fignodes
-  import figdraw/figrender
+  import figdraw
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const GridColumns {.intdefine: "figdraw.cols".} = 24

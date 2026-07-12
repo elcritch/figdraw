@@ -18,6 +18,7 @@ nimble.paths
 deps/
 .nimcache
 nimbledeps
+/bin/
 /examples/emscripten/*.js
 /examples/emscripten/*.wasm
 /examples/emscripten/*.data

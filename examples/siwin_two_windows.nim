@@ -1,14 +1,13 @@
 import std/[os, times]
 
 when defined(useNativeDynlib):
-  import figdraw/bindings/native_bindings
-  import figdraw/bindings/native_bindings as glrenderer
+  import figdraw/dynlib
+  import figdraw/dynlib as glrenderer
 else:
   import chroma
+  import figdraw
+  import figdraw as glrenderer
   import figdraw/windowing/siwinshim
-  import figdraw/commons
-  import figdraw/fignodes
-  import figdraw/figrender as glrenderer
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const LeftWindowDelaySec = 0.2

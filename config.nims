@@ -11,7 +11,7 @@ import std/[strformat, strutils]
 import std/os
 
 when defined(useNativeDynlib):
-  switch("path", ".nimcache/native_figdraw")
+  switch("path", "bin")
 
 when defined(macosx) and defined(figdraw.moltenvkBrew):
   let moltenVkPrefix = gorgeEx("brew --prefix molten-vk").output.strip()
@@ -180,7 +180,7 @@ task bindings, "Generate bindings":
   else:
     compile "libfigdraw.so"
 
-# Invoke this task with the patched compiler. Its version is part of the ABI digest.
+# Invoke this task with a compiler that supports the experimental native ABI.
 task native_bindings, "Build native Nim dynlib and generate Binny bindings":
   let
     compiler = getCurrentCompilerExe()
@@ -189,24 +189,50 @@ task native_bindings, "Build native Nim dynlib and generate Binny bindings":
     generator = "src/figdraw/bindings/generate_native_bindings.nim"
     manifest = cacheDir / "libfigdraw_native.abi.nif"
     bindings = cacheDir / "figdraw_native_abi.nim"
-    library = when defined(macosx):
-      cacheDir / "libfigdraw_native.dylib"
-    elif defined(linux) or defined(bsd):
-      cacheDir / "libfigdraw_native.so"
-    else:
-      quit "native Nim dynlibs currently support macOS, Linux, and BSD"
+    library =
+      when defined(macosx):
+        cacheDir / "libfigdraw_native.dylib"
+      elif defined(linux) or defined(bsd):
+        cacheDir / "libfigdraw_native.so"
+      else:
+        quit "native Nim dynlibs currently support macOS, Linux, and BSD"
 
   exec compiler & " c -f --experimental:abi --emitBif:on --app:lib --mm:orc" &
     " -d:useMalloc -d:figdrawNativeDynlib -d:release" &
-    " --path:src --path:deps/siwin/src" &
-    " --nimcache:" & cacheDir & " --out:" & library & " " & producer
-  exec compiler & " r -d:release --path:../binny" &
-    " --nimcache:" & cacheDir / "generator" & " " & generator & " " &
-    cacheDir & " " & producer & " " & manifest & " " & bindings
+    " --path:src --path:deps/siwin/src" & " --nimcache:" & cacheDir & " --out:" & library &
+    " " & producer
+  exec compiler & " r -d:release --path:../binny" & " --nimcache:" &
+    cacheDir / "generator" & " " & generator & " " & cacheDir & " " & producer & " " &
+    manifest & " " & bindings
+
+task native_dynlib, "Stage native Nim dynlib artifacts in bin":
+  let
+    compiler = getCurrentCompilerExe()
+    cacheDir = ".nimcache/native_figdraw"
+    producer = "src/figdraw/bindings/native_bindings.nim"
+    generator = "src/figdraw/bindings/generate_native_bindings.nim"
+    manifest = cacheDir / "libfigdraw_native.abi.nif"
+    bindings = "bin" / "figdraw_native_abi.nim"
+    libraryName =
+      when defined(macosx):
+        "libfigdraw_native.dylib"
+      elif defined(linux) or defined(bsd):
+        "libfigdraw_native.so"
+      else:
+        quit "native Nim dynlibs currently support macOS, Linux, and BSD"
+    stagedLibrary = "bin" / libraryName
+
+  exec compiler & " native_bindings"
+  exec "mkdir -p bin"
+  exec "cp " & (cacheDir / libraryName).quoteShell() & " " & stagedLibrary.quoteShell()
+  exec "cp " & manifest.quoteShell() & " " &
+    ("bin" / manifest.extractFilename()).quoteShell()
+  exec compiler & " r -d:release --path:../binny" & " --nimcache:" &
+    cacheDir / "generator" & " " & generator & " " & cacheDir & " " & producer & " " &
+    manifest & " " & bindings & " " & stagedLibrary
 
 task native_shared_example, "Build the native Nim siwin shared example":
   let compiler = getCurrentCompilerExe()
   exec compiler & " native_bindings"
-  exec compiler &
-    " c --mm:orc -d:useMalloc --path:.nimcache/native_figdraw" &
+  exec compiler & " c --mm:orc -d:useMalloc --path:.nimcache/native_figdraw" &
     " --out:examples/siwing_shared_native examples/siwing_shared_native.nim"

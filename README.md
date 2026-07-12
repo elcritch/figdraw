@@ -32,13 +32,15 @@ nim c -r examples/windy_renderlist.nim
 ```
 
 The core Siwin examples can also run against the native Nim dynamic library.
-Build the library and generated ABI module first with the patched compiler, then
-compile an example with `-d:useNativeDynlib`:
+Build and stage the library, NIF manifest, and generated ABI module first with
+the patched compiler, then compile an example with `-d:useNativeDynlib`:
 
 ```sh
-../Nim/bin/nim native_bindings
+../Nim/bin/nim native_dynlib
 ../Nim/bin/nim c -r -d:useNativeDynlib examples/siwin_renderlist.nim
 ```
+
+The equivalent Nimble task is `FIGDRAW_NATIVE_NIM=../Nim/bin/nim nimble nativeDynlib`.
 
 The same switch is supported by `siwin_cell_grid.nim`,
 `siwin_image_renderlist.nim`, and `siwin_two_windows.nim`.
