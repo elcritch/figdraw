@@ -29,14 +29,6 @@ type
 
   ImageRef* = ImageId
 
-  TextCaretPosition* = object
-    sourceRune*: int
-    glyphIndex*: int
-    lineIndex*: int
-    affinity*: TextCaretAffinity
-    pos*: vmath.Vec2
-    rect*: bumpy.Rect
-
   SiwinRenderBackend* = object
 
   Mouse* = object
@@ -831,11 +823,8 @@ proc `frameless=`*(window: Window, value: bool) =
 proc transparent*(window: Window): bool =
   siwinIsTransparent(window.handle)
 
-proc siwinSetIcon*(appHandle: NativeSiwinApp, image: Image) {.inline.} =
-  figdraw_native_abi.siwinSetIcon(appHandle, image.handle)
-
 proc `icon=`*(window: Window, image: Image) {.inline.} =
-  siwinSetIcon(window.handle, image)
+  figdraw_native_abi.siwinSetIcon(window.handle, image.handle)
 
 proc opened*(window: Window): bool =
   not window.handle.isNil and opened(window.handle)
