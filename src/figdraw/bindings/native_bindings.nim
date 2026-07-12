@@ -1,6 +1,6 @@
 ## Native Nim dynamic-library facade generated through Binny.
 
-import std/options
+import std/[options, unicode]
 import vmath
 import pkg/pixie as pixie
 import siwin/[clipboards, colorutils]
@@ -21,6 +21,18 @@ type
   FigFlagSet* = set[FigFlags]
   Vec2Seq* = seq[Vec2]
   FigSeq* = seq[Fig]
+  FigIdxs* = seq[FigIdx]
+  TypefaceIds* = seq[TypefaceId]
+  FontFeatures* = seq[FontFeature]
+  FontVariations* = seq[FontVariation]
+  Strings* = seq[string]
+  ColorRGBXs* = seq[ColorRGBX]
+  GlyphFonts* = seq[GlyphFont]
+  Fills* = seq[Fill]
+  Runes* = seq[Rune]
+  DrawableOps* = seq[DrawableOp]
+  ArrangedGlyphs* = seq[ArrangedGlyph]
+  Rects* = seq[Rect]
 
   NativeWindowSize* = object
     w*, h*: int32
