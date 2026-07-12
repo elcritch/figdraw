@@ -45,3 +45,4 @@ feature "metal":
 feature "sharedlib":
   requires "gh:treeform/genny#81d9659"
   requires "gh:elcritch/binny >= 0.4.0"
+requires "binny"

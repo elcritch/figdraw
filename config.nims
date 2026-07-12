@@ -176,3 +176,34 @@ task bindings, "Generate bindings":
     exec "lipo src/figdraw/bindings/generated/libfigdraw.dylib.arm src/figdraw/bindings/generated/libfigdraw.dylib.x64 -output src/figdraw/bindings/generated/libfigdraw.dylib -create"
   else:
     compile "libfigdraw.so"
+
+# Invoke this task with the patched compiler. Its version is part of the ABI digest.
+task native_bindings, "Build native Nim dynlib and generate Binny bindings":
+  let
+    compiler = getCurrentCompilerExe()
+    cacheDir = ".nimcache/native_figdraw"
+    producer = "src/figdraw/bindings/native_bindings.nim"
+    generator = "src/figdraw/bindings/generate_native_bindings.nim"
+    manifest = cacheDir / "libfigdraw_native.abi.nif"
+    bindings = cacheDir / "figdraw_native_abi.nim"
+    library = when defined(macosx):
+      cacheDir / "libfigdraw_native.dylib"
+    elif defined(linux) or defined(bsd):
+      cacheDir / "libfigdraw_native.so"
+    else:
+      quit "native Nim dynlibs currently support macOS, Linux, and BSD"
+
+  exec compiler & " c -f --experimental:abi --emitBif:on --app:lib --mm:orc" &
+    " -d:useMalloc -d:figdrawNativeDynlib -d:release" &
+    " --path:src --path:deps/siwin/src" &
+    " --nimcache:" & cacheDir & " --out:" & library & " " & producer
+  exec compiler & " r -d:release --path:../binny" &
+    " --nimcache:" & cacheDir / "generator" & " " & generator & " " &
+    cacheDir & " " & producer & " " & manifest & " " & bindings
+
+task native_shared_example, "Build the native Nim siwin shared example":
+  let compiler = getCurrentCompilerExe()
+  exec compiler & " native_bindings"
+  exec compiler &
+    " c --mm:orc -d:useMalloc --path:.nimcache/native_figdraw" &
+    " --out:examples/siwing_shared_native examples/siwing_shared_native.nim"
