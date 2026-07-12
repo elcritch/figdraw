@@ -649,6 +649,9 @@ proc backingSize*(window: Window): vmath.IVec2 =
   let size = siwinBackingSize(window.handle)
   ivec2(size.w, size.h)
 
+proc inputUsesBackingPixels*(window: Window): bool =
+  siwinInputUsesBackingPixels(window.handle)
+
 proc size*(window: Window): vmath.IVec2 =
   let size = siwinWindowSize(window.handle)
   ivec2(size.w, size.h)
