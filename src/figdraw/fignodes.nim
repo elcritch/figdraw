@@ -150,7 +150,7 @@ proc `+`*(a, b: FigIdx): FigIdx {.borrow.}
 proc `<=`*(a, b: FigIdx): bool {.borrow.}
 proc `==`*(a, b: FigIdx): bool {.borrow.}
 
-proc `[]`*(r: Renders, lvl: ZLevel): RenderList =
+proc `[]`*(r: Renders, lvl: ZLevel): RenderList {.nativeAbi.} =
   r.layers[lvl]
 
 proc validIdx(list: RenderList, idx: FigIdx): bool =
@@ -271,14 +271,16 @@ proc relevelNodes(nodes: var seq[Fig], lvl: ZLevel) =
   for node in nodes.mitems:
     node.zlevel = lvl
 
-proc clear*(list: var RenderList) {.nativeAbi.} =
+{.push nativeAbi.}
+
+proc clear*(list: var RenderList) =
   list.nodes.setLen(0)
   list.rootIds.setLen(0)
 
-func len*(list: RenderList): int {.nativeAbi.} =
+func len*(list: RenderList): int =
   list.nodes.len
 
-proc addRoot*(list: var RenderList, root: Fig): FigIdx {.discardable, nativeAbi.} =
+proc addRoot*(list: var RenderList, root: Fig): FigIdx {.discardable.} =
   ## Appends `root` to `list.nodes`, sets `root.parent = -1`, and adds the
   ## node index to `list.rootIds`.
   ##
@@ -316,7 +318,7 @@ proc insertRoot*(
 
 proc addChild*(
     list: var RenderList, parentIdx: FigIdx, child: Fig
-): FigIdx {.discardable, nativeAbi.} =
+): FigIdx {.discardable.} =
   ## Appends `child` to `list.nodes`, sets `child.parent` from `parentIdx`,
   ## and increments the parent's `childCount`.
   ##
@@ -410,26 +412,28 @@ proc addChildren*(
     parentIdx, children, list.nodes[parentIdx.int].childCount.Natural
   )
 
+{.pop.}
+
 proc ensureLayer*(renders: var Renders, lvl: ZLevel): var RenderList =
   if lvl notin renders.layers:
     renders.layers[lvl] = RenderList()
   renders.layers[lvl]
 
-proc newRenders*(): Renders {.nativeAbi.} =
+{.push nativeAbi.}
+
+proc newRenders*(): Renders =
   Renders(layers: initOrderedTable[ZLevel, RenderList]())
 
-proc clear*(renders: Renders) {.nativeAbi.} =
+proc clear*(renders: Renders) =
   renders.layers.clear()
 
-func len*(renders: Renders, lvl: ZLevel): int {.nativeAbi.} =
+func len*(renders: Renders, lvl: ZLevel): int =
   if lvl in renders.layers:
     renders.layers[lvl].nodes.len
   else:
     0
 
-proc addRoot*(
-    renders: var Renders, lvl: ZLevel, root: Fig
-): FigIdx {.discardable, nativeAbi.} =
+proc addRoot*(renders: var Renders, lvl: ZLevel, root: Fig): FigIdx {.discardable.} =
   ## Adds a root to the layer for `lvl`, creating the layer if needed.
   ##
   ## Cost: amortized O(1) for the target layer, plus ordered-table lookup.
@@ -447,7 +451,7 @@ proc insertRoot*(
   node.zlevel = lvl
   result = renders.ensureLayer(lvl).insertRoot(node, rootPos)
 
-proc addRoot*(renders: var Renders, root: Fig): FigIdx {.discardable, nativeAbi.} =
+proc addRoot*(renders: var Renders, root: Fig): FigIdx {.discardable.} =
   ## Adds a root to the layer for `root.zlevel`.
   ##
   ## Cost: amortized O(1) for the target layer, plus ordered-table lookup.
@@ -463,7 +467,7 @@ proc insertRoot*(
 
 proc addChild*(
     renders: var Renders, lvl: ZLevel, parentIdx: FigIdx, child: Fig
-): FigIdx {.discardable, nativeAbi.} =
+): FigIdx {.discardable.} =
   ## Adds a child to the layer for `lvl`, creating the layer if needed.
   ## The child is forced to the same zlevel as its parent layer.
   ##
@@ -515,6 +519,8 @@ proc addChildren*(
     children,
     renders.ensureLayer(lvl).nodes[parentIdx.int].childCount.Natural,
   )
+
+{.pop.}
 
 template pairs*(r: Renders): auto =
   r.layers.pairs()

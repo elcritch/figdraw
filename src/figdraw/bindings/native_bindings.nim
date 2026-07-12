@@ -51,7 +51,7 @@ template siwinApp(value: NativeSiwinApp): SiwinApp =
 proc isNil*(value: NativeSiwinApp): bool {.exportabi.} =
   value.raw == nil
 
-proc nativeNewFigSiwinApp*(
+proc newFigSiwinApp*(
     width, height: int32,
     title: string,
     atlasSize: int,
@@ -91,36 +91,36 @@ proc nativeNewFigSiwinApp*(
     SiwinApp(window: window, renderer: renderer, autoScale: window.configureUiScale())
   )
 
-proc nativeSiwinFirstStep*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc siwinFirstStep*(appHandle: NativeSiwinApp) {.exportabi.} =
   siwinApp(appHandle).window.firstStep()
 
-proc nativeSiwinStep*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc siwinStep*(appHandle: NativeSiwinApp) {.exportabi.} =
   siwinApp(appHandle).window.step()
 
-proc nativeSiwinRedraw*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc siwinRedraw*(appHandle: NativeSiwinApp) {.exportabi.} =
   siwinApp(appHandle).window.redraw()
 
-proc nativeSiwinClose*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc siwinClose*(appHandle: NativeSiwinApp) {.exportabi.} =
   siwinApp(appHandle).window.close()
 
-proc nativeSiwinOpened*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinOpened*(appHandle: NativeSiwinApp): bool {.exportabi.} =
   siwinApp(appHandle).window.opened
 
-proc nativeSiwinWindowSize*(appHandle: NativeSiwinApp): NativeWindowSize {.exportabi.} =
+proc siwinWindowSize*(appHandle: NativeSiwinApp): NativeWindowSize {.exportabi.} =
   let size = siwinApp(appHandle).window.size
   NativeWindowSize(w: size.x, h: size.y)
 
-proc nativeSiwinRefreshUiScale*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc siwinRefreshUiScale*(appHandle: NativeSiwinApp) {.exportabi.} =
   let app = siwinApp(appHandle)
   app.window.refreshUiScale(app.autoScale)
 
-proc nativeSiwinBackendName*(appHandle: NativeSiwinApp): string {.exportabi.} =
+proc siwinBackendName*(appHandle: NativeSiwinApp): string {.exportabi.} =
   siwinApp(appHandle).renderer.siwinBackendName()
 
-proc nativeSiwinDisplayServerName*(appHandle: NativeSiwinApp): string {.exportabi.} =
+proc siwinDisplayServerName*(appHandle: NativeSiwinApp): string {.exportabi.} =
   siwinApp(appHandle).window.siwinDisplayServerName()
 
-proc nativeRenderSiwinFrame*(
+proc renderSiwinFrame*(
     appHandle: NativeSiwinApp, renders: Renders, width, height: float32
 ) {.exportabi.} =
   let app = siwinApp(appHandle)
@@ -130,8 +130,6 @@ proc nativeRenderSiwinFrame*(
   app.renderer.renderFrame(nodes, vec2(width, height))
   app.renderer.endFrame()
 
-proc nativeRenderSiwinFrame*(
-    appHandle: NativeSiwinApp, renders: Renders
-) {.exportabi.} =
+proc renderSiwinFrame*(appHandle: NativeSiwinApp, renders: Renders) {.exportabi.} =
   let size = siwinApp(appHandle).window.backingSize()
-  nativeRenderSiwinFrame(appHandle, renders, size.x.float32, size.y.float32)
+  renderSiwinFrame(appHandle, renders, size.x.float32, size.y.float32)

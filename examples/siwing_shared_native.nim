@@ -117,7 +117,7 @@ when isMainModule:
   let
     typeface = loadTypeface("Ubuntu.ttf")
     fpsFont = FigFont(typefaceId: typeface, size: 18)
-    app = nativeNewFigSiwinApp(
+    app = newFigSiwinApp(
       800, 600, "Siwin RenderList (Native Nim Dynlib)", 512, 1.0, false, true, 0, true,
       false, false,
     )
@@ -126,7 +126,7 @@ when isMainModule:
   if app.isNil or renders.isNil:
     quit("Failed to initialize native FigDraw objects", 1)
 
-  nativeSiwinFirstStep(app)
+  siwinFirstStep(app)
   var
     appRunning = true
     frames = 0
@@ -137,13 +137,13 @@ when isMainModule:
     fpsText = "0.0 FPS"
 
   try:
-    while nativeSiwinOpened(app) and appRunning:
-      nativeSiwinRefreshUiScale(app)
+    while siwinOpened(app) and appRunning:
+      siwinRefreshUiScale(app)
       inc frames
       inc fpsFrames
 
       let
-        size = nativeSiwinWindowSize(app)
+        size = siwinWindowSize(app)
         width = size.w.float32
         height = size.h.float32
         buildStart = getMonoTime()
@@ -178,10 +178,10 @@ when isMainModule:
       discard renders.addRoot(0, text)
 
       let renderStart = getMonoTime()
-      nativeRenderSiwinFrame(app, renders, width, height)
+      renderSiwinFrame(app, renders, width, height)
       renderMicros += float((getMonoTime() - renderStart).inMicroseconds)
-      nativeSiwinRedraw(app)
-      nativeSiwinStep(app)
+      siwinRedraw(app)
+      siwinStep(app)
 
       let elapsed = epochTime() - fpsStart
       if elapsed >= 1.0:
@@ -207,4 +207,4 @@ when isMainModule:
         if appRunning:
           sleep(16)
   finally:
-    nativeSiwinClose(app)
+    siwinClose(app)
