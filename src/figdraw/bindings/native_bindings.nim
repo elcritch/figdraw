@@ -1,6 +1,7 @@
 ## Native Nim dynamic-library facade generated through Binny.
 
 import vmath
+import pkg/pixie as pixie
 
 import figdraw/commons
 import figdraw/fignodes
@@ -50,6 +51,78 @@ template siwinApp(value: NativeSiwinApp): SiwinApp =
 
 proc isNil*(value: NativeSiwinApp): bool {.exportabi.} =
   value.raw == nil
+
+proc newPixieImage*(width, height: int): Image {.exportabi.} =
+  pixie.newImage(width, height)
+
+proc readPixieImage*(filePath: string): Image {.exportabi.} =
+  pixie.readImage(filePath)
+
+proc decodePixieImage*(data: string): Image {.exportabi.} =
+  pixie.decodeImage(data)
+
+proc writePixieImage*(image: Image, filePath: string) {.exportabi.} =
+  image.writeFile(filePath)
+
+proc copyImage*(image: Image): Image {.exportabi.} =
+  image.copy()
+
+proc resizeImage*(image: Image, width, height: int): Image {.exportabi.} =
+  image.resize(width, height)
+
+proc cropImage*(image: Image, x, y, width, height: int): Image {.exportabi.} =
+  image.subImage(x, y, width, height)
+
+proc imageWidth*(image: Image): int {.exportabi.} =
+  image.width
+
+proc imageHeight*(image: Image): int {.exportabi.} =
+  image.height
+
+proc imagePixel*(image: Image, x, y: int): ColorRGBA {.exportabi.} =
+  image[x, y].rgba()
+
+proc setImagePixel*(image: Image, x, y: int, color: ColorRGBA) {.exportabi.} =
+  image[x, y] = color
+
+proc fillImage*(image: Image, color: ColorRGBA) {.exportabi.} =
+  image.fill(color)
+
+proc flipImageHorizontal*(image: Image) {.exportabi.} =
+  image.flipHorizontal()
+
+proc flipImageVertical*(image: Image) {.exportabi.} =
+  image.flipVertical()
+
+proc rotateImage90*(image: Image) {.exportabi.} =
+  image.rotate90()
+
+proc applyImageOpacity*(image: Image, opacity: float32) {.exportabi.} =
+  image.applyOpacity(opacity)
+
+proc invertImage*(image: Image) {.exportabi.} =
+  image.invert()
+
+proc imageIsTransparent*(image: Image): bool {.exportabi.} =
+  image.isTransparent()
+
+proc imageIsOpaque*(image: Image): bool {.exportabi.} =
+  image.isOpaque()
+
+proc figImageId*(name: string): ImageId {.exportabi.} =
+  imgId(name)
+
+proc loadFigImage*(filePath: string): ImageId {.exportabi.} =
+  loadImage(filePath)
+
+proc putFigImage*(id: ImageId, image: Image) {.exportabi.} =
+  loadImage(id, image)
+
+proc clearFigImage*(id: ImageId) {.exportabi.} =
+  clearImage(id)
+
+proc hasFigImage*(id: ImageId): bool {.exportabi.} =
+  hasImage(id)
 
 proc newFigSiwinApp*(
     width, height: int32,

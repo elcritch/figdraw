@@ -32,7 +32,9 @@ let
 func fract(value: float64): float64 =
   value - floor(value)
 
-proc buildRenderTree(renders: var Renders, width, height: float32, frame: int) =
+proc buildRenderTree(
+    renders: var Renders, width, height: float32, frame: int, previewImageId: ImageId
+) =
   renders.clear()
   let background = Fig(
     kind: nkRectangle,
@@ -111,17 +113,28 @@ proc buildRenderTree(renders: var Renders, width, height: float32, frame: int) =
     )
     discard renders.addRoot(0, blue)
 
+  let preview = Fig(
+    kind: nkImage,
+    screenBox: Rect(x: 16, y: 16, w: 96, h: 96),
+    image: ImageStyle(id: previewImageId, fill: fill(rgba(255, 255, 255, 255))),
+  )
+  discard renders.addRoot(0, preview)
+
 when isMainModule:
   setFigDataDir(getCurrentDir() / "data")
 
   let
     typeface = loadTypeface("Ubuntu.ttf")
     fpsFont = FigFont(typefaceId: typeface, size: 18)
+    previewImage = readPixieImage(getCurrentDir() / "data" / "img1.png")
+    previewThumbnail = resizeImage(previewImage, 96, 96)
+    previewImageId = figImageId("native-shared-preview")
     app = newFigSiwinApp(
       800, 600, "Siwin RenderList (Native Nim Dynlib)", 512, 1.0, false, true, 0, true,
       false, false,
     )
   var renders = newRenders()
+  putFigImage(previewImageId, previewThumbnail)
 
   if app.isNil or renders.isNil:
     quit("Failed to initialize native FigDraw objects", 1)
@@ -148,7 +161,7 @@ when isMainModule:
         height = size.h.float32
         buildStart = getMonoTime()
 
-      buildRenderTree(renders, width, height, frames)
+      buildRenderTree(renders, width, height, frames, previewImageId)
       buildMicros += float((getMonoTime() - buildStart).inMicroseconds)
 
       let
@@ -207,4 +220,5 @@ when isMainModule:
         if appRunning:
           sleep(16)
   finally:
+    clearFigImage(previewImageId)
     siwinClose(app)
