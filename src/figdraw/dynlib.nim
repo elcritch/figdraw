@@ -818,7 +818,7 @@ proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
 
 proc renderFrame*(
     renderer: FigRenderer[SiwinRenderBackend],
-    renders: Renders,
+    renders: var Renders,
     size: vmath.Vec2,
     clearMain = true,
     clearColor = whiteColor,

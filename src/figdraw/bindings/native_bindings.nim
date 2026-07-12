@@ -567,7 +567,7 @@ proc siwinDisplayServerName*(appHandle: NativeSiwinApp): string {.exportabi.} =
 
 proc renderFrame*(
     appHandle: NativeSiwinApp,
-    renders: Renders,
+    renders: var Renders,
     width, height: float32,
     clearMain: bool,
     clearR, clearG, clearB, clearA: float32,
@@ -575,9 +575,8 @@ proc renderFrame*(
   let app = siwinApp(appHandle)
   app.window.refreshUiScale(app.autoScale)
   app.renderer.beginFrame()
-  var nodes = renders
   app.renderer.renderFrame(
-    nodes,
+    renders,
     vec2(width, height),
     clearMain = clearMain,
     clearColor = color(clearR, clearG, clearB, clearA),
@@ -585,10 +584,10 @@ proc renderFrame*(
   app.renderer.endFrame()
 
 proc renderFrame*(
-    appHandle: NativeSiwinApp, renders: Renders, width, height: float32
+    appHandle: NativeSiwinApp, renders: var Renders, width, height: float32
 ) {.exportabi.} =
   renderFrame(appHandle, renders, width, height, true, 1, 1, 1, 1)
 
-proc renderFrame*(appHandle: NativeSiwinApp, renders: Renders) {.exportabi.} =
+proc renderFrame*(appHandle: NativeSiwinApp, renders: var Renders) {.exportabi.} =
   let size = siwinApp(appHandle).window.backingSize()
   renderFrame(appHandle, renders, size.x.float32, size.y.float32)
