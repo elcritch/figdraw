@@ -13,6 +13,10 @@ import figdraw/utils/drawutils
 import figdraw/windowing/siwinshim
 
 type
+  NativeResizeCallback =
+    proc(context: pointer, width, height: int32, initial: bool) {.cdecl.}
+  NativeRenderCallback = proc(context: pointer) {.cdecl.}
+
   NativeWindowSize* = object
     w*, h*: int32
 
@@ -256,6 +260,21 @@ proc firstStep*(appHandle: NativeSiwinApp, makeVisible: bool) {.exportabi.} =
 
 proc firstStep*(appHandle: NativeSiwinApp) {.exportabi.} =
   firstStep(appHandle, true)
+
+proc siwinSetEventCallbacks*(
+    appHandle: NativeSiwinApp, context, resizeCallback, renderCallback: pointer
+) {.exportabi.} =
+  let app = siwinApp(appHandle)
+  if resizeCallback == nil:
+    app.window.eventsHandler.onResize = nil
+  else:
+    app.window.eventsHandler.onResize = proc(e: ResizeEvent) =
+      cast[NativeResizeCallback](resizeCallback)(context, e.size.x, e.size.y, e.initial)
+  if renderCallback == nil:
+    app.window.eventsHandler.onRender = nil
+  else:
+    app.window.eventsHandler.onRender = proc(e: RenderEvent) =
+      cast[NativeRenderCallback](renderCallback)(context)
 
 proc step*(appHandle: NativeSiwinApp) {.exportabi.} =
   siwinApp(appHandle).window.step()

@@ -28,8 +28,6 @@ type
   Window* = ref object
     handle: NativeSiwinApp
     eventsHandler*: WindowEventsHandler
-    redrawRequested: bool
-    lastSize: vmath.IVec2
     wasOpened: bool
     escapePressed: bool
     autoScale: bool
@@ -65,6 +63,28 @@ type
     onRender*: proc(e: RenderEvent)
     onResize*: proc(e: ResizeEvent)
     onKey*: proc(e: KeyEvent)
+
+proc dispatchNativeResize(
+    context: pointer, width, height: int32, initial: bool
+) {.cdecl.} =
+  let window = cast[Window](context)
+  if window.eventsHandler.onResize != nil:
+    window.eventsHandler.onResize(
+      ResizeEvent(window: window, size: vmath.ivec2(width, height), initial: initial)
+    )
+
+proc dispatchNativeRender(context: pointer) {.cdecl.} =
+  let window = cast[Window](context)
+  if window.eventsHandler.onRender != nil:
+    window.eventsHandler.onRender(RenderEvent(window: window))
+
+proc installEventCallbacks(window: Window) =
+  siwinSetEventCallbacks(
+    window.handle,
+    cast[pointer](window),
+    cast[pointer](dispatchNativeResize),
+    cast[pointer](dispatchNativeRender),
+  )
 
 converter toNativeRect*(value: bumpy.Rect): figdraw_native_abi.Rect {.inline.} =
   cast[figdraw_native_abi.Rect](value)
@@ -425,6 +445,7 @@ proc size*(window: Window): vmath.IVec2 =
   ivec2(size.w, size.h)
 
 proc `size=`*(window: Window, value: vmath.IVec2) =
+  window.installEventCallbacks()
   siwinSetWindowSize(window.handle, value.x, value.y)
 
 proc pos*(window: Window): vmath.IVec2 =
@@ -452,28 +473,19 @@ proc close*(window: Window) =
     close(window.handle)
 
 proc firstStep*(window: Window, makeVisible = true) =
+  window.installEventCallbacks()
   firstStep(window.handle, makeVisible)
-  window.lastSize = window.size
   window.wasOpened = window.opened
 
 proc redraw*(window: Window) =
-  window.redrawRequested = true
   redraw(window.handle)
 
 proc makeCurrent*(window: Window) =
   makeCurrent(window.handle)
 
 proc step*(window: Window) =
-  # Let Siwin apply native events before redrawing against its current drawable.
+  window.installEventCallbacks()
   step(window.handle)
-
-  let size = window.size
-  if size.x != window.lastSize.x or size.y != window.lastSize.y:
-    window.lastSize = size
-    if window.eventsHandler.onResize != nil:
-      window.eventsHandler.onResize(
-        ResizeEvent(window: window, size: size, initial: false)
-      )
 
   let escapePressed = siwinKeyPressed(window.handle, escape)
   if escapePressed != window.escapePressed and window.eventsHandler.onKey != nil:
@@ -481,10 +493,6 @@ proc step*(window: Window) =
       KeyEvent(window: window, key: escape, pressed: escapePressed)
     )
   window.escapePressed = escapePressed
-
-  if window.redrawRequested and window.eventsHandler.onRender != nil:
-    window.redrawRequested = false
-    window.eventsHandler.onRender(RenderEvent(window: window))
 
   let isOpened = window.opened
   if window.wasOpened and not isOpened and window.eventsHandler.onClose != nil:
