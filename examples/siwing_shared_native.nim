@@ -139,7 +139,7 @@ when isMainModule:
   if app.isNil or renders.isNil:
     quit("Failed to initialize native FigDraw objects", 1)
 
-  siwinFirstStep(app)
+  firstStep(app)
   var
     appRunning = true
     frames = 0
@@ -150,7 +150,7 @@ when isMainModule:
     fpsText = "0.0 FPS"
 
   try:
-    while siwinOpened(app) and appRunning:
+    while opened(app) and appRunning:
       siwinRefreshUiScale(app)
       inc frames
       inc fpsFrames
@@ -191,10 +191,10 @@ when isMainModule:
       discard renders.addRoot(0, text)
 
       let renderStart = getMonoTime()
-      renderSiwinFrame(app, renders, width, height)
+      renderFrame(app, renders, width, height)
       renderMicros += float((getMonoTime() - renderStart).inMicroseconds)
-      siwinRedraw(app)
-      siwinStep(app)
+      redraw(app)
+      step(app)
 
       let elapsed = epochTime() - fpsStart
       if elapsed >= 1.0:
@@ -221,4 +221,4 @@ when isMainModule:
           sleep(16)
   finally:
     clearFigImage(previewImageId)
-    siwinClose(app)
+    close(app)

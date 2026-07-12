@@ -3,13 +3,14 @@ when defined(emscripten):
 else:
   import std/[os, times, strutils]
 
-import figdraw/windowing/siwinshim
-
-import chroma
-
-import figdraw/commons
-import figdraw/fignodes
-import figdraw/figrender
+when defined(useNativeDynlib):
+  import figdraw/bindings/native_compat
+else:
+  import figdraw/windowing/siwinshim
+  import chroma
+  import figdraw/commons
+  import figdraw/fignodes
+  import figdraw/figrender
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const GridColumns {.intdefine: "figdraw.cols".} = 24
@@ -28,7 +29,7 @@ proc cellColor(cellId: int): Color =
   result = palette[cellId mod palette.len]
 
 proc makeRenderTree(windowW, windowH: float32, labelFont: FigFont): Renders =
-  result = Renders()
+  result = newRenders()
   let z = 0.ZLevel
 
   let rootIdx = result.addRoot(
@@ -67,7 +68,7 @@ proc makeRenderTree(windowW, windowH: float32, labelFont: FigFont): Renders =
           zlevel: z,
           screenBox: cellRect,
           fill: cellColor(cellId),
-          corners: [2.0'f32, 2.0, 2.0, 4.0],
+          corners: [2'u16, 2'u16, 2'u16, 4'u16],
           stroke: RenderStroke(weight: 1.5, fill: rgba(15, 20, 30, 38).color),
           shadows: [
             RenderShadow(

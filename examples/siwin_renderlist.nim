@@ -2,14 +2,17 @@ import std/times
 import std/strutils
 when not defined(emscripten):
   import std/os
-import chroma
 import chronicles
 
-import figdraw/windowing/siwinshim
-
-import figdraw/commons
-import figdraw/fignodes
-import figdraw/figrender as glrenderer
+when defined(useNativeDynlib):
+  import figdraw/bindings/native_compat
+  import figdraw/bindings/native_compat as glrenderer
+else:
+  import chroma
+  import figdraw/windowing/siwinshim
+  import figdraw/commons
+  import figdraw/fignodes
+  import figdraw/figrender as glrenderer
 
 logScope:
   scope = "siwin_renderlist"
@@ -17,7 +20,7 @@ logScope:
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
 proc makeRenderTree*(w, h: float32): Renders =
-  result = Renders()
+  result = newRenders()
 
   let rootIdx = result.addRoot(
     0.ZLevel,
@@ -35,7 +38,7 @@ proc makeRenderTree*(w, h: float32): Renders =
     Fig(
       kind: nkRectangle,
       childCount: 0,
-      corners: [10.0'f32, 20.0, 30.0, 40.0],
+      corners: [10'u16, 20'u16, 30'u16, 40'u16],
       screenBox: rect(60, 60, 220, 140),
       fill: rgba(220, 40, 40, 255),
       stroke: RenderStroke(weight: 5.0, fill: rgba(0, 0, 0, 255)),
@@ -85,8 +88,7 @@ proc makeRenderTree*(w, h: float32): Renders =
           spread: 0,
           x: -6,
           y: -6,
-          fill:
-            linear(rgba(25, 25, 25, 90), rgba(65, 65, 65, 175), axis = fgaDiagTLBR),
+          fill: linear(rgba(25, 25, 25, 90), rgba(65, 65, 65, 175), axis = fgaDiagTLBR),
         ),
         RenderShadow(
           style: InnerShadow,

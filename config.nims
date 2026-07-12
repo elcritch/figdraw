@@ -10,6 +10,9 @@
 import std/[strformat, strutils]
 import std/os
 
+when defined(useNativeDynlib):
+  switch("path", ".nimcache/native_figdraw")
+
 when defined(macosx) and defined(figdraw.moltenvkBrew):
   let moltenVkPrefix = gorgeEx("brew --prefix molten-vk").output.strip()
   if moltenVkPrefix.len == 0:

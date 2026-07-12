@@ -1,11 +1,14 @@
 import std/[os, times]
-import chroma
 
-import figdraw/windowing/siwinshim
-
-import figdraw/commons
-import figdraw/fignodes
-import figdraw/figrender as glrenderer
+when defined(useNativeDynlib):
+  import figdraw/bindings/native_compat
+  import figdraw/bindings/native_compat as glrenderer
+else:
+  import chroma
+  import figdraw/windowing/siwinshim
+  import figdraw/commons
+  import figdraw/fignodes
+  import figdraw/figrender as glrenderer
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const LeftWindowDelaySec = 0.2
@@ -31,7 +34,7 @@ proc placeSideBySide(left, right: DemoWindow) =
   right.window.pos = ivec2(marginX + left.window.size.x + gap, topY)
 
 proc makeRenderTree(w, h: float32, palette: WindowPalette): Renders =
-  result = Renders()
+  result = newRenders()
 
   let root = result.addRoot(
     0.ZLevel,
@@ -54,7 +57,7 @@ proc makeRenderTree(w, h: float32, palette: WindowPalette): Renders =
       kind: nkRectangle,
       childCount: 0,
       screenBox: rect(panelX, panelY, panelW, panelH),
-      corners: [22.0'f32, 22.0, 22.0, 22.0],
+      corners: [22'u16, 22'u16, 22'u16, 22'u16],
       fill: palette.card,
       shadows: [
         RenderShadow(
@@ -80,7 +83,7 @@ proc makeRenderTree(w, h: float32, palette: WindowPalette): Renders =
         kind: nkRectangle,
         childCount: 0,
         screenBox: rect(barX, panelY + 38.0'f32 + i.float32 * 44.0'f32, barW, barH),
-        corners: [10.0'f32, 10.0, 10.0, 10.0],
+        corners: [10'u16, 10'u16, 10'u16, 10'u16],
         fill:
           if i == 1:
             palette.accent
@@ -126,7 +129,7 @@ proc newDemoWindow(
   result = DemoWindow(
     window: window,
     renderer: renderer,
-    renders: Renders(),
+    renders: newRenders(),
     lastSize: vec2(0.0'f32, 0.0'f32),
     useAutoScale: useAutoScale,
     palette: palette,

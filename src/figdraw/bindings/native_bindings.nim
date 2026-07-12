@@ -170,6 +170,18 @@ proc clearFigImage*(id: ImageId) {.exportabi.} =
 proc hasFigImage*(id: ImageId): bool {.exportabi.} =
   hasImage(id)
 
+proc typeset*(
+    box: Rect,
+    font: FigFont,
+    color: Fill,
+    text: string,
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent = false,
+    wrap = true,
+): GlyphArrangement {.exportabi.} =
+  typeset(box, [(fs(font, color), text)], hAlign, vAlign, minContent, wrap)
+
 proc newFigSiwinApp*(
     width, height: int32,
     title: string,
@@ -239,22 +251,22 @@ proc newFigSiwinPopup*(
     SiwinApp(window: window, renderer: renderer, autoScale: window.configureUiScale())
   )
 
-proc siwinFirstStep*(appHandle: NativeSiwinApp, makeVisible: bool) {.exportabi.} =
+proc firstStep*(appHandle: NativeSiwinApp, makeVisible: bool) {.exportabi.} =
   siwinApp(appHandle).window.firstStep(makeVisible)
 
-proc siwinFirstStep*(appHandle: NativeSiwinApp) {.exportabi.} =
-  siwinFirstStep(appHandle, true)
+proc firstStep*(appHandle: NativeSiwinApp) {.exportabi.} =
+  firstStep(appHandle, true)
 
-proc siwinStep*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc step*(appHandle: NativeSiwinApp) {.exportabi.} =
   siwinApp(appHandle).window.step()
 
-proc siwinRedraw*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc redraw*(appHandle: NativeSiwinApp) {.exportabi.} =
   siwinApp(appHandle).window.redraw()
 
-proc siwinClose*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc close*(appHandle: NativeSiwinApp) {.exportabi.} =
   siwinApp(appHandle).window.close()
 
-proc siwinOpened*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc opened*(appHandle: NativeSiwinApp): bool {.exportabi.} =
   siwinApp(appHandle).window.opened
 
 proc siwinWindowSize*(appHandle: NativeSiwinApp): NativeWindowSize {.exportabi.} =
@@ -490,7 +502,7 @@ proc siwinBackendName*(appHandle: NativeSiwinApp): string {.exportabi.} =
 proc siwinDisplayServerName*(appHandle: NativeSiwinApp): string {.exportabi.} =
   siwinApp(appHandle).window.siwinDisplayServerName()
 
-proc renderSiwinFrame*(
+proc renderFrame*(
     appHandle: NativeSiwinApp, renders: Renders, width, height: float32
 ) {.exportabi.} =
   let app = siwinApp(appHandle)
@@ -500,6 +512,6 @@ proc renderSiwinFrame*(
   app.renderer.renderFrame(nodes, vec2(width, height))
   app.renderer.endFrame()
 
-proc renderSiwinFrame*(appHandle: NativeSiwinApp, renders: Renders) {.exportabi.} =
+proc renderFrame*(appHandle: NativeSiwinApp, renders: Renders) {.exportabi.} =
   let size = siwinApp(appHandle).window.backingSize()
-  renderSiwinFrame(appHandle, renders, size.x.float32, size.y.float32)
+  renderFrame(appHandle, renders, size.x.float32, size.y.float32)
