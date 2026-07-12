@@ -10,6 +10,11 @@ import ./imgutils
 import ./typefaces
 import ./fontglyphs
 
+when defined(figdrawNativeDynlib):
+  {.pragma: nativeAbi, exportabi.}
+else:
+  {.pragma: nativeAbi.}
+
 export FontRef, fontRef, loadTypeface, convertFont, registerStaticTypeface
 
 when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
@@ -51,6 +56,17 @@ proc typeset*(
   for (font, text) in uiSpans:
     styled.add((fs(font), text))
   result = typeset(box, styled, hAlign, vAlign, minContent, wrap)
+
+proc typeset*(
+    box: Rect,
+    font: FigFont,
+    text: string,
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+): GlyphArrangement {.nativeAbi.} =
+  typeset(box, [(font, text)], hAlign, vAlign, minContent, wrap)
 
 proc typeset*(
     box: Rect,

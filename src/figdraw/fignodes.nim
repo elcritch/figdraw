@@ -4,6 +4,11 @@ export tables, hashes
 import ./figbasics
 export figbasics
 
+when defined(figdrawNativeDynlib):
+  {.pragma: nativeAbi, exportabi.}
+else:
+  {.pragma: nativeAbi.}
+
 type
   DrawableKind* = enum
     dkLine
@@ -266,7 +271,14 @@ proc relevelNodes(nodes: var seq[Fig], lvl: ZLevel) =
   for node in nodes.mitems:
     node.zlevel = lvl
 
-proc addRoot*(list: var RenderList, root: Fig): FigIdx {.discardable.} =
+proc clear*(list: var RenderList) {.nativeAbi.} =
+  list.nodes.setLen(0)
+  list.rootIds.setLen(0)
+
+func len*(list: RenderList): int {.nativeAbi.} =
+  list.nodes.len
+
+proc addRoot*(list: var RenderList, root: Fig): FigIdx {.discardable, nativeAbi.} =
   ## Appends `root` to `list.nodes`, sets `root.parent = -1`, and adds the
   ## node index to `list.rootIds`.
   ##
@@ -304,7 +316,7 @@ proc insertRoot*(
 
 proc addChild*(
     list: var RenderList, parentIdx: FigIdx, child: Fig
-): FigIdx {.discardable.} =
+): FigIdx {.discardable, nativeAbi.} =
   ## Appends `child` to `list.nodes`, sets `child.parent` from `parentIdx`,
   ## and increments the parent's `childCount`.
   ##
@@ -403,7 +415,21 @@ proc ensureLayer*(renders: var Renders, lvl: ZLevel): var RenderList =
     renders.layers[lvl] = RenderList()
   renders.layers[lvl]
 
-proc addRoot*(renders: var Renders, lvl: ZLevel, root: Fig): FigIdx {.discardable.} =
+proc newRenders*(): Renders {.nativeAbi.} =
+  Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+proc clear*(renders: Renders) {.nativeAbi.} =
+  renders.layers.clear()
+
+func len*(renders: Renders, lvl: ZLevel): int {.nativeAbi.} =
+  if lvl in renders.layers:
+    renders.layers[lvl].nodes.len
+  else:
+    0
+
+proc addRoot*(
+    renders: var Renders, lvl: ZLevel, root: Fig
+): FigIdx {.discardable, nativeAbi.} =
   ## Adds a root to the layer for `lvl`, creating the layer if needed.
   ##
   ## Cost: amortized O(1) for the target layer, plus ordered-table lookup.
@@ -421,7 +447,7 @@ proc insertRoot*(
   node.zlevel = lvl
   result = renders.ensureLayer(lvl).insertRoot(node, rootPos)
 
-proc addRoot*(renders: var Renders, root: Fig): FigIdx {.discardable.} =
+proc addRoot*(renders: var Renders, root: Fig): FigIdx {.discardable, nativeAbi.} =
   ## Adds a root to the layer for `root.zlevel`.
   ##
   ## Cost: amortized O(1) for the target layer, plus ordered-table lookup.
@@ -437,7 +463,7 @@ proc insertRoot*(
 
 proc addChild*(
     renders: var Renders, lvl: ZLevel, parentIdx: FigIdx, child: Fig
-): FigIdx {.discardable.} =
+): FigIdx {.discardable, nativeAbi.} =
   ## Adds a child to the layer for `lvl`, creating the layer if needed.
   ## The child is forced to the same zlevel as its parent layer.
   ##

@@ -32,14 +32,14 @@ let
 func fract(value: float64): float64 =
   value - floor(value)
 
-proc buildRenderTree(renders: NativeRenders, width, height: float32, frame: int) =
-  nativeClearRenders(renders)
+proc buildRenderTree(renders: var Renders, width, height: float32, frame: int) =
+  renders.clear()
   let background = Fig(
     kind: nkRectangle,
     screenBox: Rect(x: 0, y: 0, w: width, h: height),
     fill: fill(rgba(255, 255, 255, 155)),
   )
-  discard nativeAddRoot(renders, 0, background)
+  discard renders.addRoot(0, background)
 
   let
     time = frame.float32 * 0.02'f32
@@ -70,7 +70,7 @@ proc buildRenderTree(renders: NativeRenders, width, height: float32, frame: int)
       corners: [corner.uint16, 12'u16, 20'u16, 8'u16],
       stroke: RenderStroke(weight: 5, fill: fill(redStroke)),
     )
-    discard nativeAddRoot(renders, 0, red)
+    discard renders.addRoot(0, red)
 
     var greenShadows: array[4, RenderShadow]
     greenShadows[0] = RenderShadow(
@@ -99,7 +99,7 @@ proc buildRenderTree(renders: NativeRenders, width, height: float32, frame: int)
       corners: [8'u16, corner.uint16, 16'u16, 24'u16],
       shadows: greenShadows,
     )
-    discard nativeAddRoot(renders, 0, green)
+    discard renders.addRoot(0, green)
 
     let blue = Fig(
       kind: nkRectangle,
@@ -109,21 +109,21 @@ proc buildRenderTree(renders: NativeRenders, width, height: float32, frame: int)
       fill: fill(blueFill),
       stroke: RenderStroke(weight: 4, fill: fill(whiteStroke)),
     )
-    discard nativeAddRoot(renders, 0, blue)
+    discard renders.addRoot(0, blue)
 
 when isMainModule:
-  nativeSetFigDataDir(getCurrentDir() / "data")
+  setFigDataDir(getCurrentDir() / "data")
 
   let
-    typeface = nativeLoadTypeface("Ubuntu.ttf")
-    fpsFont = nativeNewFigFont(typeface, 18)
+    typeface = loadTypeface("Ubuntu.ttf")
+    fpsFont = FigFont(typefaceId: typeface, size: 18)
     app = nativeNewFigSiwinApp(
       800, 600, "Siwin RenderList (Native Nim Dynlib)", 512, 1.0, false, true, 0, true,
       false, false,
     )
-    renders = nativeNewRenders()
+  var renders = newRenders()
 
-  if typeface.isNil or fpsFont.isNil or app.isNil or renders.isNil:
+  if app.isNil or renders.isNil:
     quit("Failed to initialize native FigDraw objects", 1)
 
   nativeSiwinFirstStep(app)
@@ -158,23 +158,24 @@ when isMainModule:
           fill: fill(rgba(0, 0, 0, 155)),
           corners: [8'u16, 8'u16, 8'u16, 8'u16],
         )
-        layout = nativeTypesetText(
-          160,
-          22,
+        layout = typeset(
+          Rect(x: 0, y: 0, w: 160, h: 22),
           fpsFont,
           fpsText,
-          hAlign = 2,
-          vAlign = 1,
+          hAlign = Right,
+          vAlign = Middle,
           minContent = false,
-          wrapText = false,
+          wrap = false,
         )
-      discard nativeAddRoot(renders, 0, hud)
+      discard renders.addRoot(0, hud)
 
-      if not layout.isNil:
-        var text = nativeNewTextFig(width - 182, 18, 160, 22)
-        text.fill = fill(rgba(0, 0, 0, 0))
-        nativeSetFigTextLayout(text, layout)
-        discard nativeAddRoot(renders, 0, text)
+      let text = Fig(
+        kind: nkText,
+        screenBox: Rect(x: width - 182, y: 18, w: 160, h: 22),
+        fill: fill(rgba(0, 0, 0, 0)),
+        textLayout: layout,
+      )
+      discard renders.addRoot(0, text)
 
       let renderStart = getMonoTime()
       nativeRenderSiwinFrame(app, renders, width, height)
@@ -189,7 +190,7 @@ when isMainModule:
         echo "fps: ",
           fps,
           " | elems: ",
-          nativeLayerNodeCount(renders, 0),
+          renders.len(0),
           " | build avg(us): ",
           buildMicros / fpsFrames.float,
           " | render avg(us): ",
