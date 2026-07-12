@@ -4,7 +4,7 @@ else:
   import std/[os, times, strutils]
 
 when defined(useNativeDynlib):
-  import figdraw/bindings/native_compat
+  import figdraw/bindings/native_bindings
 else:
   import figdraw/windowing/siwinshim
   import chroma

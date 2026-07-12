@@ -4,8 +4,8 @@ else:
   import std/[os, times, strutils]
 
 when defined(useNativeDynlib):
-  import figdraw/bindings/native_compat
-  import figdraw/bindings/native_compat as glrenderer
+  import figdraw/bindings/native_bindings
+  import figdraw/bindings/native_bindings as glrenderer
 else:
   import chroma
   import figdraw/windowing/siwinshim
