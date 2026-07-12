@@ -49,5 +49,5 @@ feature "sharedlib":
   requires "gh:elcritch/binny >= 0.4.2"
 
 task nativeDynlib, "Build and stage the native Nim dynamic library":
-  let compiler = getEnv("FIGDRAW_NATIVE_NIM", "$HOME/projs/nims/Nim/bin/nim")
+  let compiler = getEnv("FIGDRAW_NATIVE_NIM", getHomeDir() & "/projs/nims/Nim/bin/nim")
   exec compiler.quoteShell & " native_dynlib"
