@@ -93,57 +93,6 @@ const
   DefaultDrawableBezierSteps* = 48'u16
   DefaultDrawableArcSteps* = 48'u16
 
-proc drawableLine*(a, b: Vec2): DrawableOp =
-  DrawableOp(kind: dkLine, a: a, b: b)
-
-proc drawableLine*(x1: float32, y1: float32, x2: float32, y2: float32): DrawableOp =
-  drawableLine(vec2(x1, y1), vec2(x2, y2))
-
-proc drawableCircle*(center: Vec2, radius: float32): DrawableOp =
-  DrawableOp(kind: dkCircle, center: center, radius: radius)
-
-proc drawableCircle*(x: float32, y: float32, radius: float32): DrawableOp =
-  drawableCircle(vec2(x, y), radius)
-
-proc drawableRect*(
-    box: Rect, corners: CornerRadii = [0'u16, 0'u16, 0'u16, 0'u16]
-): DrawableOp =
-  DrawableOp(kind: dkRectangle, box: box, corners: corners)
-
-proc drawableBezier*(controls: openArray[Vec2], steps: uint16 = 0'u16): DrawableOp =
-  ## Creates a stroked Bezier drawable op.
-  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or uses adaptive spans.
-  DrawableOp(kind: dkBezier, controls: @controls, steps: steps)
-
-proc drawableBezier*(p0, p1, p2: Vec2, steps: uint16 = 0'u16): DrawableOp =
-  drawableBezier([p0, p1, p2], steps)
-
-proc drawableBezier*(p0, p1, p2, p3: Vec2, steps: uint16 = 0'u16): DrawableOp =
-  drawableBezier([p0, p1, p2, p3], steps)
-
-proc drawableArc*(
-    center: Vec2,
-    radius: float32,
-    startAngle: float32,
-    sweepAngle: float32,
-    steps: uint16 = 0'u16,
-): DrawableOp =
-  ## Creates a stroked circular arc drawable op. Angles are radians.
-  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or uses adaptive spans.
-  DrawableOp(
-    kind: dkArc,
-    arcCenter: center,
-    arcRadius: radius,
-    startAngle: startAngle,
-    sweepAngle: sweepAngle,
-    arcSteps: steps,
-  )
-
-proc drawableArc*(
-    x, y, radius, startAngle, sweepAngle: float32, steps: uint16 = 0'u16
-): DrawableOp =
-  drawableArc(vec2(x, y), radius, startAngle, sweepAngle, steps)
-
 proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"
 
@@ -273,6 +222,85 @@ proc relevelNodes(nodes: var seq[Fig], lvl: ZLevel) =
     node.zlevel = lvl
 
 {.push nativeAbi.}
+
+proc drawableLine*(a, b: Vec2): DrawableOp =
+  DrawableOp(kind: dkLine, a: a, b: b)
+
+proc drawableLine*(x1: float32, y1: float32, x2: float32, y2: float32): DrawableOp =
+  drawableLine(vec2(x1, y1), vec2(x2, y2))
+
+proc drawableCircle*(center: Vec2, radius: float32): DrawableOp =
+  DrawableOp(kind: dkCircle, center: center, radius: radius)
+
+proc drawableCircle*(x: float32, y: float32, radius: float32): DrawableOp =
+  drawableCircle(vec2(x, y), radius)
+
+proc drawableRect*(
+    box: Rect, corners: CornerRadii = [0'u16, 0'u16, 0'u16, 0'u16]
+): DrawableOp =
+  DrawableOp(kind: dkRectangle, box: box, corners: corners)
+
+proc drawableBezier*(controls: openArray[Vec2], steps: uint16): DrawableOp =
+  ## Creates a stroked Bezier drawable op.
+  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or uses adaptive spans.
+  DrawableOp(kind: dkBezier, controls: @controls, steps: steps)
+
+proc drawableBezier*(controls: openArray[Vec2]): DrawableOp =
+  drawableBezier(controls, 0)
+
+proc drawableBezier*(p0, p1, p2: Vec2, steps: uint16): DrawableOp =
+  drawableBezier([p0, p1, p2], steps)
+
+proc drawableBezier*(p0, p1, p2: Vec2): DrawableOp =
+  drawableBezier(p0, p1, p2, 0)
+
+proc drawableBezier*(p0, p1, p2, p3: Vec2, steps: uint16): DrawableOp =
+  drawableBezier([p0, p1, p2, p3], steps)
+
+proc drawableBezier*(p0, p1, p2, p3: Vec2): DrawableOp =
+  drawableBezier(p0, p1, p2, p3, 0'u16)
+
+proc drawableArc*(
+    center: Vec2,
+    radius: float32,
+    startAngle: float32,
+    sweepAngle: float32,
+    steps: uint16,
+): DrawableOp =
+  ## Creates a stroked circular arc drawable op. Angles are radians.
+  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or uses adaptive spans.
+  DrawableOp(
+    kind: dkArc,
+    arcCenter: center,
+    arcRadius: radius,
+    startAngle: startAngle,
+    sweepAngle: sweepAngle,
+    arcSteps: steps,
+  )
+
+proc drawableArc*(
+    center: Vec2,
+    radius: float32,
+    startAngle: float32,
+    sweepAngle: float32,
+): DrawableOp =
+  drawableArc(
+      center,
+      radius,
+      startAngle,
+      sweepAngle,
+      0'u16,
+  )
+
+proc drawableArc*(
+    x, y, radius, startAngle, sweepAngle: float32, steps: uint16
+): DrawableOp =
+  drawableArc(vec2(x, y), radius, startAngle, sweepAngle, steps)
+
+proc drawableArc*(
+    x, y, radius, startAngle, sweepAngle: float32
+): DrawableOp =
+  drawableArc(vec2(x, y), radius, startAngle, sweepAngle, 0)
 
 proc clear*(list: var RenderList) =
   list.nodes.setLen(0)

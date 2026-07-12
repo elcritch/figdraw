@@ -239,56 +239,12 @@ func `==`*(a, b: FigIdx): bool {.inline.} =
 func `==`*(a, b: ImageId): bool {.inline.} =
   int(a) == int(b)
 
-proc drawableLine*(a, b: vmath.Vec2): DrawableOp {.inline.} =
-  DrawableOp(kind: dkLine, a: a.toNativeVec2(), b: b.toNativeVec2())
-
-proc drawableLine*(x1, y1, x2, y2: float32): DrawableOp {.inline.} =
-  drawableLine(vmath.vec2(x1, y1), vmath.vec2(x2, y2))
-
-proc drawableCircle*(center: vmath.Vec2, radius: float32): DrawableOp {.inline.} =
-  DrawableOp(kind: dkCircle, center: center.toNativeVec2(), radius: radius)
-
-proc drawableCircle*(x, y, radius: float32): DrawableOp {.inline.} =
-  drawableCircle(vmath.vec2(x, y), radius)
-
-proc drawableRect*(
-    box: bumpy.Rect, corners: CornerRadii = [0'u16, 0'u16, 0'u16, 0'u16]
-): DrawableOp {.inline.} =
-  DrawableOp(kind: dkRectangle, box: box.toNativeRect(), corners: corners)
-
 proc drawableBezier*(
     controls: openArray[vmath.Vec2], steps: uint16 = 0'u16
 ): DrawableOp {.inline.} =
   result = DrawableOp(kind: dkBezier, steps: steps)
   for control in controls:
     result.controls.add control.toNativeVec2()
-
-proc drawableBezier*(
-    p0, p1, p2: vmath.Vec2, steps: uint16 = 0'u16
-): DrawableOp {.inline.} =
-  drawableBezier([p0, p1, p2], steps)
-
-proc drawableBezier*(
-    p0, p1, p2, p3: vmath.Vec2, steps: uint16 = 0'u16
-): DrawableOp {.inline.} =
-  drawableBezier([p0, p1, p2, p3], steps)
-
-proc drawableArc*(
-    center: vmath.Vec2, radius, startAngle, sweepAngle: float32, steps: uint16 = 0'u16
-): DrawableOp {.inline.} =
-  DrawableOp(
-    kind: dkArc,
-    arcCenter: center.toNativeVec2(),
-    arcRadius: radius,
-    startAngle: startAngle,
-    sweepAngle: sweepAngle,
-    arcSteps: steps,
-  )
-
-proc drawableArc*(
-    x, y, radius, startAngle, sweepAngle: float32, steps: uint16 = 0'u16
-): DrawableOp {.inline.} =
-  drawableArc(vmath.vec2(x, y), radius, startAngle, sweepAngle, steps)
 
 proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
   when v is SomeFloat:
