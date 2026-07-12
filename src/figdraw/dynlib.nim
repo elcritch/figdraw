@@ -171,12 +171,46 @@ proc dispatchNativeRender(context: pointer) {.cdecl.} =
   if window.eventsHandler.onRender != nil:
     window.eventsHandler.onRender(RenderEvent(window: window))
 
+proc dispatchNativeKey(
+    context: pointer, key: Key, pressed, repeated, generated: bool, modifierMask: uint8
+) {.cdecl.} =
+  let window = cast[Window](context)
+  if window.eventsHandler.onKey != nil:
+    var modifiers: set[ModifierKey]
+    for modifier in ModifierKey:
+      if (modifierMask and (1'u8 shl modifier.ord)) != 0:
+        modifiers.incl modifier
+    window.eventsHandler.onKey(
+      KeyEvent(
+        window: window,
+        key: key,
+        pressed: pressed,
+        repeated: repeated,
+        generated: generated,
+        modifiers: modifiers,
+      )
+    )
+
+proc dispatchNativeTextInput(
+    context, text: pointer, textLen: int, repeated: bool
+) {.cdecl.} =
+  let window = cast[Window](context)
+  if window.eventsHandler.onTextInput != nil:
+    var value = newString(textLen)
+    if textLen > 0:
+      copyMem(value[0].addr, text, textLen)
+    window.eventsHandler.onTextInput(
+      TextInputEvent(window: window, text: value, repeated: repeated)
+    )
+
 proc installEventCallbacks(window: Window) =
   siwinSetEventCallbacks(
     window.handle,
     cast[pointer](window),
     cast[pointer](dispatchNativeResize),
     cast[pointer](dispatchNativeRender),
+    cast[pointer](dispatchNativeKey),
+    cast[pointer](dispatchNativeTextInput),
   )
 
 converter toNativeRect*(value: bumpy.Rect): figdraw_native_abi.Rect {.inline.} =
@@ -751,21 +785,6 @@ proc step*(window: Window) =
         if wasPressed != isPressed:
           window.eventsHandler.onMouseButton(
             MouseButtonEvent(window: window, button: button, pressed: isPressed)
-          )
-
-    if window.eventsHandler.onKey != nil:
-      for key in Key:
-        let
-          wasPressed = key in window.lastKeyboard.pressed
-          isPressed = key in currentKeyboard.pressed
-        if wasPressed != isPressed:
-          window.eventsHandler.onKey(
-            KeyEvent(
-              window: window,
-              key: key,
-              pressed: isPressed,
-              modifiers: currentKeyboard.modifiers,
-            )
           )
 
     if currentPos != window.lastPos and window.eventsHandler.onWindowMove != nil:

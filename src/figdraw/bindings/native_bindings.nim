@@ -17,6 +17,11 @@ type
   NativeResizeCallback =
     proc(context: pointer, width, height: int32, initial: bool) {.cdecl.}
   NativeRenderCallback = proc(context: pointer) {.cdecl.}
+  NativeKeyCallback = proc(
+    context: pointer, key: Key, pressed, repeated, generated: bool, modifierMask: uint8
+  ) {.cdecl.}
+  NativeTextInputCallback =
+    proc(context, text: pointer, textLen: int, repeated: bool) {.cdecl.}
 
   PopupConstraintAdjustments* = set[PopupConstraintAdjustment]
   FigFlagSet* = set[FigFlags]
@@ -272,8 +277,13 @@ proc firstStep*(appHandle: NativeSiwinApp, makeVisible: bool) {.exportabi.} =
 proc firstStep*(appHandle: NativeSiwinApp) {.exportabi.} =
   firstStep(appHandle, true)
 
+func nativeModifierMask(modifiers: set[ModifierKey]): uint8 =
+  for modifier in modifiers:
+    result = result or (1'u8 shl modifier.ord)
+
 proc siwinSetEventCallbacks*(
-    appHandle: NativeSiwinApp, context, resizeCallback, renderCallback: pointer
+    appHandle: NativeSiwinApp,
+    context, resizeCallback, renderCallback, keyCallback, textInputCallback: pointer,
 ) {.exportabi.} =
   let app = siwinApp(appHandle)
   if resizeCallback == nil:
@@ -286,6 +296,30 @@ proc siwinSetEventCallbacks*(
   else:
     app.window.eventsHandler.onRender = proc(e: RenderEvent) =
       cast[NativeRenderCallback](renderCallback)(context)
+  if keyCallback == nil:
+    app.window.eventsHandler.onKey = nil
+  else:
+    app.window.eventsHandler.onKey = proc(e: KeyEvent) =
+      cast[NativeKeyCallback](keyCallback)(
+        context,
+        e.key,
+        e.pressed,
+        e.repeated,
+        e.generated,
+        e.modifiers.nativeModifierMask(),
+      )
+  if textInputCallback == nil:
+    app.window.eventsHandler.onTextInput = nil
+  else:
+    app.window.eventsHandler.onTextInput = proc(e: TextInputEvent) =
+      let text =
+        if e.text.len > 0:
+          unsafeAddr e.text[0]
+        else:
+          nil
+      cast[NativeTextInputCallback](textInputCallback)(
+        context, text, e.text.len, e.repeated
+      )
 
 proc step*(appHandle: NativeSiwinApp) {.exportabi.} =
   siwinApp(appHandle).window.step()
