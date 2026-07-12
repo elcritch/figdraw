@@ -221,6 +221,12 @@ converter toSelectionRange*(
 ): Slice[int16] {.inline.} =
   cast[Slice[int16]](value)
 
+converter toNativeIntSlice*(value: Slice[int]): figdraw_native_abi.IntSlice {.inline.} =
+  cast[figdraw_native_abi.IntSlice](value)
+
+converter toIntSlice*(value: figdraw_native_abi.IntSlice): Slice[int] {.inline.} =
+  cast[Slice[int]](value)
+
 converter toFill*(value: chroma.ColorRGBA): Fill {.inline.} =
   fill(value.toNativeColor())
 

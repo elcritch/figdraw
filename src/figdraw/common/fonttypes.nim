@@ -273,7 +273,7 @@ func glyphRangeForRawBytes*(
       else:
         result.b = glyphIndex
 
-func glyphCount*(arrangement: GlyphArrangement): int {.inline, nativeAbi.} =
+func glyphCount*(arrangement: GlyphArrangement): int {.nativeAbi.} =
   ## Returns the number of visual glyphs in the arrangement.
   if arrangement.arrangedGlyphs.len > 0:
     arrangement.arrangedGlyphs.len
@@ -654,7 +654,7 @@ func sourceRuneRangeAt*(
     return 0 .. -1
   arrangement.sourceRuneRange(glyphIndex)
 
-func sourceRuneCount*(arrangement: GlyphArrangement): int {.inline, nativeAbi.} =
+func sourceRuneCount*(arrangement: GlyphArrangement): int {.nativeAbi.} =
   ## Returns the number of source runes represented by the arrangement.
   if arrangement.sourceRunes.len > 0:
     arrangement.sourceRunes.len
