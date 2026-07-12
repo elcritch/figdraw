@@ -266,9 +266,7 @@ proc step*(window: Window) =
 proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   discard renderer
 
-proc renderFrame*(
-    renderer: FigRenderer[SiwinRenderBackend], renders: var Renders, size: Vec2
-) =
+proc renderFrame*(renderer: FigRenderer[SiwinRenderBackend], renders: Renders, size: Vec2) =
   renderFrame(renderer.window.handle, renders, size.x, size.y)
 
 proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
