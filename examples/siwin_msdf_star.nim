@@ -11,7 +11,6 @@ import pkg/sdfy/msdfgenSvg
 when defined(useNativeDynlib):
   import figdraw/dynlib
 else:
-  import chroma
   import figdraw
   import figdraw/windowing/siwinshim
 

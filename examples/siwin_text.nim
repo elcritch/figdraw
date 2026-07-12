@@ -7,7 +7,6 @@ import pkg/pixie/fonts
 when defined(useNativeDynlib):
   import figdraw/dynlib
 else:
-  import chroma
   import figdraw
   import figdraw/windowing/siwinshim
 when not UseMetalBackend:

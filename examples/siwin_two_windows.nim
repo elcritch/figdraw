@@ -3,7 +3,6 @@ import std/[os, times]
 when defined(useNativeDynlib):
   import figdraw/dynlib
 else:
-  import chroma
   import figdraw
   import figdraw/windowing/siwinshim
 

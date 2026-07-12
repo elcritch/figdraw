@@ -7,7 +7,6 @@ when defined(useNativeDynlib):
   import figdraw/dynlib
 else:
   import figdraw/windowing/siwinshim
-  import chroma
   import figdraw
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
