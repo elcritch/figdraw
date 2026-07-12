@@ -413,14 +413,10 @@ proc addChildren*(
     parentIdx, children, list.nodes[parentIdx.int].childCount.Natural
   )
 
-{.pop.}
-
 proc ensureLayer*(renders: Renders, lvl: ZLevel): var RenderList =
   if lvl notin renders.layers:
     renders.layers[lvl] = RenderList()
   renders.layers[lvl]
-
-{.push nativeAbi.}
 
 proc newRenders*(): Renders =
   Renders(layers: initOrderedTable[ZLevel, RenderList]())
