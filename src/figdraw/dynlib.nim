@@ -3,14 +3,18 @@
 import std/[os, strutils, tables, unicode]
 import pkg/bumpy as bumpy
 import pkg/chroma as chroma
-import pkg/pixie as pixie
 import pkg/vmath as vmath
 import figdraw_native_abi
 
 export tables, bumpy, chroma, vmath
 export figdraw_native_abi except
-  Rect, ColorRGBA, ColorRGBX, Vec2, Mat4, Rune, FigSelectionRange, typeset, placeGlyphs,
-  figDashedRoundedRectBorder, figDottedRoundedRectBorder, figRoundedRectBorder
+  Rect, ColorRGBA, ColorRGBX, Image, Vec2, Mat4, Rune, FigSelectionRange,
+  applyImageOpacity, copyImage, cropImage, decodePixieImage, fillImage,
+  figDashedRoundedRectBorder, figDottedRoundedRectBorder, figRoundedRectBorder,
+  flipImageHorizontal, flipImageVertical, imageHeight, imageIsOpaque,
+  imageIsTransparent, imagePixel, imageWidth, invertImage, newPixieImage, placeGlyphs,
+  putFigImage, readPixieImage, resizeImage, rotateImage90, setImagePixel, siwinSetIcon,
+  typeset, writePixieImage
 
 const
   UseVulkanBackend* = false
@@ -21,6 +25,9 @@ const
   figdrawTextBackend* {.strdefine.} = "pixie"
 
 type
+  Image* = object
+    handle: figdraw_native_abi.Image
+
   ImageRef* = ImageId
 
   SiwinRenderBackend* = object
@@ -346,14 +353,149 @@ proc typeset*(
     box.toNativeRect(), spans, hAlign, vAlign, minContent, wrap
   )
 
+proc wrapImage(handle: figdraw_native_abi.Image): Image {.inline.} =
+  Image(handle: handle)
+
+proc toImage*(image: Image): Image {.inline.} =
+  image
+
+proc toImage*[T](image: T): Image {.inline.} =
+  when compiles(image.width) and compiles(image.height) and compiles(image.data):
+    Image(handle: cast[figdraw_native_abi.Image](image))
+  else:
+    {.error: "toImage requires an image with width, height, and data fields".}
+
+proc isNil*(image: Image): bool {.inline.} =
+  image.handle.isNil
+
+proc newPixieImage*(width, height: int): Image {.inline.} =
+  wrapImage(figdraw_native_abi.newPixieImage(width, height))
+
+proc newImage*(width, height: int): Image {.inline.} =
+  newPixieImage(width, height)
+
+proc readPixieImage*(filePath: string): Image {.inline.} =
+  wrapImage(figdraw_native_abi.readPixieImage(filePath))
+
+proc readImage*(filePath: string): Image {.inline.} =
+  readPixieImage(filePath)
+
+proc decodePixieImage*(data: string): Image {.inline.} =
+  wrapImage(figdraw_native_abi.decodePixieImage(data))
+
+proc decodeImage*(data: string): Image {.inline.} =
+  decodePixieImage(data)
+
+proc writePixieImage*(image: Image, filePath: string) {.inline.} =
+  figdraw_native_abi.writePixieImage(image.handle, filePath)
+
+proc writeFile*(image: Image, filePath: string) {.inline.} =
+  writePixieImage(image, filePath)
+
+proc copyImage*(image: Image): Image {.inline.} =
+  wrapImage(figdraw_native_abi.copyImage(image.handle))
+
+proc copy*(image: Image): Image {.inline.} =
+  copyImage(image)
+
+proc resizeImage*(image: Image, width, height: int): Image {.inline.} =
+  wrapImage(figdraw_native_abi.resizeImage(image.handle, width, height))
+
+proc resize*(image: Image, width, height: int): Image {.inline.} =
+  resizeImage(image, width, height)
+
+proc cropImage*(image: Image, x, y, width, height: int): Image {.inline.} =
+  wrapImage(figdraw_native_abi.cropImage(image.handle, x, y, width, height))
+
+proc subImage*(image: Image, x, y, width, height: int): Image {.inline.} =
+  cropImage(image, x, y, width, height)
+
+proc imageWidth*(image: Image): int {.inline.} =
+  figdraw_native_abi.imageWidth(image.handle)
+
+proc width*(image: Image): int {.inline.} =
+  imageWidth(image)
+
+proc imageHeight*(image: Image): int {.inline.} =
+  figdraw_native_abi.imageHeight(image.handle)
+
+proc height*(image: Image): int {.inline.} =
+  imageHeight(image)
+
+proc imagePixel*(image: Image, x, y: int): chroma.ColorRGBA {.inline.} =
+  figdraw_native_abi.imagePixel(image.handle, x, y).toColor()
+
+proc `[]`*(image: Image, x, y: int): chroma.ColorRGBA {.inline.} =
+  imagePixel(image, x, y)
+
+proc setImagePixel*(image: Image, x, y: int, color: chroma.ColorRGBA) {.inline.} =
+  figdraw_native_abi.setImagePixel(image.handle, x, y, color.toNativeColor())
+
+proc `[]=`*(image: Image, x, y: int, color: chroma.ColorRGBA) {.inline.} =
+  setImagePixel(image, x, y, color)
+
+proc fillImage*(image: Image, color: chroma.ColorRGBA) {.inline.} =
+  figdraw_native_abi.fillImage(image.handle, color.toNativeColor())
+
+proc fill*(image: Image, color: chroma.ColorRGBA) {.inline.} =
+  fillImage(image, color)
+
+proc flipImageHorizontal*(image: Image) {.inline.} =
+  figdraw_native_abi.flipImageHorizontal(image.handle)
+
+proc flipHorizontal*(image: Image) {.inline.} =
+  flipImageHorizontal(image)
+
+proc flipImageVertical*(image: Image) {.inline.} =
+  figdraw_native_abi.flipImageVertical(image.handle)
+
+proc flipVertical*(image: Image) {.inline.} =
+  flipImageVertical(image)
+
+proc rotateImage90*(image: Image) {.inline.} =
+  figdraw_native_abi.rotateImage90(image.handle)
+
+proc rotate90*(image: Image) {.inline.} =
+  rotateImage90(image)
+
+proc applyImageOpacity*(image: Image, opacity: float32) {.inline.} =
+  figdraw_native_abi.applyImageOpacity(image.handle, opacity)
+
+proc applyOpacity*(image: Image, opacity: float32) {.inline.} =
+  applyImageOpacity(image, opacity)
+
+proc invertImage*(image: Image) {.inline.} =
+  figdraw_native_abi.invertImage(image.handle)
+
+proc invert*(image: Image) {.inline.} =
+  invertImage(image)
+
+proc imageIsTransparent*(image: Image): bool {.inline.} =
+  figdraw_native_abi.imageIsTransparent(image.handle)
+
+proc isTransparent*(image: Image): bool {.inline.} =
+  imageIsTransparent(image)
+
+proc imageIsOpaque*(image: Image): bool {.inline.} =
+  figdraw_native_abi.imageIsOpaque(image.handle)
+
+proc isOpaque*(image: Image): bool {.inline.} =
+  imageIsOpaque(image)
+
 proc loadImageRef*(filePath: string): ImageRef =
   loadFigImage(filePath)
 
 proc loadImage*(filePath: string): ImageId {.inline.} =
   loadFigImage(filePath)
 
-proc loadImage*(id: ImageId, image: pixie.Image) {.inline.} =
-  putFigImage(id, cast[figdraw_native_abi.Image](image))
+proc putFigImage*(id: ImageId, image: Image) {.inline.} =
+  figdraw_native_abi.putFigImage(id, image.handle)
+
+proc loadImage*(id: ImageId, image: Image) {.inline.} =
+  putFigImage(id, image)
+
+proc loadImage*[T](id: ImageId, image: T) {.inline.} =
+  putFigImage(id, image.toImage())
 
 proc imgId*(name: string): ImageId {.inline.} =
   figImageId(name)
@@ -464,6 +606,12 @@ proc logicalSize*(window: Window): vmath.Vec2 =
 proc `title=`*(window: Window, value: string) =
   window.titleText = value
   siwinSetTitle(window.handle, value)
+
+proc siwinSetIcon*(appHandle: NativeSiwinApp, image: Image) {.inline.} =
+  figdraw_native_abi.siwinSetIcon(appHandle, image.handle)
+
+proc `icon=`*(window: Window, image: Image) {.inline.} =
+  siwinSetIcon(window.handle, image)
 
 proc opened*(window: Window): bool =
   not window.handle.isNil and opened(window.handle)
