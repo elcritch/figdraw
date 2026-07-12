@@ -203,6 +203,9 @@ proc insertNodes(list: var RenderList, insertIdx: int, nodes: openArray[Fig]) =
   for idx, node in nodes:
     list.nodes[insertIdx + idx] = node
 
+template pairs*(r: Renders): auto =
+  r.layers.pairs()
+
 iterator childIndex*(nodes: seq[Fig], current: FigIdx): FigIdx =
   let childCnt = nodes[current.int].childCount
 
@@ -518,7 +521,4 @@ proc contains*(r: Renders, lvl: ZLevel): bool =
   r.layers.contains(lvl)
 
 {.pop.}
-
-template pairs*(r: Renders): auto =
-  r.layers.pairs()
 
