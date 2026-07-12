@@ -157,12 +157,6 @@ proc writePixieImage*(value: Image, filePath: string) {.exportabi.} =
 proc copyImage*(value: Image): Image {.exportabi.} =
   wrap(value.image.copy())
 
-proc resizeImage*(value: Image, width, height: int): Image {.exportabi.} =
-  wrap(value.image.resize(width, height))
-
-proc cropImage*(value: Image, x, y, width, height: int): Image {.exportabi.} =
-  wrap(value.image.subImage(x, y, width, height))
-
 proc imageWidth*(value: Image): int {.exportabi.} =
   value.image.width
 
@@ -177,27 +171,6 @@ proc setImagePixel*(value: Image, x, y: int, color: ColorRGBA) {.exportabi.} =
 
 proc fillImage*(value: Image, color: ColorRGBA) {.exportabi.} =
   value.image.fill(color)
-
-proc flipImageHorizontal*(value: Image) {.exportabi.} =
-  value.image.flipHorizontal()
-
-proc flipImageVertical*(value: Image) {.exportabi.} =
-  value.image.flipVertical()
-
-proc rotateImage90*(value: Image) {.exportabi.} =
-  value.image.rotate90()
-
-proc applyImageOpacity*(value: Image, opacity: float32) {.exportabi.} =
-  value.image.applyOpacity(opacity)
-
-proc invertImage*(value: Image) {.exportabi.} =
-  value.image.invert()
-
-proc imageIsTransparent*(value: Image): bool {.exportabi.} =
-  value.image.isTransparent()
-
-proc imageIsOpaque*(value: Image): bool {.exportabi.} =
-  value.image.isOpaque()
 
 proc figImageId*(name: string): ImageId {.exportabi.} =
   imgId(name)

@@ -470,12 +470,6 @@ proc writeFile*(image: Image, filePath: string) {.inline.} =
 proc copy*(image: Image): Image {.inline.} =
   copyImage(image)
 
-proc resize*(image: Image, width, height: int): Image {.inline.} =
-  resizeImage(image, width, height)
-
-proc subImage*(image: Image, x, y, width, height: int): Image {.inline.} =
-  cropImage(image, x, y, width, height)
-
 proc width*(image: Image): int {.inline.} =
   imageWidth(image)
 
@@ -490,27 +484,6 @@ proc `[]=`*(image: Image, x, y: int, color: chroma.ColorRGBA) {.inline.} =
 
 proc fill*(image: Image, color: chroma.ColorRGBA) {.inline.} =
   fillImage(image, color.toNativeColor())
-
-proc flipHorizontal*(image: Image) {.inline.} =
-  flipImageHorizontal(image)
-
-proc flipVertical*(image: Image) {.inline.} =
-  flipImageVertical(image)
-
-proc rotate90*(image: Image) {.inline.} =
-  rotateImage90(image)
-
-proc applyOpacity*(image: Image, opacity: float32) {.inline.} =
-  applyImageOpacity(image, opacity)
-
-proc invert*(image: Image) {.inline.} =
-  invertImage(image)
-
-proc isTransparent*(image: Image): bool {.inline.} =
-  imageIsTransparent(image)
-
-proc isOpaque*(image: Image): bool {.inline.} =
-  imageIsOpaque(image)
 
 proc loadImageRef*(filePath: string): ImageRef =
   loadFigImage(filePath)

@@ -127,14 +127,13 @@ when isMainModule:
     typeface = loadTypeface("Ubuntu.ttf")
     fpsFont = FigFont(typefaceId: typeface, size: 18)
     previewImage = readPixieImage(getCurrentDir() / "data" / "img1.png")
-    previewThumbnail = resizeImage(previewImage, 96, 96)
     previewImageId = figImageId("native-shared-preview")
     app = newFigSiwinApp(
       800, 600, "Siwin RenderList (Native Nim Dynlib)", 512, 1.0, false, true, 0, true,
       false, false,
     )
   var renders = newRenders()
-  putFigImage(previewImageId, previewThumbnail)
+  putFigImage(previewImageId, previewImage)
 
   if app.isNil or renders.isNil:
     quit("Failed to initialize native FigDraw objects", 1)
