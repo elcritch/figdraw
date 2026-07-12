@@ -151,9 +151,6 @@ proc `+`*(a, b: FigIdx): FigIdx {.borrow.}
 proc `<=`*(a, b: FigIdx): bool {.borrow.}
 proc `==`*(a, b: FigIdx): bool {.borrow.}
 
-proc `[]`*(r: Renders, lvl: ZLevel): RenderList {.nativeAbi.} =
-  r.layers[lvl]
-
 proc validIdx(list: RenderList, idx: FigIdx): bool =
   idx.int >= 0 and idx.int < list.nodes.len
 
@@ -413,7 +410,7 @@ proc addChildren*(
     parentIdx, children, list.nodes[parentIdx.int].childCount.Natural
   )
 
-proc ensureLayer*(renders: Renders, lvl: ZLevel): var RenderList =
+proc `[]`*(renders: Renders, lvl: ZLevel): var RenderList =
   if lvl notin renders.layers:
     renders.layers[lvl] = RenderList()
   renders.layers[lvl]
@@ -439,7 +436,7 @@ proc addRoot*(renders: Renders, lvl: ZLevel, root: Fig): FigIdx {.discardable.} 
   ## Cost: amortized O(1) for the target layer, plus ordered-table lookup.
   var node = root
   node.zlevel = lvl
-  result = renders.ensureLayer(lvl).addRoot(node)
+  result = renders[lvl].addRoot(node)
 
 proc insertRoot*(
     renders: Renders, lvl: ZLevel, root: Fig, rootPos: Natural
@@ -449,7 +446,7 @@ proc insertRoot*(
   ## Cost: O(n) in the target layer's node count, plus ordered-table lookup.
   var node = root
   node.zlevel = lvl
-  result = renders.ensureLayer(lvl).insertRoot(node, rootPos)
+  result = renders[lvl].insertRoot(node, rootPos)
 
 proc addRoot*(renders: Renders, root: Fig): FigIdx {.discardable.} =
   ## Adds a root to the layer for `root.zlevel`.
@@ -474,7 +471,7 @@ proc addChild*(
   ## Cost: amortized O(1) for the target layer, plus ordered-table lookup.
   var node = child
   node.zlevel = lvl
-  result = renders.ensureLayer(lvl).addChild(parentIdx, node)
+  result = renders[lvl].addChild(parentIdx, node)
 
 proc insertChild*(
     renders: Renders, lvl: ZLevel, parentIdx: FigIdx, child: Fig, childPos: Natural
@@ -485,7 +482,7 @@ proc insertChild*(
   ## Cost: O(n) in the target layer's node count, plus ordered-table lookup.
   var node = child
   node.zlevel = lvl
-  result = renders.ensureLayer(lvl).insertChild(parentIdx, node, childPos)
+  result = renders[lvl].insertChild(parentIdx, node, childPos)
 
 proc insertChildren*(
     renders: Renders,
@@ -504,7 +501,7 @@ proc insertChildren*(
 
   var childList = RenderList(nodes: nodes, rootIds: children.rootIds)
   childList.recomputeChildCounts()
-  result = renders.ensureLayer(lvl).insertChildren(parentIdx, childList, childPos)
+  result = renders[lvl].insertChildren(parentIdx, childList, childPos)
 
 proc addChildren*(
     renders: Renders, lvl: ZLevel, parentIdx: FigIdx, children: RenderList
@@ -514,10 +511,7 @@ proc addChildren*(
   ## Cost: O(n + m), where `n` is the target layer's node count and `m` is
   ## `children.nodes.len`, plus ordered-table lookup.
   result = renders.insertChildren(
-    lvl,
-    parentIdx,
-    children,
-    renders.ensureLayer(lvl).nodes[parentIdx.int].childCount.Natural,
+    lvl, parentIdx, children, renders[lvl].nodes[parentIdx.int].childCount.Natural
   )
 
 {.pop.}
