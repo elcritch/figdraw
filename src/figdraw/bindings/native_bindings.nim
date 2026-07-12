@@ -17,6 +17,11 @@ type
     proc(context: pointer, width, height: int32, initial: bool) {.cdecl.}
   NativeRenderCallback = proc(context: pointer) {.cdecl.}
 
+  PopupConstraintAdjustments* = set[PopupConstraintAdjustment]
+  FigFlagSet* = set[FigFlags]
+  Vec2Seq* = seq[Vec2]
+  FigSeq* = seq[Fig]
+
   NativeWindowSize* = object
     w*, h*: int32
 
@@ -32,7 +37,7 @@ type
     width*, height*: int32
     anchor*, gravity*: Edge
     offsetX*, offsetY*: int32
-    constraintAdjustment*: set[PopupConstraintAdjustment]
+    constraintAdjustment*: PopupConstraintAdjustments
     reactive*: bool
 
   NativeSiwinApp* = object
