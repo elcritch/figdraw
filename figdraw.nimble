@@ -4,8 +4,6 @@ description = "UI Engine for Nim"
 license = "MIT"
 srcDir = "src"
 
-import std/os
-
 # Dependencies
 requires "nim >= 2.2"
 requires "pixie >= 5.0.1"
@@ -47,6 +45,8 @@ feature "metal":
 feature "sharedlib":
   requires "gh:treeform/genny#81d9659"
   requires "gh:elcritch/binny >= 0.4.2"
+
+import std/os
 
 task nativeDynlib, "Build and stage the native Nim dynamic library":
   let compiler = getEnv("FIGDRAW_NATIVE_NIM", getHomeDir() & "/projs/nims/Nim/bin/nim")
