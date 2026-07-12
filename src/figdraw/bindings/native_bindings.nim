@@ -19,8 +19,8 @@ type
 
   PopupConstraintAdjustments* = set[PopupConstraintAdjustment]
   FigFlagSet* = set[FigFlags]
-  Vec2Seq* = seq[Vec2]
-  FigSeq* = seq[Fig]
+  Vec2s* = seq[Vec2]
+  Figs* = seq[Fig]
   FigIdxs* = seq[FigIdx]
   TypefaceIds* = seq[TypefaceId]
   FontFeatures* = seq[FontFeature]
