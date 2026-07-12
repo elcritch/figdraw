@@ -8,13 +8,12 @@ import figdraw_native_abi
 
 export tables, bumpy, chroma, vmath
 export figdraw_native_abi except
-  Rect, ColorRGBA, ColorRGBX, Image, Vec2, Mat4, Rune, FigSelectionRange,
-  applyImageOpacity, copyImage, cropImage, decodePixieImage, fillImage,
-  figDashedRoundedRectBorder, figDottedRoundedRectBorder, figRoundedRectBorder,
-  flipImageHorizontal, flipImageVertical, imageHeight, imageIsOpaque,
-  imageIsTransparent, imagePixel, imageWidth, invertImage, newPixieImage, placeGlyphs,
-  putFigImage, readPixieImage, resizeImage, rotateImage90, setImagePixel, siwinSetIcon,
-  typeset, writePixieImage
+  Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, applyImageOpacity, copyImage,
+  cropImage, decodePixieImage, encodePng, fillImage, figDashedRoundedRectBorder,
+  figDottedRoundedRectBorder, figRoundedRectBorder, flipImageHorizontal,
+  flipImageVertical, imageHeight, imageIsOpaque, imageIsTransparent, imagePixel,
+  imageWidth, invertImage, newPixieImage, placeGlyphs, putFigImage, readPixieImage,
+  resizeImage, rotateImage90, setImagePixel, siwinSetIcon, typeset, writePixieImage
 
 const
   UseVulkanBackend* = false
@@ -26,17 +25,43 @@ const
 
 type
   Image* = object
-    handle: figdraw_native_abi.Image
+    handle: figdraw_native_abi.NativeImage
 
   ImageRef* = ImageId
 
+  TextCaretPosition* = object
+    sourceRune*: int
+    glyphIndex*: int
+    lineIndex*: int
+    affinity*: TextCaretAffinity
+    pos*: vmath.Vec2
+    rect*: bumpy.Rect
+
   SiwinRenderBackend* = object
+
+  Mouse* = object
+    pos*: vmath.Vec2
+    pressed*: set[MouseButton]
+
+  Keyboard* = object
+    pressed*: set[Key]
+    modifiers*: set[ModifierKey]
+
+  Clipboard* = ref object
+    window: Window
+    mimeTypes: seq[string]
 
   Window* = ref object
     handle: NativeSiwinApp
     eventsHandler*: WindowEventsHandler
+    clipboard*: Clipboard
     wasOpened: bool
-    escapePressed: bool
+    pollReady: bool
+    lastMouse: Mouse
+    lastKeyboard: Keyboard
+    lastPos: vmath.IVec2
+    lastFocused, lastFullscreen, lastMaximized, lastFrameless: bool
+    lastPopupOpen: bool
     autoScale: bool
     width, height: int32
     titleText: string
@@ -58,18 +83,94 @@ type
     size*: vmath.IVec2
     initial*: bool
 
+  WindowMoveEvent* = object
+    window*: Window
+    pos*: vmath.IVec2
+
+  MouseMoveKind* = enum
+    move
+    enter
+    leave
+    moveWhileDragging
+
+  MouseMoveEvent* = object
+    window*: Window
+    pos*: vmath.Vec2
+    kind*: MouseMoveKind
+
+  MouseButtonEvent* = object
+    window*: Window
+    button*: MouseButton
+    pressed*: bool
+    generated*: bool
+
+  ScrollDeviceKind* = enum
+    unknown
+    discrete
+    continuous
+
+  ScrollEvent* = object
+    window*: Window
+    delta*: float
+    deltaX*: float
+    device*: ScrollDeviceKind
+
   KeyEvent* = object
     window*: Window
     key*: Key
     pressed*: bool
     repeated*: bool
     generated*: bool
+    modifiers*: set[ModifierKey]
+
+  TextInputEvent* = object
+    window*: Window
+    text*: string
+    repeated*: bool
+
+  StateBoolChangedEventKind* = enum
+    focus
+    fullscreen
+    maximized
+    frameless
+
+  StateBoolChangedEvent* = object
+    window*: Window
+    value*: bool
+    kind*: StateBoolChangedEventKind
+    isExternal*: bool
+
+  PopupDismissReason* = enum
+    pdrClientClosed
+    pdrCompositorDismissed
+    pdrParentClosed
+
+  PopupEvent* = object
+    window*: Window
+    reason*: PopupDismissReason
+
+  PopupPlacement* = object
+    anchorRectPos*: vmath.IVec2
+    anchorRectSize*: vmath.IVec2
+    size*: vmath.IVec2
+    anchor*: Edge
+    gravity*: Edge
+    offset*: vmath.IVec2
+    constraintAdjustment*: set[PopupConstraintAdjustment]
+    reactive*: bool
 
   WindowEventsHandler* = object
     onClose*: proc(e: CloseEvent)
     onRender*: proc(e: RenderEvent)
     onResize*: proc(e: ResizeEvent)
+    onWindowMove*: proc(e: WindowMoveEvent)
+    onMouseMove*: proc(e: MouseMoveEvent)
+    onMouseButton*: proc(e: MouseButtonEvent)
+    onScroll*: proc(e: ScrollEvent)
     onKey*: proc(e: KeyEvent)
+    onTextInput*: proc(e: TextInputEvent)
+    onStateBoolChanged*: proc(e: StateBoolChangedEvent)
+    onPopupDone*: proc(e: PopupEvent)
 
 proc dispatchNativeResize(
     context: pointer, width, height: int32, initial: bool
@@ -107,14 +208,6 @@ converter toNativeColor*(
 converter toColor*(value: figdraw_native_abi.ColorRGBA): chroma.ColorRGBA {.inline.} =
   cast[chroma.ColorRGBA](value)
 
-converter toNativeColor*(
-    value: chroma.ColorRGBX
-): figdraw_native_abi.ColorRGBX {.inline.} =
-  cast[figdraw_native_abi.ColorRGBX](value)
-
-converter toColor*(value: figdraw_native_abi.ColorRGBX): chroma.ColorRGBX {.inline.} =
-  cast[chroma.ColorRGBX](value)
-
 converter toNativeVec2*(value: vmath.Vec2): figdraw_native_abi.Vec2 {.inline.} =
   cast[figdraw_native_abi.Vec2](value)
 
@@ -143,11 +236,86 @@ converter toSelectionRange*(
 ): Slice[int16] {.inline.} =
   cast[Slice[int16]](value)
 
+proc glyphCount*(arrangement: GlyphArrangement): int {.inline.} =
+  figdraw_native_abi.nativeGlyphCount(arrangement)
+
+proc glyphSourceRange*(
+    arrangement: GlyphArrangement, glyphIndex: int
+): GlyphSourceRange {.inline.} =
+  figdraw_native_abi.nativeGlyphSourceRange(arrangement, glyphIndex)
+
+proc glyphRect*(arrangement: GlyphArrangement, glyphIndex: int): bumpy.Rect {.inline.} =
+  figdraw_native_abi.nativeGlyphRect(arrangement, glyphIndex).toRect()
+
+proc glyphFont*(arrangement: GlyphArrangement, glyphIndex: int): GlyphFont {.inline.} =
+  figdraw_native_abi.nativeGlyphFont(arrangement, glyphIndex)
+
+proc glyphRangeFor*(
+    arrangement: GlyphArrangement, sourceRange: Slice[int]
+): Slice[int] {.inline.} =
+  let nativeRange =
+    figdraw_native_abi.nativeGlyphRangeFor(arrangement, sourceRange.a, sourceRange.b)
+  nativeRange.a .. nativeRange.b
+
+proc lineGlyphRanges*(arrangement: GlyphArrangement): seq[Slice[int]] =
+  for line in figdraw_native_abi.nativeLineGlyphRanges(arrangement):
+    result.add line.a .. line.b
+
+proc layoutContentSize*(arrangement: GlyphArrangement): vmath.Vec2 {.inline.} =
+  figdraw_native_abi.nativeLayoutContentSize(arrangement).toVec2()
+
+proc sourceRuneCount*(arrangement: GlyphArrangement): int {.inline.} =
+  figdraw_native_abi.nativeSourceRuneCount(arrangement)
+
+proc glyphIndexAt*(arrangement: GlyphArrangement, point: vmath.Vec2): int {.inline.} =
+  figdraw_native_abi.nativeGlyphIndexAt(arrangement, point.toNativeVec2())
+
+proc sourceRuneRangeAt*(
+    arrangement: GlyphArrangement, point: vmath.Vec2
+): Slice[int] {.inline.} =
+  let nativeRange =
+    figdraw_native_abi.nativeSourceRuneRangeAt(arrangement, point.toNativeVec2())
+  nativeRange.a .. nativeRange.b
+
+proc selectionRectsFor*(
+    arrangement: GlyphArrangement, sourceRange: Slice[int]
+): seq[bumpy.Rect] =
+  for box in figdraw_native_abi.nativeSelectionRectsFor(
+    arrangement, sourceRange.a, sourceRange.b
+  ):
+    result.add box.toRect()
+
+proc caretPositionsFor*(
+    arrangement: GlyphArrangement, sourceRune: int
+): seq[TextCaretPosition] =
+  for caret in figdraw_native_abi.nativeCaretPositionsFor(arrangement, sourceRune):
+    result.add TextCaretPosition(
+      sourceRune: caret.sourceRune,
+      glyphIndex: caret.glyphIndex,
+      lineIndex: caret.lineIndex,
+      affinity: caret.affinity,
+      pos: caret.pos.toVec2(),
+      rect: caret.rect.toRect(),
+    )
+
+proc nearestSourceRuneForCaretPoint*(
+    arrangement: GlyphArrangement, point: vmath.Vec2
+): int {.inline.} =
+  figdraw_native_abi.nativeNearestSourceRuneForCaretPoint(
+    arrangement, point.toNativeVec2()
+  )
+
 converter toFill*(value: chroma.ColorRGBA): Fill {.inline.} =
   fill(value.toNativeColor())
 
 converter toFill*(value: chroma.Color): Fill {.inline.} =
   fill(value.rgba().toNativeColor())
+
+func `==`*(a, b: FigIdx): bool {.inline.} =
+  int16(a) == int16(b)
+
+func `==`*(a, b: ImageId): bool {.inline.} =
+  int(a) == int(b)
 
 proc drawableLine*(a, b: vmath.Vec2): DrawableOp {.inline.} =
   DrawableOp(kind: dkLine, a: a.toNativeVec2(), b: b.toNativeVec2())
@@ -353,7 +521,7 @@ proc typeset*(
     box.toNativeRect(), spans, hAlign, vAlign, minContent, wrap
   )
 
-proc wrapImage(handle: figdraw_native_abi.Image): Image {.inline.} =
+proc wrapImage(handle: figdraw_native_abi.NativeImage): Image {.inline.} =
   Image(handle: handle)
 
 proc toImage*(image: Image): Image {.inline.} =
@@ -361,7 +529,16 @@ proc toImage*(image: Image): Image {.inline.} =
 
 proc toImage*[T](image: T): Image {.inline.} =
   when compiles(image.width) and compiles(image.height) and compiles(image.data):
-    Image(handle: cast[figdraw_native_abi.Image](image))
+    result = Image(handle: figdraw_native_abi.newPixieImage(image.width, image.height))
+    for y in 0 ..< image.height:
+      for x in 0 ..< image.width:
+        let pixel = image.data[y * image.width + x]
+        figdraw_native_abi.setImagePixel(
+          result.handle,
+          x,
+          y,
+          figdraw_native_abi.ColorRGBA(r: pixel.r, g: pixel.g, b: pixel.b, a: pixel.a),
+        )
   else:
     {.error: "toImage requires an image with width, height, and data fields".}
 
@@ -385,6 +562,9 @@ proc decodePixieImage*(data: string): Image {.inline.} =
 
 proc decodeImage*(data: string): Image {.inline.} =
   decodePixieImage(data)
+
+proc encodePng*(image: Image): string {.inline.} =
+  figdraw_native_abi.encodePng(image.handle)
 
 proc writePixieImage*(image: Image, filePath: string) {.inline.} =
   figdraw_native_abi.writePixieImage(image.handle, filePath)
@@ -520,7 +700,7 @@ proc newSiwinWindow*(
     transparent = false,
 ): Window =
   discard msaa
-  Window(
+  result = Window(
     width: size.x,
     height: size.y,
     titleText: title,
@@ -530,6 +710,62 @@ proc newSiwinWindow*(
     frameless: frameless,
     transparent: transparent,
   )
+  result.clipboard = Clipboard(window: result)
+
+proc toNativePopupPlacement(value: PopupPlacement): NativePopupPlacement =
+  NativePopupPlacement(
+    anchorX: value.anchorRectPos.x,
+    anchorY: value.anchorRectPos.y,
+    anchorWidth: value.anchorRectSize.x,
+    anchorHeight: value.anchorRectSize.y,
+    width: value.size.x,
+    height: value.size.y,
+    anchor: value.anchor,
+    gravity: value.gravity,
+    offsetX: value.offset.x,
+    offsetY: value.offset.y,
+    constraintAdjustment: value.constraintAdjustment,
+    reactive: value.reactive,
+  )
+
+proc newPopupWindow*(
+    parent: Window, placement: PopupPlacement, transparent = true, grab = true
+): Window =
+  result = Window(
+    handle: newFigSiwinPopup(
+      parent.handle, placement.toNativePopupPlacement(), 1024, 1.0, transparent, grab
+    ),
+    width: placement.size.x,
+    height: placement.size.y,
+    transparent: transparent,
+  )
+  result.clipboard = Clipboard(window: result)
+
+proc reposition*(window: Window, placement: PopupPlacement) =
+  siwinRepositionPopup(window.handle, placement.toNativePopupPlacement())
+
+proc clipboardText*(clipboard: Clipboard): string =
+  siwinClipboardText(clipboard.window.handle)
+
+proc `clipboardText=`*(clipboard: Clipboard, value: string) =
+  siwinSetClipboardText(clipboard.window.handle, value)
+
+proc clipboardFiles*(clipboard: Clipboard): seq[string] =
+  siwinClipboardFiles(clipboard.window.handle)
+
+proc `clipboardFiles=`*(clipboard: Clipboard, value: seq[string]) =
+  siwinSetClipboardFiles(clipboard.window.handle, value)
+
+proc clipboardData*(clipboard: Clipboard, mimeType: string): string =
+  siwinClipboardData(clipboard.window.handle, mimeType)
+
+proc setClipboardData*(clipboard: Clipboard, mimeType, value: string) =
+  siwinSetClipboardData(clipboard.window.handle, mimeType, value)
+  if mimeType notin clipboard.mimeTypes:
+    clipboard.mimeTypes.add mimeType
+
+proc availableMimeTypes*(clipboard: Clipboard): seq[string] =
+  clipboard.mimeTypes
 
 proc setupBackend*(renderer: FigRenderer[SiwinRenderBackend], window: Window) =
   if window.handle.isNil:
@@ -560,6 +796,21 @@ proc newSiwinWindow*(
 
 proc contentScale*(window: Window): float32 =
   siwinUiScale(window.handle)
+
+proc mouse*(window: Window): Mouse =
+  let pos = siwinMousePos(window.handle)
+  result.pos = vmath.vec2(pos.x, pos.y)
+  for button in MouseButton:
+    if siwinMouseButtonPressed(window.handle, button):
+      result.pressed.incl button
+
+proc keyboard*(window: Window): Keyboard =
+  for key in Key:
+    if siwinKeyPressed(window.handle, key):
+      result.pressed.incl key
+  for modifier in ModifierKey:
+    if siwinModifierPressed(window.handle, modifier):
+      result.modifiers.incl modifier
 
 proc configureUiScale*(window: Window, envVar = "HDI"): bool =
   let configuredScale = getEnv(envVar)
@@ -607,6 +858,48 @@ proc `title=`*(window: Window, value: string) =
   window.titleText = value
   siwinSetTitle(window.handle, value)
 
+proc visible*(window: Window): bool =
+  siwinIsVisible(window.handle)
+
+proc `visible=`*(window: Window, value: bool) =
+  siwinSetVisible(window.handle, value)
+
+proc focused*(window: Window): bool =
+  siwinIsFocused(window.handle)
+
+proc fullscreen*(window: Window): bool =
+  siwinIsFullscreen(window.handle)
+
+proc `fullscreen=`*(window: Window, value: bool) =
+  siwinSetFullscreen(window.handle, value)
+
+proc maximized*(window: Window): bool =
+  siwinIsMaximized(window.handle)
+
+proc `maximized=`*(window: Window, value: bool) =
+  siwinSetMaximized(window.handle, value)
+
+proc minimized*(window: Window): bool =
+  siwinIsMinimized(window.handle)
+
+proc `minimized=`*(window: Window, value: bool) =
+  siwinSetMinimized(window.handle, value)
+
+proc resizable*(window: Window): bool =
+  siwinIsResizable(window.handle)
+
+proc `resizable=`*(window: Window, value: bool) =
+  siwinSetResizable(window.handle, value)
+
+proc frameless*(window: Window): bool =
+  siwinIsFrameless(window.handle)
+
+proc `frameless=`*(window: Window, value: bool) =
+  siwinSetFrameless(window.handle, value)
+
+proc transparent*(window: Window): bool =
+  siwinIsTransparent(window.handle)
+
 proc siwinSetIcon*(appHandle: NativeSiwinApp, image: Image) {.inline.} =
   figdraw_native_abi.siwinSetIcon(appHandle, image.handle)
 
@@ -616,6 +909,12 @@ proc `icon=`*(window: Window, image: Image) {.inline.} =
 proc opened*(window: Window): bool =
   not window.handle.isNil and opened(window.handle)
 
+proc closed*(window: Window): bool =
+  not window.opened()
+
+proc presentNow*(window: Window) =
+  redraw(window.handle)
+
 proc close*(window: Window) =
   if not window.handle.isNil:
     close(window.handle)
@@ -624,6 +923,15 @@ proc firstStep*(window: Window, makeVisible = true) =
   window.installEventCallbacks()
   firstStep(window.handle, makeVisible)
   window.wasOpened = window.opened
+  window.lastMouse = window.mouse()
+  window.lastKeyboard = window.keyboard()
+  window.lastPos = window.pos()
+  window.lastFocused = window.focused()
+  window.lastFullscreen = window.fullscreen()
+  window.lastMaximized = window.maximized()
+  window.lastFrameless = window.frameless()
+  window.lastPopupOpen = siwinPopupOpen(window.handle)
+  window.pollReady = true
 
 proc redraw*(window: Window) =
   redraw(window.handle)
@@ -635,12 +943,91 @@ proc step*(window: Window) =
   window.installEventCallbacks()
   step(window.handle)
 
-  let escapePressed = siwinKeyPressed(window.handle, escape)
-  if escapePressed != window.escapePressed and window.eventsHandler.onKey != nil:
-    window.eventsHandler.onKey(
-      KeyEvent(window: window, key: escape, pressed: escapePressed)
+  let
+    currentMouse = window.mouse()
+    currentKeyboard = window.keyboard()
+    currentPos = window.pos()
+    currentFocused = window.focused()
+    currentFullscreen = window.fullscreen()
+    currentMaximized = window.maximized()
+    currentFrameless = window.frameless()
+    currentPopupOpen = siwinPopupOpen(window.handle)
+
+  if window.pollReady:
+    if currentMouse.pos != window.lastMouse.pos and
+        window.eventsHandler.onMouseMove != nil:
+      window.eventsHandler.onMouseMove(
+        MouseMoveEvent(
+          window: window,
+          pos: currentMouse.pos,
+          kind: if currentMouse.pressed == {}: move else: moveWhileDragging,
+        )
+      )
+
+    if window.eventsHandler.onMouseButton != nil:
+      for button in MouseButton:
+        let
+          wasPressed = button in window.lastMouse.pressed
+          isPressed = button in currentMouse.pressed
+        if wasPressed != isPressed:
+          window.eventsHandler.onMouseButton(
+            MouseButtonEvent(window: window, button: button, pressed: isPressed)
+          )
+
+    if window.eventsHandler.onKey != nil:
+      for key in Key:
+        let
+          wasPressed = key in window.lastKeyboard.pressed
+          isPressed = key in currentKeyboard.pressed
+        if wasPressed != isPressed:
+          window.eventsHandler.onKey(
+            KeyEvent(
+              window: window,
+              key: key,
+              pressed: isPressed,
+              modifiers: currentKeyboard.modifiers,
+            )
+          )
+
+    if currentPos != window.lastPos and window.eventsHandler.onWindowMove != nil:
+      window.eventsHandler.onWindowMove(
+        WindowMoveEvent(window: window, pos: currentPos)
+      )
+
+    template dispatchState(kindValue, currentValue, previousValue: untyped) =
+      if currentValue != previousValue and window.eventsHandler.onStateBoolChanged != nil:
+        window.eventsHandler.onStateBoolChanged(
+          StateBoolChangedEvent(
+            window: window, value: currentValue, kind: kindValue, isExternal: true
+          )
+        )
+
+    dispatchState(StateBoolChangedEventKind.focus, currentFocused, window.lastFocused)
+    dispatchState(
+      StateBoolChangedEventKind.fullscreen, currentFullscreen, window.lastFullscreen
     )
-  window.escapePressed = escapePressed
+    dispatchState(
+      StateBoolChangedEventKind.maximized, currentMaximized, window.lastMaximized
+    )
+    dispatchState(
+      StateBoolChangedEventKind.frameless, currentFrameless, window.lastFrameless
+    )
+
+    if window.lastPopupOpen and not currentPopupOpen and
+        window.eventsHandler.onPopupDone != nil:
+      window.eventsHandler.onPopupDone(
+        PopupEvent(window: window, reason: pdrCompositorDismissed)
+      )
+
+  window.lastMouse = currentMouse
+  window.lastKeyboard = currentKeyboard
+  window.lastPos = currentPos
+  window.lastFocused = currentFocused
+  window.lastFullscreen = currentFullscreen
+  window.lastMaximized = currentMaximized
+  window.lastFrameless = currentFrameless
+  window.lastPopupOpen = currentPopupOpen
+  window.pollReady = true
 
   let isOpened = window.opened
   if window.wasOpened and not isOpened and window.eventsHandler.onClose != nil:

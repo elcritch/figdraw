@@ -3,6 +3,7 @@
 import std/[options, unicode]
 import vmath
 import pkg/pixie as pixie
+import pkg/pixie/fileformats/png as png
 import siwin/[clipboards, colorutils]
 
 import figdraw/commons
@@ -34,6 +35,21 @@ type
   ArrangedGlyphs* = seq[ArrangedGlyph]
   Rects* = seq[Rect]
 
+  NativeIntRange* = object
+    a*, b*: int
+
+  NativeIntRanges* = seq[NativeIntRange]
+
+  NativeTextCaretPosition* = object
+    sourceRune*: int
+    glyphIndex*: int
+    lineIndex*: int
+    affinity*: TextCaretAffinity
+    pos*: Vec2
+    rect*: Rect
+
+  NativeTextCaretPositions* = seq[NativeTextCaretPosition]
+
   NativeWindowSize* = object
     w*, h*: int32
 
@@ -53,6 +69,9 @@ type
     reactive*: bool
 
   NativeSiwinApp* = object
+    raw*: pointer
+
+  NativeImage* = object
     raw*: pointer
 
   SiwinApp = ref object
@@ -82,6 +101,7 @@ template defineHandleHooks(HandleType, RefType: typedesc) =
       dest.raw = source.raw
 
 defineHandleHooks(NativeSiwinApp, SiwinApp)
+defineHandleHooks(NativeImage, Image)
 
 proc wrap(value: SiwinApp): NativeSiwinApp =
   retainRaw[SiwinApp](cast[pointer](value))
@@ -89,6 +109,13 @@ proc wrap(value: SiwinApp): NativeSiwinApp =
 
 template siwinApp(value: NativeSiwinApp): SiwinApp =
   cast[SiwinApp](value.raw)
+
+proc wrap(value: Image): NativeImage =
+  retainRaw[Image](cast[pointer](value))
+  result.raw = cast[pointer](value)
+
+template image(value: NativeImage): Image =
+  cast[Image](value.raw)
 
 func siwinPlacement(value: NativePopupPlacement): PopupPlacement =
   PopupPlacement(
@@ -121,62 +148,70 @@ func nativePlacement(value: PopupPlacement): NativePopupPlacement =
 proc isNil*(value: NativeSiwinApp): bool {.exportabi.} =
   value.raw == nil
 
-proc newPixieImage*(width, height: int): Image {.exportabi.} =
-  pixie.newImage(width, height)
+proc isNil*(value: NativeImage): bool {.exportabi.} =
+  value.raw == nil
 
-proc readPixieImage*(filePath: string): Image {.exportabi.} =
-  pixie.readImage(filePath)
+proc newPixieImage*(width, height: int): NativeImage {.exportabi.} =
+  wrap(pixie.newImage(width, height))
 
-proc decodePixieImage*(data: string): Image {.exportabi.} =
-  pixie.decodeImage(data)
+proc readPixieImage*(filePath: string): NativeImage {.exportabi.} =
+  wrap(pixie.readImage(filePath))
 
-proc writePixieImage*(image: Image, filePath: string) {.exportabi.} =
-  image.writeFile(filePath)
+proc decodePixieImage*(data: string): NativeImage {.exportabi.} =
+  wrap(pixie.decodeImage(data))
 
-proc copyImage*(image: Image): Image {.exportabi.} =
-  image.copy()
+proc encodePng*(value: NativeImage): string {.exportabi.} =
+  png.encodePng(value.image)
 
-proc resizeImage*(image: Image, width, height: int): Image {.exportabi.} =
-  image.resize(width, height)
+proc writePixieImage*(value: NativeImage, filePath: string) {.exportabi.} =
+  value.image.writeFile(filePath)
 
-proc cropImage*(image: Image, x, y, width, height: int): Image {.exportabi.} =
-  image.subImage(x, y, width, height)
+proc copyImage*(value: NativeImage): NativeImage {.exportabi.} =
+  wrap(value.image.copy())
 
-proc imageWidth*(image: Image): int {.exportabi.} =
-  image.width
+proc resizeImage*(value: NativeImage, width, height: int): NativeImage {.exportabi.} =
+  wrap(value.image.resize(width, height))
 
-proc imageHeight*(image: Image): int {.exportabi.} =
-  image.height
+proc cropImage*(
+    value: NativeImage, x, y, width, height: int
+): NativeImage {.exportabi.} =
+  wrap(value.image.subImage(x, y, width, height))
 
-proc imagePixel*(image: Image, x, y: int): ColorRGBA {.exportabi.} =
-  image[x, y].rgba()
+proc imageWidth*(value: NativeImage): int {.exportabi.} =
+  value.image.width
 
-proc setImagePixel*(image: Image, x, y: int, color: ColorRGBA) {.exportabi.} =
-  image[x, y] = color
+proc imageHeight*(value: NativeImage): int {.exportabi.} =
+  value.image.height
 
-proc fillImage*(image: Image, color: ColorRGBA) {.exportabi.} =
-  image.fill(color)
+proc imagePixel*(value: NativeImage, x, y: int): ColorRGBA {.exportabi.} =
+  value.image[x, y].rgba()
 
-proc flipImageHorizontal*(image: Image) {.exportabi.} =
-  image.flipHorizontal()
+proc setImagePixel*(value: NativeImage, x, y: int, color: ColorRGBA) {.exportabi.} =
+  value.image[x, y] = color
 
-proc flipImageVertical*(image: Image) {.exportabi.} =
-  image.flipVertical()
+proc fillImage*(value: NativeImage, color: ColorRGBA) {.exportabi.} =
+  value.image.fill(color)
 
-proc rotateImage90*(image: Image) {.exportabi.} =
-  image.rotate90()
+proc flipImageHorizontal*(value: NativeImage) {.exportabi.} =
+  value.image.flipHorizontal()
 
-proc applyImageOpacity*(image: Image, opacity: float32) {.exportabi.} =
-  image.applyOpacity(opacity)
+proc flipImageVertical*(value: NativeImage) {.exportabi.} =
+  value.image.flipVertical()
 
-proc invertImage*(image: Image) {.exportabi.} =
-  image.invert()
+proc rotateImage90*(value: NativeImage) {.exportabi.} =
+  value.image.rotate90()
 
-proc imageIsTransparent*(image: Image): bool {.exportabi.} =
-  image.isTransparent()
+proc applyImageOpacity*(value: NativeImage, opacity: float32) {.exportabi.} =
+  value.image.applyOpacity(opacity)
 
-proc imageIsOpaque*(image: Image): bool {.exportabi.} =
-  image.isOpaque()
+proc invertImage*(value: NativeImage) {.exportabi.} =
+  value.image.invert()
+
+proc imageIsTransparent*(value: NativeImage): bool {.exportabi.} =
+  value.image.isTransparent()
+
+proc imageIsOpaque*(value: NativeImage): bool {.exportabi.} =
+  value.image.isOpaque()
 
 proc figImageId*(name: string): ImageId {.exportabi.} =
   imgId(name)
@@ -184,8 +219,8 @@ proc figImageId*(name: string): ImageId {.exportabi.} =
 proc loadFigImage*(filePath: string): ImageId {.exportabi.} =
   loadImage(filePath)
 
-proc putFigImage*(id: ImageId, image: Image) {.exportabi.} =
-  loadImage(id, image)
+proc putFigImage*(id: ImageId, value: NativeImage) {.exportabi.} =
+  loadImage(id, value.image)
 
 proc clearFigImage*(id: ImageId) {.exportabi.} =
   clearImage(id)
@@ -202,6 +237,77 @@ proc typeset*(
     wrap = true,
 ): GlyphArrangement {.exportabi.} =
   fontutils.typeset(box, spans, hAlign, vAlign, minContent, wrap)
+
+func nativeRange(value: Slice[int]): NativeIntRange {.inline.} =
+  NativeIntRange(a: value.a, b: value.b)
+
+proc nativeGlyphCount*(arrangement: GlyphArrangement): int {.exportabi.} =
+  arrangement.glyphCount()
+
+proc nativeGlyphSourceRange*(
+    arrangement: GlyphArrangement, glyphIndex: int
+): GlyphSourceRange {.exportabi.} =
+  arrangement.glyphSourceRange(glyphIndex)
+
+proc nativeGlyphRect*(
+    arrangement: GlyphArrangement, glyphIndex: int
+): Rect {.exportabi.} =
+  arrangement.glyphRect(glyphIndex)
+
+proc nativeGlyphFont*(
+    arrangement: GlyphArrangement, glyphIndex: int
+): GlyphFont {.exportabi.} =
+  arrangement.glyphFont(glyphIndex)
+
+proc nativeGlyphRangeFor*(
+    arrangement: GlyphArrangement, sourceStart, sourceEnd: int
+): NativeIntRange {.exportabi.} =
+  arrangement.glyphRangeFor(sourceStart .. sourceEnd).nativeRange()
+
+proc nativeLineGlyphRanges*(
+    arrangement: GlyphArrangement
+): NativeIntRanges {.exportabi.} =
+  for line in arrangement.lineGlyphRanges():
+    result.add line.nativeRange()
+
+proc nativeLayoutContentSize*(arrangement: GlyphArrangement): Vec2 {.exportabi.} =
+  arrangement.layoutContentSize()
+
+proc nativeSourceRuneCount*(arrangement: GlyphArrangement): int {.exportabi.} =
+  arrangement.sourceRuneCount()
+
+proc nativeGlyphIndexAt*(
+    arrangement: GlyphArrangement, point: Vec2
+): int {.exportabi.} =
+  arrangement.glyphIndexAt(point)
+
+proc nativeSourceRuneRangeAt*(
+    arrangement: GlyphArrangement, point: Vec2
+): NativeIntRange {.exportabi.} =
+  arrangement.sourceRuneRangeAt(point).nativeRange()
+
+proc nativeSelectionRectsFor*(
+    arrangement: GlyphArrangement, sourceStart, sourceEnd: int
+): Rects {.exportabi.} =
+  arrangement.selectionRectsFor(sourceStart .. sourceEnd)
+
+proc nativeCaretPositionsFor*(
+    arrangement: GlyphArrangement, sourceRune: int
+): NativeTextCaretPositions {.exportabi.} =
+  for caret in arrangement.caretPositionsFor(sourceRune):
+    result.add NativeTextCaretPosition(
+      sourceRune: caret.sourceRune,
+      glyphIndex: caret.glyphIndex,
+      lineIndex: caret.lineIndex,
+      affinity: caret.affinity,
+      pos: caret.pos,
+      rect: caret.rect,
+    )
+
+proc nativeNearestSourceRuneForCaretPoint*(
+    arrangement: GlyphArrangement, point: Vec2
+): int {.exportabi.} =
+  arrangement.nearestSourceRuneForCaretPoint(point)
 
 proc newFigSiwinApp*(
     width, height: int32,
@@ -476,7 +582,8 @@ proc siwinSetCanBecomeMainWindow*(
 ) {.exportabi.} =
   siwinApp(appHandle).window.canBecomeMainWindow = enabled
 
-proc siwinSetIcon*(appHandle: NativeSiwinApp, image: Image) {.exportabi.} =
+proc siwinSetIcon*(appHandle: NativeSiwinApp, value: NativeImage) {.exportabi.} =
+  let image = value.image
   if image.isNil or image.data.len == 0:
     siwinApp(appHandle).window.icon = nil
   else:
