@@ -195,11 +195,12 @@ proc contentScale*(window: Window): float32 =
   siwinUiScale(window.handle)
 
 proc backingSize*(window: Window): IVec2 =
-  let size = siwinWindowSize(window.handle)
+  let size = siwinBackingSize(window.handle)
   ivec2(size.w, size.h)
 
 proc size*(window: Window): IVec2 =
-  window.backingSize()
+  let size = siwinWindowSize(window.handle)
+  ivec2(size.w, size.h)
 
 proc `size=`*(window: Window, value: IVec2) =
   siwinSetWindowSize(window.handle, value.x, value.y)
@@ -230,7 +231,7 @@ proc close*(window: Window) =
 
 proc firstStep*(window: Window, makeVisible = true) =
   firstStep(window.handle, makeVisible)
-  window.lastSize = window.backingSize()
+  window.lastSize = window.size
   window.wasOpened = window.opened
 
 proc redraw*(window: Window) =
@@ -238,7 +239,10 @@ proc redraw*(window: Window) =
   redraw(window.handle)
 
 proc step*(window: Window) =
-  let size = window.backingSize()
+  # Let Siwin apply native events before redrawing against its current drawable.
+  step(window.handle)
+
+  let size = window.size
   if size.x != window.lastSize.x or size.y != window.lastSize.y:
     window.lastSize = size
     if window.eventsHandler.onResize != nil:
@@ -257,7 +261,6 @@ proc step*(window: Window) =
     window.redrawRequested = false
     window.eventsHandler.onRender(RenderEvent(window: window))
 
-  step(window.handle)
   let isOpened = window.opened
   if window.wasOpened and not isOpened and window.eventsHandler.onClose != nil:
     window.eventsHandler.onClose(CloseEvent(window: window))

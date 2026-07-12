@@ -273,6 +273,10 @@ proc siwinWindowSize*(appHandle: NativeSiwinApp): NativeWindowSize {.exportabi.}
   let size = siwinApp(appHandle).window.size
   NativeWindowSize(w: size.x, h: size.y)
 
+proc siwinBackingSize*(appHandle: NativeSiwinApp): NativeWindowSize {.exportabi.} =
+  let size = siwinApp(appHandle).window.backingSize()
+  NativeWindowSize(w: size.x, h: size.y)
+
 proc siwinSetWindowSize*(
     appHandle: NativeSiwinApp, width, height: int32
 ) {.exportabi.} =
