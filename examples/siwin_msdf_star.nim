@@ -257,8 +257,8 @@ proc makeRenderTree*(
   )
   list.addLabel(rootIdx, labelFont, w, bitmapRect, "Bitmap (renderMsdf 32x32)")
 
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
-  result.layers[0.ZLevel] = list
+  result = newRenders()
+  result.setLayer(0.ZLevel, list)
 
 when isMainModule:
   when defined(emscripten):
@@ -329,14 +329,15 @@ when isMainModule:
     let t0 = getMonoTime()
     var renders = makeRenderTree(sz.x, sz.y, renderPxRange, t, labelFont)
     makeRenderTreeMsSum += float((getMonoTime() - t0).inMilliseconds)
-    lastElementCount = renders.layers[0.ZLevel].nodes.len
+    lastElementCount = renders.len(0.ZLevel)
 
     let hudMargin = 12.0'f32
     let hudW = 180.0'f32
     let hudH = 34.0'f32
     let hudRect = rect(sz.x.float32 - hudW - hudMargin, hudMargin, hudW, hudH)
 
-    discard renders.layers[0.ZLevel].addRoot(
+    discard renders.addRoot(
+      0.ZLevel,
       Fig(
         kind: nkRectangle,
         childCount: 0,
@@ -344,7 +345,7 @@ when isMainModule:
         screenBox: hudRect,
         fill: rgba(0, 0, 0, 155),
         corners: [8.0'f32, 8.0, 8.0, 8.0],
-      )
+      ),
     )
 
     let hudTextPadX = 10.0'f32
@@ -365,7 +366,8 @@ when isMainModule:
       wrap = false,
     )
 
-    discard renders.layers[0.ZLevel].addRoot(
+    discard renders.addRoot(
+      0.ZLevel,
       Fig(
         kind: nkText,
         childCount: 0,
@@ -373,7 +375,7 @@ when isMainModule:
         screenBox: hudTextRect,
         fill: clearColor,
         textLayout: fpsLayout,
-      )
+      ),
     )
 
     let t1 = getMonoTime()

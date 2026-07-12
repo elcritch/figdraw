@@ -72,8 +72,9 @@ when isMainModule:
     let hudH = 34.0'f32
     let hudRect = rect(sz.x.float32 - hudW - hudMargin, hudMargin, hudW, hudH)
 
-    var mutableRenders = renders
-    discard addRoot(mutableRenders, 0.ZLevel,
+    discard addRoot(
+      renders,
+      0.ZLevel,
       Fig(
         kind: nkRectangle,
         childCount: 0,
@@ -81,7 +82,7 @@ when isMainModule:
         screenBox: hudRect,
         fill: rgba(0, 0, 0, 155),
         corners: [uint16(8.0), uint16(8.0), uint16(8.0), uint16(8.0)],
-      )
+      ),
     )
 
     let hudTextPadX = 10.0'f32
@@ -102,7 +103,9 @@ when isMainModule:
       wrap = false,
     )
 
-    discard addRoot(mutableRenders, 0.ZLevel,
+    discard addRoot(
+      renders,
+      0.ZLevel,
       Fig(
         kind: nkText,
         childCount: 0,
@@ -110,7 +113,7 @@ when isMainModule:
         screenBox: hudTextRect,
         fill: clearColor,
         textLayout: fpsLayout,
-      )
+      ),
     )
 
     let t1 = getMonoTime()

@@ -142,15 +142,11 @@ proc makeRenderTree*(w, h: float32): Renders =
     20.ZLevel,
   )
 
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
-  result.layers[(-20).ZLevel] = bgList
-  result.layers[0.ZLevel] = layer0List
-  result.layers[(-5).ZLevel] = lowList
-  result.layers[20.ZLevel] = topList
-  result.layers.sort(
-    proc(x, y: auto): int =
-      cmp(x[0], y[0])
-  )
+  result = newRenders()
+  result.setLayer((-20).ZLevel, bgList)
+  result.setLayer((-5).ZLevel, lowList)
+  result.setLayer(0.ZLevel, layer0List)
+  result.setLayer(20.ZLevel, topList)
 
 when isMainModule:
   var appRunning = true

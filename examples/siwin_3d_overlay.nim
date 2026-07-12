@@ -496,8 +496,8 @@ proc makeOverlay*(
     )
     buttonY += rowHeight + rowGap
 
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
-  result.layers[0.ZLevel] = list
+  result = newRenders()
+  result.setLayer(0.ZLevel, list)
 
 when isMainModule:
   when defined(emscripten):

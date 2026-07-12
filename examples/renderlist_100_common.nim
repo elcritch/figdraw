@@ -202,7 +202,12 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
       kind: nkBackdropBlur,
       childCount: 0,
       zlevel: 0.ZLevel,
-      corners: [uint16(yellowCorner), uint16(yellowCorner), uint16(yellowCorner), uint16(yellowCorner)],
+      corners: [
+        uint16(yellowCorner),
+        uint16(yellowCorner),
+        uint16(yellowCorner),
+        uint16(yellowCorner),
+      ],
       screenBox: rect(yellowX, yellowY, yellowW, yellowH),
       fill: rgba(0, 0, 0, 0).color,
       backdropBlur: BackdropBlurStyle(blur: 18.0'f32),
@@ -214,17 +219,17 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
       kind: nkRectangle,
       childCount: 0,
       zlevel: 0.ZLevel,
-      corners: [uint16(yellowCorner), uint16(yellowCorner), uint16(yellowCorner), uint16(yellowCorner)],
+      corners: [
+        uint16(yellowCorner),
+        uint16(yellowCorner),
+        uint16(yellowCorner),
+        uint16(yellowCorner),
+      ],
       screenBox: rect(yellowX, yellowY, yellowW, yellowH),
       fill: rgba(255, 225, 55, 120),
       stroke: RenderStroke(weight: 6.0, fill: rgba(95, 72, 0, 185).color),
     )
   )
 
-  when defined(useNativeDynlib):
-    result = newRenders()
-    for node in list.nodes:
-      addRoot(result, node)
-  else:
-    result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
-    result.layers[0.ZLevel] = list
+  result = newRenders()
+  result.setLayer(0.ZLevel, list)

@@ -241,7 +241,7 @@ proc addDrawableDemo(renders: var Renders, z: ZLevel, parentIdx: FigIdx, area: R
   )
 
 proc makeRenderTree*(w, h: float32): Renders =
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  result = newRenders()
 
   let z = 0.ZLevel
   let rootIdx = result.addRoot(

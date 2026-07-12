@@ -71,7 +71,7 @@ suite "RenderList helper APIs":
     check list.nodes[1].childCount == 1
 
   test "Renders addChildren forces layer zlevel":
-    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+    var renders = newRenders()
     let root = renders.addRoot(5.ZLevel, testFig(10, 1.ZLevel))
 
     var children = RenderList()
@@ -86,3 +86,13 @@ suite "RenderList helper APIs":
     check renders[5.ZLevel].nodes[2].zlevel == 5.ZLevel
     check renders[5.ZLevel].nodes[0].childCount == 1
     check renders[5.ZLevel].nodes[1].childCount == 1
+
+  test "setLayer installs a complete render list":
+    var list = RenderList()
+    discard list.addRoot(testFig(10, 3.ZLevel))
+
+    let renders = newRenders()
+    renders.setLayer(3.ZLevel, list)
+
+    check renders.len(3.ZLevel) == 1
+    check renders[3.ZLevel].nodes[0].nodeId() == 10

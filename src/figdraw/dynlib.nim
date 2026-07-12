@@ -1,28 +1,27 @@
 ## Source-compatible FigDraw/Siwin facade backed by the native Nim dynamic library.
 
-import std/tables
+import std/[os, strutils, tables, unicode]
+import pkg/bumpy as bumpy
+import pkg/chroma as chroma
+import pkg/pixie as pixie
+import pkg/vmath as vmath
 import figdraw_native_abi
 
-export tables, figdraw_native_abi
+export tables, bumpy, chroma, vmath
+export figdraw_native_abi except
+  Rect, ColorRGBA, ColorRGBX, Vec2, Mat4, Rune, FigSelectionRange, typeset, placeGlyphs,
+  figDashedRoundedRectBorder, figDottedRoundedRectBorder, figRoundedRectBorder
 
 const
   UseVulkanBackend* = false
   UseMetalBackend* = false
+  ShadowCount* = 4
+  DefaultDrawableBezierSteps* = 48'u16
+  DefaultDrawableArcSteps* = 48'u16
+  figdrawTextBackend* {.strdefine.} = "pixie"
 
 type
-  ZLevel* = int8
-  Color* = figdraw_native_abi.Fill
   ImageRef* = ImageId
-
-  FontStyle* = object
-    font*: FigFont
-    color*: figdraw_native_abi.Fill
-
-  IVec2* = object
-    x*, y*: int32
-
-  Vec2* = object
-    x*, y*: float32
 
   SiwinRenderBackend* = object
 
@@ -30,9 +29,10 @@ type
     handle: NativeSiwinApp
     eventsHandler*: WindowEventsHandler
     redrawRequested: bool
-    lastSize: IVec2
+    lastSize: vmath.IVec2
     wasOpened: bool
     escapePressed: bool
+    autoScale: bool
     width, height: int32
     titleText: string
     fullscreen, vsync, resizable, frameless, transparent: bool
@@ -50,7 +50,7 @@ type
 
   ResizeEvent* = object
     window*: Window
-    size*: IVec2
+    size*: vmath.IVec2
     initial*: bool
 
   KeyEvent* = object
@@ -66,91 +66,277 @@ type
     onResize*: proc(e: ResizeEvent)
     onKey*: proc(e: KeyEvent)
 
-func ivec2*(x, y: int32): IVec2 =
-  IVec2(x: x, y: y)
+converter toNativeRect*(value: bumpy.Rect): figdraw_native_abi.Rect {.inline.} =
+  cast[figdraw_native_abi.Rect](value)
 
-func vec2*(x, y: float32): Vec2 =
-  Vec2(x: x, y: y)
+converter toRect*(value: figdraw_native_abi.Rect): bumpy.Rect {.inline.} =
+  cast[bumpy.Rect](value)
 
-func `==`*(a, b: Vec2): bool =
-  a.x == b.x and a.y == b.y
+converter toNativeColor*(
+    value: chroma.ColorRGBA
+): figdraw_native_abi.ColorRGBA {.inline.} =
+  cast[figdraw_native_abi.ColorRGBA](value)
 
-func rect*(x, y, w, h: float32): Rect =
-  Rect(x: x, y: y, w: w, h: h)
+converter toColor*(value: figdraw_native_abi.ColorRGBA): chroma.ColorRGBA {.inline.} =
+  cast[chroma.ColorRGBA](value)
 
-func rgba*(r, g, b: uint8, a: uint8 = 255): ColorRGBA =
-  ColorRGBA(r: r, g: g, b: b, a: a)
+converter toNativeColor*(
+    value: chroma.ColorRGBX
+): figdraw_native_abi.ColorRGBX {.inline.} =
+  cast[figdraw_native_abi.ColorRGBX](value)
 
-proc color*(value: ColorRGBA): figdraw_native_abi.Fill =
-  fill(value)
+converter toColor*(value: figdraw_native_abi.ColorRGBX): chroma.ColorRGBX {.inline.} =
+  cast[chroma.ColorRGBX](value)
 
-converter toFill*(value: ColorRGBA): figdraw_native_abi.Fill =
-  fill(value)
+converter toNativeVec2*(value: vmath.Vec2): figdraw_native_abi.Vec2 {.inline.} =
+  cast[figdraw_native_abi.Vec2](value)
 
-proc cornerToU16(v: uint16): uint16 {.inline.} =
-  v
+converter toVec2*(value: figdraw_native_abi.Vec2): vmath.Vec2 {.inline.} =
+  cast[vmath.Vec2](value)
 
-proc cornerToU16(v: SomeInteger): uint16 {.inline.} =
-  if v <= 0:
-    return 0'u16
-  min(v.int, high(uint16).int).uint16
+converter toNativeMat4*(value: vmath.Mat4): figdraw_native_abi.Mat4 {.inline.} =
+  cast[figdraw_native_abi.Mat4](value)
 
-proc cornerToU16(v: SomeFloat): uint16 {.inline.} =
-  if v <= 0.0:
-    return 0'u16
-  min(v.round().int, high(uint16).int).uint16
+converter toMat4*(value: figdraw_native_abi.Mat4): vmath.Mat4 {.inline.} =
+  cast[vmath.Mat4](value)
 
-converter toCornerRadii*[T: SomeNumber](
-    a: array[4, T]
-): array[DirectionCorners, uint16] =
+converter toNativeRune*(value: unicode.Rune): figdraw_native_abi.Rune {.inline.} =
+  cast[figdraw_native_abi.Rune](value)
+
+converter toRune*(value: figdraw_native_abi.Rune): unicode.Rune {.inline.} =
+  cast[unicode.Rune](value)
+
+converter toNativeSelectionRange*(
+    value: Slice[int16]
+): figdraw_native_abi.FigSelectionRange {.inline.} =
+  cast[figdraw_native_abi.FigSelectionRange](value)
+
+converter toSelectionRange*(
+    value: figdraw_native_abi.FigSelectionRange
+): Slice[int16] {.inline.} =
+  cast[Slice[int16]](value)
+
+converter toFill*(value: chroma.ColorRGBA): Fill {.inline.} =
+  fill(value.toNativeColor())
+
+converter toFill*(value: chroma.Color): Fill {.inline.} =
+  fill(value.rgba().toNativeColor())
+
+proc drawableLine*(a, b: vmath.Vec2): DrawableOp {.inline.} =
+  DrawableOp(kind: dkLine, a: a.toNativeVec2(), b: b.toNativeVec2())
+
+proc drawableLine*(x1, y1, x2, y2: float32): DrawableOp {.inline.} =
+  drawableLine(vmath.vec2(x1, y1), vmath.vec2(x2, y2))
+
+proc drawableCircle*(center: vmath.Vec2, radius: float32): DrawableOp {.inline.} =
+  DrawableOp(kind: dkCircle, center: center.toNativeVec2(), radius: radius)
+
+proc drawableCircle*(x, y, radius: float32): DrawableOp {.inline.} =
+  drawableCircle(vmath.vec2(x, y), radius)
+
+proc drawableRect*(
+    box: bumpy.Rect, corners: CornerRadii = [0'u16, 0'u16, 0'u16, 0'u16]
+): DrawableOp {.inline.} =
+  DrawableOp(kind: dkRectangle, box: box.toNativeRect(), corners: corners)
+
+proc drawableBezier*(
+    controls: openArray[vmath.Vec2], steps: uint16 = 0'u16
+): DrawableOp {.inline.} =
+  result = DrawableOp(kind: dkBezier, steps: steps)
+  for control in controls:
+    result.controls.add control.toNativeVec2()
+
+proc drawableBezier*(
+    p0, p1, p2: vmath.Vec2, steps: uint16 = 0'u16
+): DrawableOp {.inline.} =
+  drawableBezier([p0, p1, p2], steps)
+
+proc drawableBezier*(
+    p0, p1, p2, p3: vmath.Vec2, steps: uint16 = 0'u16
+): DrawableOp {.inline.} =
+  drawableBezier([p0, p1, p2, p3], steps)
+
+proc drawableArc*(
+    center: vmath.Vec2, radius, startAngle, sweepAngle: float32, steps: uint16 = 0'u16
+): DrawableOp {.inline.} =
+  DrawableOp(
+    kind: dkArc,
+    arcCenter: center.toNativeVec2(),
+    arcRadius: radius,
+    startAngle: startAngle,
+    sweepAngle: sweepAngle,
+    arcSteps: steps,
+  )
+
+proc drawableArc*(
+    x, y, radius, startAngle, sweepAngle: float32, steps: uint16 = 0'u16
+): DrawableOp {.inline.} =
+  drawableArc(vmath.vec2(x, y), radius, startAngle, sweepAngle, steps)
+
+proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
+  when v is SomeFloat:
+    if v <= 0:
+      return 0'u16
+    if v >= high(uint16).float:
+      return high(uint16)
+    round(v).uint16
+  else:
+    if v <= 0:
+      return 0'u16
+    if v >= high(uint16):
+      return high(uint16)
+    v.uint16
+
+converter toCornerRadii*[T: SomeNumber](a: array[4, T]): CornerRadii =
   for i in 0 ..< 4:
     result[DirectionCorners(i)] = cornerToU16(a[i])
 
-converter toCornerRadii*[T: SomeNumber](
-    a: array[DirectionCorners, T]
-): array[DirectionCorners, uint16] =
+converter toCornerRadii*[T: SomeNumber](a: array[DirectionCorners, T]): CornerRadii =
   for c in DirectionCorners:
     result[c] = cornerToU16(a[c])
 
-let clearColor* = fill(rgba(0, 0, 0, 0))
+const
+  clearColor* = chroma.color(0, 0, 0, 0)
+  whiteColor* = chroma.color(1, 1, 1, 1)
+  blackColor* = chroma.color(0, 0, 0, 1)
+  blueColor* = chroma.color(0, 0, 1, 1)
 
-proc fs*(font: FigFont, color: figdraw_native_abi.Fill = fill(rgba(0, 0, 0, 255))): FontStyle =
+var appUiScale = 1.0'f32
+
+proc figUiScale*(): float32 {.inline.} =
+  appUiScale
+
+proc setFigUiScale*(scale: float32) {.inline.} =
+  appUiScale = scale
+
+proc scaled*(value: bumpy.Rect): bumpy.Rect {.inline.} =
+  value * appUiScale
+
+proc descaled*(value: bumpy.Rect): bumpy.Rect {.inline.} =
+  value / appUiScale
+
+proc scaled*(value: vmath.Vec2): vmath.Vec2 {.inline.} =
+  value * appUiScale
+
+proc descaled*(value: vmath.Vec2): vmath.Vec2 {.inline.} =
+  value / appUiScale
+
+proc scaled*(value: vmath.IVec2): vmath.IVec2 {.inline.} =
+  vmath.ivec2(vmath.vec2(value) * appUiScale)
+
+proc scaled*(value: float32): float32 {.inline.} =
+  value * appUiScale
+
+proc descaled*(value: float32): float32 {.inline.} =
+  value / appUiScale
+
+proc fs*(
+    font: FigFont, color: Fill = fill(rgba(0, 0, 0, 255).toNativeColor())
+): FontStyle {.inline.} =
   FontStyle(font: font, color: color)
 
+proc fsp*(font: FigFont, color: Fill, text: string): (FontStyle, string) {.inline.} =
+  (FontStyle(font: font, color: color), text)
+
+proc span*(font: FigFont, color: Fill, text: string): (FontStyle, string) {.inline.} =
+  (FontStyle(font: font, color: color), text)
+
+proc fontWithSize*(fontId: TypefaceId, size: float32): FigFont {.inline.} =
+  FigFont(typefaceId: fontId, size: size)
+
+func fontFeature*(
+    tag: string, value = 1'u32, start = 0'u32, ending = uint32.high
+): FontFeature {.inline.} =
+  FontFeature(tag: tag, value: value, start: start, ending: ending)
+
+func fontVariation*(tag: string, value: float32): FontVariation {.inline.} =
+  FontVariation(tag: tag, value: value)
+
+proc placeGlyphs*(
+    style: FontStyle,
+    glyphs: openArray[(unicode.Rune, vmath.Vec2)],
+    origin = GlyphTopLeft,
+): GlyphArrangement {.inline.} =
+  var nativeGlyphs =
+    newSeqOfCap[(figdraw_native_abi.Rune, figdraw_native_abi.Vec2)](glyphs.len)
+  for (rune, pos) in glyphs:
+    nativeGlyphs.add((rune.toNativeRune(), pos.toNativeVec2()))
+  figdraw_native_abi.placeGlyphs(style, nativeGlyphs, origin)
+
+template registerStaticTypeface*(
+    name: static[string], path: static[string], kind: static[TypeFaceKinds] = TTF
+) =
+  const fontData {.gensym.} = staticRead(path)
+  registerStaticTypefaceData(name, fontData, kind)
+
+proc figDashedRoundedRectBorder*(
+    box: bumpy.Rect,
+    corners: CornerRadii,
+    color: Fill,
+    weight, dashLength, gapLength: float32,
+    offset = 0.0'f32,
+    cap = scButt,
+    zlevel = 0.ZLevel,
+): Fig {.inline.} =
+  figdraw_native_abi.figDashedRoundedRectBorder(
+    box.toNativeRect(),
+    corners,
+    color,
+    weight,
+    dashLength,
+    gapLength,
+    offset,
+    cap,
+    zlevel,
+  )
+
+proc figRoundedRectBorder*(
+    box: bumpy.Rect,
+    corners: CornerRadii,
+    color: Fill,
+    weight: float32,
+    cap = scButt,
+    zlevel = 0.ZLevel,
+): Fig {.inline.} =
+  figdraw_native_abi.figRoundedRectBorder(
+    box.toNativeRect(), corners, color, weight, cap, zlevel
+  )
+
+proc figDottedRoundedRectBorder*(
+    box: bumpy.Rect,
+    corners: CornerRadii,
+    color: Fill,
+    weight, gapLength: float32,
+    offset = 0.0'f32,
+    zlevel = 0.ZLevel,
+): Fig {.inline.} =
+  figdraw_native_abi.figDottedRoundedRectBorder(
+    box.toNativeRect(), corners, color, weight, gapLength, offset, zlevel
+  )
+
 proc typeset*(
-    box: Rect,
+    box: bumpy.Rect,
     spans: openArray[(FontStyle, string)],
     hAlign = FontHorizontal.Left,
     vAlign = FontVertical.Top,
     minContent = false,
     wrap = true,
 ): GlyphArrangement =
-  if spans.len == 0:
-    return GlyphArrangement()
-  if spans.len > 1:
-    raise
-      newException(ValueError, "native dynlib typeset does not support multiple spans")
   figdraw_native_abi.typeset(
-    box,
-    spans[0][0].font,
-    spans[0][0].color,
-    spans[0][1],
-    hAlign,
-    vAlign,
-    minContent,
-    wrap,
+    box.toNativeRect(), spans, hAlign, vAlign, minContent, wrap
   )
-
-proc addRoot*(renders: Renders, lvl: ZLevel, root: Fig): FigIdx {.discardable.} =
-  var mutableRenders = renders
-  figdraw_native_abi.addRoot(mutableRenders, int8(lvl), root)
-
-proc addRoot*(renders: Renders, root: Fig): FigIdx {.discardable.} =
-  var mutableRenders = renders
-  figdraw_native_abi.addRoot(mutableRenders, root)
 
 proc loadImageRef*(filePath: string): ImageRef =
   loadFigImage(filePath)
+
+proc loadImage*(filePath: string): ImageId {.inline.} =
+  loadFigImage(filePath)
+
+proc loadImage*(id: ImageId, image: pixie.Image) {.inline.} =
+  putFigImage(id, cast[figdraw_native_abi.Image](image))
+
+proc imgId*(name: string): ImageId {.inline.} =
+  figImageId(name)
 
 proc imageStyle*(image: ImageRef): ImageStyle =
   ImageStyle(id: image, fill: fill(rgba(255, 255, 255, 255)))
@@ -191,6 +377,8 @@ proc setupBackend*(renderer: FigRenderer[SiwinRenderBackend], window: Window) =
       window.frameless, window.transparent,
     )
   renderer.window = window
+  if window.autoScale:
+    setFigUiScale(siwinUiScale(window.handle))
 
 proc newSiwinWindow*(
     renderer: FigRenderer[SiwinRenderBackend],
@@ -208,36 +396,45 @@ proc newSiwinWindow*(
   )
   renderer.setupBackend(result)
 
-proc configureUiScale*(window: Window): bool =
-  discard window
-  false
-
-proc refreshUiScale*(window: Window, autoScale: bool) =
-  discard autoScale
-  siwinRefreshUiScale(window.handle)
-
 proc contentScale*(window: Window): float32 =
   siwinUiScale(window.handle)
 
-proc backingSize*(window: Window): IVec2 =
+proc configureUiScale*(window: Window, envVar = "HDI"): bool =
+  let configuredScale = getEnv(envVar)
+  if configuredScale.len == 0:
+    window.autoScale = true
+    if not window.handle.isNil:
+      setFigUiScale(window.contentScale())
+    true
+  else:
+    window.autoScale = false
+    setFigUiScale(configuredScale.parseFloat().float32)
+    false
+
+proc refreshUiScale*(window: Window, autoScale: bool) =
+  siwinRefreshUiScale(window.handle)
+  if autoScale:
+    setFigUiScale(window.contentScale())
+
+proc backingSize*(window: Window): vmath.IVec2 =
   let size = siwinBackingSize(window.handle)
   ivec2(size.w, size.h)
 
-proc size*(window: Window): IVec2 =
+proc size*(window: Window): vmath.IVec2 =
   let size = siwinWindowSize(window.handle)
   ivec2(size.w, size.h)
 
-proc `size=`*(window: Window, value: IVec2) =
+proc `size=`*(window: Window, value: vmath.IVec2) =
   siwinSetWindowSize(window.handle, value.x, value.y)
 
-proc pos*(window: Window): IVec2 =
+proc pos*(window: Window): vmath.IVec2 =
   let pos = siwinWindowPos(window.handle)
   ivec2(pos.x, pos.y)
 
-proc `pos=`*(window: Window, value: IVec2) =
+proc `pos=`*(window: Window, value: vmath.IVec2) =
   siwinSetWindowPos(window.handle, value.x, value.y)
 
-proc logicalSize*(window: Window): Vec2 =
+proc logicalSize*(window: Window): vmath.Vec2 =
   let
     size = window.backingSize()
     scale = max(window.contentScale(), 0.0001'f32)
@@ -262,6 +459,9 @@ proc firstStep*(window: Window, makeVisible = true) =
 proc redraw*(window: Window) =
   window.redrawRequested = true
   redraw(window.handle)
+
+proc makeCurrent*(window: Window) =
+  makeCurrent(window.handle)
 
 proc step*(window: Window) =
   # Let Siwin apply native events before redrawing against its current drawable.
@@ -294,14 +494,48 @@ proc step*(window: Window) =
 proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   discard renderer
 
-proc renderFrame*(renderer: FigRenderer[SiwinRenderBackend], renders: Renders, size: Vec2) =
-  renderFrame(renderer.window.handle, renders, size.x, size.y)
+proc renderFrame*(
+    renderer: FigRenderer[SiwinRenderBackend],
+    renders: Renders,
+    size: vmath.Vec2,
+    clearMain = true,
+    clearColor = whiteColor,
+) =
+  renderFrame(
+    renderer.window.handle, renders, size.x, size.y, clearMain, clearColor.r,
+    clearColor.g, clearColor.b, clearColor.a,
+  )
 
 proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   discard renderer
 
 proc backendName*(renderer: FigRenderer[SiwinRenderBackend]): string =
   siwinBackendName(renderer.window.handle)
+
+proc backendKind*(renderer: FigRenderer[SiwinRenderBackend]): RendererBackendKind =
+  siwinBackendKind(renderer.window.handle)
+
+proc setTextLcdFiltering*(renderer: FigRenderer[SiwinRenderBackend], enabled: bool) =
+  setTextLcdFiltering(renderer.window.handle, enabled)
+
+proc textLcdFiltering*(renderer: FigRenderer[SiwinRenderBackend]): bool =
+  textLcdFiltering(renderer.window.handle)
+
+proc setTextSubpixelPositioning*(
+    renderer: FigRenderer[SiwinRenderBackend], enabled: bool
+) =
+  setTextSubpixelPositioning(renderer.window.handle, enabled)
+
+proc textSubpixelPositioning*(renderer: FigRenderer[SiwinRenderBackend]): bool =
+  textSubpixelPositioning(renderer.window.handle)
+
+proc setTextSubpixelGlyphVariants*(
+    renderer: FigRenderer[SiwinRenderBackend], enabled: bool
+) =
+  setTextSubpixelGlyphVariants(renderer.window.handle, enabled)
+
+proc textSubpixelGlyphVariants*(renderer: FigRenderer[SiwinRenderBackend]): bool =
+  textSubpixelGlyphVariants(renderer.window.handle)
 
 proc siwinWindowTitle*(suffix = "Siwin RenderList"): string =
   "figdraw: native dynlib + " & suffix

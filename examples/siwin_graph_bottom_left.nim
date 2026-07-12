@@ -34,7 +34,7 @@ proc addRectNode(
   )
 
 proc makeRenderTree(windowW, windowH: float32, uiFont: FigFont): Renders =
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  result = newRenders()
   let z = 0.ZLevel
 
   let rootIdx = result.addRoot(

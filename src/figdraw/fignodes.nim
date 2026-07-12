@@ -26,7 +26,7 @@ type
       radius*: float32
     of dkRectangle:
       box*: Rect
-      corners*: array[DirectionCorners, uint16]
+      corners*: CornerRadii
     of dkBezier:
       controls*: seq[Vec2]
       steps*: uint16
@@ -45,6 +45,7 @@ type
     layers*: OrderedTable[ZLevel, RenderList]
 
   FigIdx* = distinct int16
+  FigSelectionRange* = Slice[int16]
 
   Fig* = object
     zlevel*: ZLevel
@@ -56,7 +57,7 @@ type
 
     rotation*: float32
     fill*: Fill
-    corners*: array[DirectionCorners, uint16]
+    corners*: CornerRadii
 
     case kind*: FigKind
     of nkRectangle:
@@ -64,7 +65,7 @@ type
       stroke*: RenderStroke
     of nkText:
       textLayout*: GlyphArrangement
-      selectionRange*: Slice[int16]
+      selectionRange*: FigSelectionRange
     of nkDrawable:
       drawStroke*: RenderStroke
       drawSteps*: uint16
@@ -105,7 +106,7 @@ proc drawableCircle*(x: float32, y: float32, radius: float32): DrawableOp =
   drawableCircle(vec2(x, y), radius)
 
 proc drawableRect*(
-    box: Rect, corners: array[DirectionCorners, uint16] = [0'u16, 0'u16, 0'u16, 0'u16]
+    box: Rect, corners: CornerRadii = [0'u16, 0'u16, 0'u16, 0'u16]
 ): DrawableOp =
   DrawableOp(kind: dkRectangle, box: box, corners: corners)
 
@@ -414,7 +415,7 @@ proc addChildren*(
 
 {.pop.}
 
-proc ensureLayer*(renders: var Renders, lvl: ZLevel): var RenderList =
+proc ensureLayer*(renders: Renders, lvl: ZLevel): var RenderList =
   if lvl notin renders.layers:
     renders.layers[lvl] = RenderList()
   renders.layers[lvl]
@@ -423,6 +424,9 @@ proc ensureLayer*(renders: var Renders, lvl: ZLevel): var RenderList =
 
 proc newRenders*(): Renders =
   Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+proc setLayer*(renders: Renders, lvl: ZLevel, list: RenderList) =
+  renders.layers[lvl] = list
 
 proc clear*(renders: Renders) =
   renders.layers.clear()
@@ -433,7 +437,7 @@ func len*(renders: Renders, lvl: ZLevel): int =
   else:
     0
 
-proc addRoot*(renders: var Renders, lvl: ZLevel, root: Fig): FigIdx {.discardable.} =
+proc addRoot*(renders: Renders, lvl: ZLevel, root: Fig): FigIdx {.discardable.} =
   ## Adds a root to the layer for `lvl`, creating the layer if needed.
   ##
   ## Cost: amortized O(1) for the target layer, plus ordered-table lookup.
@@ -442,7 +446,7 @@ proc addRoot*(renders: var Renders, lvl: ZLevel, root: Fig): FigIdx {.discardabl
   result = renders.ensureLayer(lvl).addRoot(node)
 
 proc insertRoot*(
-    renders: var Renders, lvl: ZLevel, root: Fig, rootPos: Natural
+    renders: Renders, lvl: ZLevel, root: Fig, rootPos: Natural
 ): FigIdx {.discardable.} =
   ## Inserts a root into the layer for `lvl`, creating the layer if needed.
   ##
@@ -451,14 +455,14 @@ proc insertRoot*(
   node.zlevel = lvl
   result = renders.ensureLayer(lvl).insertRoot(node, rootPos)
 
-proc addRoot*(renders: var Renders, root: Fig): FigIdx {.discardable.} =
+proc addRoot*(renders: Renders, root: Fig): FigIdx {.discardable.} =
   ## Adds a root to the layer for `root.zlevel`.
   ##
   ## Cost: amortized O(1) for the target layer, plus ordered-table lookup.
   result = renders.addRoot(root.zlevel, root)
 
 proc insertRoot*(
-    renders: var Renders, root: Fig, rootPos: Natural
+    renders: Renders, root: Fig, rootPos: Natural
 ): FigIdx {.discardable.} =
   ## Inserts a root into the layer for `root.zlevel`.
   ##
@@ -466,7 +470,7 @@ proc insertRoot*(
   result = renders.insertRoot(root.zlevel, root, rootPos)
 
 proc addChild*(
-    renders: var Renders, lvl: ZLevel, parentIdx: FigIdx, child: Fig
+    renders: Renders, lvl: ZLevel, parentIdx: FigIdx, child: Fig
 ): FigIdx {.discardable.} =
   ## Adds a child to the layer for `lvl`, creating the layer if needed.
   ## The child is forced to the same zlevel as its parent layer.
@@ -477,7 +481,7 @@ proc addChild*(
   result = renders.ensureLayer(lvl).addChild(parentIdx, node)
 
 proc insertChild*(
-    renders: var Renders, lvl: ZLevel, parentIdx: FigIdx, child: Fig, childPos: Natural
+    renders: Renders, lvl: ZLevel, parentIdx: FigIdx, child: Fig, childPos: Natural
 ): FigIdx {.discardable.} =
   ## Inserts a child into the layer for `lvl`, creating the layer if needed.
   ## The child is forced to the same zlevel as its parent layer.
@@ -488,7 +492,7 @@ proc insertChild*(
   result = renders.ensureLayer(lvl).insertChild(parentIdx, node, childPos)
 
 proc insertChildren*(
-    renders: var Renders,
+    renders: Renders,
     lvl: ZLevel,
     parentIdx: FigIdx,
     children: RenderList,
@@ -507,7 +511,7 @@ proc insertChildren*(
   result = renders.ensureLayer(lvl).insertChildren(parentIdx, childList, childPos)
 
 proc addChildren*(
-    renders: var Renders, lvl: ZLevel, parentIdx: FigIdx, children: RenderList
+    renders: Renders, lvl: ZLevel, parentIdx: FigIdx, children: RenderList
 ): seq[FigIdx] {.discardable.} =
   ## Appends children to the layer for `lvl`, creating the layer if needed.
   ##

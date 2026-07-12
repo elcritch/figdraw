@@ -91,7 +91,9 @@ proc lookupTypefaceNames(name: string): seq[string] =
   if fileStem.len > 0:
     result.add(fileStem.normalizeTypefaceLookupName())
 
-proc registerStaticTypefaceData(name, data: string, kind: TypeFaceKinds) =
+proc registerStaticTypefaceData*(
+    name, data: string, kind: TypeFaceKinds
+) {.nativeAbi.} =
   ## Registers a static typeface blob that can be found by loadTypeface.
   let entry = (name: name, data: data, kind: kind)
   withLock(fontLock):
@@ -220,7 +222,9 @@ proc staticTypefaceEntry(
         entry = staticTypefaceTable[key]
         return true
 
-proc loadTypeface*(name: string, fallbackNames: openArray[string]): TypefaceId =
+proc loadTypeface*(
+    name: string, fallbackNames: openArray[string]
+): TypefaceId {.nativeAbi.} =
   ## loads a font from a file and adds it to the font index
 
   proc resolveTypefacePath(name: string): string =
@@ -288,7 +292,7 @@ proc loadTypeface*(name: string, fallbackNames: openArray[string]): TypefaceId =
 proc loadTypeface*(name: string): TypefaceId {.nativeAbi.} =
   loadTypeface(name, [])
 
-proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId =
+proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId {.nativeAbi.} =
   ## loads a font from buffer and adds it to the font index
 
   let typeface = readTypefaceImpl(name, data, kind)

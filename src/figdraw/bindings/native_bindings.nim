@@ -6,8 +6,10 @@ import pkg/pixie as pixie
 import siwin/[clipboards, colorutils]
 
 import figdraw/commons
+import figdraw/common/fontutils as fontutils
 import figdraw/fignodes
 import figdraw/figrender
+import figdraw/utils/drawutils
 import figdraw/windowing/siwinshim
 
 type
@@ -172,15 +174,13 @@ proc hasFigImage*(id: ImageId): bool {.exportabi.} =
 
 proc typeset*(
     box: Rect,
-    font: FigFont,
-    color: Fill,
-    text: string,
+    spans: openArray[(FontStyle, string)],
     hAlign = FontHorizontal.Left,
     vAlign = FontVertical.Top,
     minContent = false,
     wrap = true,
 ): GlyphArrangement {.exportabi.} =
-  typeset(box, [(fs(font, color), text)], hAlign, vAlign, minContent, wrap)
+  fontutils.typeset(box, spans, hAlign, vAlign, minContent, wrap)
 
 proc newFigSiwinApp*(
     width, height: int32,
@@ -262,6 +262,9 @@ proc step*(appHandle: NativeSiwinApp) {.exportabi.} =
 
 proc redraw*(appHandle: NativeSiwinApp) {.exportabi.} =
   siwinApp(appHandle).window.redraw()
+
+proc makeCurrent*(appHandle: NativeSiwinApp) {.exportabi.} =
+  siwinApp(appHandle).window.makeCurrent()
 
 proc close*(appHandle: NativeSiwinApp) {.exportabi.} =
   siwinApp(appHandle).window.close()
@@ -503,18 +506,57 @@ proc siwinRefreshUiScale*(appHandle: NativeSiwinApp) {.exportabi.} =
 proc siwinBackendName*(appHandle: NativeSiwinApp): string {.exportabi.} =
   siwinApp(appHandle).renderer.siwinBackendName()
 
+proc siwinBackendKind*(appHandle: NativeSiwinApp): RendererBackendKind {.exportabi.} =
+  siwinApp(appHandle).renderer.backendKind()
+
+proc setTextLcdFiltering*(appHandle: NativeSiwinApp, enabled: bool) {.exportabi.} =
+  siwinApp(appHandle).renderer.setTextLcdFiltering(enabled)
+
+proc textLcdFiltering*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+  siwinApp(appHandle).renderer.textLcdFiltering()
+
+proc setTextSubpixelPositioning*(
+    appHandle: NativeSiwinApp, enabled: bool
+) {.exportabi.} =
+  siwinApp(appHandle).renderer.setTextSubpixelPositioning(enabled)
+
+proc textSubpixelPositioning*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+  siwinApp(appHandle).renderer.textSubpixelPositioning()
+
+proc setTextSubpixelGlyphVariants*(
+    appHandle: NativeSiwinApp, enabled: bool
+) {.exportabi.} =
+  siwinApp(appHandle).renderer.setTextSubpixelGlyphVariants(enabled)
+
+proc textSubpixelGlyphVariants*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+  siwinApp(appHandle).renderer.textSubpixelGlyphVariants()
+
 proc siwinDisplayServerName*(appHandle: NativeSiwinApp): string {.exportabi.} =
   siwinApp(appHandle).window.siwinDisplayServerName()
 
 proc renderFrame*(
-    appHandle: NativeSiwinApp, renders: Renders, width, height: float32
+    appHandle: NativeSiwinApp,
+    renders: Renders,
+    width, height: float32,
+    clearMain: bool,
+    clearR, clearG, clearB, clearA: float32,
 ) {.exportabi.} =
   let app = siwinApp(appHandle)
   app.window.refreshUiScale(app.autoScale)
   app.renderer.beginFrame()
   var nodes = renders
-  app.renderer.renderFrame(nodes, vec2(width, height))
+  app.renderer.renderFrame(
+    nodes,
+    vec2(width, height),
+    clearMain = clearMain,
+    clearColor = color(clearR, clearG, clearB, clearA),
+  )
   app.renderer.endFrame()
+
+proc renderFrame*(
+    appHandle: NativeSiwinApp, renders: Renders, width, height: float32
+) {.exportabi.} =
+  renderFrame(appHandle, renders, width, height, true, 1, 1, 1, 1)
 
 proc renderFrame*(appHandle: NativeSiwinApp, renders: Renders) {.exportabi.} =
   let size = siwinApp(appHandle).window.backingSize()

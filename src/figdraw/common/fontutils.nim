@@ -85,7 +85,7 @@ proc placeGlyphs*(
     style: FontStyle,
     glyphs: openArray[(Rune, Vec2)],
     origin: GlyphOrigin = GlyphTopLeft,
-): GlyphArrangement =
+): GlyphArrangement {.nativeAbi.} =
   ## Builds a glyph arrangement using explicit positions for each glyph.
   ## `origin` controls whether positions are the glyph's top-left or baseline.
   threadEffects:

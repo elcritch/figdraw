@@ -28,6 +28,8 @@ type
     dcBottomLeft
     dcBottomRight
 
+  CornerRadii* = array[DirectionCorners, uint16]
+
   FigKind* = enum
     ## Different types of nodes.
     nkFrame
@@ -129,14 +131,10 @@ proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
       return high(uint16)
     v.uint16
 
-converter toCornerRadii*[T: SomeNumber](
-    a: array[4, T]
-): array[DirectionCorners, uint16] =
+converter toCornerRadii*[T: SomeNumber](a: array[4, T]): CornerRadii =
   for i in 0 ..< 4:
     result[DirectionCorners(i)] = cornerToU16(a[i])
 
-converter toCornerRadii*[T: SomeNumber](
-    a: array[DirectionCorners, T]
-): array[DirectionCorners, uint16] =
+converter toCornerRadii*[T: SomeNumber](a: array[DirectionCorners, T]): CornerRadii =
   for c in DirectionCorners:
     result[c] = cornerToU16(a[c])
