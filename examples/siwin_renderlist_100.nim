@@ -65,21 +65,22 @@ when isMainModule:
     let t0 = getMonoTime()
     var renders = makeRenderTree(float32(sz.x), float32(sz.y), globalFrame)
     makeRenderTreeMsSum += float((getMonoTime() - t0).inMilliseconds)
-    lastElementCount = renders.layers[0.ZLevel].nodes.len
+    lastElementCount = renders[0.ZLevel].nodes.len
 
     let hudMargin = 12.0'f32
     let hudW = 180.0'f32
     let hudH = 34.0'f32
     let hudRect = rect(sz.x.float32 - hudW - hudMargin, hudMargin, hudW, hudH)
 
-    discard renders.layers[0.ZLevel].addRoot(
+    var mutableRenders = renders
+    discard addRoot(mutableRenders, 0.ZLevel,
       Fig(
         kind: nkRectangle,
         childCount: 0,
         zlevel: 0.ZLevel,
         screenBox: hudRect,
         fill: rgba(0, 0, 0, 155),
-        corners: [8.0'f32, 8.0, 8.0, 8.0],
+        corners: [uint16(8.0), uint16(8.0), uint16(8.0), uint16(8.0)],
       )
     )
 
@@ -101,7 +102,7 @@ when isMainModule:
       wrap = false,
     )
 
-    discard renders.layers[0.ZLevel].addRoot(
+    discard addRoot(mutableRenders, 0.ZLevel,
       Fig(
         kind: nkText,
         childCount: 0,

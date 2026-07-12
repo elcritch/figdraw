@@ -1,8 +1,9 @@
 ## Source-compatible FigDraw/Siwin facade backed by the native Nim dynamic library.
 
+import std/tables
 import figdraw_native_abi
 
-export figdraw_native_abi
+export tables, figdraw_native_abi
 
 const
   UseVulkanBackend* = false
@@ -10,12 +11,12 @@ const
 
 type
   ZLevel* = int8
-  Color* = Fill
+  Color* = figdraw_native_abi.Fill
   ImageRef* = ImageId
 
   FontStyle* = object
     font*: FigFont
-    color*: Fill
+    color*: figdraw_native_abi.Fill
 
   IVec2* = object
     x*, y*: int32
@@ -80,15 +81,15 @@ func rect*(x, y, w, h: float32): Rect =
 func rgba*(r, g, b: uint8, a: uint8 = 255): ColorRGBA =
   ColorRGBA(r: r, g: g, b: b, a: a)
 
-proc color*(value: ColorRGBA): Fill =
+proc color*(value: ColorRGBA): figdraw_native_abi.Fill =
   fill(value)
 
-converter toFill*(value: ColorRGBA): Fill =
+converter toFill*(value: ColorRGBA): figdraw_native_abi.Fill =
   fill(value)
 
 let clearColor* = fill(rgba(0, 0, 0, 0))
 
-proc fs*(font: FigFont, color: Fill = fill(rgba(0, 0, 0, 255))): FontStyle =
+proc fs*(font: FigFont, color: figdraw_native_abi.Fill = fill(rgba(0, 0, 0, 255))): FontStyle =
   FontStyle(font: font, color: color)
 
 proc typeset*(
@@ -114,6 +115,14 @@ proc typeset*(
     minContent,
     wrap,
   )
+
+proc addRoot*(renders: Renders, lvl: ZLevel, root: Fig): FigIdx {.discardable.} =
+  var mutableRenders = renders
+  figdraw_native_abi.addRoot(mutableRenders, int8(lvl), root)
+
+proc addRoot*(renders: Renders, root: Fig): FigIdx {.discardable.} =
+  var mutableRenders = renders
+  figdraw_native_abi.addRoot(mutableRenders, root)
 
 proc loadImageRef*(filePath: string): ImageRef =
   loadFigImage(filePath)

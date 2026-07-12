@@ -1,9 +1,10 @@
 import std/[random, math]
 
-import chroma
-
-import figdraw/commons
-import figdraw/fignodes
+when defined(useNativeDynlib):
+  import figdraw/dynlib
+else:
+  import figdraw
+  import figdraw/fignodes
 
 const copies {.intdefine: "figdraw.nodes".} = 100
 
@@ -103,7 +104,7 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
         kind: nkRectangle,
         childCount: 0,
         zlevel: 0.ZLevel,
-        corners: [c0, c1, c2, c3],
+        corners: [uint16(c0), uint16(c1), uint16(c2), uint16(c3)],
         screenBox: rect(redStartX + offsetX, redStartY + offsetY, redW, redH),
         fill: rgba(220, 40, 40, 155),
         stroke: RenderStroke(weight: 5.0, fill: rgba(0, 0, 0, 155).color),
@@ -116,7 +117,7 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
         childCount: 0,
         zlevel: 0.ZLevel,
         screenBox: rect(greenStartX + offsetX, greenStartY + offsetY, greenW, greenH),
-        corners: [g0, g1, g2, g3],
+        corners: [uint16(g0), uint16(g1), uint16(g2), uint16(g3)],
         fill:
           if useGreenGradient:
             linear(
@@ -201,7 +202,7 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
       kind: nkBackdropBlur,
       childCount: 0,
       zlevel: 0.ZLevel,
-      corners: [yellowCorner, yellowCorner, yellowCorner, yellowCorner],
+      corners: [uint16(yellowCorner), uint16(yellowCorner), uint16(yellowCorner), uint16(yellowCorner)],
       screenBox: rect(yellowX, yellowY, yellowW, yellowH),
       fill: rgba(0, 0, 0, 0).color,
       backdropBlur: BackdropBlurStyle(blur: 18.0'f32),
@@ -213,12 +214,17 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
       kind: nkRectangle,
       childCount: 0,
       zlevel: 0.ZLevel,
-      corners: [yellowCorner, yellowCorner, yellowCorner, yellowCorner],
+      corners: [uint16(yellowCorner), uint16(yellowCorner), uint16(yellowCorner), uint16(yellowCorner)],
       screenBox: rect(yellowX, yellowY, yellowW, yellowH),
       fill: rgba(255, 225, 55, 120),
       stroke: RenderStroke(weight: 6.0, fill: rgba(95, 72, 0, 185).color),
     )
   )
 
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
-  result.layers[0.ZLevel] = list
+  when defined(useNativeDynlib):
+    result = newRenders()
+    for node in list.nodes:
+      addRoot(result, node)
+  else:
+    result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+    result.layers[0.ZLevel] = list
