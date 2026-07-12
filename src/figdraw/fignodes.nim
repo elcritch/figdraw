@@ -514,10 +514,11 @@ proc addChildren*(
     lvl, parentIdx, children, renders[lvl].nodes[parentIdx.int].childCount.Natural
   )
 
+proc contains*(r: Renders, lvl: ZLevel): bool =
+  r.layers.contains(lvl)
+
 {.pop.}
 
 template pairs*(r: Renders): auto =
   r.layers.pairs()
 
-template contains*(r: Renders, lvl: ZLevel): bool =
-  r.layers.contains(lvl)
