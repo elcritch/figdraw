@@ -114,6 +114,8 @@ task test, "run unit test":
   let enableSdl2 =
     getEnv("FIGDRAW_TEST_SDL2").strip().toLowerAscii() in ["1", "true", "yes", "on"]
   var excludedTests: seq[string]
+  when not defined(useNativeDynlib):
+    excludedTests.add("tsiwin_redraw.nim")
   for testName in getEnv("FIGDRAW_TEST_EXCLUDE").split(','):
     let cleaned = testName.strip()
     if cleaned.len > 0:
@@ -149,7 +151,9 @@ task test_compile, "compile unit tests without running":
   var testCount = 0
   for file in listFiles("tests"):
     let name = file.extractFilename()
-    if name.startsWith("t") and name.endsWith(".nim"):
+    let isNativeDynlibTest = name == "tsiwin_redraw.nim"
+    if name.startsWith("t") and name.endsWith(".nim") and
+        (not isNativeDynlibTest or defined(useNativeDynlib)):
       inc testCount
       nimExec("c", file)
   if testCount == 0:
@@ -180,6 +184,9 @@ task bindings, "Generate bindings":
   else:
     compile "libfigdraw.so"
 
+proc unsupportedNativeDynlibPath(): string =
+  quit "native Nim dynlibs currently support macOS, Linux, and BSD"
+
 # Invoke this task with a compiler that supports the experimental native ABI.
 task native_bindings, "Build native Nim dynlib and generate Binny bindings":
   let
@@ -195,7 +202,7 @@ task native_bindings, "Build native Nim dynlib and generate Binny bindings":
       elif defined(linux) or defined(bsd):
         cacheDir / "libfigdraw_native.so"
       else:
-        quit "native Nim dynlibs currently support macOS, Linux, and BSD"
+        unsupportedNativeDynlibPath()
 
   exec compiler & " c -f --experimental:abi --emitBif:on --app:lib --mm:orc" &
     " -d:useMalloc -d:figdrawNativeDynlib -d:release" &
@@ -219,7 +226,7 @@ task native_dynlib, "Stage native Nim dynlib artifacts in bin":
       elif defined(linux) or defined(bsd):
         "libfigdraw_native.so"
       else:
-        quit "native Nim dynlibs currently support macOS, Linux, and BSD"
+        unsupportedNativeDynlibPath()
     stagedLibrary = "bin" / libraryName
 
   exec compiler & " native_bindings"
