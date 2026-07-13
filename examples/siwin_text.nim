@@ -2,14 +2,11 @@ when defined(emscripten):
   import std/[times, unicode, strutils]
 else:
   import std/[os, times, unicode, strutils]
-import chroma
-import pkg/pixie/fonts
-
-import figdraw/windowing/siwinshim
-
-import figdraw/commons
-import figdraw/fignodes
-import figdraw/figrender as glrenderer
+when defined(useNativeDynlib):
+  import figdraw/dynlib
+else:
+  import figdraw
+  import figdraw/windowing/siwinshim
 when not UseMetalBackend:
   import figdraw/utils/glutils
 
@@ -33,7 +30,7 @@ proc textStatusLine(mode: TextSubpixelMode, lcdFilteringEnabled: bool): string =
   "LCD: " & lcdMode & ", subpixel: " & subpixelModeDescription(mode)
 
 proc applyTextSampling[BackendState](
-    renderer: glrenderer.FigRenderer[BackendState],
+    renderer: FigRenderer[BackendState],
     mode: TextSubpixelMode,
     lcdFilteringEnabled: bool,
 ) =
@@ -50,7 +47,7 @@ proc applyTextSampling[BackendState](
     renderer.setTextSubpixelGlyphVariants(true)
 
 proc detectTextSubpixelMode[BackendState](
-    renderer: glrenderer.FigRenderer[BackendState]
+    renderer: FigRenderer[BackendState]
 ): TextSubpixelMode =
   let
     subpixel = renderer.textSubpixelPositioning()
@@ -62,7 +59,7 @@ proc detectTextSubpixelMode[BackendState](
   tsmOff
 
 proc detectLcdFilteringEnabled[BackendState](
-    renderer: glrenderer.FigRenderer[BackendState]
+    renderer: FigRenderer[BackendState]
 ): bool =
   renderer.textLcdFiltering()
 
@@ -87,7 +84,7 @@ proc findPhraseRange(text, phrase: string): Slice[int16] =
   result = startRune.int16 .. endRune.int16
 
 proc buildBodyTextLayout*(
-    uiFont: FontRef, textRect: Rect, modeLine: string
+    uiFont: FigFont, textRect: Rect, modeLine: string
 ): tuple[layout: GlyphArrangement, highlightRange: Slice[int16]] =
   let text =
     "Mode: " & modeLine & " (G/U/V: subpixel, L: LCD)\n\n" & "FigDraw text demo\n\n" &
@@ -119,14 +116,24 @@ proc buildBodyTextLayout*(
   )
   result.highlightRange = highlightRange
 
+proc fontMetrics(font: FigFont): tuple[lineHeight, advance: float32] =
+  let layout = typeset(
+    rect(0, 0, font.size * 4, font.size * 4),
+    [(fs(font), "M")],
+    minContent = true,
+    wrap = false,
+  )
+  result.lineHeight = max(font.size, layout.bounding.h)
+  result.advance =
+    if layout.selectionRects.len > 0:
+      layout.selectionRects[0].w
+    else:
+      font.size * 0.6'f32
+
 proc buildMonoWordLayouts*(
-    monoFont: FontRef, monoText: string, pad: float32, colors: openArray[Fill]
+    monoFont: FigFont, monoText: string, pad: float32, colors: openArray[Fill]
 ): seq[GlyphArrangement] =
-  let (_, monoPx) = monoFont.font.convertFont()
-  let monoLineHeight =
-    (if monoPx.lineHeight >= 0: monoPx.lineHeight
-    else: monoPx.defaultLineHeight())
-  let monoAdvance = (monoPx.typeface.getAdvance(Rune('M')) * monoPx.scale)
+  let (monoLineHeight, monoAdvance) = fontMetrics(monoFont)
   let colorsSeq = @colors
 
   var x = pad
@@ -137,7 +144,7 @@ proc buildMonoWordLayouts*(
   proc flushWord(
       glyphs: var seq[(Rune, Vec2)],
       layouts: var seq[GlyphArrangement],
-      monoFont: FontRef,
+      monoFont: FigFont,
       colors: seq[Fill],
       wordIdx: var int,
   ) =
@@ -169,9 +176,9 @@ proc buildMonoWordLayouts*(
   result = layouts
 
 proc makeRenderTree*(
-    w, h: float32, uiFont, monoFont: FontRef, modeLine: string
+    w, h: float32, uiFont, monoFont: FigFont, modeLine: string
 ): Renders =
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+  result = newRenders()
   let z = 0.ZLevel
 
   let rootIdx = result.addRoot(
@@ -223,17 +230,14 @@ proc makeRenderTree*(
   )
 
   let monoText = "Manual glyphs: Hack Nerd Font\n$ printf(\"hello\")"
-  let (_, monoPx) = monoFont.font.convertFont()
-  let monoLineHeight =
-    (if monoPx.lineHeight >= 0: monoPx.lineHeight
-    else: monoPx.defaultLineHeight())
-  let monoPad = max(8.0'f32, monoFont.font.size * 0.6'f32)
+  let (monoLineHeight, _) = fontMetrics(monoFont)
+  let monoPad = max(8.0'f32, monoFont.size * 0.6'f32)
   var monoLines = 1
   for rune in monoText.runes:
     if rune == Rune(10):
       monoLines.inc
   let monoHeight = monoLines.float32 * monoLineHeight + monoPad * 2
-  let invertedBoxHeight = uiFont.font.size * 5.0'f32
+  let invertedBoxHeight = uiFont.size * 5.0'f32
   let sectionGap = 60.0'f32
 
   proc mirroredInputRect(finalRect: Rect): Rect =
@@ -415,9 +419,9 @@ when isMainModule:
   registerStaticTypeface("HackNerdFont-Regular.ttf", "../data/HackNerdFont-Regular.ttf")
 
   let typefaceId = loadTypeface(fontName, @["Ubuntu.ttf"])
-  let uiFont = fontRef(typefaceId, 18.0'f32)
+  let uiFont = fontWithSize(typefaceId, 18.0'f32)
   let monoTypefaceId = loadTypeface("HackNerdFont-Regular.ttf")
-  let monoFont = fontRef(monoTypefaceId, MonoFontSize)
+  let monoFont = fontWithSize(monoTypefaceId, MonoFontSize)
 
   let size = ivec2(900, 690)
 
@@ -425,8 +429,7 @@ when isMainModule:
   var fpsFrames = 0
   var fpsStart = epochTime()
   when UseVulkanBackend:
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 4096, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 4096, backendState = SiwinRenderBackend())
     let appWindow = newSiwinWindow(
       renderer,
       size = size,
@@ -437,8 +440,7 @@ when isMainModule:
     let appWindow = newSiwinWindow(
       size = size, fullscreen = false, title = siwinWindowTitle("Siwin + Text")
     )
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 4096, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 4096, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
   renderer.setupBackend(appWindow)
   appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin + Text")

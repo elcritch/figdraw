@@ -2,30 +2,31 @@ when defined(emscripten):
   import std/[times, strutils]
 else:
   import std/[os, times, strutils]
-import chroma
 
-import figdraw/windowing/siwinshim
-
-import figdraw/commons
-import figdraw/fignodes
-import figdraw/figrender as glrenderer
+when defined(useNativeDynlib):
+  import figdraw/dynlib
+else:
+  import figdraw
+  import figdraw/windowing/siwinshim
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
 proc makeRenderTree*(w, h: float32, image: ImageRef): Renders =
-  var list = RenderList()
+  result = newRenders()
 
-  let rootIdx = list.addRoot(
+  let rootIdx = result.addRoot(
+    0.ZLevel,
     Fig(
       kind: nkRectangle,
       childCount: 0,
       zlevel: 0.ZLevel,
       screenBox: rect(0, 0, w, h),
       fill: rgba(30, 30, 30, 255),
-    )
+    ),
   )
 
-  list.addChild(
+  result.addChild(
+    0.ZLevel,
     rootIdx,
     Fig(
       kind: nkRectangle,
@@ -33,11 +34,12 @@ proc makeRenderTree*(w, h: float32, image: ImageRef): Renders =
       zlevel: 0.ZLevel,
       screenBox: rect(40, 40, 320, 320),
       fill: rgba(80, 80, 80, 255),
-      corners: [16.0'f32, 16.0, 16.0, 16.0],
+      corners: [16'u16, 16'u16, 16'u16, 16'u16],
     ),
   )
 
-  list.addChild(
+  result.addChild(
+    0.ZLevel,
     rootIdx,
     Fig(
       kind: nkImage,
@@ -47,9 +49,6 @@ proc makeRenderTree*(w, h: float32, image: ImageRef): Renders =
       image: imageStyle(image),
     ),
   )
-
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
-  result.layers[0.ZLevel] = list
 
 when isMainModule:
   when defined(emscripten):
@@ -67,14 +66,12 @@ when isMainModule:
   var fpsFrames = 0
   var fpsStart = epochTime()
   when UseVulkanBackend:
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
     let appWindow =
       newSiwinWindow(renderer, size = size, fullscreen = false, title = title)
   else:
     let appWindow = newSiwinWindow(size = size, fullscreen = false, title = title)
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 2048, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
 
   renderer.setupBackend(appWindow)

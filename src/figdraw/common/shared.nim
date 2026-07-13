@@ -11,6 +11,11 @@ export extras, uimaths
 
 import pkg/chroma
 
+when defined(figdrawNativeDynlib):
+  {.pragma: nativeAbi, exportabi.}
+else:
+  {.pragma: nativeAbi.}
+
 type FigDrawError* = object of CatchableError
 
 type
@@ -40,24 +45,23 @@ const
   blackColor* = color(0, 0, 0, 1)
   blueColor* = color(0, 0, 1, 1)
 
-type
-  AppState* = object
-    running*: bool
-    requestedFrame*: int = 2
-    lastDraw*: int
-    lastTick*: int
+type AppState* = object
+  running*: bool
+  requestedFrame*: int = 2
+  lastDraw*: int
+  lastTick*: int
 
-    uiScale*: float32
-    pixelScale*: float32
+  uiScale*: float32
+  pixelScale*: float32
 
 var
   dataDirStr {.runtimeVar.}: string = os.getCurrentDir() / "data"
   appUiScale {.runtimeVar.}: float32 = 1.0'f32
 
-proc figDataDir*(): string =
+proc figDataDir*(): string {.nativeAbi.} =
   dataDirStr
 
-proc setFigDataDir*(dir: string) =
+proc setFigDataDir*(dir: string) {.nativeAbi.} =
   dataDirStr = dir
 
 proc figUiScale*(): float32 =

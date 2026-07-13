@@ -4,6 +4,11 @@ export tables, hashes
 import ./figbasics
 export figbasics
 
+when defined(figdrawNativeDynlib):
+  {.pragma: nativeAbi, exportabi.}
+else:
+  {.pragma: nativeAbi.}
+
 type
   DrawableKind* = enum
     dkLine
@@ -21,7 +26,7 @@ type
       radius*: float32
     of dkRectangle:
       box*: Rect
-      corners*: array[DirectionCorners, uint16]
+      corners*: CornerRadii
     of dkBezier:
       controls*: seq[Vec2]
       steps*: uint16
@@ -40,6 +45,7 @@ type
     layers*: OrderedTable[ZLevel, RenderList]
 
   FigIdx* = distinct int16
+  FigSelectionRange* = Slice[int16]
 
   Fig* = object
     zlevel*: ZLevel
@@ -51,7 +57,7 @@ type
 
     rotation*: float32
     fill*: Fill
-    corners*: array[DirectionCorners, uint16]
+    corners*: CornerRadii
 
     case kind*: FigKind
     of nkRectangle:
@@ -59,7 +65,7 @@ type
       stroke*: RenderStroke
     of nkText:
       textLayout*: GlyphArrangement
-      selectionRange*: Slice[int16]
+      selectionRange*: FigSelectionRange
     of nkDrawable:
       drawStroke*: RenderStroke
       drawSteps*: uint16
@@ -87,66 +93,12 @@ const
   DefaultDrawableBezierSteps* = 48'u16
   DefaultDrawableArcSteps* = 48'u16
 
-proc drawableLine*(a, b: Vec2): DrawableOp =
-  DrawableOp(kind: dkLine, a: a, b: b)
-
-proc drawableLine*(x1: float32, y1: float32, x2: float32, y2: float32): DrawableOp =
-  drawableLine(vec2(x1, y1), vec2(x2, y2))
-
-proc drawableCircle*(center: Vec2, radius: float32): DrawableOp =
-  DrawableOp(kind: dkCircle, center: center, radius: radius)
-
-proc drawableCircle*(x: float32, y: float32, radius: float32): DrawableOp =
-  drawableCircle(vec2(x, y), radius)
-
-proc drawableRect*(
-    box: Rect, corners: array[DirectionCorners, uint16] = [0'u16, 0'u16, 0'u16, 0'u16]
-): DrawableOp =
-  DrawableOp(kind: dkRectangle, box: box, corners: corners)
-
-proc drawableBezier*(controls: openArray[Vec2], steps: uint16 = 0'u16): DrawableOp =
-  ## Creates a stroked Bezier drawable op.
-  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or uses adaptive spans.
-  DrawableOp(kind: dkBezier, controls: @controls, steps: steps)
-
-proc drawableBezier*(p0, p1, p2: Vec2, steps: uint16 = 0'u16): DrawableOp =
-  drawableBezier([p0, p1, p2], steps)
-
-proc drawableBezier*(p0, p1, p2, p3: Vec2, steps: uint16 = 0'u16): DrawableOp =
-  drawableBezier([p0, p1, p2, p3], steps)
-
-proc drawableArc*(
-    center: Vec2,
-    radius: float32,
-    startAngle: float32,
-    sweepAngle: float32,
-    steps: uint16 = 0'u16,
-): DrawableOp =
-  ## Creates a stroked circular arc drawable op. Angles are radians.
-  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or uses adaptive spans.
-  DrawableOp(
-    kind: dkArc,
-    arcCenter: center,
-    arcRadius: radius,
-    startAngle: startAngle,
-    sweepAngle: sweepAngle,
-    arcSteps: steps,
-  )
-
-proc drawableArc*(
-    x, y, radius, startAngle, sweepAngle: float32, steps: uint16 = 0'u16
-): DrawableOp =
-  drawableArc(vec2(x, y), radius, startAngle, sweepAngle, steps)
-
 proc `$`*(id: FigIdx): string =
   "FigIdx(" & $(int(id)) & ")"
 
 proc `+`*(a, b: FigIdx): FigIdx {.borrow.}
 proc `<=`*(a, b: FigIdx): bool {.borrow.}
 proc `==`*(a, b: FigIdx): bool {.borrow.}
-
-proc `[]`*(r: Renders, lvl: ZLevel): RenderList =
-  r.layers[lvl]
 
 proc validIdx(list: RenderList, idx: FigIdx): bool =
   idx.int >= 0 and idx.int < list.nodes.len
@@ -199,6 +151,9 @@ proc insertNodes(list: var RenderList, insertIdx: int, nodes: openArray[Fig]) =
 
   for idx, node in nodes:
     list.nodes[insertIdx + idx] = node
+
+template pairs*(r: Renders): auto =
+  r.layers.pairs()
 
 iterator childIndex*(nodes: seq[Fig], current: FigIdx): FigIdx =
   let childCnt = nodes[current.int].childCount
@@ -265,6 +220,94 @@ proc remappedNodes(list: RenderList, insertIdx: int, parentIdx: FigIdx): seq[Fig
 proc relevelNodes(nodes: var seq[Fig], lvl: ZLevel) =
   for node in nodes.mitems:
     node.zlevel = lvl
+
+{.push nativeAbi.}
+
+proc drawableLine*(a, b: Vec2): DrawableOp =
+  DrawableOp(kind: dkLine, a: a, b: b)
+
+proc drawableLine*(x1: float32, y1: float32, x2: float32, y2: float32): DrawableOp =
+  drawableLine(vec2(x1, y1), vec2(x2, y2))
+
+proc drawableCircle*(center: Vec2, radius: float32): DrawableOp =
+  DrawableOp(kind: dkCircle, center: center, radius: radius)
+
+proc drawableCircle*(x: float32, y: float32, radius: float32): DrawableOp =
+  drawableCircle(vec2(x, y), radius)
+
+proc drawableRect*(
+    box: Rect, corners: CornerRadii = [0'u16, 0'u16, 0'u16, 0'u16]
+): DrawableOp =
+  DrawableOp(kind: dkRectangle, box: box, corners: corners)
+
+proc drawableBezier*(controls: openArray[Vec2], steps: uint16): DrawableOp =
+  ## Creates a stroked Bezier drawable op.
+  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or uses adaptive spans.
+  DrawableOp(kind: dkBezier, controls: @controls, steps: steps)
+
+proc drawableBezier*(controls: openArray[Vec2]): DrawableOp =
+  drawableBezier(controls, 0)
+
+proc drawableBezier*(p0, p1, p2: Vec2, steps: uint16): DrawableOp =
+  drawableBezier([p0, p1, p2], steps)
+
+proc drawableBezier*(p0, p1, p2: Vec2): DrawableOp =
+  drawableBezier(p0, p1, p2, 0)
+
+proc drawableBezier*(p0, p1, p2, p3: Vec2, steps: uint16): DrawableOp =
+  drawableBezier([p0, p1, p2, p3], steps)
+
+proc drawableBezier*(p0, p1, p2, p3: Vec2): DrawableOp =
+  drawableBezier(p0, p1, p2, p3, 0'u16)
+
+proc drawableArc*(
+    center: Vec2,
+    radius: float32,
+    startAngle: float32,
+    sweepAngle: float32,
+    steps: uint16,
+): DrawableOp =
+  ## Creates a stroked circular arc drawable op. Angles are radians.
+  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or uses adaptive spans.
+  DrawableOp(
+    kind: dkArc,
+    arcCenter: center,
+    arcRadius: radius,
+    startAngle: startAngle,
+    sweepAngle: sweepAngle,
+    arcSteps: steps,
+  )
+
+proc drawableArc*(
+    center: Vec2,
+    radius: float32,
+    startAngle: float32,
+    sweepAngle: float32,
+): DrawableOp =
+  drawableArc(
+      center,
+      radius,
+      startAngle,
+      sweepAngle,
+      0'u16,
+  )
+
+proc drawableArc*(
+    x, y, radius, startAngle, sweepAngle: float32, steps: uint16
+): DrawableOp =
+  drawableArc(vec2(x, y), radius, startAngle, sweepAngle, steps)
+
+proc drawableArc*(
+    x, y, radius, startAngle, sweepAngle: float32
+): DrawableOp =
+  drawableArc(vec2(x, y), radius, startAngle, sweepAngle, 0)
+
+proc clear*(list: var RenderList) =
+  list.nodes.setLen(0)
+  list.rootIds.setLen(0)
+
+func len*(list: RenderList): int =
+  list.nodes.len
 
 proc addRoot*(list: var RenderList, root: Fig): FigIdx {.discardable.} =
   ## Appends `root` to `list.nodes`, sets `root.parent = -1`, and adds the
@@ -398,37 +441,52 @@ proc addChildren*(
     parentIdx, children, list.nodes[parentIdx.int].childCount.Natural
   )
 
-proc ensureLayer*(renders: var Renders, lvl: ZLevel): var RenderList =
+proc `[]`*(renders: Renders, lvl: ZLevel): var RenderList =
   if lvl notin renders.layers:
     renders.layers[lvl] = RenderList()
   renders.layers[lvl]
 
-proc addRoot*(renders: var Renders, lvl: ZLevel, root: Fig): FigIdx {.discardable.} =
+proc newRenders*(): Renders =
+  Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+proc setLayer*(renders: Renders, lvl: ZLevel, list: RenderList) =
+  renders.layers[lvl] = list
+
+proc clear*(renders: Renders) =
+  renders.layers.clear()
+
+func len*(renders: Renders, lvl: ZLevel): int =
+  if lvl in renders.layers:
+    renders.layers[lvl].nodes.len
+  else:
+    0
+
+proc addRoot*(renders: Renders, lvl: ZLevel, root: Fig): FigIdx {.discardable.} =
   ## Adds a root to the layer for `lvl`, creating the layer if needed.
   ##
   ## Cost: amortized O(1) for the target layer, plus ordered-table lookup.
   var node = root
   node.zlevel = lvl
-  result = renders.ensureLayer(lvl).addRoot(node)
+  result = renders[lvl].addRoot(node)
 
 proc insertRoot*(
-    renders: var Renders, lvl: ZLevel, root: Fig, rootPos: Natural
+    renders: Renders, lvl: ZLevel, root: Fig, rootPos: Natural
 ): FigIdx {.discardable.} =
   ## Inserts a root into the layer for `lvl`, creating the layer if needed.
   ##
   ## Cost: O(n) in the target layer's node count, plus ordered-table lookup.
   var node = root
   node.zlevel = lvl
-  result = renders.ensureLayer(lvl).insertRoot(node, rootPos)
+  result = renders[lvl].insertRoot(node, rootPos)
 
-proc addRoot*(renders: var Renders, root: Fig): FigIdx {.discardable.} =
+proc addRoot*(renders: Renders, root: Fig): FigIdx {.discardable.} =
   ## Adds a root to the layer for `root.zlevel`.
   ##
   ## Cost: amortized O(1) for the target layer, plus ordered-table lookup.
   result = renders.addRoot(root.zlevel, root)
 
 proc insertRoot*(
-    renders: var Renders, root: Fig, rootPos: Natural
+    renders: Renders, root: Fig, rootPos: Natural
 ): FigIdx {.discardable.} =
   ## Inserts a root into the layer for `root.zlevel`.
   ##
@@ -436,7 +494,7 @@ proc insertRoot*(
   result = renders.insertRoot(root.zlevel, root, rootPos)
 
 proc addChild*(
-    renders: var Renders, lvl: ZLevel, parentIdx: FigIdx, child: Fig
+    renders: Renders, lvl: ZLevel, parentIdx: FigIdx, child: Fig
 ): FigIdx {.discardable.} =
   ## Adds a child to the layer for `lvl`, creating the layer if needed.
   ## The child is forced to the same zlevel as its parent layer.
@@ -444,10 +502,10 @@ proc addChild*(
   ## Cost: amortized O(1) for the target layer, plus ordered-table lookup.
   var node = child
   node.zlevel = lvl
-  result = renders.ensureLayer(lvl).addChild(parentIdx, node)
+  result = renders[lvl].addChild(parentIdx, node)
 
 proc insertChild*(
-    renders: var Renders, lvl: ZLevel, parentIdx: FigIdx, child: Fig, childPos: Natural
+    renders: Renders, lvl: ZLevel, parentIdx: FigIdx, child: Fig, childPos: Natural
 ): FigIdx {.discardable.} =
   ## Inserts a child into the layer for `lvl`, creating the layer if needed.
   ## The child is forced to the same zlevel as its parent layer.
@@ -455,10 +513,10 @@ proc insertChild*(
   ## Cost: O(n) in the target layer's node count, plus ordered-table lookup.
   var node = child
   node.zlevel = lvl
-  result = renders.ensureLayer(lvl).insertChild(parentIdx, node, childPos)
+  result = renders[lvl].insertChild(parentIdx, node, childPos)
 
 proc insertChildren*(
-    renders: var Renders,
+    renders: Renders,
     lvl: ZLevel,
     parentIdx: FigIdx,
     children: RenderList,
@@ -474,24 +532,21 @@ proc insertChildren*(
 
   var childList = RenderList(nodes: nodes, rootIds: children.rootIds)
   childList.recomputeChildCounts()
-  result = renders.ensureLayer(lvl).insertChildren(parentIdx, childList, childPos)
+  result = renders[lvl].insertChildren(parentIdx, childList, childPos)
 
 proc addChildren*(
-    renders: var Renders, lvl: ZLevel, parentIdx: FigIdx, children: RenderList
+    renders: Renders, lvl: ZLevel, parentIdx: FigIdx, children: RenderList
 ): seq[FigIdx] {.discardable.} =
   ## Appends children to the layer for `lvl`, creating the layer if needed.
   ##
   ## Cost: O(n + m), where `n` is the target layer's node count and `m` is
   ## `children.nodes.len`, plus ordered-table lookup.
   result = renders.insertChildren(
-    lvl,
-    parentIdx,
-    children,
-    renders.ensureLayer(lvl).nodes[parentIdx.int].childCount.Natural,
+    lvl, parentIdx, children, renders[lvl].nodes[parentIdx.int].childCount.Natural
   )
 
-template pairs*(r: Renders): auto =
-  r.layers.pairs()
-
-template contains*(r: Renders, lvl: ZLevel): bool =
+proc contains*(r: Renders, lvl: ZLevel): bool =
   r.layers.contains(lvl)
+
+{.pop.}
+

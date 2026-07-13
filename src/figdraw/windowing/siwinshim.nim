@@ -11,7 +11,8 @@ const UseSiwinOpenGL = not (UseMetalBackend or UseVulkanBackend)
 const NeedSiwinOpenGLContext = UseSiwinOpenGL or UseOpenGlFallback
 
 when defined(macosx):
-  import darwin/app_kit/[nsview]
+  import darwin/app_kit/[nscolor, nsview, nswindow]
+  import darwin/objc/runtime
   import siwin/platforms/cocoa/window as siCocoaWindow
   when UseMetalBackend or UseVulkanBackend:
     import ./siwinmetal as siwinmetal
@@ -342,9 +343,31 @@ type SiwinRenderBackend* = object
   when UseVulkanBackend and defined(macosx):
     vulkanMetalLayer*: MetalLayerHandle
 
+when defined(macosx):
+  proc setOpaque(window: NSWindow, opaque: BOOL) {.objc: "setOpaque:".}
+
+proc configureTransparentPresentation*(
+    renderer: FigRenderer[SiwinRenderBackend], window: Window
+) =
+  if window.isNil or not window.transparent:
+    return
+  when defined(macosx):
+    if window of WindowCocoa:
+      let nativeWindow = cast[NSWindow](WindowCocoa(window).nativeWindowHandle())
+      if not nativeWindow.isNil:
+        nativeWindow.setOpaque(false)
+        nativeWindow.setBackgroundColor(NSColor.clearColor())
+    when UseMetalBackend:
+      if not renderer.backendState.metalLayer.layer.isNil:
+        renderer.backendState.metalLayer.setOpaque(false)
+    when UseVulkanBackend:
+      if not renderer.backendState.vulkanMetalLayer.layer.isNil:
+        renderer.backendState.vulkanMetalLayer.setOpaque(false)
+
 proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a siwin window and FigDraw renderer.
   renderer.backendState.window = window
+  renderer.configureTransparentPresentation(window)
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     if renderer.forceOpenGlByEnv():
       when NeedSiwinOpenGLContext:
@@ -422,6 +445,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
           renderer.useOpenGlFallback(exc.msg)
         else:
           raise exc
+  renderer.configureTransparentPresentation(window)
 
 proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   ## Per-frame pre-render backend maintenance.

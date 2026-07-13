@@ -8,6 +8,11 @@ export filltypes
 import pkg/chroma
 export chroma
 
+when defined(figdrawNativeDynlib):
+  {.pragma: nativeAbi, exportabi.}
+else:
+  {.pragma: nativeAbi.}
+
 type
   TypefaceId* = distinct Hash
   FontId* = distinct Hash
@@ -220,7 +225,7 @@ func glyphSource(
 
 func glyphRangeFor*(
     arrangement: GlyphArrangement, sourceRange: Slice[int]
-): Slice[int] =
+): Slice[int] {.nativeAbi.} =
   ## Returns the inclusive glyph range touching an inclusive source-rune range.
   ## Returns `0 .. -1` when no glyph intersects the source range.
   if sourceRange.a > sourceRange.b:
@@ -268,7 +273,7 @@ func glyphRangeForRawBytes*(
       else:
         result.b = glyphIndex
 
-func glyphCount*(arrangement: GlyphArrangement): int {.inline.} =
+func glyphCount*(arrangement: GlyphArrangement): int {.nativeAbi.} =
   ## Returns the number of visual glyphs in the arrangement.
   if arrangement.arrangedGlyphs.len > 0:
     arrangement.arrangedGlyphs.len
@@ -283,19 +288,21 @@ func rectForGlyph(arrangement: GlyphArrangement, glyphIndex: int): Rect {.inline
 
 func glyphSourceRange*(
     arrangement: GlyphArrangement, glyphIndex: int
-): GlyphSourceRange =
+): GlyphSourceRange {.nativeAbi.} =
   ## Returns the source byte/rune range that produced a visual glyph.
   if glyphIndex < 0 or glyphIndex >= arrangement.glyphCount():
     return
   arrangement.glyphSource(glyphIndex)
 
-func glyphRect*(arrangement: GlyphArrangement, glyphIndex: int): Rect =
+func glyphRect*(arrangement: GlyphArrangement, glyphIndex: int): Rect {.nativeAbi.} =
   ## Returns the local visual glyph rectangle, or an empty rectangle when out of range.
   if glyphIndex < 0 or glyphIndex >= arrangement.glyphCount():
     return rect(0, 0, 0, 0)
   arrangement.rectForGlyph(glyphIndex)
 
-func glyphFont*(arrangement: GlyphArrangement, glyphIndex: int): GlyphFont =
+func glyphFont*(
+    arrangement: GlyphArrangement, glyphIndex: int
+): GlyphFont {.nativeAbi.} =
   ## Returns the font metrics associated with a visual glyph.
   for fontIndex, span in arrangement.spans:
     if glyphIndex in span and fontIndex < arrangement.fonts.len:
@@ -367,7 +374,7 @@ func glyphLineRange*(arrangement: GlyphArrangement, glyphIndex: int): Slice[int]
     return 0 .. -1
   arrangement.normalizedGlyphLine(arrangement.lineForGlyph(glyphIndex))
 
-func lineGlyphRanges*(arrangement: GlyphArrangement): seq[Slice[int]] =
+func lineGlyphRanges*(arrangement: GlyphArrangement): seq[Slice[int]] {.nativeAbi.} =
   ## Returns normalized visual-line glyph ranges for this arrangement.
   let count = arrangement.glyphCount()
   if count == 0:
@@ -381,7 +388,7 @@ func lineGlyphRanges*(arrangement: GlyphArrangement): seq[Slice[int]] =
     if line.a <= line.b:
       result.add line
 
-func layoutContentSize*(arrangement: GlyphArrangement): Vec2 =
+func layoutContentSize*(arrangement: GlyphArrangement): Vec2 {.nativeAbi.} =
   ## Returns the content size implied by arranged glyph bounds and max size.
   vec2(
     max(arrangement.maxSize.x, arrangement.bounding.w),
@@ -609,7 +616,7 @@ func selectionBandsForRawBytes*(
 
 func selectionRectsFor*(
     arrangement: GlyphArrangement, sourceRange: Slice[int]
-): seq[Rect] =
+): seq[Rect] {.nativeAbi.} =
   ## Returns merged visual selection bands for a source-rune range.
   ## Use `glyphSelectionRectsFor` for raw per-glyph rectangles.
   arrangement.selectionBandsFor(sourceRange)
@@ -625,7 +632,7 @@ func containsPoint(rect: Rect, point: Vec2): bool {.inline.} =
   point.x >= rect.x and point.y >= rect.y and point.x < rect.x + rect.w and
     point.y < rect.y + rect.h
 
-func glyphIndexAt*(arrangement: GlyphArrangement, point: Vec2): int =
+func glyphIndexAt*(arrangement: GlyphArrangement, point: Vec2): int {.nativeAbi.} =
   ## Returns the glyph index at a local text-layout point, or `-1`.
   let glyphCount =
     if arrangement.arrangedGlyphs.len > 0:
@@ -638,14 +645,16 @@ func glyphIndexAt*(arrangement: GlyphArrangement, point: Vec2): int =
       return glyphIndex
   -1
 
-func sourceRuneRangeAt*(arrangement: GlyphArrangement, point: Vec2): Slice[int] =
+func sourceRuneRangeAt*(
+    arrangement: GlyphArrangement, point: Vec2
+): Slice[int] {.nativeAbi.} =
   ## Returns the source-rune range at a local text-layout point, or `0 .. -1`.
   let glyphIndex = arrangement.glyphIndexAt(point)
   if glyphIndex < 0:
     return 0 .. -1
   arrangement.sourceRuneRange(glyphIndex)
 
-func sourceRuneCount*(arrangement: GlyphArrangement): int {.inline.} =
+func sourceRuneCount*(arrangement: GlyphArrangement): int {.nativeAbi.} =
   ## Returns the number of source runes represented by the arrangement.
   if arrangement.sourceRunes.len > 0:
     arrangement.sourceRunes.len
@@ -676,7 +685,7 @@ func addCaret(carets: var seq[TextCaretPosition], caret: TextCaretPosition) =
 
 func caretPositionsFor*(
     arrangement: GlyphArrangement, sourceRune: int
-): seq[TextCaretPosition] =
+): seq[TextCaretPosition] {.nativeAbi.} =
   ## Returns visual caret positions for a source insertion index.
   ## Bidi boundaries can produce more than one visual position.
   let sourceCount = arrangement.sourceRuneCount()
@@ -743,7 +752,9 @@ func caretPositionsFor*(
         rect: rect(x, glyphRect.y, 0, glyphRect.h),
       )
 
-func nearestSourceRuneForCaretPoint*(arrangement: GlyphArrangement, point: Vec2): int =
+func nearestSourceRuneForCaretPoint*(
+    arrangement: GlyphArrangement, point: Vec2
+): int {.nativeAbi.} =
   ## Returns the source insertion index nearest to a local text-layout point.
   let sourceCount = arrangement.sourceRuneCount()
   result = 0

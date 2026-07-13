@@ -3,6 +3,11 @@ import std/math
 import pkg/chroma
 import equtils
 
+when defined(figdrawNativeDynlib):
+  {.pragma: nativeAbi, exportabi.}
+else:
+  {.pragma: nativeAbi.}
+
 type
   FillGradientAxis* = enum
     fgaX
@@ -39,15 +44,15 @@ type
 proc `==`*(a, b: Fill): bool =
   equalsImpl(a, b)
 
-proc fill*(color: ColorRGBA): Fill =
+proc fill*(color: ColorRGBA): Fill {.nativeAbi.} =
   Fill(kind: flColor, color: color)
 
-proc linear*(start, stop: ColorRGBA, axis: FillGradientAxis): Fill =
+proc linear*(start, stop: ColorRGBA, axis: FillGradientAxis): Fill {.nativeAbi.} =
   Fill(kind: flLinear2, lin2: Linear2(axis: axis, start: start, stop: stop))
 
 proc linear*(
     start, mid, stop: ColorRGBA, axis: FillGradientAxis, midPos = 128'u8
-): Fill =
+): Fill {.nativeAbi.} =
   Fill(
     kind: flLinear3,
     lin3: Linear3(axis: axis, start: start, mid: mid, stop: stop, midPos: midPos),

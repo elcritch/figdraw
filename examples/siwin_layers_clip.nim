@@ -2,13 +2,11 @@ import std/times
 import std/strutils
 when not defined(emscripten):
   import std/os
-import chroma
-
-import figdraw/windowing/siwinshim
-
-import figdraw/commons
-import figdraw/fignodes
-import figdraw/figrender as glrenderer
+when defined(useNativeDynlib):
+  import figdraw/dynlib
+else:
+  import figdraw
+  import figdraw/windowing/siwinshim
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
@@ -144,15 +142,11 @@ proc makeRenderTree*(w, h: float32): Renders =
     20.ZLevel,
   )
 
-  result = Renders(layers: initOrderedTable[ZLevel, RenderList]())
-  result.layers[(-20).ZLevel] = bgList
-  result.layers[0.ZLevel] = layer0List
-  result.layers[(-5).ZLevel] = lowList
-  result.layers[20.ZLevel] = topList
-  result.layers.sort(
-    proc(x, y: auto): int =
-      cmp(x[0], y[0])
-  )
+  result = newRenders()
+  result.setLayer((-20).ZLevel, bgList)
+  result.setLayer((-5).ZLevel, lowList)
+  result.setLayer(0.ZLevel, layer0List)
+  result.setLayer(20.ZLevel, topList)
 
 when isMainModule:
   var appRunning = true
@@ -163,14 +157,12 @@ when isMainModule:
   var fpsFrames = 0
   var fpsStart = epochTime()
   when UseVulkanBackend:
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
     let appWindow =
       newSiwinWindow(renderer, size = size, fullscreen = false, title = title)
   else:
     let appWindow = newSiwinWindow(size = size, fullscreen = false, title = title)
-    let renderer =
-      glrenderer.newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
+    let renderer = newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
   let useAutoScale = appWindow.configureUiScale()
 
   renderer.setupBackend(appWindow)

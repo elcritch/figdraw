@@ -10,6 +10,9 @@
 import std/[strformat, strutils]
 import std/os
 
+when defined(useNativeDynlib):
+  switch("path", "bin")
+
 when defined(macosx) and defined(figdraw.moltenvkBrew):
   let moltenVkPrefix = gorgeEx("brew --prefix molten-vk").output.strip()
   if moltenVkPrefix.len == 0:
@@ -111,6 +114,8 @@ task test, "run unit test":
   let enableSdl2 =
     getEnv("FIGDRAW_TEST_SDL2").strip().toLowerAscii() in ["1", "true", "yes", "on"]
   var excludedTests: seq[string]
+  when not defined(useNativeDynlib):
+    excludedTests.add("tsiwin_redraw.nim")
   for testName in getEnv("FIGDRAW_TEST_EXCLUDE").split(','):
     let cleaned = testName.strip()
     if cleaned.len > 0:
@@ -146,7 +151,9 @@ task test_compile, "compile unit tests without running":
   var testCount = 0
   for file in listFiles("tests"):
     let name = file.extractFilename()
-    if name.startsWith("t") and name.endsWith(".nim"):
+    let isNativeDynlibTest = name == "tsiwin_redraw.nim"
+    if name.startsWith("t") and name.endsWith(".nim") and
+        (not isNativeDynlibTest or defined(useNativeDynlib)):
       inc testCount
       nimExec("c", file)
   if testCount == 0:
@@ -176,3 +183,63 @@ task bindings, "Generate bindings":
     exec "lipo src/figdraw/bindings/generated/libfigdraw.dylib.arm src/figdraw/bindings/generated/libfigdraw.dylib.x64 -output src/figdraw/bindings/generated/libfigdraw.dylib -create"
   else:
     compile "libfigdraw.so"
+
+proc unsupportedNativeDynlibPath(): string =
+  quit "native Nim dynlibs currently support macOS, Linux, and BSD"
+
+# Invoke this task with a compiler that supports the experimental native ABI.
+task native_bindings, "Build native Nim dynlib and generate Binny bindings":
+  let
+    compiler = getCurrentCompilerExe()
+    cacheDir = ".nimcache/native_figdraw"
+    producer = "src/figdraw/bindings/native_bindings.nim"
+    generator = "src/figdraw/bindings/generate_native_bindings.nim"
+    manifest = cacheDir / "libfigdraw_native.abi.nif"
+    bindings = cacheDir / "figdraw_native_abi.nim"
+    library =
+      when defined(macosx):
+        cacheDir / "libfigdraw_native.dylib"
+      elif defined(linux) or defined(bsd):
+        cacheDir / "libfigdraw_native.so"
+      else:
+        unsupportedNativeDynlibPath()
+
+  exec compiler & " c -f --experimental:abi --emitBif:on --app:lib --mm:orc" &
+    " -d:useMalloc -d:figdrawNativeDynlib -d:release" &
+    " --path:src --path:deps/siwin/src" & " --nimcache:" & cacheDir & " --out:" & library &
+    " " & producer
+  exec compiler & " r -d:release --path:../binny" & " --nimcache:" &
+    cacheDir / "generator" & " " & generator & " " & cacheDir & " " & producer & " " &
+    manifest & " " & bindings
+
+task native_dynlib, "Stage native Nim dynlib artifacts in bin":
+  let
+    compiler = getCurrentCompilerExe()
+    cacheDir = ".nimcache/native_figdraw"
+    producer = "src/figdraw/bindings/native_bindings.nim"
+    generator = "src/figdraw/bindings/generate_native_bindings.nim"
+    manifest = cacheDir / "libfigdraw_native.abi.nif"
+    bindings = "bin" / "figdraw_native_abi.nim"
+    libraryName =
+      when defined(macosx):
+        "libfigdraw_native.dylib"
+      elif defined(linux) or defined(bsd):
+        "libfigdraw_native.so"
+      else:
+        unsupportedNativeDynlibPath()
+    stagedLibrary = "bin" / libraryName
+
+  exec compiler & " native_bindings"
+  exec "mkdir -p bin"
+  exec "cp " & (cacheDir / libraryName).quoteShell() & " " & stagedLibrary.quoteShell()
+  exec "cp " & manifest.quoteShell() & " " &
+    ("bin" / manifest.extractFilename()).quoteShell()
+  exec compiler & " r -d:release --path:../binny" & " --nimcache:" &
+    cacheDir / "generator" & " " & generator & " " & cacheDir & " " & producer & " " &
+    manifest & " " & bindings & " " & stagedLibrary
+
+task native_shared_example, "Build the native Nim siwin shared example":
+  let compiler = getCurrentCompilerExe()
+  exec compiler & " native_bindings"
+  exec compiler & " c --mm:orc -d:useMalloc --path:.nimcache/native_figdraw" &
+    " --out:examples/siwing_shared_native examples/siwing_shared_native.nim"

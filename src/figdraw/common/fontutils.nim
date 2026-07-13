@@ -10,6 +10,11 @@ import ./imgutils
 import ./typefaces
 import ./fontglyphs
 
+when defined(figdrawNativeDynlib):
+  {.pragma: nativeAbi, exportabi.}
+else:
+  {.pragma: nativeAbi.}
+
 export FontRef, fontRef, loadTypeface, convertFont, registerStaticTypeface
 
 when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
@@ -54,6 +59,17 @@ proc typeset*(
 
 proc typeset*(
     box: Rect,
+    font: FigFont,
+    text: string,
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+): GlyphArrangement {.nativeAbi.} =
+  typeset(box, [(font, text)], hAlign, vAlign, minContent, wrap)
+
+proc typeset*(
+    box: Rect,
     uiSpans: openArray[(FontRef, string)],
     hAlign = FontHorizontal.Left,
     vAlign = FontVertical.Top,
@@ -69,7 +85,7 @@ proc placeGlyphs*(
     style: FontStyle,
     glyphs: openArray[(Rune, Vec2)],
     origin: GlyphOrigin = GlyphTopLeft,
-): GlyphArrangement =
+): GlyphArrangement {.nativeAbi.} =
   ## Builds a glyph arrangement using explicit positions for each glyph.
   ## `origin` controls whether positions are the glyph's top-left or baseline.
   threadEffects:
