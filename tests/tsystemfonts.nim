@@ -1,6 +1,11 @@
 import std/[os, unittest]
 
-import figdraw/extras/systemfonts
+when defined(useNativeDynlib):
+  import figdraw/dynlib
+  from figdraw/extras/systemfonts import
+    systemDefaultFontNames, findSystemFontFile, sfrMono
+else:
+  import figdraw
 
 suite "system fonts":
   test "platform default font names are listed by role":
@@ -41,6 +46,13 @@ suite "system fonts":
       let font = findSystemFontFile(["Helvetica", "Arial", "Menlo", "SFNS"])
       check font.len > 0
       check fileExists(font)
+
+    test "prefer exact macos font names over partial matches":
+      let
+        helvetica = findSystemFontFile(["Helvetica"])
+        timesNewRoman = findSystemFontFile(["Times New Roman"])
+      check helvetica.extractFilename == "Helvetica.ttc"
+      check timesNewRoman.extractFilename == "Times New Roman.ttf"
   elif defined(linux) or defined(freebsd):
     test "detect display server from environment":
       let oldWayland = getEnv("WAYLAND_DISPLAY", "")

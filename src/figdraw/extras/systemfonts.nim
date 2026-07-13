@@ -1,4 +1,4 @@
-import std/[os, strutils, sequtils, sets]
+import std/[os, strutils, sets]
 
 type
   DisplayServer* = enum
@@ -23,8 +23,8 @@ proc normalizePathKey(path: string): string =
   path.toLowerAscii().replace('\\', '/')
 
 proc detectDisplayServer*(): DisplayServer =
-  ## Detects Linux/FreeBSD display server. Other platforms return dsUnknown.
-  when defined(linux) or defined(freebsd):
+  ## Detects the display server on non-macOS POSIX platforms.
+  when defined(posix) and not defined(macosx):
     if existsEnv("WAYLAND_DISPLAY") and getEnv("WAYLAND_DISPLAY").len > 0:
       return dsWayland
     if existsEnv("DISPLAY") and getEnv("DISPLAY").len > 0:
@@ -46,10 +46,11 @@ proc dedupePaths(paths: openArray[string]): seq[string] =
       seen.incl(key)
       result.add(path)
 
-proc splitPathList(value: string): seq[string] =
-  for item in value.split(PathSep):
-    if item.len > 0:
-      result.add(item)
+when defined(posix) and not defined(macosx):
+  proc splitPathList(value: string): seq[string] =
+    for item in value.split(PathSep):
+      if item.len > 0:
+        result.add(item)
 
 proc systemDefaultFontNames*(role = sfrSans): seq[string] =
   ## Returns platform-default font family candidates for a role.
@@ -86,7 +87,7 @@ proc systemFontDirs*(displayServer = detectDisplayServer()): seq[string] =
     dirs.addIfDir("/System/Library/Fonts")
     dirs.addIfDir("/Library/Fonts")
     dirs.addIfDir("~/Library/Fonts")
-  elif defined(linux) or defined(freebsd):
+  elif defined(posix) and not defined(macosx):
     let home = getHomeDir()
     let xdgDataHome = getEnv("XDG_DATA_HOME", home / ".local" / "share")
     dirs.addIfDir(xdgDataHome / "fonts")
@@ -127,16 +128,33 @@ proc systemFontFiles*(displayServer = detectDisplayServer()): seq[string] =
 proc findSystemFontFile*(
     names: openArray[string], displayServer = detectDisplayServer()
 ): string =
-  ## Finds the first system font path matching one of the candidate names.
+  ## Finds the preferred system font path matching one of the candidate names.
+  ##
+  ## Exact normalized file and stem matches take precedence over loose partial
+  ## matches, so a request such as "Times New Roman" is not captured by
+  ## "Times.ttc" before "Times New Roman.ttf" is considered.
   if names.len == 0:
     return ""
 
-  let candidates = names.toSeq().mapIt(it.normalizeName())
-  for path in systemFontFiles(displayServer):
-    let stem = splitFile(path).name.normalizeName()
-    for candidate in candidates:
-      if candidate.len == 0:
-        continue
-      if stem == candidate or stem.contains(candidate) or candidate.contains(stem):
+  let fontFiles = systemFontFiles(displayServer)
+  for name in names:
+    let candidate = name.normalizeName()
+    if candidate.len == 0:
+      continue
+    for path in fontFiles:
+      let
+        parts = splitFile(path)
+        stem = parts.name.normalizeName()
+        fileName = (parts.name & parts.ext).normalizeName()
+      if candidate == stem or candidate == fileName:
+        return path
+
+  for name in names:
+    let candidate = name.normalizeName()
+    if candidate.len == 0:
+      continue
+    for path in fontFiles:
+      let stem = splitFile(path).name.normalizeName()
+      if stem.contains(candidate) or candidate.contains(stem):
         return path
   ""

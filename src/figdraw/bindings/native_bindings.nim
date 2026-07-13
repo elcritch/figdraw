@@ -8,6 +8,7 @@ import siwin/[clipboards, colorutils]
 
 import figdraw/commons
 import figdraw/common/fontutils as fontutils
+import figdraw/extras/systemfonts as systemfonts
 import figdraw/fignodes
 import figdraw/figrender
 import figdraw/utils/drawutils
@@ -72,6 +73,12 @@ type
     renderer: FigRenderer[SiwinRenderBackend]
     autoScale: bool
     title: string
+
+proc systemFontDirs*(): seq[string] {.exportabi.} =
+  systemfonts.systemFontDirs()
+
+proc systemFontFiles*(): seq[string] {.exportabi.} =
+  systemfonts.systemFontFiles()
 
 proc retainRaw[T](raw: pointer) =
   if raw != nil:

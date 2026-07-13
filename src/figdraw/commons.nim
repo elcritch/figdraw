@@ -3,6 +3,7 @@ import common/uimaths
 import common/rchannels
 import common/fontutils
 import common/imgutils
+import extras/systemfonts
 
 const WantVulkanBackend {.booldefine: "figdraw.vulkan".} =
   defined(bsd) or defined(linux) or defined(windows)
@@ -20,3 +21,4 @@ const UseOpenGlFallback* = WantOpenGlFallback and not UseOpenGlBackend
 export shared, uimaths, rchannels
 export fontutils
 export imgutils
+export systemfonts
