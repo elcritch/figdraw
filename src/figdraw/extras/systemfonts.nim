@@ -1,5 +1,7 @@
 import std/[os, strutils, sets]
 
+import ../common/fonttypes
+
 type
   DisplayServer* = enum
     dsUnknown
@@ -9,8 +11,6 @@ type
   SystemFontRole* = enum
     sfrSans
     sfrMono
-
-const FontFileExtensions = [".ttf", ".ttc", ".otf", ".otc"]
 
 proc normalizeName(name: string): string =
   ## Normalizes a font/file name for loose matching.
@@ -117,7 +117,7 @@ proc systemFontFiles*(displayServer = detectDisplayServer()): seq[string] =
     try:
       for file in walkDirRec(dir):
         let ext = file.splitFile.ext.toLowerAscii()
-        if ext in FontFileExtensions:
+        if ext in supportedFontFileExtensions():
           let key = normalizePathKey(file)
           if key notin seen:
             seen.incl(key)

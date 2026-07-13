@@ -132,6 +132,32 @@ const figdrawTextBackend* {.strdefine.} = "pixie"
 static:
   doAssert figdrawTextBackend in ["pixie", "harfbuzzy", "hybrid"]
 
+func textBackend*(): string =
+  ## Text backend compiled into FigDraw.
+  figdrawTextBackend
+
+func textBackendFeatures*(): seq[string] =
+  ## Backend capabilities compiled into FigDraw.
+  case figdrawTextBackend
+  of "pixie":
+    @["pixie-typesetting", "pixie-rasterization"]
+  of "harfbuzzy":
+    @[
+      "harfbuzz-shaping", "glyph-id-rasterization", "bidirectional-text",
+      "font-fallback", "opentype-features", "font-variations",
+    ]
+  of "hybrid":
+    @[
+      "harfbuzz-shaping", "pixie-rasterization", "bidirectional-text", "font-fallback",
+      "opentype-features", "font-variations",
+    ]
+  else:
+    @[]
+
+func supportedFontFileExtensions*(): seq[string] =
+  ## Typeface file extensions accepted by FigDraw's font loader.
+  @[".ttf", ".otf", ".ttc", ".svg"]
+
 proc hash*(id: TypefaceId): Hash {.borrow.}
 proc `==`*(a, b: TypefaceId): bool {.borrow.}
 

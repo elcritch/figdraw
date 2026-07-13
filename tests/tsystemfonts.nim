@@ -1,4 +1,6 @@
-import std/[os, unittest]
+import std/[os, strutils, unittest]
+
+import figdraw/common/fonttypes
 
 when defined(useNativeDynlib):
   import figdraw/dynlib
@@ -34,6 +36,8 @@ suite "system fonts":
   test "system font files are discoverable":
     let fonts = systemFontFiles()
     check fonts.len > 0
+    for font in fonts:
+      check font.splitFile.ext.toLowerAscii() in supportedFontFileExtensions()
 
   when defined(windows):
     test "find common windows system font":

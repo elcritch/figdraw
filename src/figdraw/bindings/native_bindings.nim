@@ -7,6 +7,7 @@ import pkg/pixie/fileformats/png as png
 import siwin/[clipboards, colorutils]
 
 import figdraw/commons
+import figdraw/common/fonttypes as fonttypes
 import figdraw/common/fontutils as fontutils
 import figdraw/extras/systemfonts as systemfonts
 import figdraw/fignodes
@@ -79,6 +80,18 @@ proc systemFontDirs*(): seq[string] {.exportabi.} =
 
 proc systemFontFiles*(): seq[string] {.exportabi.} =
   systemfonts.systemFontFiles()
+
+proc textBackend*(): string {.exportabi.} =
+  ## Text backend compiled into this native library.
+  fonttypes.textBackend()
+
+proc textBackendFeatures*(): Strings {.exportabi.} =
+  ## Backend capabilities compiled into this native library.
+  fonttypes.textBackendFeatures()
+
+proc supportedFontFileExtensions*(): Strings {.exportabi.} =
+  ## Typeface file extensions accepted by FigDraw's font loader.
+  fonttypes.supportedFontFileExtensions()
 
 proc retainRaw[T](raw: pointer) =
   if raw != nil:
