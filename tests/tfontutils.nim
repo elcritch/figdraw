@@ -1356,7 +1356,7 @@ suite "fontutils":
       break
     check hasImage(glyphImageId)
 
-  test "FontRef retain copy move and final release send owner messages":
+  test "FontRef copies share one retained handle":
     drainImageMessages()
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
@@ -1367,17 +1367,39 @@ suite "fontutils":
     check retain.fontId == owner.fontId
 
     var copied = owner
+    check copied == owner
     var msg: ImageMsg
     check not tryRecvImageMsg(msg)
 
     var moved = move(copied)
-    copied = FontRef()
+    check copied.isNil
     check not tryRecvImageMsg(msg)
 
-    owner = FontRef()
+    owner = nil
     check not tryRecvImageMsg(msg)
 
-    moved = FontRef()
+    moved = nil
+    let release = recvImageMsg(ImkReleaseFont)
+    check release.fontId == retain.fontId
+    check release.ownerToken == retain.ownerToken
+
+  test "FontRefs for the same ID share backend ownership":
+    drainImageMessages()
+    let fontData = readFile(figDataDir() / "Ubuntu.ttf")
+    let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+    let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+
+    var first = fontRef(uiFont)
+    let retain = recvImageMsg(ImkRetainFont)
+
+    var second = fontRef(uiFont)
+    var msg: ImageMsg
+    check not tryRecvImageMsg(msg)
+
+    first = nil
+    check not tryRecvImageMsg(msg)
+
+    second = nil
     let release = recvImageMsg(ImkReleaseFont)
     check release.fontId == retain.fontId
     check release.ownerToken == retain.ownerToken
@@ -1414,7 +1436,7 @@ suite "fontutils":
     check placed.runes.len == 1
 
     clearFontGlyphs(owner)
-    owner = FontRef()
+    owner = nil
     drainImageMessages()
 
   test "loadTypeface prefers figDataDir over other paths":

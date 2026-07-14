@@ -56,13 +56,14 @@ type
         ImkReleaseFont:
       discard
 
-  ImageRef* = object
-    ## Thread-affine managed image handle.
-    ##
-    ## Pass raw ImageId values across threads and create a new ImageRef on the
-    ## receiving thread when that thread needs ownership.
-    id*: ImageId
-    managed: bool
+  ImageRefHandle = object
+    imageId: ImageId
+
+  ## Thread-affine managed image handle.
+  ##
+  ## Pass raw ImageId values across threads and create a new ImageRef on the
+  ## receiving thread when that thread needs ownership.
+  ImageRef* = ref ImageRefHandle
 
   ImageCacheKind = enum
     ickImage
@@ -153,26 +154,12 @@ proc releaseFontRefId*(fontId: FontId) =
     localFontRefCounts.del(fontId)
     sendReleaseFont(fontId, currentOwnerToken())
 
-proc `=destroy`*(imageRef: ImageRef) =
-  if imageRef.managed:
-    releaseImageRefId(imageRef.id)
+proc `=destroy`(imageRef: ImageRefHandle) =
+  releaseImageRefId(imageRef.imageId)
 
-proc `=wasMoved`*(imageRef: var ImageRef) =
-  imageRef.id = ImageId(0)
-  imageRef.managed = false
-
-proc `=dup`*(src: ImageRef): ImageRef =
-  if src.managed:
-    retainImageRefId(src.id)
-  result.id = src.id
-  result.managed = src.managed
-
-proc `=copy`*(dest: var ImageRef, src: ImageRef) =
-  if src.managed:
-    retainImageRefId(src.id)
-  `=destroy`(dest)
-  dest.id = src.id
-  dest.managed = src.managed
+func id*(imageRef: ImageRef): ImageId {.inline.} =
+  ## The image ID owned by this handle.
+  imageRef.imageId
 
 proc imgId*(name: string): ImageId =
   hash(name).ImageId
@@ -416,8 +403,8 @@ proc loadImage*(id: ImageId, image: Image) =
 proc imageRef*(id: ImageId): ImageRef =
   ## Retain an existing image ID for the current thread.
   retainImageRefId(id)
-  result.id = id
-  result.managed = true
+  new result
+  result.imageId = id
 
 proc loadImageRef*(filePath: string): ImageRef =
   ## Load an image through the normal cache path and retain its ID.

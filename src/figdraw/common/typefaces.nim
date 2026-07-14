@@ -30,14 +30,16 @@ type TypefaceSource* = object
   kind*: TypeFaceKinds
   faceIndex*: int
 
-type FontRef* = object
+type
+  FontRefHandle = object
+    value: FigFont
+    id: FontId
+
   ## Thread-affine managed font handle.
   ##
   ## Pass raw FontId or FigFont values across threads and create a new FontRef on
   ## the receiving thread when that thread needs ownership.
-  font*: FigFont
-  fontId*: FontId
-  managed: bool
+  FontRef* = ref FontRefHandle
 
 var
   typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
@@ -50,31 +52,17 @@ var
 
 fontLock.initLock()
 
-proc `=destroy`*(fontRef: var FontRef) =
-  if fontRef.managed:
-    releaseFontRefId(fontRef.fontId)
-  `=destroy`(fontRef.font)
+proc `=destroy`(fontRef: var FontRefHandle) =
+  releaseFontRefId(fontRef.id)
+  `=destroy`(fontRef.value)
 
-proc `=wasMoved`*(fontRef: var FontRef) =
-  wasMoved(fontRef.font)
-  fontRef.fontId = FontId(0)
-  fontRef.managed = false
+func font*(fontRef: FontRef): lent FigFont {.inline.} =
+  ## The font owned by this handle.
+  fontRef.value
 
-proc `=dup`*(src: FontRef): FontRef =
-  if src.managed:
-    retainFontRefId(src.fontId)
-  result.font = src.font
-  result.fontId = src.fontId
-  result.managed = src.managed
-
-proc `=copy`*(dest: var FontRef, src: FontRef) =
-  let font = src.font
-  if src.managed:
-    retainFontRefId(src.fontId)
-  `=destroy`(dest)
-  dest.font = font
-  dest.fontId = src.fontId
-  dest.managed = src.managed
+func fontId*(fontRef: FontRef): FontId {.inline.} =
+  ## The registered font ID owned by this handle.
+  fontRef.id
 
 proc normalizeTypefaceLookupName(name: string): string =
   name.toLowerAscii()
@@ -378,9 +366,9 @@ proc fontRef*(font: FigFont): FontRef =
   ## Retain a font cache ID for the current thread.
   let (fontId, _) = font.convertFont()
   retainFontRefId(fontId)
-  result.font = font
-  result.fontId = fontId
-  result.managed = true
+  new result
+  result.value = font
+  result.id = fontId
 
 proc fontRef*(typefaceId: TypefaceId, size: float32): FontRef =
   ## Build a FigFont from a typeface and size, then retain its font cache ID.

@@ -363,13 +363,14 @@ suite "image loading":
     check ctx.uploaded == @[loadedId, loadedId]
     check loadedId.Hash in ctx.entries
 
-  test "ImageRef retain copy move and final release send owner messages":
+  test "ImageRef copies share one retained handle":
     let id = imgId("tests/timage_loading/image-ref-hooks")
     var owned = imageRef(id)
     let retain = recvImageMsg(ImkRetainImage)
     check retain.id == id
 
     var copied = owned
+    check copied == owned
     var msg: ImageMsg
     check not tryRecvImageMsg(msg)
 
@@ -377,15 +378,32 @@ suite "image loading":
     check not tryRecvImageMsg(msg)
 
     var moved = move(copied)
-    copied = ImageRef()
+    check copied.isNil
     check not tryRecvImageMsg(msg)
 
-    owned = ImageRef()
+    owned = nil
     check not tryRecvImageMsg(msg)
 
-    moved = ImageRef()
+    moved = nil
     let release = recvImageMsg(ImkReleaseImage)
     check release.id == id
+    check release.ownerToken == retain.ownerToken
+
+  test "ImageRefs for the same ID share backend ownership":
+    let id = imgId("tests/timage_loading/image-ref-separate-handles")
+    var first = imageRef(id)
+    let retain = recvImageMsg(ImkRetainImage)
+
+    var second = imageRef(id)
+    var msg: ImageMsg
+    check not tryRecvImageMsg(msg)
+
+    first = nil
+    check not tryRecvImageMsg(msg)
+
+    second = nil
+    let release = recvImageMsg(ImkReleaseImage)
+    check release.id == retain.id
     check release.ownerToken == retain.ownerToken
 
   test "ImageRef release waits for all owner tokens before evicting":
@@ -406,7 +424,7 @@ suite "image loading":
     check id.Hash in ctx.entries
     check hasImage(id)
 
-    mainOwner = ImageRef()
+    mainOwner = nil
     ctx.drainImages()
     check id.Hash notin ctx.entries
     check not hasImage(id)
@@ -429,7 +447,7 @@ suite "image loading":
     check id.Hash notin ctx.entries
     check not hasImage(id)
 
-    owner = ImageRef()
+    owner = nil
     ctx.drainImages()
 
   test "ImageRef works with imageStyle and manual clear overloads":
@@ -455,7 +473,7 @@ suite "image loading":
     check id.Hash notin ctx.entries
     check not hasImage(id)
 
-    owner = ImageRef()
+    owner = nil
     ctx.drainImages()
 
   test "FontRef final release clears matching glyph entries":
@@ -472,7 +490,7 @@ suite "image loading":
     check hasImage(glyphImageId)
     check glyphImageId.Hash in ctx.entries
 
-    owner = FontRef()
+    owner = nil
     ctx.drainImages()
     check not hasImage(glyphImageId)
     check glyphImageId.Hash notin ctx.entries
