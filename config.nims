@@ -241,5 +241,5 @@ task native_dynlib, "Stage native Nim dynlib artifacts in bin":
 task native_shared_example, "Build the native Nim siwin shared example":
   let compiler = getCurrentCompilerExe()
   exec compiler & " native_bindings"
-  exec compiler & " c --mm:orc -d:useMalloc --path:.nimcache/native_figdraw" &
+  exec compiler & " c -d:release --mm:arc -d:useMalloc --path:.nimcache/native_figdraw" &
     " --out:examples/siwing_shared_native examples/siwing_shared_native.nim"
