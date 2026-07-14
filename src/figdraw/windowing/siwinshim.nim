@@ -1,10 +1,12 @@
 import std/[math, os, strutils]
+import pkg/chroma
 import vmath
 
 import siwin/[window as siWindow, windowOpengl as siWindowOpengl]
 import siwin/platforms
 
 import ../commons
+import ../fignodes
 import ../figrender
 
 const UseSiwinOpenGL = not (UseMetalBackend or UseVulkanBackend)
@@ -338,6 +340,8 @@ when (UseMetalBackend or UseVulkanBackend) and defined(macosx):
 type SiwinRenderBackend* = object
   ## Opaque per-window backend state used by siwin + FigDraw integration.
   window*: Window
+  resizeClearColor: Color
+  resizeClearColorSet: bool
   when UseMetalBackend and defined(macosx):
     metalLayer*: MetalLayerHandle
   when UseVulkanBackend and defined(macosx):
@@ -345,6 +349,26 @@ type SiwinRenderBackend* = object
 
 when defined(macosx):
   proc setOpaque(window: NSWindow, opaque: BOOL) {.objc: "setOpaque:".}
+
+proc syncResizeBackgroundColor(
+    renderer: FigRenderer[SiwinRenderBackend], color: Color
+) =
+  if renderer.backendState.resizeClearColorSet and
+      renderer.backendState.resizeClearColor == color:
+    return
+
+  when defined(macosx):
+    when UseMetalBackend:
+      let handle = renderer.backendState.metalLayer
+      if not handle.layer.isNil:
+        handle.setResizeBackgroundColor(color.r, color.g, color.b, color.a)
+    when UseVulkanBackend:
+      let handle = renderer.backendState.vulkanMetalLayer
+      if not handle.layer.isNil:
+        handle.setResizeBackgroundColor(color.r, color.g, color.b, color.a)
+
+  renderer.backendState.resizeClearColor = color
+  renderer.backendState.resizeClearColorSet = true
 
 proc configureTransparentPresentation*(
     renderer: FigRenderer[SiwinRenderBackend], window: Window
@@ -367,6 +391,7 @@ proc configureTransparentPresentation*(
 proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a siwin window and FigDraw renderer.
   renderer.backendState.window = window
+  renderer.backendState.resizeClearColorSet = false
   renderer.configureTransparentPresentation(window)
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     if renderer.forceOpenGlByEnv():
@@ -446,6 +471,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
         else:
           raise exc
   renderer.configureTransparentPresentation(window)
+  renderer.syncResizeBackgroundColor(if window.transparent: clearColor else: whiteColor)
 
 proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   ## Per-frame pre-render backend maintenance.
@@ -470,3 +496,17 @@ proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   ## siwin's step() already flushes OpenGL buffers after onRender callbacks.
   ## Avoid explicit swapping here to prevent double-buffer flips/flicker.
   discard
+
+proc renderFrame*(
+    renderer: FigRenderer[SiwinRenderBackend],
+    nodes: var Renders,
+    frameSize: Vec2,
+    clearMain = true,
+    clearColor: Color = whiteColor,
+) =
+  ## Renders a frame and uses its clear color for uncovered resize areas.
+  if clearMain:
+    renderer.syncResizeBackgroundColor(clearColor)
+  figrender.renderFrame(
+    renderer, nodes, frameSize, clearMain = clearMain, clearColor = clearColor
+  )
