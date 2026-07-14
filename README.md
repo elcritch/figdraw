@@ -604,6 +604,20 @@ let layout = typeset(
 )
 ```
 
+Typeface metadata is parsed once when a face is registered and is available
+through the same API with every text backend:
+
+```nim
+let info = getTypefaceInfo(arabic)
+echo info.family                 # Noto Naskh Arabic
+echo info.variationAxes[0].tag   # wght
+echo "arab" in info.layoutScripts
+```
+
+`localizedNames` includes the original OpenType name records and their
+language tags when available. `layoutScripts` and `layoutLanguages` contain
+the OpenType GSUB/GPOS tags used during shaping; they are not locale names.
+
 Useful backend modes:
 
 - `-d:figdrawTextBackend=pixie`: default Pixie layout and raster path.

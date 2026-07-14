@@ -12,7 +12,10 @@ import pkg/chronicles
 import ./imgutils
 import ./fonttypes
 import ./shared
+import ./typefaceinfos
 import ../extras/systemfonts
+
+export TypefaceInfo, TypefaceLocalizedName, TypefaceVariationAxis
 
 when defined(figdrawNativeDynlib):
   {.pragma: nativeAbi, exportabi.}
@@ -45,6 +48,7 @@ var
   typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
   fontTable*: Table[FontId, FigFont]
   typefaceSourceTable*: Table[TypefaceId, TypefaceSource]
+  typefaceInfoTable: Table[TypefaceId, TypefaceInfo]
   staticTypefaceTable*:
     Table[string, tuple[name: string, data: string, kind: TypeFaceKinds]]
   fontLock*: Lock
@@ -195,11 +199,15 @@ proc typefaceIdForLocked(source: TypefaceSource): TypefaceId =
   raise newException(ValueError, "could not allocate a collision-free typeface id")
 
 proc registerTypeface(typeface: Typeface, source: TypefaceSource): TypefaceId =
+  let info = parseTypefaceInfo(
+    source.name, source.data, source.faceIndex, fallbackFullName = typeface.name()
+  )
   withLock(fontLock):
     result = typefaceIdForLocked(source)
     if result notin typefaceTable:
       typefaceTable[result] = typeface
       typefaceSourceTable[result] = source
+      typefaceInfoTable[result] = info
 
 proc staticTypefaceEntry(
     name: string, entry: var tuple[name: string, data: string, kind: TypeFaceKinds]
@@ -294,6 +302,17 @@ proc getTypefaceSource*(id: TypefaceId): TypefaceSource =
         ValueError, "typeface source data is not available for id " & $Hash(id)
       )
     result = typefaceSourceTable[id]
+
+proc getTypefaceInfo*(id: TypefaceId): TypefaceInfo =
+  ## Returns backend-neutral metadata cached when the typeface was registered.
+  ##
+  ## This API is identical for the Pixie, Harfbuzzy, and hybrid text backends.
+  withLock(fontLock):
+    if id notin typefaceInfoTable:
+      raise newException(
+        ValueError, "typeface metadata is not available for id " & $Hash(id)
+      )
+    result = typefaceInfoTable[id].copyTypefaceInfo()
 
 proc getFigFont*(fontId: FontId): FigFont =
   withLock(fontLock):

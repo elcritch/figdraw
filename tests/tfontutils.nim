@@ -133,6 +133,54 @@ suite "fontutils":
     check id1 in typefaceSourceTable
     check typefaceSourceTable[id1].data == fontData
 
+  test "typeface metadata is parsed and cached with the registered face":
+    let
+      fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      info = getTypefaceInfo(typefaceId)
+
+    check info.family == "Ubuntu"
+    check info.subfamily == "Regular"
+    check info.fullName.len > 0
+    check info.postScriptName.len > 0
+    check info.faceIndex == 0
+    check info.weightClass == 400
+    check info.widthClass == 5
+    check info.regular
+    check not info.bold
+    check not info.italic
+    check info.localizedNames.len > 0
+    check "latn" in info.layoutScripts
+
+    var hasEnglishName = false
+    for name in info.localizedNames:
+      if name.languageTag == "en-US":
+        hasEnglishName = true
+    check hasEnglishName
+
+    var changed = info
+    changed.layoutScripts[0] = "changed"
+    check "changed" notin getTypefaceInfo(typefaceId).layoutScripts
+
+  test "typeface metadata exposes variable axes and shaping scripts":
+    let
+      fontPath = getCurrentDir() / "examples/fonts/NotoNaskhArabic-wght.ttf"
+      typefaceId = loadTypeface(fontPath)
+      info = getTypefaceInfo(typefaceId)
+
+    check info.family == "Noto Naskh Arabic"
+    check info.variationAxes.len == 1
+    check info.variationAxes[0].tag == "wght"
+    check info.variationAxes[0].name == "Weight"
+    check info.variationAxes[0].minValue == 400.0'f32
+    check info.variationAxes[0].defaultValue == 400.0'f32
+    check info.variationAxes[0].maxValue == 700.0'f32
+    check "arab" in info.layoutScripts
+
+  test "unknown typeface metadata lookup raises ValueError":
+    expect ValueError:
+      discard getTypefaceInfo(TypefaceId(Hash(9_999_999)))
+
   test "typeface ids distinguish different bytes with the same name":
     let
       ubuntuData = readFile(figDataDir() / "Ubuntu.ttf")
