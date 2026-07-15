@@ -12,6 +12,14 @@ proc childIds(list: RenderList, parentIdx: FigIdx): seq[int] =
   for childIdx in list.nodes.childIndex(parentIdx):
     result.add list.nodes[childIdx.int].nodeId()
 
+proc childIds(renders: Renders, parent: RenderCursor): seq[int] =
+  for child in renders.children(parent):
+    result.add renders[child].nodeId()
+
+proc rootIds(renders: Renders, zlevel: ZLevel): seq[int] =
+  for root in renders.roots(zlevel):
+    result.add renders[root].nodeId()
+
 suite "RenderList helper APIs":
   test "insertRoot shifts existing root and parent indexes":
     var list = RenderList()
@@ -29,6 +37,10 @@ suite "RenderList helper APIs":
     check list.nodes[3].parent == (-1).FigIdx
     check list.nodes[0].childCount == 1
     check list.nodes[2].childCount == 0
+
+    let renders = newRenders()
+    renders.setLayer(0.ZLevel, list)
+    check renders.rootIds(0.ZLevel) == @[10, 15, 20]
 
   test "insertChild inserts at child position and shifts subtree parents":
     var list = RenderList()
@@ -48,27 +60,51 @@ suite "RenderList helper APIs":
     check list.nodes[2].childCount == 0
     check list.nodes[3].childCount == 1
 
-  test "insertChildren remaps incoming roots and internal parents":
-    var list = RenderList()
-    let root = list.addRoot(testFig(10))
-    discard list.addChild(root, testFig(40))
+    let renders = newRenders()
+    renders.setLayer(0.ZLevel, list)
+    var roots: seq[RenderCursor]
+    for rootCursor in renders.roots(0.ZLevel):
+      roots.add rootCursor
+    check renders.childIds(roots[0]) == @[11, 12, 13]
+
+  test "insertChildren keeps physical indexes and traverses fragment roots in place":
+    let renders = newRenders()
+    let root = renders.addRoot(0.ZLevel, testFig(10))
+    discard renders.addChild(0.ZLevel, root, testFig(40))
 
     var children = RenderList()
     let childRoot = children.addRoot(testFig(20))
     discard children.addChild(childRoot, testFig(21))
     discard children.addRoot(testFig(30))
 
-    let inserted = list.insertChildren(root, children, 0)
+    let inserted = renders.insertChildren(0.ZLevel, root, children, 0)
 
-    check inserted == @[1.FigIdx, 3.FigIdx]
-    check list.nodes.mapIt(it.nodeId()) == @[10, 20, 21, 30, 40]
-    check list.childIds(root) == @[20, 30, 40]
-    check list.nodes[1].parent == root
-    check list.nodes[2].parent == 1.FigIdx
-    check list.nodes[3].parent == root
-    check list.nodes[4].parent == root
-    check list.nodes[0].childCount == 3
-    check list.nodes[1].childCount == 1
+    check renders[0.ZLevel].nodes.mapIt(it.nodeId()) == @[10, 40]
+    check inserted.len == 2
+    check renders[inserted[0]].nodeId() == 20
+    check renders[inserted[1]].nodeId() == 30
+    check renders.childIds(RenderCursor(zlevel: 0.ZLevel, index: root)) == @[20, 30, 40]
+    check renders.childIds(inserted[0]) == @[21]
+    check renders[0.ZLevel].nodes[root.int].childCount == 1
+    check renders[0.ZLevel].effectiveChildCount(root) == 3
+
+  test "fragment roots can receive nested fragments through their cursors":
+    let renders = newRenders()
+    let root = renders.addRoot(0.ZLevel, testFig(10))
+
+    var children = RenderList()
+    let fragmentRoot = children.addRoot(testFig(20))
+    discard children.addChild(fragmentRoot, testFig(21))
+    let inserted = renders.insertChildren(0.ZLevel, root, children, 0)
+
+    var nested = RenderList()
+    discard nested.addRoot(testFig(22))
+    discard renders.insertChildren(inserted[0], nested, 1)
+
+    let appended = renders.addChild(inserted[0], testFig(23))
+
+    check renders[appended].nodeId() == 23
+    check renders.childIds(inserted[0]) == @[21, 22, 23]
 
   test "Renders addChildren forces layer zlevel":
     var renders = newRenders()

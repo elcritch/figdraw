@@ -382,25 +382,28 @@ when to call `clearImageCache(renderer)` and rebuild the visible/preloaded set.
 
 ### RenderList Tree Helpers
 
-`addRoot` and `addChild` append nodes to the end of a layer. Use the insert helpers when draw order
-or child order matters:
+`RenderList` keeps ordinary nodes in an append-only physical list. Its logical
+child order can additionally contain fragment roots, so a renderer can walk a
+tree without copying an inserted subtree or rewriting later node indexes.
 
-- `insertRoot(root, rootPos)`: inserts a root at `rootPos` in `rootIds`.
-- `insertChild(parentIdx, child, childPos)`: inserts a child at `childPos` within a parent.
-- `addChildren(parentIdx, children)`: appends roots from another `RenderList` as children.
-- `insertChildren(parentIdx, children, childPos)`: inserts roots from another `RenderList` as children
-  at `childPos`.
+`addRoot`, `addChild`, and `addChildren` use the physical append path:
 
-Each helper updates parent indexes, root indexes, and `childCount` after insertion. Batch helpers
-preserve internal parent-child relationships from the incoming `RenderList`; incoming roots become
-children of `parentIdx`.
+- `addChildren(parentIdx, children)`: appends and remaps physical roots from another `RenderList`.
+- `insertChildren(parentIdx, children, childPos)`: stores `children` as a fragment branch at
+  `childPos`; physical node indexes in the destination list do not change.
 
-Cost note: `addRoot` and `addChild` are amortized O(1) appends. The insert helpers are O(n) in the
-target `RenderList` because they may shift nodes, rewrite parent/root indexes, and recompute child
-counts. Batch helpers are O(n + m), where `m` is the inserted `RenderList` size, because inserted
-nodes are also copied and remapped.
+`insertRoot` and `insertChild` remain physical editing helpers and can shift physical indexes. Batch
+helpers preserve internal parent-child relationships; incoming roots become children of `parentIdx`.
 
-The `Renders` overloads take a `ZLevel` and force inserted nodes to that layer's zlevel:
+Cost note: `addRoot` and `addChild` are amortized O(1); `addChildren` is O(m) for its incoming
+physical nodes. `insertChildren` records fragment roots without copying or shifting either list.
+The renderer recursively consumes `roots()` and `children()` cursors, so every ordinary node and
+fragment root is visited once. `effectiveChildCount(parentIdx)` includes fragment roots; the raw
+`Fig.childCount` remains the physical count.
+
+The `Renders` overloads take a `ZLevel` and force appended or fragmented nodes to that layer's
+zlevel. Its `insertChildren` overload returns `RenderCursor` values, which can be passed back to
+the cursor overload to attach a nested fragment:
 
 ```nim
 var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
@@ -424,7 +427,15 @@ discard menuItems.addRoot(Fig(
   fill: rgba(40, 40, 40, 255),
 ))
 
-discard renders.addChildren(0.ZLevel, root, menuItems)
+let menuRoots = renders.insertChildren(0.ZLevel, root, menuItems, 0)
+
+var nestedMenuItem = RenderList()
+discard nestedMenuItem.addRoot(Fig(
+  kind: nkRectangle,
+  screenBox: rect(28, 96, 100, 24),
+  fill: rgba(80, 80, 80, 255),
+))
+discard renders.insertChildren(menuRoots[0], nestedMenuItem, 0)
 ```
 
 ## Transform Nodes
