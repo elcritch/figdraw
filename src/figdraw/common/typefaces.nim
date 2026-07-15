@@ -45,7 +45,8 @@ type
   FontRef* = ref FontRefHandle
 
 var
-  typefaceTable*: Table[TypefaceId, Typeface] ## holds the table of parsed fonts
+  typefaceTable* {.threadvar.}: Table[TypefaceId, Typeface]
+    ## Per-thread cache of parsed fonts.
   fontTable*: Table[FontId, FigFont]
   typefaceSourceTable*: Table[TypefaceId, TypefaceSource]
   typefaceInfoTable: Table[TypefaceId, TypefaceInfo]
@@ -198,16 +199,17 @@ proc typefaceIdForLocked(source: TypefaceSource): TypefaceId =
 
   raise newException(ValueError, "could not allocate a collision-free typeface id")
 
-proc registerTypeface(typeface: Typeface, source: TypefaceSource): TypefaceId =
-  let info = parseTypefaceInfo(
+proc registerTypeface(typeface: Typeface, source: sink TypefaceSource): TypefaceId =
+  var info = parseTypefaceInfo(
     source.name, source.data, source.faceIndex, fallbackFullName = typeface.name()
   )
   withLock(fontLock):
     result = typefaceIdForLocked(source)
-    if result notin typefaceTable:
-      typefaceTable[result] = typeface
-      typefaceSourceTable[result] = source
-      typefaceInfoTable[result] = info
+    if result notin typefaceSourceTable:
+      typefaceSourceTable[result] = ensureMove source
+      typefaceInfoTable[result] = ensureMove info
+  if result notin typefaceTable:
+    typefaceTable[result] = typeface
 
 proc staticTypefaceEntry(
     name: string, entry: var tuple[name: string, data: string, kind: TypeFaceKinds]
@@ -296,36 +298,50 @@ proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId {.native
     registerTypeface(typeface, TypefaceSource(name: name, data: data, kind: kind))
 
 proc getTypefaceSource*(id: TypefaceId): TypefaceSource =
-  withLock(fontLock):
-    if id notin typefaceSourceTable:
-      raise newException(
-        ValueError, "typeface source data is not available for id " & $Hash(id)
-      )
-    result = typefaceSourceTable[id]
+  {.cast(gcsafe).}:
+    withLock(fontLock):
+      if id notin typefaceSourceTable:
+        raise newException(
+          ValueError, "typeface source data is not available for id " & $Hash(id)
+        )
+      result = typefaceSourceTable[id]
 
 proc getTypefaceInfo*(id: TypefaceId): TypefaceInfo =
   ## Returns backend-neutral metadata cached when the typeface was registered.
   ##
   ## This API is identical for the Pixie, Harfbuzzy, and hybrid text backends.
-  withLock(fontLock):
-    if id notin typefaceInfoTable:
-      raise newException(
-        ValueError, "typeface metadata is not available for id " & $Hash(id)
-      )
-    result = typefaceInfoTable[id].copyTypefaceInfo()
+  {.cast(gcsafe).}:
+    withLock(fontLock):
+      if id notin typefaceInfoTable:
+        raise newException(
+          ValueError, "typeface metadata is not available for id " & $Hash(id)
+        )
+      result = typefaceInfoTable[id].copyTypefaceInfo()
 
 proc getFigFont*(fontId: FontId): FigFont =
-  withLock(fontLock):
-    if fontId notin fontTable:
-      raise newException(ValueError, "font is not available for id " & $Hash(fontId))
-    result = fontTable[fontId]
+  {.cast(gcsafe).}:
+    withLock(fontLock):
+      if fontId notin fontTable:
+        raise newException(ValueError, "font is not available for id " & $Hash(fontId))
+      result = fontTable[fontId]
+
+proc readTypefaceForThread(source: TypefaceSource): Typeface =
+  if source.data.len >= 4 and source.data[0 ..< 4] == "ttcf":
+    let typefaces = readTypefaces(source.name)
+    if source.faceIndex notin 0 ..< typefaces.len:
+      raise newException(PixieError, "typeface collection face is not available")
+    result = typefaces[source.faceIndex]
+    result.filePath = source.name & "#" & $source.faceIndex
+  else:
+    result = readTypefaceImpl(source.name, source.data, source.kind)
+
+proc pixieTypeface(typefaceId: TypefaceId): Typeface =
+  if typefaceId notin typefaceTable:
+    typefaceTable[typefaceId] = readTypefaceForThread(getTypefaceSource(typefaceId))
+  result = typefaceTable[typefaceId]
 
 proc pixieFont(font: FigFont): Font =
-  var typeface: Typeface
-  withLock(fontLock):
-    if font.typefaceId notin typefaceTable:
-      raise newException(ValueError, "typeface is not available")
-    typeface = typefaceTable[font.typefaceId]
+  let typeface = font.typefaceId.pixieTypeface()
 
   result = newFont(typeface)
   result.size = font.size
@@ -348,27 +364,28 @@ proc rasterFont(font: FigFont): FigFont =
   )
 
 proc registerFont(font: FigFont): FontId =
+  var raster = font.rasterFont()
   let
-    raster = font.rasterFont()
     uiScale = figUiScale()
     fontHash = hash((raster.getId(), uiScale))
 
-  withLock(fontLock):
-    for salt in 0 .. 100:
-      let candidateHash =
-        if salt == 0:
-          fontHash
-        else:
-          hash((fontHash, salt))
-      if candidateHash != Hash(0):
-        let candidate = FontId(candidateHash)
-        if candidate notin fontTable:
-          fontTable[candidate] = raster
-          fontUiScaleTable[candidate] = uiScale
-          return candidate
-        if fontTable[candidate] == raster and
-            fontUiScaleTable.getOrDefault(candidate, uiScale) == uiScale:
-          return candidate
+  {.cast(gcsafe).}:
+    withLock(fontLock):
+      for salt in 0 .. 100:
+        let candidateHash =
+          if salt == 0:
+            fontHash
+          else:
+            hash((fontHash, salt))
+        if candidateHash != Hash(0):
+          let candidate = FontId(candidateHash)
+          if candidate notin fontTable:
+            fontTable[candidate] = ensureMove raster
+            fontUiScaleTable[candidate] = uiScale
+            return candidate
+          if fontTable[candidate] == raster and
+              fontUiScaleTable.getOrDefault(candidate, uiScale) == uiScale:
+            return candidate
 
   raise newException(ValueError, "could not allocate a collision-free font id")
 
@@ -381,12 +398,12 @@ proc convertFont*(font: FigFont): (FontId, Font) =
 proc convertFont*(style: FontStyle): (FontId, Font) =
   style.font.convertFont()
 
-proc fontRef*(font: FigFont): FontRef =
+proc fontRef*(font: sink FigFont): FontRef =
   ## Retain a font cache ID for the current thread.
   let (fontId, _) = font.convertFont()
   retainFontRefId(fontId)
   new result
-  result.value = font
+  result.value = ensureMove font
   result.id = fontId
 
 proc fontRef*(typefaceId: TypefaceId, size: float32): FontRef =
@@ -431,9 +448,7 @@ proc getScaledFont*(size: float32): float32 =
   result = size.scaled()
 
 proc getPixieFont*(fontId: FontId): Font =
-  var uifont: FigFont
-  withLock(fontLock):
-    uifont = fontTable[fontId]
+  let uifont = getFigFont(fontId)
   result = uifont.pixieFont()
   result.size = result.size.getScaledFont()
   #result.size = result.size

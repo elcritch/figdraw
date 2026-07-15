@@ -79,6 +79,12 @@ proc recvImageMsg(kind: ImageMsgKind): ImageMsg =
   require tryRecvImageMsg(result)
   check result.kind == kind
 
+proc recvImageMsg(
+    subscription: ImageMessageSubscription, kind: ImageMsgKind
+): ImageMsg =
+  require subscription.tryRecvImageMsg(result)
+  check result.kind == kind
+
 proc retainImageOnThread(id: ImageId) {.thread.} =
   var owned = imageRef(id)
   discard owned.id
@@ -407,6 +413,30 @@ suite "image loading":
     clearImage(id)
     late.drainImages()
     check id.Hash notin late.entries
+
+  test "renderer messages and replay own independent image data":
+    clearImageCache()
+    let
+      id = imgId("tests/timage_loading/independent-replay")
+      first = newImageMessageSubscription()
+      second = newImageMessageSubscription()
+      image = newImage(1, 1)
+    image[0, 0] = rgba(10, 20, 30, 255)
+    loadImage(id, image)
+
+    var
+      firstMsg = first.recvImageMsg(ImkPutPixie)
+      secondMsg = second.recvImageMsg(ImkPutPixie)
+    firstMsg.pimg[0, 0] = rgba(100, 110, 120, 255)
+    check secondMsg.pimg[0, 0] == rgba(10, 20, 30, 255)
+
+    let late = newImageMessageSubscription()
+    var replay = late.recvImageMsg(ImkPutPixie)
+    check replay.pimg[0, 0] == rgba(10, 20, 30, 255)
+    secondMsg.pimg[0, 0] = rgba(200, 210, 220, 255)
+    check replay.pimg[0, 0] == rgba(10, 20, 30, 255)
+
+    clearImage(id)
 
   test "atlas generations are renderer-local and advance on rebuild":
     let

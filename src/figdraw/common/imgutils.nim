@@ -428,7 +428,7 @@ proc toImageMsg(
       id: imgObj.id,
       generation: generation,
       cacheGeneration: cacheGeneration,
-      pimg: imgObj.pimg,
+      pimg: move(imgObj.pimg),
     )
 
 proc sendImage*(imgObj: var ImgObj) =
@@ -457,7 +457,7 @@ proc sendImageCached*(imgObj: var ImgObj) =
       publishImageMessage(imgObj.toImageMsg(generation, cacheGeneration))
 
 proc loadGlyphImage*(
-    id: ImageId, fontId: FontId, typefaceId: TypefaceId, image: Image
+    id: ImageId, fontId: FontId, typefaceId: TypefaceId, image: sink Image
 ) =
   var generation: uint64
   var cacheGeneration: uint64
@@ -474,7 +474,7 @@ proc loadGlyphImage*(
         cacheGeneration: cacheGeneration,
         fontId: fontId,
         typefaceId: typefaceId,
-        pimg: image,
+        pimg: ensureMove image,
       )
     )
 
@@ -541,8 +541,8 @@ proc loadImage*(filePath: string): ImageId =
   var imgObj = ImgObj(id: result, kind: FlippyImg, flippy: ensureMove flippy)
   sendImageCached(imgObj)
 
-proc loadImage*(id: ImageId, image: Image) =
-  var imgObj = ImgObj(id: id, kind: PixieImg, pimg: image)
+proc loadImage*(id: ImageId, image: sink Image) =
+  var imgObj = ImgObj(id: id, kind: PixieImg, pimg: ensureMove image)
   sendImage(imgObj)
 
 proc imageRef*(id: ImageId): ImageRef =
@@ -555,7 +555,7 @@ proc loadImageRef*(filePath: string): ImageRef =
   ## Load an image through the normal cache path and retain its ID.
   imageRef(loadImage(filePath))
 
-proc imageRef*(id: ImageId, image: Image): ImageRef =
+proc imageRef*(id: ImageId, image: sink Image): ImageRef =
   ## Upload an image through the normal message path and retain its ID.
-  loadImage(id, image)
+  loadImage(id, ensureMove image)
   imageRef(id)

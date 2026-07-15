@@ -23,6 +23,36 @@ proc drainImageMessages() =
   while tryRecvImageMsg(msg):
     discard
 
+type FontCacheThreadArgs = object
+  typefaceId: TypefaceId
+  fontId: FontId
+  size: float32
+  iterations: int
+
+proc useCachedFontOnThread(args: FontCacheThreadArgs) {.thread.} =
+  for _ in 0 ..< args.iterations:
+    var cached = getFigFont(args.fontId)
+    doAssert cached.typefaceId == args.typefaceId
+    doAssert cached.size == args.size
+    doAssert cached.variations.len == 1
+    doAssert cached.variations[0].tag == "wght"
+
+    cached.variations[0].tag[0] = 'X'
+    doAssert getFigFont(args.fontId).variations[0].tag == "wght"
+
+    var source = getTypefaceSource(args.typefaceId)
+    source.name[0] = 'X'
+    doAssert getTypefaceSource(args.typefaceId).name == "Ubuntu.ttf"
+
+    var info = getTypefaceInfo(args.typefaceId)
+    doAssert info.layoutScripts.len > 0
+    info.layoutScripts[0] = "changed"
+    doAssert "changed" notin getTypefaceInfo(args.typefaceId).layoutScripts
+
+    var owner = fontRef(getFigFont(args.fontId))
+    doAssert owner.fontId == args.fontId
+    doAssert owner.font.variations[0].tag == "wght"
+
 proc recvImageMsg(kind: ImageMsgKind): ImageMsg =
   require tryRecvImageMsg(result)
   check result.kind == kind
@@ -210,6 +240,32 @@ suite "fontutils":
 
     check fontId1 == fontId2
     check fontId1 in fontTable
+
+  test "font caches are isolated across plain ARC threads":
+    drainImageMessages()
+    let
+      fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      uiFont = FigFont(
+        typefaceId: typefaceId,
+        size: 20.0'f32,
+        variations: @[fontVariation("wght", 500.0'f32)],
+      )
+      fontId = uiFont.convertFont()[0]
+      args = FontCacheThreadArgs(
+        typefaceId: typefaceId, fontId: fontId, size: uiFont.size, iterations: 20
+      )
+    var workers: array[4, Thread[FontCacheThreadArgs]]
+
+    for worker in workers.mitems:
+      createThread(worker, useCachedFontOnThread, args)
+    for worker in workers.mitems:
+      joinThread(worker)
+
+    check getFigFont(fontId).variations[0].tag == "wght"
+    check getTypefaceSource(typefaceId).name == "Ubuntu.ttf"
+    check "changed" notin getTypefaceInfo(typefaceId).layoutScripts
+    drainImageMessages()
 
   test "raster font ids ignore shaping-only settings":
     let
