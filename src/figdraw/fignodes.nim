@@ -37,15 +37,44 @@ type
       sweepAngle*: float32
       arcSteps*: uint16
 
+  FigIdx* = distinct int16
+  FigSelectionRange* = Slice[int16]
+
+  RenderFragment* = ref object
+    list: RenderList
+
+  RenderChildKind = enum
+    rckNode
+    rckFragment
+
+  RenderChild = object
+    case kind: RenderChildKind
+    of rckNode:
+      node: FigIdx
+    of rckFragment:
+      fragment: RenderFragment
+      root: FigIdx
+
   RenderList* = object
+    ## An append-only physical list plus its logical child order.
+    ##
+    ## `nodes` and `rootIds` retain stable local indexes. `childEntries` may
+    ## contain fragment roots, which are traversed without being copied into
+    ## `nodes`.
     nodes*: seq[Fig]
     rootIds*: seq[FigIdx]
+    childEntries: Table[int16, seq[RenderChild]]
+    rootEntries: seq[RenderChild]
+    entriesReady: bool
 
   Renders* = ref object
     layers*: OrderedTable[ZLevel, RenderList]
 
-  FigIdx* = distinct int16
-  FigSelectionRange* = Slice[int16]
+  RenderCursor* = object
+    ## Identifies a Fig in a layer's physical list or in one of its fragments.
+    zlevel*: ZLevel
+    index*: FigIdx
+    fragment: RenderFragment
 
   Fig* = object
     zlevel*: ZLevel
@@ -100,6 +129,60 @@ proc `+`*(a, b: FigIdx): FigIdx {.borrow.}
 proc `<=`*(a, b: FigIdx): bool {.borrow.}
 proc `==`*(a, b: FigIdx): bool {.borrow.}
 
+proc `==`*(a, b: RenderCursor): bool =
+  a.zlevel == b.zlevel and a.index == b.index and a.fragment == b.fragment
+
+proc nodeChild(idx: FigIdx): RenderChild =
+  RenderChild(kind: rckNode, node: idx)
+
+func entryKey(idx: FigIdx): int16 =
+  cast[int16](idx)
+
+proc fragmentChild(fragment: RenderFragment, root: FigIdx): RenderChild =
+  RenderChild(kind: rckFragment, fragment: fragment, root: root)
+
+proc resetEntries(list: var RenderList) =
+  list.childEntries.clear()
+  list.rootEntries.setLen(0)
+
+proc rebuildEntries(list: var RenderList) =
+  list.resetEntries()
+  for idx, node in list.nodes:
+    let child = idx.FigIdx.nodeChild()
+    if node.parent.int < 0:
+      list.rootEntries.add child
+    else:
+      assert node.parent.int < list.nodes.len
+      list.childEntries.mgetOrPut(node.parent.entryKey(), @[]).add child
+  list.entriesReady = true
+
+proc ensureEntries(list: var RenderList) =
+  if not list.entriesReady:
+    list.rebuildEntries()
+
+proc shiftEntryIndexes(list: var RenderList, insertIdx, count: int) =
+  if not list.entriesReady or count == 0:
+    return
+
+  var remapped = initTable[int16, seq[RenderChild]]()
+  for parentIdx, entries in list.childEntries:
+    var newEntries = entries
+    for entry in newEntries.mitems:
+      if entry.kind == rckNode and entry.node.int >= insertIdx:
+        entry.node = (entry.node.int + count).FigIdx
+
+    let newParentIdx =
+      if parentIdx.int >= insertIdx:
+        (parentIdx.int + count).int16
+      else:
+        parentIdx
+    remapped[newParentIdx] = move newEntries
+  list.childEntries = move remapped
+
+  for entry in list.rootEntries.mitems:
+    if entry.kind == rckNode and entry.node.int >= insertIdx:
+      entry.node = (entry.node.int + count).FigIdx
+
 proc validIdx(list: RenderList, idx: FigIdx): bool =
   idx.int >= 0 and idx.int < list.nodes.len
 
@@ -110,6 +193,14 @@ proc checkedFigIdx(idx: int): FigIdx =
 proc checkNodeCapacity(list: RenderList, addCount: int) =
   assert addCount >= 0
   assert list.nodes.len + addCount <= high(int16).int
+
+proc effectiveChildCount*(list: RenderList, parentIdx: FigIdx): int =
+  ## Returns the physical and fragment children of `parentIdx`.
+  assert list.validIdx(parentIdx)
+  if list.entriesReady:
+    result = list.childEntries.getOrDefault(parentIdx.entryKey()).len
+  else:
+    result = list.nodes[parentIdx.int].childCount.int
 
 proc recomputeChildCounts(list: var RenderList) =
   for node in list.nodes.mitems:
@@ -135,6 +226,8 @@ proc shiftIndexes(list: var RenderList, insertIdx, count: int) =
   for rootIdx in list.rootIds.mitems:
     if rootIdx.int >= insertIdx:
       rootIdx = (rootIdx.int + count).FigIdx
+
+  list.shiftEntryIndexes(insertIdx, count)
 
 proc insertNodes(list: var RenderList, insertIdx: int, nodes: openArray[Fig]) =
   let count = nodes.len
@@ -217,10 +310,6 @@ proc remappedNodes(list: RenderList, insertIdx: int, parentIdx: FigIdx): seq[Fig
       newNode.parent = checkedFigIdx(insertIdx + node.parent.int)
     result.add newNode
 
-proc relevelNodes(nodes: var seq[Fig], lvl: ZLevel) =
-  for node in nodes.mitems:
-    node.zlevel = lvl
-
 {.push nativeAbi.}
 
 proc drawableLine*(a, b: Vec2): DrawableOp =
@@ -279,32 +368,23 @@ proc drawableArc*(
   )
 
 proc drawableArc*(
-    center: Vec2,
-    radius: float32,
-    startAngle: float32,
-    sweepAngle: float32,
+    center: Vec2, radius: float32, startAngle: float32, sweepAngle: float32
 ): DrawableOp =
-  drawableArc(
-      center,
-      radius,
-      startAngle,
-      sweepAngle,
-      0'u16,
-  )
+  drawableArc(center, radius, startAngle, sweepAngle, 0'u16)
 
 proc drawableArc*(
     x, y, radius, startAngle, sweepAngle: float32, steps: uint16
 ): DrawableOp =
   drawableArc(vec2(x, y), radius, startAngle, sweepAngle, steps)
 
-proc drawableArc*(
-    x, y, radius, startAngle, sweepAngle: float32
-): DrawableOp =
+proc drawableArc*(x, y, radius, startAngle, sweepAngle: float32): DrawableOp =
   drawableArc(vec2(x, y), radius, startAngle, sweepAngle, 0)
 
 proc clear*(list: var RenderList) =
   list.nodes.setLen(0)
   list.rootIds.setLen(0)
+  list.resetEntries()
+  list.entriesReady = true
 
 func len*(list: RenderList): int =
   list.nodes.len
@@ -316,6 +396,7 @@ proc addRoot*(list: var RenderList, root: Fig): FigIdx {.discardable.} =
   ## Cost: amortized O(1). This does not rewrite existing node indexes.
   ##
   ## Returns the root's index within `list.nodes`.
+  list.ensureEntries()
   let newIdx = list.nodes.len
   assert newIdx <= high(int16).int
 
@@ -324,6 +405,7 @@ proc addRoot*(list: var RenderList, root: Fig): FigIdx {.discardable.} =
   list.nodes.add rootNode
   result = newIdx.FigIdx
   list.rootIds.add result
+  list.rootEntries.add result.nodeChild()
 
 proc insertRoot*(
     list: var RenderList, root: Fig, rootPos: Natural
@@ -334,6 +416,7 @@ proc insertRoot*(
   ##
   ## Cost: O(n) in `list.nodes.len` because nodes may be shifted, root and
   ## parent indexes may be rewritten, and child counts are recomputed.
+  list.ensureEntries()
   let insertIdx = list.rootInsertIndex(rootPos)
   list.shiftIndexes(insertIdx, 1)
 
@@ -343,6 +426,7 @@ proc insertRoot*(
 
   result = insertIdx.FigIdx
   list.rootIds.insert(result, rootPos.int)
+  list.rootEntries.insert(result.nodeChild(), rootPos.int)
   list.recomputeChildCounts()
 
 proc addChild*(
@@ -354,6 +438,7 @@ proc addChild*(
   ## Cost: amortized O(1). This does not rewrite existing node indexes.
   ##
   ## Returns the child's index within `list.nodes`.
+  list.ensureEntries()
   let pidx = parentIdx.int
   assert pidx >= 0 and pidx < list.nodes.len
 
@@ -368,6 +453,7 @@ proc addChild*(
   childNode.parent = parentIdx
   list.nodes.add childNode
   result = newIdx.FigIdx
+  list.childEntries.mgetOrPut(parentIdx.entryKey(), @[]).add result.nodeChild()
 
 proc insertChild*(
     list: var RenderList, parentIdx: FigIdx, child: Fig, childPos: Natural
@@ -379,7 +465,15 @@ proc insertChild*(
   ## Cost: O(n) in `list.nodes.len` because the insert position is found by
   ## scanning children, nodes may be shifted, indexes may be rewritten, and
   ## child counts are recomputed.
-  let insertIdx = list.childInsertIndex(parentIdx, childPos)
+  list.ensureEntries()
+  assert childPos.int <= list.effectiveChildCount(parentIdx)
+
+  let physicalChildCount = list.nodes[parentIdx.int].childCount.int
+  let insertIdx =
+    if childPos.int <= physicalChildCount:
+      list.childInsertIndex(parentIdx, childPos)
+    else:
+      list.nodes.len
   list.shiftIndexes(insertIdx, 1)
 
   let shiftedParentIdx =
@@ -393,58 +487,160 @@ proc insertChild*(
   list.insertNodes(insertIdx, [childNode])
 
   result = insertIdx.FigIdx
+  list.childEntries.mgetOrPut(shiftedParentIdx.entryKey(), @[]).insert(
+    result.nodeChild(), childPos.int
+  )
   list.recomputeChildCounts()
 
-proc insertChildren*(
-    list: var RenderList, parentIdx: FigIdx, children: RenderList, childPos: Natural
-): seq[FigIdx] {.discardable.} =
-  ## Inserts `children` under `parentIdx` at `childPos` in child order.
-  ##
-  ## Roots from `children.rootIds` become children of `parentIdx`. Internal
-  ## child relationships from `children.nodes` are preserved.
-  ##
-  ## Cost: O(n + m), where `n` is `list.nodes.len` and `m` is
-  ## `children.nodes.len`. Existing nodes may be shifted, destination indexes
-  ## may be rewritten, inserted nodes are copied and remapped, and child counts
-  ## are recomputed.
+proc insertFragment(
+    list: var RenderList,
+    parentIdx: FigIdx,
+    children: sink RenderList,
+    childPos: Natural,
+): RenderFragment =
+  list.ensureEntries()
   assert list.validIdx(parentIdx)
+  assert childPos.int <= list.effectiveChildCount(parentIdx)
+
+  children.ensureEntries()
+  children.validateRootIds()
+  if children.rootEntries.len == 0:
+    return nil
+
+  result = RenderFragment(list: move children)
+  var fragmentRoots = newSeqOfCap[RenderChild](result.list.rootEntries.len)
+  for root in result.list.rootEntries:
+    case root.kind
+    of rckNode:
+      fragmentRoots.add result.fragmentChild(root.node)
+    of rckFragment:
+      fragmentRoots.add root.fragment.fragmentChild(root.root)
+  for offset, root in fragmentRoots:
+    list.childEntries.mgetOrPut(parentIdx.entryKey(), @[]).insert(
+      root, childPos.int + offset
+    )
+
+proc insertChildren*(
+    list: var RenderList,
+    parentIdx: FigIdx,
+    children: sink RenderList,
+    childPos: Natural,
+): seq[FigIdx] {.discardable.} =
+  ## Inserts `children` under `parentIdx` without shifting physical nodes.
+  ##
+  ## The incoming roots become a fragment branch at `childPos`. Rendering
+  ## traverses that branch in place, while `nodes` and existing `FigIdx` values
+  ## remain stable.
+  ##
+  ## The returned indexes are local to the inserted fragment. Use the `Renders`
+  ## overload when fragment cursors are needed for traversal.
+  let fragment = list.insertFragment(parentIdx, move children, childPos)
+  if fragment.isNil:
+    return @[]
+  fragment.list.rootIds
+
+proc addChildren*(
+    list: var RenderList, parentIdx: FigIdx, children: sink RenderList
+): seq[FigIdx] {.discardable.} =
+  ## Physically appends roots from `children` as children of `parentIdx`.
+  ##
+  ## Cost: O(m), where `m` is `children.nodes.len`. Existing indexes are not
+  ## shifted. Use `insertChildren` to add a non-owning fragment branch.
+  list.ensureEntries()
+  assert list.validIdx(parentIdx)
+  children.ensureEntries()
+  children.validateRootIds()
   if children.nodes.len == 0:
     return @[]
 
-  let insertIdx = list.childInsertIndex(parentIdx, childPos)
-  list.shiftIndexes(insertIdx, children.nodes.len)
+  list.checkNodeCapacity(children.nodes.len)
+  let base = list.nodes.len
+  let remapped = children.remappedNodes(base, parentIdx)
+  for node in remapped:
+    list.nodes.add node
 
-  let shiftedParentIdx =
-    if parentIdx.int >= insertIdx:
-      (parentIdx.int + children.nodes.len).FigIdx
-    else:
-      parentIdx
+  for root in children.rootEntries:
+    case root.kind
+    of rckNode:
+      let appendedIdx = (base + root.node.int).FigIdx
+      list.childEntries.mgetOrPut(parentIdx.entryKey(), @[]).add appendedIdx.nodeChild()
+      if list.nodes[parentIdx.int].childCount ==
+          high(typeof(list.nodes[parentIdx.int].childCount)):
+        raise newException(ValueError, "RenderList parent childCount overflow")
+      inc list.nodes[parentIdx.int].childCount
+      result.add appendedIdx
+    of rckFragment:
+      list.childEntries.mgetOrPut(parentIdx.entryKey(), @[]).add(
+        root.fragment.fragmentChild(root.root)
+      )
 
-  let nodes = children.remappedNodes(insertIdx, shiftedParentIdx)
-  list.insertNodes(insertIdx, nodes)
+  for sourceParentIdx, entries in children.childEntries:
+    let destinationParentIdx = (base + sourceParentIdx.int).int16
+    var destinationEntries = newSeqOfCap[RenderChild](entries.len)
+    for entry in entries:
+      case entry.kind
+      of rckNode:
+        destinationEntries.add (base + entry.node.int).FigIdx.nodeChild()
+      of rckFragment:
+        destinationEntries.add entry.fragment.fragmentChild(entry.root)
+    list.childEntries[destinationParentIdx] = move destinationEntries
 
-  for rootIdx in children.rootIds:
-    assert rootIdx.int >= 0 and rootIdx.int < children.nodes.len
-    result.add checkedFigIdx(insertIdx + rootIdx.int)
+proc relevelList(list: var RenderList, lvl: ZLevel) =
+  for node in list.nodes.mitems:
+    node.zlevel = lvl
 
-  list.recomputeChildCounts()
+  for _, entries in list.childEntries.mpairs:
+    for entry in entries:
+      if entry.kind == rckFragment:
+        entry.fragment.list.relevelList(lvl)
 
-proc addChildren*(
-    list: var RenderList, parentIdx: FigIdx, children: RenderList
-): seq[FigIdx] {.discardable.} =
-  ## Appends roots from `children.rootIds` as children of `parentIdx`.
-  ##
-  ## Cost: O(n + m), where `n` is `list.nodes.len` and `m` is
-  ## `children.nodes.len`, because inserted nodes are copied and remapped and
-  ## child counts are recomputed.
-  result = list.insertChildren(
-    parentIdx, children, list.nodes[parentIdx.int].childCount.Natural
-  )
+proc makeCursor(
+    zlevel: ZLevel, index: FigIdx, fragment: RenderFragment = nil
+): RenderCursor =
+  RenderCursor(zlevel: zlevel, index: index, fragment: fragment)
 
 proc `[]`*(renders: Renders, lvl: ZLevel): var RenderList =
   if lvl notin renders.layers:
     renders.layers[lvl] = RenderList()
   renders.layers[lvl]
+
+template `[]`*(renders: Renders, cursor: RenderCursor): untyped =
+  ## Returns the Fig designated by `cursor`.
+  if cursor.fragment.isNil:
+    renders.layers[cursor.zlevel].nodes[cursor.index.int]
+  else:
+    cursor.fragment.list.nodes[cursor.index.int]
+
+iterator roots*(renders: Renders, lvl: ZLevel): RenderCursor =
+  ## Iterates layer roots in render order, including fragment roots.
+  renders[lvl].ensureEntries()
+  for entry in renders[lvl].rootEntries:
+    case entry.kind
+    of rckNode:
+      yield makeCursor(lvl, entry.node)
+    of rckFragment:
+      yield makeCursor(lvl, entry.root, entry.fragment)
+
+iterator children*(renders: Renders, parent: RenderCursor): RenderCursor =
+  ## Iterates direct children in render order without scanning descendants.
+  if parent.fragment.isNil:
+    renders[parent.zlevel].ensureEntries()
+    for entry in renders[parent.zlevel].childEntries.getOrDefault(
+      parent.index.entryKey()
+    ):
+      case entry.kind
+      of rckNode:
+        yield makeCursor(parent.zlevel, entry.node)
+      of rckFragment:
+        yield makeCursor(parent.zlevel, entry.root, entry.fragment)
+  else:
+    parent.fragment.list.ensureEntries()
+    for entry in parent.fragment.list.childEntries.getOrDefault(parent.index.entryKey()):
+      case entry.kind
+      of rckNode:
+        yield makeCursor(parent.zlevel, entry.node, parent.fragment)
+      of rckFragment:
+        yield makeCursor(parent.zlevel, entry.root, entry.fragment)
 
 proc newRenders*(): Renders =
   Renders(layers: initOrderedTable[ZLevel, RenderList]())
@@ -504,6 +700,19 @@ proc addChild*(
   node.zlevel = lvl
   result = renders[lvl].addChild(parentIdx, node)
 
+proc addChild*(
+    renders: Renders, parent: RenderCursor, child: Fig
+): RenderCursor {.discardable.} =
+  ## Physically appends a child to a node in the main list or a fragment.
+  var node = child
+  node.zlevel = parent.zlevel
+  if parent.fragment.isNil:
+    let index = renders[parent.zlevel].addChild(parent.index, node)
+    return makeCursor(parent.zlevel, index)
+
+  let index = parent.fragment.list.addChild(parent.index, node)
+  makeCursor(parent.zlevel, index, parent.fragment)
+
 proc insertChild*(
     renders: Renders, lvl: ZLevel, parentIdx: FigIdx, child: Fig, childPos: Natural
 ): FigIdx {.discardable.} =
@@ -519,34 +728,62 @@ proc insertChildren*(
     renders: Renders,
     lvl: ZLevel,
     parentIdx: FigIdx,
-    children: RenderList,
+    children: sink RenderList,
     childPos: Natural,
-): seq[FigIdx] {.discardable.} =
-  ## Inserts children into the layer for `lvl`, creating the layer if needed.
-  ## Inserted children are forced to the same zlevel as their parent layer.
+): seq[RenderCursor] {.discardable.} =
+  ## Adds a fragment branch to the layer for `lvl` without shifting node indexes.
   ##
-  ## Cost: O(n + m), where `n` is the target layer's node count and `m` is
-  ## `children.nodes.len`, plus ordered-table lookup.
-  var nodes = children.remappedNodes(0, (-1).FigIdx)
-  nodes.relevelNodes(lvl)
+  ## The returned cursors identify the inserted fragment roots.
+  children.relevelList(lvl)
+  let fragment = renders[lvl].insertFragment(parentIdx, move children, childPos)
+  if fragment.isNil:
+    return @[]
+  for root in fragment.list.rootEntries:
+    case root.kind
+    of rckNode:
+      result.add makeCursor(lvl, root.node, fragment)
+    of rckFragment:
+      result.add makeCursor(lvl, root.root, root.fragment)
 
-  var childList = RenderList(nodes: nodes, rootIds: children.rootIds)
-  childList.recomputeChildCounts()
-  result = renders[lvl].insertChildren(parentIdx, childList, childPos)
+proc insertChildren*(
+    renders: Renders, parent: RenderCursor, children: sink RenderList, childPos: Natural
+): seq[RenderCursor] {.discardable.} =
+  ## Adds a fragment branch below a node in the main list or another fragment.
+  children.relevelList(parent.zlevel)
+  if parent.fragment.isNil:
+    return renders.insertChildren(parent.zlevel, parent.index, move children, childPos)
+
+  let fragment =
+    parent.fragment.list.insertFragment(parent.index, move children, childPos)
+  if fragment.isNil:
+    return @[]
+  for root in fragment.list.rootEntries:
+    case root.kind
+    of rckNode:
+      result.add makeCursor(parent.zlevel, root.node, fragment)
+    of rckFragment:
+      result.add makeCursor(parent.zlevel, root.root, root.fragment)
 
 proc addChildren*(
-    renders: Renders, lvl: ZLevel, parentIdx: FigIdx, children: RenderList
+    renders: Renders, lvl: ZLevel, parentIdx: FigIdx, children: sink RenderList
 ): seq[FigIdx] {.discardable.} =
-  ## Appends children to the layer for `lvl`, creating the layer if needed.
-  ##
-  ## Cost: O(n + m), where `n` is the target layer's node count and `m` is
-  ## `children.nodes.len`, plus ordered-table lookup.
-  result = renders.insertChildren(
-    lvl, parentIdx, children, renders[lvl].nodes[parentIdx.int].childCount.Natural
-  )
+  ## Physically appends children to the layer for `lvl` without shifting indexes.
+  children.relevelList(lvl)
+  renders[lvl].addChildren(parentIdx, move children)
+
+proc addChildren*(
+    renders: Renders, parent: RenderCursor, children: sink RenderList
+): seq[RenderCursor] {.discardable.} =
+  ## Physically appends children to a node in the main list or a fragment.
+  children.relevelList(parent.zlevel)
+  if parent.fragment.isNil:
+    for index in renders[parent.zlevel].addChildren(parent.index, move children):
+      result.add makeCursor(parent.zlevel, index)
+  else:
+    for index in parent.fragment.list.addChildren(parent.index, move children):
+      result.add makeCursor(parent.zlevel, index, parent.fragment)
 
 proc contains*(r: Renders, lvl: ZLevel): bool =
   r.layers.contains(lvl)
 
 {.pop.}
-

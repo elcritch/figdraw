@@ -153,6 +153,35 @@ suite "nkTransform render behavior":
     check abs(ctx.draws[0].x - 7.0'f32) < 0.0001'f32
     check abs(ctx.draws[0].y - (-2.0'f32)) < 0.0001'f32
 
+  test "applies translation to fragment children":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+    let rootIdx = renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkTransform,
+        transform: TransformStyle(translation: vec2(5.0'f32, -4.0'f32)),
+      ),
+    )
+
+    var fragment = RenderList()
+    discard fragment.addRoot(
+      Fig(
+        kind: nkDrawable,
+        screenBox: rect(0.0'f32, 0.0'f32, 1.0'f32, 1.0'f32),
+        fill: fill(rgba(255, 0, 0, 255)),
+        drawOps: @[drawableRect(rect(2.0'f32, 2.0'f32, 1.0'f32, 1.0'f32))],
+      )
+    )
+    discard renders.insertChildren(0.ZLevel, rootIdx, fragment, 0)
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.draws.len == 1
+    check abs(ctx.draws[0].x - 7.0'f32) < 0.0001'f32
+    check abs(ctx.draws[0].y - (-2.0'f32)) < 0.0001'f32
+
   test "applies matrix transform to child nodes":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
 

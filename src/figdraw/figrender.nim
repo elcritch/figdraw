@@ -1660,10 +1660,10 @@ proc renderBackdropBlur(ctx: BackendContext, node: Fig) =
   ctx.renderBoxes(overlay)
 
 proc render(
-    ctx: BackendContext, nodes: seq[Fig], nodeIdx, parentIdx: FigIdx
+    ctx: BackendContext, nodes: Renders, nodeCursor: RenderCursor
 ) {.forbids: [AppMainThreadEff].} =
   template node(): auto =
-    nodes[nodeIdx.int]
+    nodes[nodeCursor]
 
   ## Draws the node.
   ##
@@ -1737,8 +1737,8 @@ proc render(
       else:
         ctx.renderInnerShadows(node)
 
-  for childIdx in childIndex(nodes, nodeIdx):
-    ctx.render(nodes, childIdx, nodeIdx)
+  for child in nodes.children(nodeCursor):
+    ctx.render(nodes, child)
 
   postRender()
 
@@ -1828,9 +1828,9 @@ proc renderRoot*(
 ) {.forbids: [AppMainThreadEff].} =
   ## draw roots for each level
   ctx.processImageMessages()
-  for zlvl, list in nodes.layers.pairs():
-    for rootIdx in list.rootIds:
-      ctx.render(list.nodes, rootIdx, -1.FigIdx)
+  for zlvl in nodes.layers.keys():
+    for root in nodes.roots(zlvl):
+      ctx.render(nodes, root)
 
   ctx.publishAtlasUsage()
 
