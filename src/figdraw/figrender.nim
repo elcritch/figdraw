@@ -1843,7 +1843,9 @@ proc renderFrame*[BackendState](
     frameSize: Vec2,
     clearMain: bool = true,
     clearColor: Color = color(1.0, 1.0, 1.0, 1.0),
+    allowOpenGlFallback = true,
 ) =
+  ## Set allowOpenGlFallback to false after detaching a window-bound context.
   let frameSize = frameSize.scaled()
   if frameSize.x <= 0 or frameSize.y <= 0:
     return
@@ -1853,7 +1855,7 @@ proc renderFrame*[BackendState](
         frameSize, clearMain = clearMain, clearMainColor = clearColor
       )
     except CatchableError as exc:
-      if renderer.ctx.kind() == rbOpenGL:
+      if renderer.ctx.kind() == rbOpenGL or not allowOpenGlFallback:
         raise
       renderer.useOpenGlFallback(exc.msg)
       renderer.ctx.beginFrame(

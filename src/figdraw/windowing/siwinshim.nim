@@ -337,15 +337,27 @@ when (UseMetalBackend or UseVulkanBackend) and defined(macosx):
     ## Controls CAMetalLayer opacity without exposing Objective-C details.
     siwinmetal.setOpaque(handle, opaque)
 
-type SiwinRenderBackend* = object
-  ## Opaque per-window backend state used by siwin + FigDraw integration.
-  window*: Window
-  resizeClearColor: Color
-  resizeClearColorSet: bool
-  when UseMetalBackend and defined(macosx):
-    metalLayer*: MetalLayerHandle
-  when UseVulkanBackend and defined(macosx):
-    vulkanMetalLayer*: MetalLayerHandle
+type
+  SiwinRenderBackend* = object
+    ## Opaque per-window backend state used by siwin + FigDraw integration.
+    window*: Window
+    dedicatedRender*: bool
+    presentationReady: bool
+    resizeClearColor: Color
+    resizeClearColorSet: bool
+    when UseMetalBackend and defined(macosx):
+      metalLayer*: MetalLayerHandle
+    when UseVulkanBackend and defined(macosx):
+      vulkanMetalLayer*: MetalLayerHandle
+
+  SiwinPresentationTarget* = object
+    ## Main-thread-owned presentation state for a renderer that encodes frames
+    ## on another thread. The renderer retains its own copy of the Metal layer;
+    ## this value exists solely so the window host can keep its geometry current.
+    when UseMetalBackend and defined(macosx):
+      metalLayer*: MetalLayerHandle
+    when UseVulkanBackend and defined(macosx):
+      vulkanMetalLayer*: MetalLayerHandle
 
 when defined(macosx):
   proc setOpaque(window: NSWindow, opaque: BOOL) {.objc: "setOpaque:".}
@@ -388,9 +400,75 @@ proc configureTransparentPresentation*(
       if not renderer.backendState.vulkanMetalLayer.layer.isNil:
         renderer.backendState.vulkanMetalLayer.setOpaque(false)
 
+proc presentationTarget*(
+    renderer: FigRenderer[SiwinRenderBackend]
+): SiwinPresentationTarget =
+  when UseMetalBackend and defined(macosx):
+    result.metalLayer = renderer.backendState.metalLayer
+  when UseVulkanBackend and defined(macosx):
+    result.vulkanMetalLayer = renderer.backendState.vulkanMetalLayer
+
+proc updatePresentationTarget*(target: SiwinPresentationTarget, window: Window) =
+  ## Update the native layer from the thread which owns the window. Rendering
+  ## may subsequently acquire its drawable and encode commands elsewhere.
+  when UseMetalBackend and defined(macosx):
+    if not target.metalLayer.layer.isNil and not window.isNil:
+      target.metalLayer.updateMetalLayer(window)
+  when UseVulkanBackend and defined(macosx):
+    if not target.vulkanMetalLayer.layer.isNil and not window.isNil:
+      target.vulkanMetalLayer.updateMetalLayer(window)
+
+func backendSupportsDedicatedRenderThread*(kind: RendererBackendKind): bool =
+  ## Whether this build can present this backend from a dedicated thread.
+  case kind
+  of rbMetal:
+    when UseMetalBackend and defined(macosx): true else: false
+  of rbVulkan:
+    when UseVulkanBackend: true else: false
+  of rbOpenGL:
+    false
+
+proc supportsDedicatedRenderThread*(renderer: FigRenderer[SiwinRenderBackend]): bool =
+  ## Whether the configured presentation backend can be detached from its
+  ## native window. OpenGL remains bound to the window and platform thread.
+  if renderer.isNil or renderer.ctx.isNil or not renderer.backendState.presentationReady:
+    return false
+  if not backendSupportsDedicatedRenderThread(renderer.backendKind()):
+    return false
+  case renderer.backendKind()
+  of rbMetal:
+    when UseMetalBackend and defined(macosx):
+      return not renderer.backendState.metalLayer.layer.isNil
+    else:
+      discard
+  of rbVulkan:
+    when UseVulkanBackend:
+      when defined(macosx):
+        return not renderer.backendState.vulkanMetalLayer.layer.isNil
+      else:
+        return true
+    else:
+      discard
+  of rbOpenGL:
+    discard
+
+proc useDedicatedRenderThread*(renderer: FigRenderer[SiwinRenderBackend]) =
+  ## Marks this renderer as owned by a dedicated render thread after the window
+  ## thread has attached and configured its presentation target. Do not retain
+  ## the native window across the ownership boundary: its lifetime remains on
+  ## the platform thread.
+  if not renderer.supportsDedicatedRenderThread():
+    raise newException(
+      ValueError, "the active siwin backend cannot render on a dedicated thread"
+    )
+  renderer.backendState.dedicatedRender = true
+  renderer.backendState.window = nil
+
 proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a siwin window and FigDraw renderer.
   renderer.backendState.window = window
+  renderer.backendState.dedicatedRender = false
+  renderer.backendState.presentationReady = false
   renderer.backendState.resizeClearColorSet = false
   renderer.configureTransparentPresentation(window)
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
@@ -412,6 +490,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
         renderer.backendState.metalLayer =
           attachMetalLayer(window, renderer.ctx.metalDevice())
         renderer.ctx.setPresentLayer(renderer.backendState.metalLayer.layer)
+        renderer.backendState.presentationReady = true
       except CatchableError as exc:
         when UseOpenGlFallback:
           renderer.useOpenGlFallback(exc.msg)
@@ -465,6 +544,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
             ValueError,
             "Vulkan present target unavailable for this siwin window (Wayland/X11 mismatch)",
           )
+        renderer.backendState.presentationReady = true
       except CatchableError as exc:
         when UseOpenGlFallback:
           renderer.useOpenGlFallback(exc.msg)
@@ -481,11 +561,11 @@ proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
         renderer.backendState.window.makeCurrent()
       discard renderer.applyRuntimeBackendOverride()
   when UseMetalBackend and defined(macosx):
-    if renderer.backendKind() == rbMetal:
+    if not renderer.backendState.dedicatedRender and renderer.backendKind() == rbMetal:
       let window = renderer.backendState.window
       renderer.backendState.metalLayer.updateMetalLayer(window)
   when UseVulkanBackend and defined(macosx):
-    if renderer.backendKind() == rbVulkan:
+    if not renderer.backendState.dedicatedRender and renderer.backendKind() == rbVulkan:
       let window = renderer.backendState.window
       renderer.backendState.vulkanMetalLayer.updateMetalLayer(window)
   when NeedSiwinOpenGLContext:
@@ -506,7 +586,16 @@ proc renderFrame*(
 ) =
   ## Renders a frame and uses its clear color for uncovered resize areas.
   if clearMain:
-    renderer.syncResizeBackgroundColor(clearColor)
+    if renderer.backendState.dedicatedRender:
+      renderer.backendState.resizeClearColor = clearColor
+      renderer.backendState.resizeClearColorSet = true
+    else:
+      renderer.syncResizeBackgroundColor(clearColor)
   figrender.renderFrame(
-    renderer, nodes, frameSize, clearMain = clearMain, clearColor = clearColor
+    renderer,
+    nodes,
+    frameSize,
+    clearMain = clearMain,
+    clearColor = clearColor,
+    allowOpenGlFallback = not renderer.backendState.dedicatedRender,
   )

@@ -62,8 +62,16 @@ suite "siwin resize presentation":
           size = ivec2(320, 220), title = "figdraw resize presentation test"
         )
       try:
+        check not backendSupportsDedicatedRenderThread(rbOpenGL)
+        check not renderer.supportsDedicatedRenderThread()
         renderer.setupBackend(window)
+        check renderer.supportsDedicatedRenderThread()
+        let target = renderer.presentationTarget()
+        target.updatePresentationTarget(window)
         renderer.checkLayerPolicy(window)
+        renderer.useDedicatedRenderThread()
+        check renderer.backendState.dedicatedRender
+        check renderer.backendState.window.isNil
       finally:
         if window.opened:
           window.close()
