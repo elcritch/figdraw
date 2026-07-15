@@ -1,6 +1,11 @@
 import std/[algorithm, os, strutils, tables, unicode]
 
 type
+  ## One inclusive range of Unicode codepoints mapped by a typeface's `cmap`.
+  TypefaceCodepointRange* = object
+    first*: uint32
+    last*: uint32
+
   ## A localized entry from the OpenType `name` table.
   TypefaceLocalizedName* = object
     nameId*: uint16
@@ -39,6 +44,7 @@ type
     monospace*: bool
     unicodeRanges*: array[4, uint32]
     codePageRanges*: array[2, uint32]
+    codepointRanges*: seq[TypefaceCodepointRange]
     localizedNames*: seq[TypefaceLocalizedName]
     variationAxes*: seq[TypefaceVariationAxis]
     layoutScripts*: seq[string]
@@ -47,6 +53,27 @@ type
   TypefaceTable = object
     offset: int
     length: int
+
+func supportsCodepoint*(info: TypefaceInfo, codepoint: uint32): bool =
+  ## Returns whether the typeface maps `codepoint` to a glyph in its Unicode cmap.
+  for codepointRange in info.codepointRanges:
+    if codepoint < codepointRange.first:
+      return
+    if codepoint <= codepointRange.last:
+      return true
+
+func supportedCodepointCount*(info: TypefaceInfo, first, last: uint32): Natural =
+  ## Counts mapped codepoints in the inclusive query range.
+  if first > last:
+    return
+  for codepointRange in info.codepointRanges:
+    if codepointRange.first > last:
+      break
+    let
+      overlapFirst = max(first, codepointRange.first)
+      overlapLast = min(last, codepointRange.last)
+    if overlapFirst <= overlapLast:
+      result += (overlapLast - overlapFirst + 1).int
 
 proc requireBytes(data: string, offset, length: int) =
   if offset < 0 or length < 0 or offset > data.len - length:
@@ -94,6 +121,150 @@ proc readTypefaceTables(data: string, faceIndex: int): Table[string, TypefaceTab
       tableLength = data.uint32Be(recordOffset + 12).int
     data.requireBytes(tableOffset, tableLength)
     result[tag] = TypefaceTable(offset: tableOffset, length: tableLength)
+
+proc addCodepointRange(ranges: var seq[TypefaceCodepointRange], first, last: uint32) =
+  if first <= last:
+    ranges.add TypefaceCodepointRange(first: first, last: last)
+
+proc readCmapFormat4(
+    data: string, offset, tableLimit: int, ranges: var seq[TypefaceCodepointRange]
+) =
+  data.requireBytes(offset, 14)
+  let
+    length = data.uint16Be(offset + 2).int
+    limit = offset + length
+    segmentCount = data.uint16Be(offset + 6).int div 2
+  if length < 16 or limit > tableLimit or segmentCount <= 0:
+    raise newException(ValueError, "invalid cmap format 4 table")
+
+  let
+    endCodesOffset = offset + 14
+    startCodesOffset = endCodesOffset + segmentCount * 2 + 2
+    deltasOffset = startCodesOffset + segmentCount * 2
+    rangeOffsetsOffset = deltasOffset + segmentCount * 2
+  data.requireBytes(endCodesOffset, segmentCount * 2)
+  data.requireBytes(startCodesOffset, segmentCount * 2)
+  data.requireBytes(deltasOffset, segmentCount * 2)
+  data.requireBytes(rangeOffsetsOffset, segmentCount * 2)
+  if rangeOffsetsOffset + segmentCount * 2 > limit:
+    raise newException(ValueError, "cmap format 4 arrays exceed the table")
+
+  for index in 0 ..< segmentCount:
+    let
+      first = data.uint16Be(startCodesOffset + index * 2).uint32
+      last = data.uint16Be(endCodesOffset + index * 2).uint32
+      delta = data.uint16Be(deltasOffset + index * 2).uint32
+      rangeOffsetEntry = rangeOffsetsOffset + index * 2
+      rangeOffset = data.uint16Be(rangeOffsetEntry).int
+    if first > last:
+      continue
+
+    var rangeStart = high(uint32)
+    for codepoint in first .. last:
+      var glyphId: uint32
+      if rangeOffset == 0:
+        glyphId = (codepoint + delta) and 0xffff'u32
+      else:
+        let glyphOffset = rangeOffsetEntry + rangeOffset + (codepoint - first).int * 2
+        if glyphOffset + 2 <= limit:
+          glyphId = data.uint16Be(glyphOffset).uint32
+          if glyphId != 0:
+            glyphId = (glyphId + delta) and 0xffff'u32
+
+      if glyphId != 0 and codepoint != 0xffff'u32:
+        if rangeStart == high(uint32):
+          rangeStart = codepoint
+      elif rangeStart != high(uint32):
+        ranges.addCodepointRange(rangeStart, codepoint - 1)
+        rangeStart = high(uint32)
+    if rangeStart != high(uint32):
+      ranges.addCodepointRange(rangeStart, last)
+
+proc readCmapFormat12Or13(
+    data: string,
+    offset, tableLimit: int,
+    format: uint16,
+    ranges: var seq[TypefaceCodepointRange],
+) =
+  data.requireBytes(offset, 16)
+  let
+    length = data.uint32Be(offset + 4).int
+    limit = offset + length
+    groupCount = data.uint32Be(offset + 12).int
+  if length < 16 or limit > tableLimit or groupCount > (limit - offset - 16) div 12:
+    raise newException(ValueError, "invalid cmap grouped table")
+
+  for index in 0 ..< groupCount:
+    let
+      groupOffset = offset + 16 + index * 12
+      first = data.uint32Be(groupOffset)
+      last = data.uint32Be(groupOffset + 4)
+      glyphId = data.uint32Be(groupOffset + 8)
+    if first > last or last > 0x10ffff'u32:
+      continue
+    if format == 13'u16:
+      if glyphId != 0:
+        ranges.addCodepointRange(first, last)
+    elif glyphId == 0:
+      if first < last:
+        ranges.addCodepointRange(first + 1, last)
+    else:
+      ranges.addCodepointRange(first, last)
+
+proc normalizeCodepointRanges(ranges: var seq[TypefaceCodepointRange]) =
+  ranges.sort(
+    proc(left, right: TypefaceCodepointRange): int =
+      result = cmp(left.first, right.first)
+      if result == 0:
+        result = cmp(left.last, right.last)
+  )
+  var merged: seq[TypefaceCodepointRange]
+  for current in ranges:
+    if merged.len == 0 or current.first > merged[^1].last + 1:
+      merged.add current
+    elif current.last > merged[^1].last:
+      merged[^1].last = current.last
+  ranges = move merged
+
+proc readCodepointRanges(
+    data: string, tables: Table[string, TypefaceTable]
+): seq[TypefaceCodepointRange] =
+  if "cmap" notin tables:
+    return
+  let cmap = tables["cmap"]
+  data.requireBytes(cmap.offset, 4)
+  let
+    recordCount = data.uint16Be(cmap.offset + 2).int
+    tableLimit = cmap.offset + cmap.length
+  if cmap.offset + 4 + recordCount * 8 > tableLimit:
+    raise newException(ValueError, "cmap encoding records exceed the table")
+  data.requireBytes(cmap.offset + 4, recordCount * 8)
+
+  var parsedOffsets = initTable[int, bool]()
+  for index in 0 ..< recordCount:
+    let
+      recordOffset = cmap.offset + 4 + index * 8
+      platformId = data.uint16Be(recordOffset)
+      encodingId = data.uint16Be(recordOffset + 2)
+      subtableOffset = cmap.offset + data.uint32Be(recordOffset + 4).int
+      isUnicode =
+        platformId == 0'u16 or
+        platformId == 3'u16 and encodingId in {0'u16, 1'u16, 10'u16}
+    if not isUnicode or subtableOffset in parsedOffsets:
+      continue
+    if subtableOffset < cmap.offset or subtableOffset + 2 > tableLimit:
+      raise newException(ValueError, "cmap subtable exceeds the table")
+    parsedOffsets[subtableOffset] = true
+
+    let format = data.uint16Be(subtableOffset)
+    case format
+    of 4'u16:
+      data.readCmapFormat4(subtableOffset, tableLimit, result)
+    of 12'u16, 13'u16:
+      data.readCmapFormat12Or13(subtableOffset, tableLimit, format, result)
+    else:
+      discard
+  result.normalizeCodepointRanges()
 
 proc utf16Be(data: string, offset, length: int): string =
   data.requireBytes(offset, length)
@@ -344,6 +515,10 @@ proc parseTypefaceInfo*(
         result.fullName.add " " & subfamily
     result.postScriptName = postScriptName
     result.applyStyleInfo(data, tables)
+    try:
+      result.codepointRanges = data.readCodepointRanges(tables)
+    except ValueError:
+      discard
     result.variationAxes = data.readVariationAxes(tables, result.localizedNames)
     for tag in ["GSUB", "GPOS"]:
       if tag in tables:
@@ -355,6 +530,9 @@ proc parseTypefaceInfo*(
 
 proc copyTypefaceInfo*(info: TypefaceInfo): TypefaceInfo =
   result = info
+  result.codepointRanges = newSeqOfCap[TypefaceCodepointRange](info.codepointRanges.len)
+  for codepointRange in info.codepointRanges:
+    result.codepointRanges.add codepointRange
   result.localizedNames = newSeqOfCap[TypefaceLocalizedName](info.localizedNames.len)
   for name in info.localizedNames:
     result.localizedNames.add name

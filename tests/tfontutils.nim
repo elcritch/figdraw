@@ -5,6 +5,7 @@ import pkg/pixie/fonts
 
 import figdraw/commons
 import figdraw/common/fonttypes
+import figdraw/common/typefaceinfos
 import figdraw/common/typefaces
 import figdraw/common/fontglyphs
 import figdraw/extras/systemfonts
@@ -181,6 +182,9 @@ suite "fontutils":
     check not info.italic
     check info.localizedNames.len > 0
     check "latn" in info.layoutScripts
+    check info.supportsCodepoint('A'.uint32)
+    check info.supportedCodepointCount('A'.uint32, 'Z'.uint32) == 26
+    check not info.supportsCodepoint(0x0627'u32)
 
     var hasEnglishName = false
     for name in info.localizedNames:
@@ -188,9 +192,13 @@ suite "fontutils":
         hasEnglishName = true
     check hasEnglishName
 
+    let originalCodepointRangeStart = info.codepointRanges[0].first
     var changed = info
     changed.layoutScripts[0] = "changed"
+    changed.codepointRanges[0].first = originalCodepointRangeStart + 1
     check "changed" notin getTypefaceInfo(typefaceId).layoutScripts
+    check getTypefaceInfo(typefaceId).codepointRanges[0].first ==
+      originalCodepointRangeStart
 
   test "typeface metadata exposes variable axes and shaping scripts":
     let
@@ -206,6 +214,8 @@ suite "fontutils":
     check info.variationAxes[0].defaultValue == 400.0'f32
     check info.variationAxes[0].maxValue == 700.0'f32
     check "arab" in info.layoutScripts
+    check info.supportsCodepoint(0x0627'u32)
+    check not info.supportsCodepoint(0x05d0'u32)
 
   test "unknown typeface metadata lookup raises ValueError":
     expect ValueError:
