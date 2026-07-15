@@ -681,6 +681,7 @@ proc typeset*(
     vAlign = FontVertical.Top,
     minContent: bool,
     wrap: bool,
+    rasterize: bool,
 ): GlyphArrangement =
   ## Typesets with Harfbuzzy and converts shaped glyph ids into FigDraw data.
   threadEffects:
@@ -746,4 +747,5 @@ proc typeset*(
   result.addFontSizePadding(fontSizes)
 
   when figdrawTextBackend == "hybrid":
-    result.generateGlyphImages()
+    if rasterize:
+      result.generateGlyphImages()

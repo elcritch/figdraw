@@ -6,6 +6,7 @@ import pkg/chroma
 
 import ./commons
 import ./common/fonttypes
+import ./common/imgutils
 import ./figbasics
 import ./fignodes
 
@@ -75,6 +76,8 @@ type
     ## packer's skyline/high-water estimate and can include margins and holes,
     ## so it is the better signal for deciding when to reset the atlas.
     snapshotId*: uint64
+    generation*: uint64
+    rebuildCount*: uint64
     atlasSize*: int
     atlasArea*: int
     usedArea*: int
@@ -182,13 +185,49 @@ func gradientColors*(fill: BackendFill): array[4, ColorRGBA] =
 type BackendContext* = ref object of RootObj
   imageOwners: Table[ImageId, HashSet[OwnerToken]]
   fontOwners: Table[FontId, HashSet[OwnerToken]]
+  imageMessages*: ImageMessageSubscription
+  atlasGenerationValue: uint64
+  atlasRebuildCountValue: uint64
 
 var
   atlasUsageLock: Lock
   lastAtlasUsage: AtlasUsage
   nextAtlasUsageSnapshotId: uint64
+  atlasGenerationLock: Lock
+  nextAtlasGeneration: uint64
 
 atlasUsageLock.initLock()
+atlasGenerationLock.initLock()
+
+proc noteAtlasRebuilt*(impl: BackendContext) =
+  withLock atlasGenerationLock:
+    inc nextAtlasGeneration
+    impl.atlasGenerationValue = nextAtlasGeneration
+  inc impl.atlasRebuildCountValue
+
+proc noteAtlasCreated*(impl: BackendContext) =
+  if impl.atlasGenerationValue == 0'u64:
+    withLock atlasGenerationLock:
+      inc nextAtlasGeneration
+      impl.atlasGenerationValue = nextAtlasGeneration
+
+proc atlasGeneration*(impl: BackendContext): uint64 =
+  if impl.atlasGenerationValue == 0'u64:
+    impl.noteAtlasCreated()
+  impl.atlasGenerationValue
+
+proc atlasRebuildCount*(impl: BackendContext): uint64 =
+  impl.atlasRebuildCountValue
+
+proc ensureImageMessageSubscription*(impl: BackendContext) =
+  if impl.imageMessages.isNil:
+    impl.imageMessages = newImageMessageSubscription()
+
+func plannedAtlasSize*(initialSize, minimumSize: int): int =
+  result = max(initialSize, 1)
+  let minimum = max(minimumSize, result)
+  while result < minimum:
+    result *= 2
 
 func usedRatio*(usage: AtlasUsage): float32 =
   if usage.atlasArea <= 0:
@@ -267,6 +306,8 @@ proc atlasUsage*(impl: BackendContext): AtlasUsage =
   ## Call this from the render/backend thread. For cross-thread monitoring, use
   ## `atlasUsageSnapshot`, which returns the last value published by rendering.
   result.atlasSize = max(0, impl.atlasSize())
+  result.generation = impl.atlasGeneration()
+  result.rebuildCount = impl.atlasRebuildCount()
   result.atlasArea = result.atlasSize * result.atlasSize
   result.entryCount = impl.entriesPtr()[].len
 
@@ -338,6 +379,11 @@ method removeImage*(impl: BackendContext, id: ImageId) {.base.} =
 method clearImageAtlas*(impl: BackendContext) {.base.} =
   impl.entriesPtr()[].clear()
   impl.atlasEntryMetaPtr().clear()
+  impl.noteAtlasRebuilt()
+
+method resetImageAtlas*(impl: BackendContext, minimumSize: int) {.base.} =
+  discard minimumSize
+  impl.clearImageAtlas()
 
 method clearFontGlyphs*(impl: BackendContext, fontId: FontId) {.base.} =
   var keys: seq[Hash]

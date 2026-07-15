@@ -601,13 +601,9 @@ proc upload(ctx: MetalContext) =
     )
 
 proc grow(ctx: MetalContext) =
-  ctx.flush()
-  ctx.atlasSize = ctx.atlasSize * 2
+  let nextSize = ctx.atlasSize * 2
+  ctx.resetImageAtlas(nextSize)
   info "grow atlasSize ", atlasSize = ctx.atlasSize
-  ctx.heights.setLen(ctx.atlasSize)
-  ctx.atlasTexture.resetRetained(ctx.createAtlasTexture(ctx.atlasSize))
-  ctx.entries.clear()
-  ctx.atlasEntryMeta.clear()
 
 proc findEmptyRect(ctx: MetalContext, width, height: int): Rect =
   var imgWidth = width + ctx.atlasMargin * 2
@@ -685,12 +681,16 @@ method putImage*(ctx: MetalContext, imgObj: ImgObj) =
   ctx.markImageEntry(imgObj.id)
 
 method clearImageAtlas*(ctx: MetalContext) =
+  ctx.resetImageAtlas(ctx.initialAtlasSize)
+
+method resetImageAtlas*(ctx: MetalContext, minimumSize: int) =
   ctx.flush()
-  ctx.atlasSize = ctx.initialAtlasSize
+  ctx.atlasSize = plannedAtlasSize(ctx.initialAtlasSize, minimumSize)
   ctx.entries.clear()
   ctx.atlasEntryMeta.clear()
   ctx.heights = newSeq[uint16](ctx.atlasSize)
   ctx.atlasTexture.resetRetained(ctx.createAtlasTexture(ctx.atlasSize))
+  ctx.noteAtlasRebuilt()
 
 proc checkBatch(ctx: MetalContext) =
   if ctx.quadCount == ctx.maxQuads:
@@ -2212,6 +2212,8 @@ proc newContext*(
     result.heights = newSeq[uint16](atlasSize)
     result.atlasTexture.resetRetained(result.createAtlasTexture(atlasSize))
     result.ensureMask0()
+    result.ensureImageMessageSubscription()
+    result.noteAtlasCreated()
 
     # Allocate CPU-side arrays.
     result.positions.data = newSeq[float32](2 * maxQuads * 4)

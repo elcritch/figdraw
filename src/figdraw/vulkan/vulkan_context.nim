@@ -2311,16 +2311,9 @@ proc copyIntoAtlas(atlas: Image, atX, atY: int, image: Image) =
     )
 
 proc grow(ctx: VulkanContext) =
-  ctx.flush()
-  ctx.atlasSize = ctx.atlasSize * 2
+  let nextSize = ctx.atlasSize * 2
+  ctx.resetImageAtlas(nextSize)
   info "grow atlasSize", atlasSize = ctx.atlasSize
-  ctx.heights.setLen(ctx.atlasSize)
-  ctx.entries.clear()
-  ctx.atlasEntryMeta.clear()
-  ctx.atlasPixels = newImage(ctx.atlasSize, ctx.atlasSize)
-  ctx.atlasPixels.fill(rgba(0, 0, 0, 0))
-  if ctx.gpuReady:
-    ctx.recreateAtlasGpu()
 
 proc findEmptyRect(ctx: VulkanContext, width, height: int): Rect =
   let imgWidth = width + ctx.atlasMargin * 2
@@ -2395,8 +2388,11 @@ method putImage*(ctx: VulkanContext, imgObj: ImgObj) =
   ctx.markImageEntry(imgObj.id)
 
 method clearImageAtlas*(ctx: VulkanContext) =
+  ctx.resetImageAtlas(ctx.initialAtlasSize)
+
+method resetImageAtlas*(ctx: VulkanContext, minimumSize: int) =
   ctx.flush()
-  ctx.atlasSize = ctx.initialAtlasSize
+  ctx.atlasSize = plannedAtlasSize(ctx.initialAtlasSize, minimumSize)
   ctx.entries.clear()
   ctx.atlasEntryMeta.clear()
   ctx.heights = newSeq[uint16](ctx.atlasSize)
@@ -2406,6 +2402,7 @@ method clearImageAtlas*(ctx: VulkanContext) =
   ctx.atlasLayoutReady = false
   if ctx.gpuReady:
     ctx.recreateAtlasGpu()
+  ctx.noteAtlasRebuilt()
 
 proc drawQuad*(
     ctx: VulkanContext,
@@ -3903,6 +3900,8 @@ proc newContext*(
   result.atlasPixels.fill(rgba(0, 0, 0, 0))
   result.atlasDirty = true
   result.atlasLayoutReady = false
+  result.ensureImageMessageSubscription()
+  result.noteAtlasCreated()
 
   result.positions = newSeq[float32](2 * maxQuads * 4)
   result.colors = newSeq[uint8](4 * maxQuads * 4)

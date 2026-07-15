@@ -70,6 +70,32 @@ proc atlasUsage*[BackendState](renderer: FigRenderer[BackendState]): AtlasUsage 
   ## cross-thread last-known value.
   renderer.ctx.atlasUsage()
 
+proc atlasGeneration*[BackendState](renderer: FigRenderer[BackendState]): uint64 =
+  renderer.ctx.atlasGeneration()
+
+proc atlasRebuildCount*[BackendState](renderer: FigRenderer[BackendState]): uint64 =
+  renderer.ctx.atlasRebuildCount()
+
+proc containsImage*[BackendState](
+    renderer: FigRenderer[BackendState], id: ImageId
+): bool =
+  renderer.ctx.hasImage(id.Hash)
+
+proc ensureImage*[BackendState](
+    renderer: FigRenderer[BackendState], id: ImageId, image: Image
+): bool {.discardable.} =
+  if image.isNil or renderer.containsImage(id):
+    return false
+  var imgObj = ImgObj(id: id, kind: PixieImg, pimg: image)
+  renderer.ctx.putImage(imgObj)
+  renderer.ctx.markImageEntry(id)
+  true
+
+proc rebuildImageAtlas*[BackendState](
+    renderer: FigRenderer[BackendState], minimumSize = 0
+) =
+  renderer.ctx.resetImageAtlas(minimumSize)
+
 proc runtimeTextLcdFilteringRequested*(): bool =
   let v1 = getEnv("FIGDRAW_TEXT_LCD_FILTERING").strip().toLowerAscii()
   if v1.len > 0:
@@ -1716,10 +1742,8 @@ proc render(
 
   postRender()
 
-proc renderRoot*(
-    ctx: BackendContext, nodes: var Renders
-) {.forbids: [AppMainThreadEff].} =
-  ## draw roots for each level
+proc processImageMessages*(ctx: BackendContext) {.forbids: [AppMainThreadEff].} =
+  ctx.ensureImageMessageSubscription()
   var legacyImg: ImgObj
   while imageChan.tryRecv(legacyImg):
     trace "image loaded", id = $legacyImg.id.Hash
@@ -1736,7 +1760,7 @@ proc renderRoot*(
     ctx.markImageEntry(legacyImg.id)
 
   var img: ImageMsg
-  while tryRecvImageMsg(img):
+  while tryRecvImageMsg(ctx.imageMessages, img):
     case img.kind
     of ImkPutPixie, ImkPutGlyphPixie:
       trace "image loaded", id = $img.id.Hash
@@ -1786,24 +1810,32 @@ proc renderRoot*(
       ctx.retainImageOwner(img.id, img.ownerToken)
     of ImkReleaseImage:
       trace "image released", id = $img.id.Hash
-      if ctx.releaseImageOwner(img.id, img.ownerToken):
-        forgetReleasedImage(img.id)
+      discard ctx.releaseImageOwner(img.id, img.ownerToken)
+      if img.finalRelease:
         ctx.removeImage(img.id)
     of ImkRetainFont:
       trace "font retained", fontId = $Hash(img.fontId)
       ctx.retainFontOwner(img.fontId, img.ownerToken)
     of ImkReleaseFont:
       trace "font released", fontId = $Hash(img.fontId)
-      if ctx.releaseFontOwner(img.fontId, img.ownerToken):
-        forgetReleasedFontGlyphs(img.fontId)
+      discard ctx.releaseFontOwner(img.fontId, img.ownerToken)
+      if img.finalRelease:
         clearGlyphRasterFontCache(img.fontId)
         ctx.clearFontGlyphs(img.fontId)
 
+proc renderRoot*(
+    ctx: BackendContext, nodes: var Renders
+) {.forbids: [AppMainThreadEff].} =
+  ## draw roots for each level
+  ctx.processImageMessages()
   for zlvl, list in nodes.layers.pairs():
     for rootIdx in list.rootIds:
       ctx.render(list.nodes, rootIdx, -1.FigIdx)
 
   ctx.publishAtlasUsage()
+
+proc processImageMessages*[BackendState](renderer: FigRenderer[BackendState]) =
+  renderer.ctx.processImageMessages()
 
 proc renderFrame*[BackendState](
     renderer: FigRenderer[BackendState],

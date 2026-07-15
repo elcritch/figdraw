@@ -45,6 +45,7 @@ type
     fontId*: FontId
     typefaceId*: TypefaceId
     ownerToken*: OwnerToken
+    finalRelease*: bool
     ids*: seq[ImageId]
     case kind*: ImageMsgKind
     of ImkPutFlippy:
@@ -64,6 +65,12 @@ type
   ## Pass raw ImageId values across threads and create a new ImageRef on the
   ## receiving thread when that thread needs ownership.
   ImageRef* = ref ImageRefHandle
+
+  ImageMessageSubscriptionHandle = object
+    id: uint64
+    inbox: RChan[ImageMsg]
+
+  ImageMessageSubscription* = ref ImageMessageSubscriptionHandle
 
   ImageCacheKind = enum
     ickImage
@@ -88,14 +95,109 @@ var
   localOwnerToken {.threadvar.}: OwnerToken
   localImageRefCounts {.threadvar.}: Table[ImageId, int]
   localFontRefCounts {.threadvar.}: Table[FontId, int]
+  imageSubscriberLock: Lock
+  imageSubscribers: Table[uint64, RChan[ImageMsg]]
+  imageMessageReplay: Table[ImageId, ImageMsg]
+  nextImageSubscriberId: uint64
+  retainedImageOwners: Table[ImageId, HashSet[OwnerToken]]
+  retainedFontOwners: Table[FontId, HashSet[OwnerToken]]
 
 imageMsgOrderLock.initLock()
 imageCachedLock.initLock()
 ownerTokenLock.initLock()
+imageSubscriberLock.initLock()
+
+proc `=destroy`(subscription: ImageMessageSubscriptionHandle) =
+  if subscription.id != 0'u64:
+    withLock imageSubscriberLock:
+      imageSubscribers.del(subscription.id)
 
 proc `==`*(a, b: ImageId): bool {.borrow.}
 proc `==`*(a, b: OwnerToken): bool {.borrow.}
 proc hash*(token: OwnerToken): Hash {.borrow.}
+proc forgetReleasedImage*(id: ImageId)
+proc forgetReleasedFontGlyphs*(fontId: FontId)
+
+proc copyImageMessage(msg: ImageMsg): ImageMsg =
+  result = msg
+  case msg.kind
+  of ImkPutFlippy:
+    result.flippy = msg.flippy.copy()
+  of ImkPutPixie, ImkPutGlyphPixie:
+    result.pimg =
+      if msg.pimg.isNil:
+        nil
+      else:
+        msg.pimg.copy()
+  of ImkClearImages:
+    result.ids = @(msg.ids)
+  of ImkClearImage, ImkClearImageCache, ImkClearFontGlyphs, ImkClearTypefaceGlyphs,
+      ImkRetainImage, ImkReleaseImage, ImkRetainFont, ImkReleaseFont:
+    discard
+
+proc updateImageMessageReplay(msg: ImageMsg) =
+  case msg.kind
+  of ImkPutFlippy, ImkPutPixie, ImkPutGlyphPixie:
+    imageMessageReplay[msg.id] = msg.copyImageMessage()
+  of ImkClearImage:
+    imageMessageReplay.del(msg.id)
+  of ImkClearImages:
+    for id in msg.ids:
+      imageMessageReplay.del(id)
+  of ImkClearImageCache:
+    imageMessageReplay.clear()
+  of ImkClearFontGlyphs, ImkReleaseFont:
+    if msg.kind == ImkReleaseFont and not msg.finalRelease:
+      return
+    var released: seq[ImageId]
+    for id, replay in imageMessageReplay.pairs:
+      if replay.kind == ImkPutGlyphPixie and replay.fontId == msg.fontId:
+        released.add(id)
+    for id in released:
+      imageMessageReplay.del(id)
+  of ImkClearTypefaceGlyphs:
+    var released: seq[ImageId]
+    for id, replay in imageMessageReplay.pairs:
+      if replay.kind == ImkPutGlyphPixie and replay.typefaceId == msg.typefaceId:
+        released.add(id)
+    for id in released:
+      imageMessageReplay.del(id)
+  of ImkReleaseImage:
+    if msg.finalRelease:
+      imageMessageReplay.del(msg.id)
+  of ImkRetainImage, ImkRetainFont:
+    discard
+
+proc publishImageMessage(msg: sink ImageMsg) =
+  {.cast(gcsafe).}:
+    var inboxes: seq[RChan[ImageMsg]]
+    withLock imageSubscriberLock:
+      updateImageMessageReplay(msg)
+      for inbox in imageSubscribers.values:
+        inboxes.add(inbox)
+
+    for inbox in inboxes:
+      var copied = msg.copyImageMessage()
+      inbox.send(unsafeIsolate(move copied))
+
+    if msg.kind in {ImkRetainImage, ImkReleaseImage, ImkRetainFont, ImkReleaseFont}:
+      var legacy = move msg
+      imageMsgChan.push(unsafeIsolate(move legacy))
+
+proc newImageMessageSubscription*(): ImageMessageSubscription =
+  withLock imageSubscriberLock:
+    let inbox = newRChan[ImageMsg](max(4096, imageMessageReplay.len * 2 + 1))
+    inc nextImageSubscriberId
+    new result
+    result.id = nextImageSubscriberId
+    result.inbox = inbox
+    imageSubscribers[result.id] = inbox
+    for replay in imageMessageReplay.values:
+      var copied = replay.copyImageMessage()
+      inbox.send(unsafeIsolate(move copied))
+
+proc tryRecvImageMsg*(subscription: ImageMessageSubscription, msg: var ImageMsg): bool =
+  not subscription.isNil and subscription.inbox.tryRecv(msg)
 
 proc currentOwnerToken*(): OwnerToken =
   if localOwnerToken == OwnerToken(0):
@@ -105,24 +207,70 @@ proc currentOwnerToken*(): OwnerToken =
   localOwnerToken
 
 proc sendRetainImage(id: ImageId, ownerToken: OwnerToken) =
-  withLock imageMsgOrderLock:
-    var msg = ImageMsg(kind: ImkRetainImage, id: id, ownerToken: ownerToken)
-    imageMsgChan.send(unsafeIsolate msg)
+  {.cast(gcsafe).}:
+    withLock imageMsgOrderLock:
+      var owners = retainedImageOwners.getOrDefault(id, initHashSet[OwnerToken]())
+      owners.incl(ownerToken)
+      retainedImageOwners[id] = owners
+      publishImageMessage(
+        ImageMsg(kind: ImkRetainImage, id: id, ownerToken: ownerToken)
+      )
 
 proc sendReleaseImage(id: ImageId, ownerToken: OwnerToken) =
-  withLock imageMsgOrderLock:
-    var msg = ImageMsg(kind: ImkReleaseImage, id: id, ownerToken: ownerToken)
-    imageMsgChan.send(unsafeIsolate msg)
+  {.cast(gcsafe).}:
+    withLock imageMsgOrderLock:
+      var finalRelease = true
+      if id in retainedImageOwners:
+        var owners = retainedImageOwners[id]
+        owners.excl(ownerToken)
+        finalRelease = owners.len == 0
+        if finalRelease:
+          retainedImageOwners.del(id)
+        else:
+          retainedImageOwners[id] = owners
+      if finalRelease:
+        forgetReleasedImage(id)
+      publishImageMessage(
+        ImageMsg(
+          kind: ImkReleaseImage,
+          id: id,
+          ownerToken: ownerToken,
+          finalRelease: finalRelease,
+        )
+      )
 
 proc sendRetainFont(fontId: FontId, ownerToken: OwnerToken) =
-  withLock imageMsgOrderLock:
-    var msg = ImageMsg(kind: ImkRetainFont, fontId: fontId, ownerToken: ownerToken)
-    imageMsgChan.send(unsafeIsolate msg)
+  {.cast(gcsafe).}:
+    withLock imageMsgOrderLock:
+      var owners = retainedFontOwners.getOrDefault(fontId, initHashSet[OwnerToken]())
+      owners.incl(ownerToken)
+      retainedFontOwners[fontId] = owners
+      publishImageMessage(
+        ImageMsg(kind: ImkRetainFont, fontId: fontId, ownerToken: ownerToken)
+      )
 
 proc sendReleaseFont(fontId: FontId, ownerToken: OwnerToken) =
-  withLock imageMsgOrderLock:
-    var msg = ImageMsg(kind: ImkReleaseFont, fontId: fontId, ownerToken: ownerToken)
-    imageMsgChan.send(unsafeIsolate msg)
+  {.cast(gcsafe).}:
+    withLock imageMsgOrderLock:
+      var finalRelease = true
+      if fontId in retainedFontOwners:
+        var owners = retainedFontOwners[fontId]
+        owners.excl(ownerToken)
+        finalRelease = owners.len == 0
+        if finalRelease:
+          retainedFontOwners.del(fontId)
+        else:
+          retainedFontOwners[fontId] = owners
+      if finalRelease:
+        forgetReleasedFontGlyphs(fontId)
+      publishImageMessage(
+        ImageMsg(
+          kind: ImkReleaseFont,
+          fontId: fontId,
+          ownerToken: ownerToken,
+          finalRelease: finalRelease,
+        )
+      )
 
 proc retainImageRefId*(id: ImageId) =
   let ownerToken = currentOwnerToken()
@@ -291,8 +439,7 @@ proc sendImage*(imgObj: var ImgObj) =
       markImageCachedLocked(imgObj.id)
       generation = imageGenerationLocked(imgObj.id)
       cacheGeneration = imageCacheGeneration
-    var msg = imgObj.toImageMsg(generation, cacheGeneration)
-    imageMsgChan.send(unsafeIsolate msg)
+    publishImageMessage(imgObj.toImageMsg(generation, cacheGeneration))
 
 proc sendImageCached*(imgObj: var ImgObj) =
   var cached = false
@@ -307,8 +454,7 @@ proc sendImageCached*(imgObj: var ImgObj) =
         generation = imageGenerationLocked(imgObj.id)
         cacheGeneration = imageCacheGeneration
     if not cached:
-      var msg = imgObj.toImageMsg(generation, cacheGeneration)
-      imageMsgChan.send(unsafeIsolate msg)
+      publishImageMessage(imgObj.toImageMsg(generation, cacheGeneration))
 
 proc loadGlyphImage*(
     id: ImageId, fontId: FontId, typefaceId: TypefaceId, image: Image
@@ -320,16 +466,17 @@ proc loadGlyphImage*(
       markGlyphCachedLocked(id, fontId, typefaceId)
       generation = imageGenerationLocked(id)
       cacheGeneration = imageCacheGeneration
-    var msg = ImageMsg(
-      kind: ImkPutGlyphPixie,
-      id: id,
-      generation: generation,
-      cacheGeneration: cacheGeneration,
-      fontId: fontId,
-      typefaceId: typefaceId,
-      pimg: image,
+    publishImageMessage(
+      ImageMsg(
+        kind: ImkPutGlyphPixie,
+        id: id,
+        generation: generation,
+        cacheGeneration: cacheGeneration,
+        fontId: fontId,
+        typefaceId: typefaceId,
+        pimg: image,
+      )
     )
-    imageMsgChan.send(unsafeIsolate msg)
 
 proc clearImage*(id: ImageId) =
   var generation: uint64
@@ -338,8 +485,7 @@ proc clearImage*(id: ImageId) =
       imageCacheMeta.del(id)
       imageCached.excl(id)
       generation = bumpImageGenerationLocked(id)
-    var msg = ImageMsg(kind: ImkClearImage, id: id, generation: generation)
-    imageMsgChan.send(unsafeIsolate msg)
+    publishImageMessage(ImageMsg(kind: ImkClearImage, id: id, generation: generation))
 
 proc clearImage*(image: ImageRef) =
   clearImage(image.id)
@@ -354,7 +500,7 @@ proc clearImages*(ids: openArray[ImageId]) =
     withLock imageCachedLock:
       for id in ids:
         clearCachedImageLocked(id)
-    imageMsgChan.send(unsafeIsolate msg)
+    publishImageMessage(move msg)
 
 proc clearImages*(images: openArray[ImageRef]) =
   if images.len == 0:
@@ -373,22 +519,21 @@ proc clearImageCache*() =
       imageCacheMeta.clear()
       imageCacheGeneration.inc()
       cacheGeneration = imageCacheGeneration
-    var msg = ImageMsg(kind: ImkClearImageCache, cacheGeneration: cacheGeneration)
-    imageMsgChan.send(unsafeIsolate msg)
+    publishImageMessage(
+      ImageMsg(kind: ImkClearImageCache, cacheGeneration: cacheGeneration)
+    )
 
 proc clearFontGlyphs*(fontId: FontId) =
   withLock imageMsgOrderLock:
     withLock imageCachedLock:
       discard clearCachedGlyphsLocked(fontId)
-    var msg = ImageMsg(kind: ImkClearFontGlyphs, fontId: fontId)
-    imageMsgChan.send(unsafeIsolate msg)
+    publishImageMessage(ImageMsg(kind: ImkClearFontGlyphs, fontId: fontId))
 
 proc clearTypefaceGlyphs*(typefaceId: TypefaceId) =
   withLock imageMsgOrderLock:
     withLock imageCachedLock:
       discard clearCachedTypefaceGlyphsLocked(typefaceId)
-    var msg = ImageMsg(kind: ImkClearTypefaceGlyphs, typefaceId: typefaceId)
-    imageMsgChan.send(unsafeIsolate msg)
+    publishImageMessage(ImageMsg(kind: ImkClearTypefaceGlyphs, typefaceId: typefaceId))
 
 proc loadImage*(filePath: string): ImageId =
   var flippy = readImage(filePath)

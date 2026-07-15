@@ -47,6 +47,7 @@ method clearImageAtlas*(ctx: TestContext) =
   inc ctx.resetCount
   ctx.entries.clear()
   ctx.atlasEntryMeta.clear()
+  ctx.noteAtlasRebuilt()
 
 method drawImage*(
     ctx: TestContext,
@@ -60,11 +61,12 @@ method drawImage*(
     ctx.drawn.add(path)
 
 proc newTestContext(): TestContext =
-  TestContext(
+  result = TestContext(
     entries: initTable[Hash, Rect](),
     atlasEntryMeta: initTable[Hash, AtlasEntryMeta](),
     atlasSize: 16,
   )
+  result.ensureImageMessageSubscription()
 
 proc newRenders(): Renders =
   Renders(layers: initOrderedTable[ZLevel, RenderList]())
@@ -108,6 +110,7 @@ suite "image loading":
     let ctx = newTestContext()
     clearImage(id)
     ctx.drainImages()
+    ctx.uploaded.setLen(0)
 
     loadImage(id, newImage(1, 1))
     check hasImage(id)
@@ -150,6 +153,7 @@ suite "image loading":
       ctx = newTestContext()
     clearImage(id)
     ctx.drainImages()
+    ctx.uploaded.setLen(0)
 
     check loadImage(path) == id
     ctx.drainImages()
@@ -340,6 +344,7 @@ suite "image loading":
     clearImageCache()
     ctx.drainImages()
     ctx.resetCount = 0
+    ctx.uploaded.setLen(0)
 
     loadImage(loadedId, newImage(1, 1))
     ctx.drainImages()
@@ -362,6 +367,58 @@ suite "image loading":
     check hasImage(loadedId)
     check ctx.uploaded == @[loadedId, loadedId]
     check loadedId.Hash in ctx.entries
+
+  test "image uploads and final releases reach every renderer":
+    let
+      id = imgId("tests/timage_loading/broadcast")
+      first = newTestContext()
+      second = newTestContext()
+    clearImage(id)
+    first.drainImages()
+    second.drainImages()
+
+    var owned = imageRef(id)
+    let retain = recvImageMsg(ImkRetainImage)
+    check retain.id == id
+    loadImage(id, newImage(2, 2))
+    first.drainImages()
+    second.drainImages()
+    check id.Hash in first.entries
+    check id.Hash in second.entries
+
+    owned = nil
+    let release = recvImageMsg(ImkReleaseImage)
+    check release.id == id
+    first.drainImages()
+    second.drainImages()
+    check id.Hash notin first.entries
+    check id.Hash notin second.entries
+
+  test "renderers created after an upload replay the current image cache":
+    let id = imgId("tests/timage_loading/late-renderer")
+    clearImage(id)
+    loadImage(id, newImage(2, 2))
+
+    let late = newTestContext()
+    late.drainImages()
+    check id.Hash in late.entries
+    check id in late.uploaded
+
+    clearImage(id)
+    late.drainImages()
+    check id.Hash notin late.entries
+
+  test "atlas generations are renderer-local and advance on rebuild":
+    let
+      first = newTestContext()
+      second = newTestContext()
+      firstGeneration = first.atlasGeneration()
+      secondGeneration = second.atlasGeneration()
+
+    first.clearImageAtlas()
+    check first.atlasGeneration() != firstGeneration
+    check second.atlasGeneration() == secondGeneration
+    check first.atlasRebuildCount() > second.atlasRebuildCount()
 
   test "ImageRef copies share one retained handle":
     let id = imgId("tests/timage_loading/image-ref-hooks")

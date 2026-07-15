@@ -17,6 +17,7 @@ proc typeset*(
     vAlign = FontVertical.Top,
     minContent: bool,
     wrap: bool,
+    rasterize: bool,
 ): GlyphArrangement =
   ## Typesets with Pixie, then converts to FigDraw's backend-neutral data.
   threadEffects:
@@ -119,4 +120,5 @@ proc typeset*(
       result.minSize.y = max(result.minSize.y, result.bounding.h)
 
   result.addFontSizePadding(sz)
-  result.generateGlyphImages()
+  if rasterize:
+    result.generateGlyphImages()

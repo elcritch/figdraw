@@ -329,6 +329,21 @@ suite "fontutils":
         break
     check foundNonWhitespace
 
+  test "measurement-only typesetting does not publish glyph images":
+    let
+      fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      typefaceId = loadTypeface("measurement-only.ttf", fontData, TTF)
+      uiFont = FigFont(typefaceId: typefaceId, size: 19.0'f32)
+    clearImageCache()
+    let messages = newImageMessageSubscription()
+    let arrangement = typesetForMeasurement(
+      rect(0, 0, 240, 60), uiFont, "Measure me", Left, Top, false, false
+    )
+
+    check arrangement.bounding.w > 0.0'f32
+    var msg: ImageMsg
+    check not messages.tryRecvImageMsg(msg)
+
   test "source selection bands use full line height":
     let
       fontId = FontId(Hash(42))

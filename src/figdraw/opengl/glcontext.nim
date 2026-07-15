@@ -271,6 +271,8 @@ proc newContext*(
 
   result.heights = newSeq[uint16](atlasSize)
   result.atlasTexture = result.createAtlasTexture(atlasSize)
+  result.ensureImageMessageSubscription()
+  result.noteAtlasCreated()
 
   result.addMaskTexture()
 
@@ -529,13 +531,9 @@ proc hash(radii: array[DirectionCorners, float32]): Hash =
     result = result !& hash(r)
 
 proc grow(ctx: OpenGlContext) =
-  ctx.flush()
-  ctx.atlasSize = ctx.atlasSize * 2
+  let nextSize = ctx.atlasSize * 2
+  ctx.resetImageAtlas(nextSize)
   info "grow atlasSize ", atlasSize = ctx.atlasSize
-  ctx.heights.setLen(ctx.atlasSize)
-  ctx.atlasTexture = ctx.createAtlasTexture(ctx.atlasSize)
-  ctx.entries.clear()
-  ctx.atlasEntryMeta.clear()
 
 proc findEmptyRect(ctx: OpenGlContext, width, height: int): Rect =
   var imgWidth = width + ctx.atlasMargin * 2
@@ -628,12 +626,16 @@ method putImage*(ctx: OpenGlContext, imgObj: ImgObj) =
   ctx.markImageEntry(imgObj.id)
 
 method clearImageAtlas*(ctx: OpenGlContext) =
+  ctx.resetImageAtlas(ctx.initialAtlasSize)
+
+method resetImageAtlas*(ctx: OpenGlContext, minimumSize: int) =
   ctx.flush()
-  ctx.atlasSize = ctx.initialAtlasSize
+  ctx.atlasSize = plannedAtlasSize(ctx.initialAtlasSize, minimumSize)
   ctx.entries.clear()
   ctx.atlasEntryMeta.clear()
   ctx.heights = newSeq[uint16](ctx.atlasSize)
   ctx.atlasTexture = ctx.createAtlasTexture(ctx.atlasSize)
+  ctx.noteAtlasRebuilt()
 
 proc flush(ctx: OpenGlContext, maskTextureRead: int = ctx.maskTextureWrite) =
   ## Flips - draws current buffer and starts a new one.

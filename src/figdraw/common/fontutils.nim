@@ -44,7 +44,18 @@ proc typeset*(
     minContent: bool,
     wrap: bool,
 ): GlyphArrangement =
-  textBackend.typeset(box, uiSpans, hAlign, vAlign, minContent, wrap)
+  textBackend.typeset(box, uiSpans, hAlign, vAlign, minContent, wrap, true)
+
+proc typesetForMeasurement*(
+    box: Rect,
+    uiSpans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+): GlyphArrangement =
+  ## Typesets without generating or publishing glyph images.
+  textBackend.typeset(box, uiSpans, hAlign, vAlign, minContent, wrap, false)
 
 proc typeset*(
     box: Rect,
@@ -58,6 +69,17 @@ proc typeset*(
   for (font, text) in uiSpans:
     styled.add((fs(font), text))
   result = typeset(box, styled, hAlign, vAlign, minContent, wrap)
+
+proc typesetForMeasurement*(
+    box: Rect,
+    font: FigFont,
+    text: string,
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+): GlyphArrangement =
+  typesetForMeasurement(box, [(font.fs(), text)], hAlign, vAlign, minContent, wrap)
 
 proc typeset*(
     box: Rect,
@@ -82,6 +104,17 @@ proc typeset*(
   for (font, text) in uiSpans:
     styled.add((fs(font), text))
   result = typeset(box, styled, hAlign, vAlign, minContent, wrap)
+
+proc typesetForMeasurement*(
+    box: Rect,
+    font: FontRef,
+    text: string,
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+): GlyphArrangement =
+  typesetForMeasurement(box, font.font, text, hAlign, vAlign, minContent, wrap)
 
 proc placeGlyphs*(
     style: FontStyle,
