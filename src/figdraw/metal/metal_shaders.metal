@@ -82,14 +82,14 @@ float signedPowThird(float x) {
   return (x < 0.0 ? -1.0 : 1.0) * pow(abs(x), 1.0 / 3.0);
 }
 
-float sdBezier(float2 pos, float2 A, float2 B, float2 C) {
+float2 bezierDistanceT(float2 pos, float2 A, float2 B, float2 C) {
   float2 a = B - A;
   float2 b = A - 2.0 * B + C;
   float bb = dot(b, b);
   if (bb <= 0.000001) {
     float2 ba = C - A;
     float h = clamp(dot(pos - A, ba) / max(dot(ba, ba), 0.000001), 0.0, 1.0);
-    return length(pos - (A + ba * h));
+    return float2(length(pos - (A + ba * h)), h);
   }
 
   float2 c = a * 2.0;
@@ -103,11 +103,13 @@ float sdBezier(float2 pos, float2 A, float2 B, float2 C) {
   float q = kx * (2.0 * kx * kx - 3.0 * ky) + kz;
   float h = q * q + 4.0 * p3;
   float res = 0.0;
+  float closestT = 0.0;
   if (h >= 0.0) {
     h = sqrt(h);
     float2 x = float2((h - q) / 2.0, (-h - q) / 2.0);
     float2 roots = float2(signedPowThird(x.x), signedPowThird(x.y));
     float t = clamp(roots.x + roots.y - kx, 0.0, 1.0);
+    closestT = t;
     res = dot2(d + (c + b * t) * t);
   } else {
     float z = sqrt(-p);
@@ -118,13 +120,31 @@ float sdBezier(float2 pos, float2 A, float2 B, float2 C) {
     float t2 = clamp((-n - m) * z - kx, 0.0, 1.0);
     float res1 = dot2(d + (c + b * t1) * t1);
     float res2 = dot2(d + (c + b * t2) * t2);
-    res = min(res1, res2);
+    if (res1 <= res2) {
+      closestT = t1;
+      res = res1;
+    } else {
+      closestT = t2;
+      res = res2;
+    }
   }
-  return sqrt(res);
+  return float2(sqrt(res), closestT);
+}
+
+float sdBezier(float2 pos, float2 A, float2 B, float2 C) {
+  return bezierDistanceT(pos, A, B, C).x;
 }
 
 bool isBezierStrokeMode(int sdfModeInt) {
   return sdfModeInt == 18 || sdfModeInt == 19 || sdfModeInt == 20;
+}
+
+bool isBezierFillFringeMode(int sdfModeInt) {
+  return sdfModeInt == 21;
+}
+
+bool isBezierMode(int sdfModeInt) {
+  return isBezierStrokeMode(sdfModeInt) || isBezierFillFringeMode(sdfModeInt);
 }
 
 float cross2(float2 a, float2 b) {
@@ -166,6 +186,48 @@ float bezierStrokeSd(
   }
   float capDist = max(-startProj - trim, endProj - trim);
   return max(tubeDist - halfW, capDist);
+}
+
+float bezierFillFringeAlpha(
+    float2 pos,
+    float2 A,
+    float2 B,
+    float2 C,
+    float insideSign,
+    float aaFactor) {
+  float2 distanceT = bezierDistanceT(pos, A, B, C);
+  float t = distanceT.y;
+  float invT = 1.0 - t;
+  float2 curvePoint = A * invT * invT + B * 2.0 * invT * t + C * t * t;
+  float2 chord = C - A;
+  float chordLength = length(chord);
+  if (chordLength <= 0.000001) {
+    return 0.0;
+  }
+
+  float2 chordDirection = chord / chordLength;
+  float2 tangent = safeNormalize(
+    2.0 * ((B - A) * invT + (C - B) * t),
+    chordDirection
+  );
+  float side = cross2(tangent, pos - curvePoint);
+  float orientedDistance =
+    (abs(side) <= 0.000001)
+      ? 0.0
+      : -insideSign * (side < 0.0 ? -distanceT.x : distanceT.x);
+  float exactCoverage = clamp(0.5 - aaFactor * orientedDistance, 0.0, 1.0);
+
+  float chordOutsideDistance =
+    -insideSign * cross2(chordDirection, pos - A);
+  float polygonOutside =
+    clamp(aaFactor * chordOutsideDistance + 0.5, 0.0, 1.0);
+
+  float chordPosition = dot(pos - A, chordDirection);
+  float capOutsideDistance =
+    max(-chordPosition, chordPosition - chordLength);
+  float spanCoverage =
+    1.0 - clamp(aaFactor * capOutsideDistance, 0.0, 1.0);
+  return exactCoverage * polygonOutside * spanCoverage;
 }
 
 float shadowProfile(float sd, float blurRadius) {
@@ -320,6 +382,7 @@ float4 evalMainFragment(
   const int sdfModeBezierStrokeAA = 18;
   const int sdfModeBezierStrokeButtAA = 19;
   const int sdfModeBezierStrokeSquareAA = 20;
+  const int sdfModeBezierFillFringeAA = 21;
 
   int packedSdfMode = int(sdfMode);
   int fillMode = packedSdfMode / 256;
@@ -334,7 +397,7 @@ float4 evalMainFragment(
   );
 
   float dist;
-  if (isBezierStrokeMode(sdfModeInt)) {
+  if (isBezierMode(sdfModeInt)) {
     dist = sdBezier(p, sdfParams.zw, sdfRadii.xy, sdfRadii.zw);
   } else {
     dist = sdRoundedBox(float2(p.x, -p.y), shapeHalfExtents, sdfRadii);
@@ -396,6 +459,17 @@ float4 evalMainFragment(
         );
         float cl = clamp(u.aaFactor * sd + 0.5, 0.0, 1.0);
         alpha = 1.0 - cl;
+        break;
+      }
+      case sdfModeBezierFillFringeAA: {
+        alpha = bezierFillFringeAlpha(
+          p,
+          sdfParams.zw,
+          sdfRadii.xy,
+          sdfRadii.zw,
+          (sdfFactor < 0.0) ? -1.0 : 1.0,
+          u.aaFactor
+        );
         break;
       }
       case sdfModeAnnular: {
@@ -553,11 +627,23 @@ fragment float4 fs_mask(
         max(in.sdfFactors.x, 0.0) * 0.5,
         sdfModeInt
       );
+    } else if (isBezierFillFringeMode(sdfModeInt)) {
+      alpha = bezierFillFringeAlpha(
+        p,
+        in.sdfParams.zw,
+        in.sdfRadii.xy,
+        in.sdfRadii.zw,
+        (in.sdfFactors.x < 0.0) ? -1.0 : 1.0,
+        u.aaFactor
+      ) * in.color.a;
+      dist = 0.0;
     } else {
       dist = sdRoundedBox(float2(p.x, -p.y), shapeHalfExtents, in.sdfRadii);
     }
-    float cl = clamp(u.aaFactor * dist + 0.5, 0.0, 1.0);
-    alpha = (1.0 - cl) * in.color.a;
+    if (!isBezierFillFringeMode(sdfModeInt)) {
+      float cl = clamp(u.aaFactor * dist + 0.5, 0.0, 1.0);
+      alpha = (1.0 - cl) * in.color.a;
+    }
   }
 
   float2 normalizedPos =

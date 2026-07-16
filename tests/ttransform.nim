@@ -8,6 +8,8 @@ type RecordingBackend = ref object of BackendContext
   mat: Mat4
   mats: seq[Mat4]
   draws: seq[Rect]
+  filledQuads: seq[array[4, Vec2]]
+  fillFringes: seq[Rect]
   aaFactor: float32
   aaChanges: seq[float32]
 
@@ -65,8 +67,29 @@ method drawFilledQuad*(
     ctx: RecordingBackend, verts: array[4, Vec2], colors: array[4, ColorRGBA]
 ) =
   discard colors
-  let topLeft = (ctx.mat * vec3(verts[0].x, verts[0].y, 1.0'f32)).xy
-  ctx.draws.add rect(topLeft.x, topLeft.y, 0.0'f32, 0.0'f32)
+  var transformed: array[4, Vec2]
+  for idx, vertex in verts:
+    transformed[idx] = (ctx.mat * vec3(vertex.x, vertex.y, 1.0'f32)).xy
+  ctx.filledQuads.add transformed
+  ctx.draws.add rect(transformed[0].x, transformed[0].y, 0.0'f32, 0.0'f32)
+
+method drawQuadraticBezierFillFringe*(
+    ctx: RecordingBackend,
+    rect: Rect,
+    colors: array[4, ColorRGBA],
+    p0, p1, p2: Vec2,
+    insideSign: float32,
+) =
+  discard colors
+  discard p0
+  discard p1
+  discard p2
+  discard insideSign
+  let topLeft = (ctx.mat * vec3(rect.x, rect.y, 1.0'f32)).xy
+  var transformed = rect
+  transformed.x = topLeft.x
+  transformed.y = topLeft.y
+  ctx.fillFringes.add transformed
 
 method translate*(ctx: RecordingBackend, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
@@ -213,6 +236,68 @@ suite "nkTransform render behavior":
     ctx.renderRoot(renders)
 
     check ctx.draws.len == 1
+
+  test "renders a filled path as degenerate triangle quads":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+    let contour = initDrawableContour(
+      [
+        drawablePathLine(0, 0, 10, 0),
+        drawablePathLine(10, 0, 10, 10),
+        drawablePathLine(10, 10, 0, 10),
+        drawablePathLine(0, 10, 0, 0),
+      ]
+    )
+
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkDrawable,
+        screenBox: rect(5.0'f32, 7.0'f32, 10.0'f32, 10.0'f32),
+        fill: fill(rgba(255, 0, 0, 255)),
+        drawOps: @[drawablePath([contour])],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.filledQuads.len == 2
+    for quad in ctx.filledQuads:
+      check quad[2] == quad[3]
+      for vertex in quad:
+        check vertex.x >= 5.0'f32
+        check vertex.x <= 15.0'f32
+        check vertex.y >= 7.0'f32
+        check vertex.y <= 17.0'f32
+
+  test "renders analytic fringes for quadratic path boundaries":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+    let contour = initDrawableContour(
+      [
+        drawablePathBezier(
+          vec2(0.0'f32, 0.0'f32), vec2(20.0'f32, 30.0'f32), vec2(40.0'f32, 0.0'f32)
+        ),
+        drawablePathLine(40, 0, 0, 0),
+      ]
+    )
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkDrawable,
+        screenBox: rect(5.0'f32, 7.0'f32, 40.0'f32, 30.0'f32),
+        fill: fill(rgba(255, 0, 0, 255)),
+        drawOps: @[drawablePath([contour])],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.filledQuads.len > 0
+    check ctx.fillFringes.len > 1
+    for fringe in ctx.fillFringes:
+      check fringe.x >= 3.0'f32
+      check fringe.y >= 5.0'f32
 
   test "renders round capped drawable line with endpoint caps":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())

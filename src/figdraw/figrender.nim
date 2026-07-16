@@ -6,6 +6,7 @@ import pkg/chroma
 import pkg/chronicles
 
 import ./commons
+import ./drawablepaths
 import ./figbackend
 import ./fignodes
 import ./common/fontglyphs
@@ -835,9 +836,6 @@ proc renderRoundedShape(
         doStroke = true,
       )
 
-func vectorLength(v: Vec2): float32 =
-  sqrt(v.x * v.x + v.y * v.y)
-
 func normalizedOr(v, fallback: Vec2): Vec2 =
   let len = vectorLength(v)
   if len <= 0.000001'f32:
@@ -1061,21 +1059,6 @@ proc renderDrawableRect(
   let box = rect(origin.x + op.box.x, origin.y + op.box.y, op.box.w, op.box.h)
   ctx.renderRoundedShape(box, fill, stroke, op.corners)
 
-proc bezierPoint(controls: openArray[Vec2], t: float32): Vec2 =
-  if controls.len == 0:
-    return vec2(0.0'f32, 0.0'f32)
-
-  var work = newSeq[Vec2](controls.len)
-  for i, point in controls:
-    work[i] = point
-
-  var count = controls.len
-  while count > 1:
-    for i in 0 ..< (count - 1):
-      work[i] = work[i] * (1.0'f32 - t) + work[i + 1] * t
-    dec count
-  work[0]
-
 func quadraticPoint(p0, p1, p2: Vec2, t: float32): Vec2 =
   let invT = 1.0'f32 - t
   p0 * (invT * invT) + p1 * (2.0'f32 * invT * t) + p2 * (t * t)
@@ -1089,11 +1072,7 @@ proc includePoint(p: Vec2, minPoint, maxPoint: var Vec2) =
 func isFlatQuadratic(p0, p1, p2: Vec2): bool =
   abs(cross2(p1 - p0, p2 - p1)) <= 0.0001'f32
 
-const
-  DrawableAdaptiveTolerancePx = 0.5'f32
-  DrawableSdfPaddingPx = 2.0'f32
-  MaxAdaptiveDrawableSteps = max(DefaultDrawableBezierSteps.int * 4, 64)
-  MaxAdaptiveCurveDepth = 8
+const DrawableSdfPaddingPx = 2.0'f32
 
 proc drawableSdfPadding(): float32 =
   DrawableSdfPaddingPx.descaled()
@@ -1122,14 +1101,6 @@ proc quadraticBounds(p0, p1, p2: Vec2, padding: float32): Rect =
     maxPoint.y - minPoint.y + padding * 2.0'f32,
   )
 
-func explicitDrawableStepCount(steps, nodeSteps: uint16): int =
-  if steps != 0'u16:
-    max(1, steps.int)
-  elif nodeSteps != 0'u16:
-    max(1, nodeSteps.int)
-  else:
-    0
-
 type DrawableQuadraticSpan = object
   p0, p1, p2: Vec2
 
@@ -1142,20 +1113,6 @@ func endTangent(span: DrawableQuadraticSpan): Vec2 =
   normalizedOr(
     span.p2 - span.p1, normalizedOr(span.p2 - span.p0, vec2(1.0'f32, 0.0'f32))
   )
-
-proc pointDistancePx(a, b: Vec2): float32 =
-  vectorLength((a - b).scaled())
-
-func distanceToLine(p, a, b: Vec2): float32 =
-  let ab = b - a
-  let denom = ab.x * ab.x + ab.y * ab.y
-  if denom <= 0.000001'f32:
-    return vectorLength(p - a)
-  let h = clamp(((p - a).x * ab.x + (p - a).y * ab.y) / denom, 0.0'f32, 1.0'f32)
-  vectorLength(p - (a + ab * h))
-
-proc distanceToLinePx(p, a, b: Vec2): float32 =
-  distanceToLine(p.scaled(), a.scaled(), b.scaled())
 
 func bezierQuadraticSpan(
     controls: openArray[Vec2], t0, t2: float32
@@ -1210,49 +1167,8 @@ proc fixedBezierSpans(
   for step in 0 ..< steps:
     result.add bezierQuadraticSpan(controls, step, steps)
 
-proc appendAdaptiveBezierSegmentPoint(
-    controls: openArray[Vec2], t0, t2: float32, depth: int, points: var seq[Vec2]
-) =
-  let
-    p0 = bezierPoint(controls, t0)
-    p2 = bezierPoint(controls, t2)
-    tm = (t0 + t2) * 0.5'f32
-    pm = bezierPoint(controls, tm)
-    error = distanceToLinePx(pm, p0, p2)
-  if error <= DrawableAdaptiveTolerancePx or depth >= MaxAdaptiveCurveDepth or
-      points.len >= MaxAdaptiveDrawableSteps:
-    points.add p2
-  else:
-    appendAdaptiveBezierSegmentPoint(controls, t0, tm, depth + 1, points)
-    appendAdaptiveBezierSegmentPoint(controls, tm, t2, depth + 1, points)
-
-proc bezierSegmentPoints(controls: openArray[Vec2], fixedSteps: int): seq[Vec2] =
-  result.add bezierPoint(controls, 0.0'f32)
-  if fixedSteps > 0:
-    for step in 1 .. fixedSteps:
-      result.add bezierPoint(controls, step.float32 / fixedSteps.float32)
-  else:
-    appendAdaptiveBezierSegmentPoint(controls, 0.0'f32, 1.0'f32, 0, result)
-
-proc adaptiveArcStepCount(radius, sweepAngle: float32): int =
-  let
-    radiusPx = max(0.0'f32, radius.scaled())
-    absSweep = abs(sweepAngle)
-  if radiusPx <= 0.0'f32 or absSweep <= 0.0'f32:
-    return 1
-
-  let
-    cosLimit =
-      clamp(1.0'f32 - DrawableAdaptiveTolerancePx / radiusPx, -1.0'f32, 1.0'f32)
-    maxAngle = max(0.01'f32, 2.0'f32 * arccos(cosLimit))
-  clamp(ceil(absSweep / maxAngle).int, 1, MaxAdaptiveDrawableSteps)
-
 proc arcStepCount(op: DrawableOp, nodeSteps: uint16): int =
-  let explicit = explicitDrawableStepCount(op.arcSteps, nodeSteps)
-  if explicit > 0:
-    explicit
-  else:
-    adaptiveArcStepCount(op.arcRadius, op.sweepAngle)
+  drawableArcStepCount(op.arcRadius, op.sweepAngle, op.arcSteps, nodeSteps)
 
 proc renderDrawableQuadraticBezierSdf(
     ctx: BackendContext,
@@ -1308,7 +1224,7 @@ proc renderDrawableBezierSegments(
     return
 
   let
-    fixedSteps = explicitDrawableStepCount(op.steps, nodeSteps)
+    fixedSteps = drawableStepCount(op.steps, nodeSteps)
     points = bezierSegmentPoints(op.controls, fixedSteps)
   if points.len < 2:
     return
@@ -1348,7 +1264,7 @@ proc renderDrawableBezierQuadratics(
     stroke: RenderStroke,
     nodeSteps: uint16,
 ) =
-  let fixedSteps = explicitDrawableStepCount(op.steps, nodeSteps)
+  let fixedSteps = drawableStepCount(op.steps, nodeSteps)
   let spans =
     if fixedSteps > 0:
       fixedBezierSpans(op.controls, fixedSteps)
@@ -1414,9 +1330,6 @@ proc renderDrawableBezier(
       return
 
   ctx.renderDrawableBezierSegments(origin, op, stroke, nodeSteps)
-
-func arcPoint(center: Vec2, radius, angle: float32): Vec2 =
-  center + vec2(cos(angle) * radius, sin(angle) * radius)
 
 when defined(useFigDrawTextures):
   proc renderDrawableArcSegments(
@@ -1540,6 +1453,113 @@ proc renderDrawableArc(
   else:
     ctx.renderDrawableArcSegments(origin, op, stroke, nodeSteps)
 
+proc drawablePathBounds(triangles: openArray[DrawableTriangle]): Rect =
+  if triangles.len == 0:
+    return
+
+  var
+    minPoint = triangles[0][0]
+    maxPoint = triangles[0][0]
+  for triangle in triangles:
+    for point in triangle:
+      includePoint(point, minPoint, maxPoint)
+  rect(minPoint.x, minPoint.y, maxPoint.x - minPoint.x, maxPoint.y - minPoint.y)
+
+func drawablePathFillPosition(
+    point: Vec2, bounds: Rect, axis: FillGradientAxis
+): float32 =
+  let
+    x =
+      if bounds.w > 0.0'f32:
+        clamp((point.x - bounds.x) / bounds.w, 0.0'f32, 1.0'f32)
+      else:
+        0.5'f32
+    y =
+      if bounds.h > 0.0'f32:
+        clamp((point.y - bounds.y) / bounds.h, 0.0'f32, 1.0'f32)
+      else:
+        0.5'f32
+  case axis
+  of fgaX:
+    x
+  of fgaY:
+    y
+  of fgaDiagTLBR:
+    (x + y) * 0.5'f32
+  of fgaDiagBLTR:
+    (x + (1.0'f32 - y)) * 0.5'f32
+
+proc drawablePathFringeColors(box, pathBounds: Rect, fill: Fill): array[4, ColorRGBA] =
+  let
+    at = box.xy
+    to = box.xy + box.wh
+    points = [vec2(at.x, to.y), vec2(to.x, to.y), vec2(to.x, at.y), vec2(at.x, at.y)]
+  for idx, point in points:
+    result[idx] = fill.sampleGradientColor(
+      drawablePathFillPosition(point, pathBounds, fill.fillGradientAxis())
+    )
+
+proc renderDrawablePathQuadraticFringe(
+    ctx: BackendContext,
+    origin: Vec2,
+    boundary: DrawableQuadraticBoundary,
+    fill: Fill,
+    pathBounds: Rect,
+) =
+  if isFlatQuadratic(boundary.p0, boundary.p1, boundary.p2):
+    return
+
+  let
+    localBox =
+      quadraticBounds(boundary.p0, boundary.p1, boundary.p2, drawableSdfPadding())
+    box = rect(origin.x + localBox.x, origin.y + localBox.y, localBox.w, localBox.h)
+  if box.w <= 0.0'f32 or box.h <= 0.0'f32:
+    return
+
+  let
+    center = box.xy + box.wh * 0.5'f32
+    localA = (origin + boundary.p0 - center).scaled()
+    localB = (origin + boundary.p1 - center).scaled()
+    localC = (origin + boundary.p2 - center).scaled()
+  ctx.drawQuadraticBezierFillFringe(
+    rect = box.scaled(),
+    colors = drawablePathFringeColors(localBox, pathBounds, fill),
+    p0 = localA,
+    p1 = localB,
+    p2 = localC,
+    insideSign = boundary.insideSign,
+  )
+
+proc renderDrawablePath(
+    ctx: BackendContext, origin: Vec2, op: DrawableOp, fill: Fill, nodeSteps: uint16
+) =
+  if fillAlphaMax(fill) == 0'u8:
+    return
+
+  let triangles = triangulateDrawablePath(op.path, nodeSteps)
+  if triangles.len == 0:
+    return
+
+  let bounds = drawablePathBounds(triangles)
+  for triangle in triangles:
+    let
+      color0 = fill.sampleGradientColor(
+        drawablePathFillPosition(triangle[0], bounds, fill.fillGradientAxis())
+      )
+      color1 = fill.sampleGradientColor(
+        drawablePathFillPosition(triangle[1], bounds, fill.fillGradientAxis())
+      )
+      color2 = fill.sampleGradientColor(
+        drawablePathFillPosition(triangle[2], bounds, fill.fillGradientAxis())
+      )
+      a = (origin + triangle[0]).scaled()
+      b = (origin + triangle[1]).scaled()
+      c = (origin + triangle[2]).scaled()
+    ctx.drawFilledQuad([a, b, c, c], [color0, color1, color2, color2])
+
+  for boundary in drawablePathQuadraticBoundaries(op.path, nodeSteps):
+    ctx.renderDrawablePathQuadraticFringe(origin, boundary, fill, bounds)
+
 proc renderDrawableOps(ctx: BackendContext, node: Fig) =
   let
     origin = node.screenBox.xy
@@ -1558,6 +1578,8 @@ proc renderDrawableOps(ctx: BackendContext, node: Fig) =
       ctx.renderDrawableBezier(origin, op, stroke, nodeSteps)
     of dkArc:
       ctx.renderDrawableArc(origin, op, stroke, nodeSteps)
+    of dkPath:
+      ctx.renderDrawablePath(origin, op, fill, nodeSteps)
 
 proc renderDrawable*(ctx: BackendContext, node: Fig) =
   if node.drawAa <= 0.0'f32:

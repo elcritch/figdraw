@@ -1480,19 +1480,19 @@ method drawRoundedRectSdf*(
       shapeSize = shapeSize,
     )
 
-proc drawQuadraticBezierSdfMetal(
+proc drawQuadraticBezierSdfQuadMetal(
     ctx: MetalContext,
     rect: Rect,
     colors: array[4, ColorRGBA],
     p0, p1, p2: Vec2,
-    strokeWeight: float32,
-    cap: StrokeCap,
+    mode: SdfMode,
+    factor: float32,
     fillMode: int = SdfFillSolidOrVertex,
     fillMidColor: ColorRGBA = rgba(0, 0, 0, 0),
     fillStopColor: ColorRGBA = rgba(0, 0, 0, 0),
     fillMidPos: float32 = 0.5'f32,
 ) =
-  if rect.w <= 0.0'f32 or rect.h <= 0.0'f32 or strokeWeight <= 0.0'f32:
+  if rect.w <= 0.0'f32 or rect.h <= 0.0'f32:
     return
 
   ctx.checkBatch()
@@ -1552,15 +1552,15 @@ proc drawQuadraticBezierSdfMetal(
 
   let factors =
     if fillMode == SdfFillSolidOrVertex:
-      vec2(strokeWeight, 0.0'f32)
+      vec2(factor, 0.0'f32)
     else:
-      vec2(strokeWeight, clamp(fillMidPos, 0.01'f32, 0.99'f32))
+      vec2(factor, clamp(fillMidPos, 0.01'f32, 0.99'f32))
   ctx.sdfFactors.data.setVert2(offset + 0, factors)
   ctx.sdfFactors.data.setVert2(offset + 1, factors)
   ctx.sdfFactors.data.setVert2(offset + 2, factors)
   ctx.sdfFactors.data.setVert2(offset + 3, factors)
 
-  let modeVal = encodeSdfMode(figbackend.bezierStrokeSdfMode(cap), fillMode)
+  let modeVal = encodeSdfMode(mode, fillMode)
   ctx.sdfModeAttr.data[offset + 0] = modeVal
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
@@ -1568,6 +1568,35 @@ proc drawQuadraticBezierSdfMetal(
   ctx.setRectMaskVert4IfNeeded(offset)
 
   inc ctx.quadCount
+
+proc drawQuadraticBezierSdfMetal(
+    ctx: MetalContext,
+    rect: Rect,
+    colors: array[4, ColorRGBA],
+    p0, p1, p2: Vec2,
+    strokeWeight: float32,
+    cap: StrokeCap,
+    fillMode: int = SdfFillSolidOrVertex,
+    fillMidColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillStopColor: ColorRGBA = rgba(0, 0, 0, 0),
+    fillMidPos: float32 = 0.5'f32,
+) =
+  if strokeWeight <= 0.0'f32:
+    return
+
+  ctx.drawQuadraticBezierSdfQuadMetal(
+    rect = rect,
+    colors = colors,
+    p0 = p0,
+    p1 = p1,
+    p2 = p2,
+    mode = figbackend.bezierStrokeSdfMode(cap),
+    factor = strokeWeight,
+    fillMode = fillMode,
+    fillMidColor = fillMidColor,
+    fillStopColor = fillStopColor,
+    fillMidPos = fillMidPos,
+  )
 
 method drawQuadraticBezierSdf*(
     ctx: MetalContext,
@@ -1601,6 +1630,26 @@ method drawQuadraticBezierSdf*(
       strokeWeight = strokeWeight,
       cap = cap,
     )
+
+method drawQuadraticBezierFillFringe*(
+    ctx: MetalContext,
+    rect: Rect,
+    colors: array[4, ColorRGBA],
+    p0, p1, p2: Vec2,
+    insideSign: float32,
+) =
+  if abs(insideSign) <= 0.000001'f32:
+    return
+
+  ctx.drawQuadraticBezierSdfQuadMetal(
+    rect = rect,
+    colors = colors,
+    p0 = p0,
+    p1 = p1,
+    p2 = p2,
+    mode = figbackend.SdfMode.sdfModeBezierFillFringeAA,
+    factor = (if insideSign > 0.0'f32: 1.0'f32 else: -1.0'f32),
+  )
 
 method drawBackdropBlur*(
     ctx: MetalContext,

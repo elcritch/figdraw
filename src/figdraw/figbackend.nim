@@ -50,6 +50,7 @@ type SdfMode* {.pure.} = enum
   sdfModeBezierStrokeAA = 18
   sdfModeBezierStrokeButtAA = 19
   sdfModeBezierStrokeSquareAA = 20
+  sdfModeBezierFillFringeAA = 21
 
 func bezierStrokeSdfMode*(cap: StrokeCap): SdfMode =
   case cap
@@ -488,6 +489,22 @@ method drawQuadraticBezierSdf*(
     cap: StrokeCap,
 ) {.base.} =
   raise newException(ValueError, "Backend drawQuadraticBezierSdf unavailable")
+
+method drawQuadraticBezierFillFringe*(
+    impl: BackendContext,
+    rect: Rect,
+    colors: array[4, ColorRGBA],
+    p0, p1, p2: Vec2,
+    insideSign: float32,
+) {.base.} =
+  ## Optional analytic antialiasing pass for filled quadratic path boundaries.
+  discard impl
+  discard rect
+  discard colors
+  discard p0
+  discard p1
+  discard p2
+  discard insideSign
 
 method drawRoundedRectSdf*(
     impl: BackendContext,

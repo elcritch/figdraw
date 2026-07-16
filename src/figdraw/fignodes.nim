@@ -10,12 +10,50 @@ else:
   {.pragma: nativeAbi.}
 
 type
+  DrawableFillRule* = enum
+    ## Determines which regions of a multi-contour drawable path are filled.
+    dfrNonZero
+    dfrEvenOdd
+
+  DrawablePathSegmentKind* = enum
+    ## Primitive segment kinds accepted inside a closed drawable contour.
+    dpsLine
+    dpsBezier
+    dpsArc
+
+  DrawablePathSegment* = object
+    ## A self-contained line, Bezier, or circular-arc segment.
+    case kind*: DrawablePathSegmentKind
+    of dpsLine:
+      a*, b*: Vec2
+    of dpsBezier:
+      controls*: seq[Vec2]
+      steps*: uint16
+    of dpsArc:
+      arcCenter*: Vec2
+      arcRadius*: float32
+      startAngle*: float32
+      sweepAngle*: float32
+      arcSteps*: uint16
+
+  DrawableContour* = object
+    ## An ordered sequence of segments whose final point is implicitly joined
+    ## to its first point. Segments should be contiguous; a gap between adjacent
+    ## segments becomes a straight contour edge.
+    segments*: seq[DrawablePathSegment]
+
+  DrawablePath* = object
+    ## One filled shape containing one or more implicitly closed contours.
+    contours*: seq[DrawableContour]
+    fillRule*: DrawableFillRule
+
   DrawableKind* = enum
     dkLine
     dkCircle
     dkRectangle
     dkBezier
     dkArc
+    dkPath
 
   DrawableOp* = object
     case kind*: DrawableKind
@@ -36,6 +74,8 @@ type
       startAngle*: float32
       sweepAngle*: float32
       arcSteps*: uint16
+    of dkPath:
+      path*: DrawablePath
 
   RenderList* = object
     nodes*: seq[Fig]
@@ -279,28 +319,88 @@ proc drawableArc*(
   )
 
 proc drawableArc*(
-    center: Vec2,
-    radius: float32,
-    startAngle: float32,
-    sweepAngle: float32,
+    center: Vec2, radius: float32, startAngle: float32, sweepAngle: float32
 ): DrawableOp =
-  drawableArc(
-      center,
-      radius,
-      startAngle,
-      sweepAngle,
-      0'u16,
-  )
+  drawableArc(center, radius, startAngle, sweepAngle, 0'u16)
 
 proc drawableArc*(
     x, y, radius, startAngle, sweepAngle: float32, steps: uint16
 ): DrawableOp =
   drawableArc(vec2(x, y), radius, startAngle, sweepAngle, steps)
 
-proc drawableArc*(
-    x, y, radius, startAngle, sweepAngle: float32
-): DrawableOp =
+proc drawableArc*(x, y, radius, startAngle, sweepAngle: float32): DrawableOp =
   drawableArc(vec2(x, y), radius, startAngle, sweepAngle, 0)
+
+proc drawablePathLine*(a, b: Vec2): DrawablePathSegment =
+  DrawablePathSegment(kind: dpsLine, a: a, b: b)
+
+proc drawablePathLine*(
+    x1: float32, y1: float32, x2: float32, y2: float32
+): DrawablePathSegment =
+  drawablePathLine(vec2(x1, y1), vec2(x2, y2))
+
+proc drawablePathBezier*(
+    controls: openArray[Vec2], steps: uint16
+): DrawablePathSegment =
+  ## Creates a Bezier path segment.
+  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or uses adaptive
+  ## subdivision.
+  DrawablePathSegment(kind: dpsBezier, controls: @controls, steps: steps)
+
+proc drawablePathBezier*(controls: openArray[Vec2]): DrawablePathSegment =
+  drawablePathBezier(controls, 0'u16)
+
+proc drawablePathBezier*(p0, p1, p2: Vec2, steps: uint16): DrawablePathSegment =
+  drawablePathBezier([p0, p1, p2], steps)
+
+proc drawablePathBezier*(p0, p1, p2: Vec2): DrawablePathSegment =
+  drawablePathBezier(p0, p1, p2, 0'u16)
+
+proc drawablePathBezier*(p0, p1, p2, p3: Vec2, steps: uint16): DrawablePathSegment =
+  drawablePathBezier([p0, p1, p2, p3], steps)
+
+proc drawablePathBezier*(p0, p1, p2, p3: Vec2): DrawablePathSegment =
+  drawablePathBezier(p0, p1, p2, p3, 0'u16)
+
+proc drawablePathArc*(
+    center: Vec2,
+    radius: float32,
+    startAngle: float32,
+    sweepAngle: float32,
+    steps: uint16,
+): DrawablePathSegment =
+  ## Creates a circular arc path segment. Angles are radians.
+  ## `steps = 0` inherits the owning `nkDrawable.drawSteps` or uses adaptive
+  ## subdivision.
+  DrawablePathSegment(
+    kind: dpsArc,
+    arcCenter: center,
+    arcRadius: radius,
+    startAngle: startAngle,
+    sweepAngle: sweepAngle,
+    arcSteps: steps,
+  )
+
+proc drawablePathArc*(
+    center: Vec2, radius: float32, startAngle: float32, sweepAngle: float32
+): DrawablePathSegment =
+  drawablePathArc(center, radius, startAngle, sweepAngle, 0'u16)
+
+proc initDrawableContour*(segments: openArray[DrawablePathSegment]): DrawableContour =
+  DrawableContour(segments: @segments)
+
+proc initDrawablePath*(
+    contours: openArray[DrawableContour], fillRule: DrawableFillRule = dfrNonZero
+): DrawablePath =
+  DrawablePath(contours: @contours, fillRule: fillRule)
+
+proc drawablePath*(path: DrawablePath): DrawableOp =
+  DrawableOp(kind: dkPath, path: path)
+
+proc drawablePath*(
+    contours: openArray[DrawableContour], fillRule: DrawableFillRule = dfrNonZero
+): DrawableOp =
+  drawablePath(initDrawablePath(contours, fillRule))
 
 proc clear*(list: var RenderList) =
   list.nodes.setLen(0)
@@ -549,4 +649,3 @@ proc contains*(r: Renders, lvl: ZLevel): bool =
   r.layers.contains(lvl)
 
 {.pop.}
-

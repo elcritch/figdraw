@@ -427,6 +427,57 @@ discard menuItems.addRoot(Fig(
 discard renders.addChildren(0.ZLevel, root, menuItems)
 ```
 
+## Filled Drawable Paths
+
+Use `DrawablePath` to fill one or more closed contours made from line, Bezier,
+or circular-arc segments. Contours close implicitly from their final point to
+their first point. `dfrNonZero` uses contour direction, while `dfrEvenOdd`
+alternates filled and empty regions:
+
+```nim
+import std/math
+
+let outer = initDrawableContour(
+  [
+    drawablePathLine(0, 0, 120, 0),
+    drawablePathBezier(
+      vec2(120, 0),
+      vec2(150, 60),
+      vec2(120, 120),
+    ),
+    drawablePathLine(120, 120, 0, 120),
+    drawablePathLine(0, 120, 0, 0),
+  ]
+)
+
+let hole = initDrawableContour(
+  [
+    drawablePathArc(
+      center = vec2(60, 60),
+      radius = 24,
+      startAngle = 0,
+      sweepAngle = PI.float32 * 2.0'f32,
+    )
+  ]
+)
+
+let shape = Fig(
+  kind: nkDrawable,
+  screenBox: rect(40, 40, 150, 120),
+  fill: rgba(220, 70, 50, 255),
+  drawOps: @[drawablePath([outer, hole], dfrEvenOdd)],
+)
+```
+
+Bezier and arc segments inherit `Fig.drawSteps` when their own `steps` value is
+zero; otherwise they are adaptively flattened at render scale. The initial
+implementation triangulates simple contours on the CPU and submits each
+triangle through the backend's filled-quad path. On Metal, quadratic path
+boundaries also receive an analytic SDF fringe to smooth their rasterized edge.
+
+See [`examples/windy_filled_paths.nim`](examples/windy_filled_paths.nim) for a
+runnable gradient-filled path with an even-odd circular hole.
+
 ## Transform Nodes
 
 Use `nkTransform` as a non-drawing container to apply transforms to descendants.

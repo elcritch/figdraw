@@ -280,6 +280,13 @@ proc drawableBezier*(
   for control in controls:
     result.controls.add control.toNativeVec2()
 
+proc drawablePathBezier*(
+    controls: openArray[vmath.Vec2], steps: uint16 = 0'u16
+): DrawablePathSegment {.inline.} =
+  result = DrawablePathSegment(kind: dpsBezier, steps: steps)
+  for control in controls:
+    result.controls.add control.toNativeVec2()
+
 proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
   when v is SomeFloat:
     if v <= 0:
