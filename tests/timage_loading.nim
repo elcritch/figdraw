@@ -438,6 +438,20 @@ suite "image loading":
 
     clearImage(id)
 
+  test "a full renderer subscription does not block resource publishers":
+    clearImageCache()
+    let subscription = newImageMessageSubscription()
+    for i in 1 .. 5000:
+      retainFontRefId(FontId(Hash(i)))
+
+    var msg: ImageMsg
+    check subscription.tryRecvImageMsg(msg)
+
+    for i in 1 .. 5000:
+      releaseFontRefId(FontId(Hash(i)))
+    while tryRecvImageMsg(msg):
+      discard
+
   test "atlas generations are renderer-local and advance on rebuild":
     let
       first = newTestContext()

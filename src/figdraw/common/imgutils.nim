@@ -178,7 +178,10 @@ proc publishImageMessage(msg: sink ImageMsg) =
 
     for inbox in inboxes:
       var copied = msg.copyImageMessage()
-      inbox.send(unsafeIsolate(move copied))
+      # A renderer can only drain this inbox after the current UI/layout callback
+      # returns. Do not let a burst of resource updates block that callback when
+      # its renderer is waiting on it; keep the newest bounded history instead.
+      inbox.push(unsafeIsolate(move copied))
 
     if msg.kind in {ImkRetainImage, ImkReleaseImage, ImkRetainFont, ImkReleaseFont}:
       var legacy = move msg
