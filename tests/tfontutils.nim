@@ -286,6 +286,7 @@ suite "fontutils":
         typefaceId: typefaceId,
         size: 20.0'f32,
         fallbackTypefaceIds: @[typefaceId],
+        language: "ja-JP",
         features: @[fontFeature("liga", 0)],
         noKerningAdjustments: true,
         underline: true,

@@ -69,6 +69,7 @@ type
     strikethrough*: bool ## Apply a strikethrough.
     noKerningAdjustments*: bool ## Optionally disable kerning pair adjustments
     fallbackTypefaceIds*: seq[TypefaceId] ## Ordered font fallback chain.
+    language*: string ## Optional BCP 47 language used while shaping.
     features*: seq[FontFeature] ## OpenType features applied while shaping.
     variations*: seq[FontVariation] ## OpenType variable-axis coordinates.
 
@@ -127,7 +128,12 @@ type
     sskRunes
     sskBytes
 
-const figdrawTextBackend* {.strdefine.} = "pixie"
+const figdrawTextBackend* {.strdefine.} =
+  when defined(feature.figdraw.textBackendHarfbuzzy):
+    "harfbuzzy"
+  else:
+    "pixie"
+
 
 static:
   doAssert figdrawTextBackend in ["pixie", "harfbuzzy", "hybrid"]

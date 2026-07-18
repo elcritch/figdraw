@@ -592,6 +592,7 @@ let
     typefaceId: ui,
     size: 22.0'f32,
     fallbackTypefaceIds: @[arabic, hebrew],
+    language: "ar",
     features: @[fontFeature("kern"), fontFeature("liga")],
     variations: @[fontVariation("wght", 560.0'f32)],
   )

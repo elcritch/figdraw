@@ -62,6 +62,8 @@ Important fields:
 
 - `fallbackTypefaceIds`: Ordered fallback typeface ids. Harfbuzzy shaping tries
   the primary typeface first, then fallbacks for unsupported shaped runs.
+- `language`: Optional BCP 47 language for language-sensitive shaping. An empty
+  value lets HarfBuzz use an unspecified language.
 - `features`: OpenType feature settings such as `fontFeature("liga", 0)` or
   `fontFeature("kern")`.
 - `variations`: OpenType variable-axis coordinates such as
@@ -194,9 +196,14 @@ The Harfbuzzy adapter converts shaped runs into FigDraw data:
 - `glyph.cluster` is retained for source mapping and break logic.
 - The adapter shapes through a Harfbuzzy `ShapeContext` built from the primary
   typeface plus `FigFont.fallbackTypefaceIds`.
+- Unicode scripts are detected by HarfBuzzy through HarfBuzz Unicode functions;
+  common and inherited characters stay with an adjacent script run, while emoji
+  sequences receive their own fallback-capable run.
 - Adjacent spans with the same shaping font are shaped together even when their
   fills differ, preserving contextual shaping across paint-only boundaries.
 - OpenType features from `FigFont.features` are passed to paragraph shaping.
+- `FigFont.language` is converted to the HarfBuzz paragraph language and copied
+  to every detected script and bidirectional run.
 - Variable axes from `FigFont.variations` are applied to each Harfbuzzy font
   before shaping.
 - A single styled input span can become multiple FigDraw spans when fallback

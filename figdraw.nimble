@@ -26,6 +26,8 @@ when defined(linux) or defined(bsd) or defined(windows):
 
 feature "harfbuzz":
   requires "gh:elcritch/harfbuzzy >= 0.2.2"
+feature "textBackendHarfbuzzy":
+  discard
 feature "lottie":
   requires "jsony"
 feature "sdl2":

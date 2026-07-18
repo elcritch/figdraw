@@ -333,7 +333,13 @@ proc shapeParagraph(
   let context = hb.initShapeContext(
     typefaces,
     hb.ParagraphOptions(
-      features: features.toHarfbuzzFeatures(), flags: {hb.beginningOfText, hb.endOfText}
+      language:
+        if font.language.len > 0:
+          hb.toLanguage(font.language)
+        else:
+          hb.languageInvalid,
+      features: features.toHarfbuzzFeatures(),
+      flags: {hb.beginningOfText, hb.endOfText},
     ),
   )
   context.shapeParagraph(text)
