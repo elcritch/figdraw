@@ -25,7 +25,7 @@ when defined(linux) or defined(bsd) or defined(windows):
   requires "https://github.com/planetis-m/vulkan#b223dc9"
 
 feature "harfbuzz":
-  requires "gh:elcritch/harfbuzzy >= 0.2.2"
+  requires "gh:elcritch/harfbuzzy >= 0.2.3"
 feature "textBackendHarfbuzzy":
   discard
 feature "lottie":
