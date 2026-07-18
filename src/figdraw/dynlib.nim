@@ -17,7 +17,14 @@ const
   ShadowCount* = 4
   DefaultDrawableBezierSteps* = 48'u16
   DefaultDrawableArcSteps* = 48'u16
-  figdrawTextBackend* {.strdefine.} = "pixie"
+
+const figdrawTextBackend* {.strdefine.} =
+  when defined(feature.figdraw.textBackendHarfbuzz):
+    {.warning: "HARFBUZZ!!!!!".}
+    "harfbuzz"
+  else:
+    {.warning: "PIXIE!!!!!".}
+    "pixie"
 
 type
   ImageRef* = ImageId

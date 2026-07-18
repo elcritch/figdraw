@@ -1,11 +1,17 @@
 import std/[hashes, unicode]
 
 import pkg/vmath
-import pkg/pixie/fonts
+
+import ./fonttypes
+import ./fontfallbacks
+
+export fontfallbacks
+
+when figdrawTextBackend != "harfbuzzy" and figdrawTextBackend != "hybrid":
+  import pkg/pixie/fonts
 
 import ./shared
 
-import ./fonttypes
 import ./imgutils
 import ./typefaces
 import ./fontglyphs
@@ -130,42 +136,83 @@ proc placeGlyphs*(
   if glyphs.len == 0:
     return
 
-  let fontInfo = glyphFontFor(style.font)
-  let cachedFont = (font: fontInfo.font, glyph: fontInfo.glyph)
+  when figdrawTextBackend != "harfbuzzy" and figdrawTextBackend != "hybrid":
+    let fontInfo = glyphFontFor(style.font)
+    let cachedFont = (font: fontInfo.font, glyph: fontInfo.glyph)
 
   var
-    runes = newSeqOfCap[Rune](glyphs.len)
-    positions = newSeqOfCap[Vec2](glyphs.len)
-    selectionRects = newSeqOfCap[Rect](glyphs.len)
     contentHash = Hash(0)
+    byteOffset = 0
 
-  for (rune, pos) in glyphs:
-    let baselineOffset = cachedFont.glyph.descentAdj
+  for glyphIndex, (rune, pos) in glyphs:
+    let resolved =
+      when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
+        textBackend.resolvePlacedGlyph(style.font, rune)
+      else:
+        (
+          glyphFont: cachedFont.glyph,
+          glyphId: syntheticFontGlyphId(cachedFont.glyph.fontId, rune),
+          advance: cachedFont.font.typeface.getAdvance(rune) * cachedFont.font.scale,
+          imageOffset: vec2(0, 0),
+          skipsRaster: rune.isWhiteSpace,
+        )
+    let baselineOffset = resolved.glyphFont.descentAdj
     var baselinePos = pos
     if origin == GlyphTopLeft:
       baselinePos.y = pos.y + baselineOffset
 
-    runes.add(rune)
-    positions.add(baselinePos)
-
     let drawPos = vec2(baselinePos.x, baselinePos.y - baselineOffset)
-    let advance = cachedFont.font.typeface.getAdvance(rune) * cachedFont.font.scale
-    selectionRects.add(rect(drawPos.x, drawPos.y, advance, cachedFont.glyph.lineHeight))
+    let selection =
+      rect(drawPos.x, drawPos.y, resolved.advance, resolved.glyphFont.lineHeight)
+    let runeByteLength = ($rune).len
+
+    if result.fonts.len == 0 or result.fonts[^1] != resolved.glyphFont:
+      result.fonts.add resolved.glyphFont
+      result.spanColors.add style.color
+      result.spans.add glyphIndex .. glyphIndex
+    else:
+      result.spans[^1].b = glyphIndex
+
+    result.sourceRunes.add rune
+    result.arrangedGlyphs.add ArrangedGlyph(
+      fontId: resolved.glyphFont.fontId,
+      glyphId: resolved.glyphId,
+      cluster: uint32(glyphIndex),
+      source: GlyphSourceRange(
+        byteStart: byteOffset,
+        byteEnd: byteOffset + runeByteLength,
+        runeStart: glyphIndex,
+        runeEnd: glyphIndex + 1,
+      ),
+      rune: rune,
+      isWhitespace: resolved.skipsRaster,
+      pos: baselinePos,
+      advance: vec2(resolved.advance, 0),
+      offset: vec2(0, 0),
+      imageOffset: resolved.imageOffset,
+      rect: selection,
+    )
+    result.runes.add rune
+    result.positions.add baselinePos
+    result.selectionRects.add selection
+    byteOffset += runeByteLength
 
     contentHash =
       contentHash !&
-      hash((fontInfo.id, rune, pos.x, pos.y, origin, style.color, figUiScale()))
+      hash(
+        (
+          resolved.glyphFont.fontId,
+          resolved.glyphId,
+          rune,
+          pos.x,
+          pos.y,
+          origin,
+          style.color,
+          figUiScale(),
+        )
+      )
 
   result.lines = @[0 .. glyphs.len - 1]
-  result.spans = @[0 .. glyphs.len - 1]
-  result.fonts = @[cachedFont.glyph]
-  result.spanColors = @[style.color]
-  result.sourceRunes = runes
-  result.arrangedGlyphs =
-    buildArrangedGlyphs(runes, positions, selectionRects, result.spans, result.fonts)
-  result.runes = runes
-  result.positions = positions
-  result.selectionRects = selectionRects
   result.contentHash = !$contentHash
 
   var
@@ -173,12 +220,12 @@ proc placeGlyphs*(
     minY = float32.high
     maxX = -float32.high
     maxY = -float32.high
-  for rect in selectionRects:
+  for rect in result.selectionRects:
     minX = min(minX, rect.x)
     minY = min(minY, rect.y)
     maxX = max(maxX, rect.x + rect.w)
     maxY = max(maxY, rect.y + rect.h)
-  if selectionRects.len > 0:
+  if result.selectionRects.len > 0:
     let boundingScaled = rect(minX, minY, maxX - minX, maxY - minY)
     result.bounding = boundingScaled
     result.minSize = result.bounding.wh

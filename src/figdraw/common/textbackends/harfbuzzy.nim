@@ -4,6 +4,7 @@ import pkg/harfbuzzy as hb
 import pkg/vmath
 
 import ../fonttypes
+import ../fontfallbacks
 import ../shared
 import ../typefaces
 import ./common
@@ -11,7 +12,9 @@ import ./common
 when figdrawTextBackend == "hybrid":
   import ../fontglyphs
 
-const hbGlyphFlagUnsafeToBreak = 0x00000001'u32
+const
+  hbGlyphFlagUnsafeToBreak = 0x00000001'u32
+  MaxFontFallbackPasses = 8
 
 type
   DecodedSource = object
@@ -313,6 +316,82 @@ proc initHarfbuzzFontInfos(font: FigFont): seq[HarfbuzzFontInfo] =
       glyphFont: fontInfo.glyph,
     )
 
+func codepointNeedsFallback(codepoint: uint32): bool =
+  let rune = Rune(codepoint)
+  not (
+    rune.isWhiteSpace or codepoint in [0x200C'u32, 0x200D'u32] or
+    codepoint in 0xFE00'u32 .. 0xFE0F'u32 or codepoint in 0xE0100'u32 .. 0xE01EF'u32 or
+    cast[uint32](hb.scriptFor(codepoint)) == cast[uint32](hb.scriptInherited)
+  )
+
+proc existingTypefaceIds(font: FigFont): seq[TypefaceId] =
+  result.add font.typefaceId
+  for typefaceId in font.fallbackTypefaceIds:
+    if typefaceId notin result:
+      result.add typefaceId
+
+proc missingFallbackRequests(
+    fontInfos: openArray[HarfbuzzFontInfo], font: FigFont, text: string
+): seq[FontFallbackRequest] =
+  let existing = font.existingTypefaceIds()
+  for rune in text.runes:
+    let codepoint = rune.uint32
+    if not codepoint.codepointNeedsFallback:
+      continue
+
+    var covered = false
+    for info in fontInfos:
+      if info.typeface.font.hasGlyph(codepoint):
+        covered = true
+        break
+    if covered:
+      continue
+
+    let script = $hb.scriptFor(codepoint)
+    var requestIndex = -1
+    for index, request in result:
+      if request.script == script:
+        requestIndex = index
+        break
+    if requestIndex < 0:
+      result.add FontFallbackRequest(
+        primaryTypefaceId: font.typefaceId,
+        existingTypefaceIds: existing,
+        language: font.language,
+        script: script,
+      )
+      requestIndex = result.len - 1
+    if codepoint notin result[requestIndex].codepoints:
+      result[requestIndex].codepoints.add codepoint
+
+proc resolveFallbacks(font: FigFont, text: string): FigFont =
+  result = font
+  let resolver = fontFallbackResolver()
+  if resolver == nil or text.len == 0:
+    return
+
+  for _ in 0 ..< MaxFontFallbackPasses:
+    let
+      fontInfos = initHarfbuzzFontInfos(result)
+      requests = fontInfos.missingFallbackRequests(result, text)
+    if requests.len == 0:
+      return
+
+    var addedTypeface = false
+    for fallbackRequest in requests:
+      var request = fallbackRequest
+      request.existingTypefaceIds = result.existingTypefaceIds()
+      try:
+        for typefaceId in resolver(request):
+          if typefaceId != result.typefaceId and
+              typefaceId notin result.fallbackTypefaceIds:
+            result.fallbackTypefaceIds.add typefaceId
+            addedTypeface = true
+      except CatchableError:
+        discard
+    if not addedTypeface:
+      return
+
 proc shapeParagraph(
     fontInfos: openArray[HarfbuzzFontInfo], font: FigFont, text: string
 ): hb.ShapedParagraph =
@@ -333,7 +412,13 @@ proc shapeParagraph(
   let context = hb.initShapeContext(
     typefaces,
     hb.ParagraphOptions(
-      features: features.toHarfbuzzFeatures(), flags: {hb.beginningOfText, hb.endOfText}
+      language:
+        if font.language.len > 0:
+          hb.toLanguage(font.language)
+        else:
+          hb.languageInvalid,
+      features: features.toHarfbuzzFeatures(),
+      flags: {hb.beginningOfText, hb.endOfText},
     ),
   )
   context.shapeParagraph(text)
@@ -343,6 +428,52 @@ proc pxScale(typeface: hb.Typeface, font: FigFont): float32 =
   if upem <= 0:
     return 1.0'f32
   font.size / upem.float32
+
+func placedRuneSkipsRaster(rune: Rune): bool =
+  let codepoint = rune.uint32
+  rune.isWhiteSpace or codepoint in [0x200C'u32, 0x200D'u32] or
+    codepoint in 0xFE00'u32 .. 0xFE0F'u32 or codepoint in 0xE0100'u32 .. 0xE01EF'u32
+
+proc resolvePlacedGlyph*(
+    font: FigFont, rune: Rune
+): tuple[
+  glyphFont: GlyphFont,
+  glyphId: FontGlyphId,
+  advance: float32,
+  imageOffset: Vec2,
+  skipsRaster: bool,
+] =
+  ## Resolves a source rune for explicit placement without applying text layout.
+  let
+    resolvedFont = font.resolveFallbacks($rune)
+    fontInfos = initHarfbuzzFontInfos(resolvedFont)
+  if fontInfos.len == 0:
+    raise newException(ValueError, "explicit glyph placement requires a typeface")
+
+  var selectedIndex = 0
+  if not rune.placedRuneSkipsRaster:
+    for index, info in fontInfos:
+      if info.typeface.font.hasGlyph(rune.uint32):
+        selectedIndex = index
+        break
+
+  let selected = fontInfos[selectedIndex]
+  result.glyphFont = selected.glyphFont
+  result.skipsRaster = rune.placedRuneSkipsRaster
+  if result.skipsRaster and not rune.isWhiteSpace:
+    return
+
+  var glyphId: hb.Codepoint
+  try:
+    glyphId = selected.typeface.font.nominalGlyph(rune.uint32)
+  except ValueError:
+    discard
+  result.glyphId = FontGlyphId(glyphId.uint32)
+  if glyphId != 0 or not result.skipsRaster:
+    let scale = selected.typeface.pxScale(resolvedFont)
+    result.advance = selected.typeface.font.horizontalAdvance(glyphId).float32 * scale
+    result.imageOffset =
+      imageOffsetForGlyph(selected.typeface, glyphId, selected.glyphFont, scale)
 
 proc nextClusterBoundary(run: hb.ShapedRun, cluster: int): int =
   var boundaries = @[run.textRun.byteEnd]
@@ -706,11 +837,15 @@ proc typeset*(
   let paragraphs = splitParagraphs(shapedSpans)
   var pen = vec2(0, 0)
   var safeBreakAfter: seq[bool]
+  var resolvedFonts: seq[FigFont]
   for paragraph in paragraphs:
     let glyphStart = result.arrangedGlyphs.len
     pen.x = 0
-    for group in paragraph.shapingGroups():
+    for sourceGroup in paragraph.shapingGroups():
+      var group = sourceGroup
       if group.spans.len > 0:
+        group.style.font = group.style.font.resolveFallbacks(group.text())
+        resolvedFonts.add group.style.font
         let groupGlyphFont = glyphFontFor(group.style.font).glyph
         let baseline = groupGlyphFont.descentAdj
         if result.arrangedGlyphs.len == 0:
@@ -745,6 +880,7 @@ proc typeset*(
   if minContent:
     result.minSize.y = max(result.minSize.y, result.bounding.h)
   result.addFontSizePadding(fontSizes)
+  result.contentHash = hash((result.contentHash, resolvedFonts))
 
   when figdrawTextBackend == "hybrid":
     if rasterize:
