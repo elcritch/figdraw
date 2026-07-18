@@ -13,6 +13,8 @@ type TestContext = ref object of BackendContext
   atlasSize: int
   packedArea: int
   uploaded: seq[ImageId]
+  updated: seq[ImageId]
+  pixels: Table[ImageId, Image]
   removed: seq[ImageId]
   drawn: seq[Hash]
   resetCount: int
@@ -31,7 +33,39 @@ method atlasPackedArea*(ctx: TestContext): int =
 
 method putImage*(ctx: TestContext, imgObj: ImgObj) =
   ctx.uploaded.add(imgObj.id)
-  ctx.entries[imgObj.id.Hash] = rect(0, 0, 1, 1)
+  case imgObj.kind
+  of FlippyImg:
+    let mip = imgObj.flippy.mipmaps[0]
+    ctx.entries[imgObj.id.Hash] = rect(
+      0,
+      0,
+      mip.width.float32 / ctx.atlasSize.float32,
+      mip.height.float32 / ctx.atlasSize.float32,
+    )
+  of PixieImg:
+    ctx.entries[imgObj.id.Hash] = rect(
+      0,
+      0,
+      imgObj.pimg.width.float32 / ctx.atlasSize.float32,
+      imgObj.pimg.height.float32 / ctx.atlasSize.float32,
+    )
+    ctx.pixels[imgObj.id] = imgObj.pimg.copy()
+
+method putImage*(ctx: TestContext, path: Hash, image: Image) =
+  let id = ImageId(path)
+  ctx.uploaded.add(id)
+  ctx.entries[path] = rect(
+    0,
+    0,
+    image.width.float32 / ctx.atlasSize.float32,
+    image.height.float32 / ctx.atlasSize.float32,
+  )
+  ctx.pixels[id] = image.copy()
+
+method updateImage*(ctx: TestContext, path: Hash, image: Image) =
+  let id = ImageId(path)
+  ctx.updated.add(id)
+  ctx.pixels[id] = image.copy()
 
 method removeImage*(ctx: TestContext, id: ImageId) =
   ctx.removed.add(id)
@@ -64,6 +98,7 @@ proc newTestContext(): TestContext =
   result = TestContext(
     entries: initTable[Hash, Rect](),
     atlasEntryMeta: initTable[Hash, AtlasEntryMeta](),
+    pixels: initTable[ImageId, Image](),
     atlasSize: 16,
   )
   result.ensureImageMessageSubscription()
@@ -150,6 +185,112 @@ suite "image loading":
     check hasImage(id)
     check ctx.uploaded == @[id, id]
     check id.Hash in ctx.entries
+
+  test "replaceImage updates a same-size atlas slot in place":
+    let
+      id = imgId("tests/timage_loading/replace/same-size")
+      ctx = newTestContext()
+      initial = newImage(2, 3)
+      replacement = newImage(2, 3)
+    initial.fill(rgba(10, 20, 30, 255))
+    replacement.fill(rgba(40, 50, 60, 255))
+    clearImageCache()
+    ctx.drainImages()
+
+    loadImage(id, initial)
+    ctx.drainImages()
+    let initialRect = ctx.entries[id.Hash]
+
+    replaceImage(id, replacement)
+    ctx.drainImages()
+
+    check ctx.uploaded == @[id]
+    check ctx.updated == @[id]
+    check ctx.entries[id.Hash] == initialRect
+    check ctx.pixels[id][0, 0] == rgba(40, 50, 60, 255)
+    clearImage(id)
+    ctx.drainImages()
+
+  test "replaceImage reallocates when dimensions change":
+    let
+      id = imgId("tests/timage_loading/replace/different-size")
+      ctx = newTestContext()
+      replacement = newImage(4, 1)
+    replacement.fill(rgba(70, 80, 90, 255))
+    clearImageCache()
+    ctx.drainImages()
+
+    loadImage(id, newImage(2, 3))
+    ctx.drainImages()
+    replaceImage(id, replacement)
+    ctx.drainImages()
+
+    check ctx.uploaded == @[id, id]
+    check ctx.updated.len == 0
+    check ctx.entries[id.Hash].w == 4.0'f32 / ctx.atlasSize.float32
+    check ctx.entries[id.Hash].h == 1.0'f32 / ctx.atlasSize.float32
+    check ctx.pixels[id][0, 0] == rgba(70, 80, 90, 255)
+    clearImage(id)
+    ctx.drainImages()
+
+  test "replaceImage keeps only the newest queued frame and replay value":
+    let
+      id = imgId("tests/timage_loading/replace/newest")
+      ctx = newTestContext()
+      firstFrame = newImage(2, 2)
+      newestFrame = newImage(3, 1)
+    firstFrame.fill(rgba(100, 110, 120, 255))
+    newestFrame.fill(rgba(130, 140, 150, 255))
+    clearImageCache()
+    ctx.drainImages()
+
+    replaceImage(id, firstFrame)
+    replaceImage(id, newestFrame)
+    ctx.drainImages()
+
+    check hasImage(id)
+    check ctx.uploaded == @[id]
+    check ctx.updated.len == 0
+    check ctx.pixels[id].width == 3
+    check ctx.pixels[id].height == 1
+    check ctx.pixels[id][0, 0] == rgba(130, 140, 150, 255)
+
+    let late = newTestContext()
+    late.drainImages()
+    check late.uploaded == @[id]
+    check late.pixels[id].width == 3
+    check late.pixels[id].height == 1
+    check late.pixels[id][0, 0] == rgba(130, 140, 150, 255)
+
+    clearImage(id)
+    ctx.drainImages()
+    late.drainImages()
+
+  test "replaceImage replays the newest frame after an atlas rebuild":
+    let
+      id = imgId("tests/timage_loading/replace/rebuild")
+      ctx = newTestContext()
+      replacement = newImage(3, 2)
+    replacement.fill(rgba(160, 170, 180, 255))
+    clearImageCache()
+    ctx.drainImages()
+
+    replaceImage(id, replacement)
+    ctx.drainImages()
+    check ctx.uploaded == @[id]
+
+    ctx.clearImageAtlas()
+    check id.Hash notin ctx.entries
+    ctx.drainImages()
+
+    check ctx.uploaded == @[id, id]
+    check id.Hash in ctx.entries
+    check ctx.pixels[id].width == 3
+    check ctx.pixels[id].height == 2
+    check ctx.pixels[id][0, 0] == rgba(160, 170, 180, 255)
+
+    clearImage(id)
+    ctx.drainImages()
 
   test "loadImage path after clear uploads the current image":
     setFigDataDir(getCurrentDir() / "data")

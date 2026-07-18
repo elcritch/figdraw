@@ -27,6 +27,7 @@ type
   ImageMsgKind* = enum
     ImkPutFlippy
     ImkPutPixie
+    ImkReplacePixie
     ImkPutGlyphPixie
     ImkClearImage
     ImkClearImages
@@ -50,7 +51,7 @@ type
     case kind*: ImageMsgKind
     of ImkPutFlippy:
       flippy*: Flippy
-    of ImkPutPixie, ImkPutGlyphPixie:
+    of ImkPutPixie, ImkReplacePixie, ImkPutGlyphPixie:
       pimg*: Image
     of ImkClearImage, ImkClearImages, ImkClearImageCache, ImkClearFontGlyphs,
         ImkClearTypefaceGlyphs, ImkRetainImage, ImkReleaseImage, ImkRetainFont,
@@ -123,7 +124,7 @@ proc copyImageMessage(msg: ImageMsg): ImageMsg =
   case msg.kind
   of ImkPutFlippy:
     result.flippy = msg.flippy.copy()
-  of ImkPutPixie, ImkPutGlyphPixie:
+  of ImkPutPixie, ImkReplacePixie, ImkPutGlyphPixie:
     result.pimg =
       if msg.pimg.isNil:
         nil
@@ -137,7 +138,7 @@ proc copyImageMessage(msg: ImageMsg): ImageMsg =
 
 proc updateImageMessageReplay(msg: ImageMsg) =
   case msg.kind
-  of ImkPutFlippy, ImkPutPixie, ImkPutGlyphPixie:
+  of ImkPutFlippy, ImkPutPixie, ImkReplacePixie, ImkPutGlyphPixie:
     imageMessageReplay[msg.id] = msg.copyImageMessage()
   of ImkClearImage:
     imageMessageReplay.del(msg.id)
@@ -201,6 +202,17 @@ proc newImageMessageSubscription*(): ImageMessageSubscription =
 
 proc tryRecvImageMsg*(subscription: ImageMessageSubscription, msg: var ImageMsg): bool =
   not subscription.isNil and subscription.inbox.tryRecv(msg)
+
+proc replayImageMessages*(subscription: ImageMessageSubscription) =
+  ## Queue the current image cache for an existing renderer subscription.
+  if subscription.isNil:
+    return
+  var messages: seq[ImageMsg]
+  withLock imageSubscriberLock:
+    for replay in imageMessageReplay.values:
+      messages.add(replay.copyImageMessage())
+  for msg in messages.mitems:
+    subscription.inbox.push(unsafeIsolate(move msg))
 
 proc currentOwnerToken*(): OwnerToken =
   if localOwnerToken == OwnerToken(0):
@@ -547,6 +559,29 @@ proc loadImage*(filePath: string): ImageId =
 proc loadImage*(id: ImageId, image: sink Image) =
   var imgObj = ImgObj(id: id, kind: PixieImg, pimg: ensureMove image)
   sendImage(imgObj)
+
+proc replaceImage*(id: ImageId, image: sink Image) =
+  ## Replace the pixels associated with an image ID.
+  ##
+  ## Renderers update an existing atlas slot when its dimensions match and
+  ## allocate a new slot otherwise. Replacement also becomes the current replay
+  ## value for renderers created or rebuilt later.
+  var generation: uint64
+  var cacheGeneration: uint64
+  withLock imageMsgOrderLock:
+    withLock imageCachedLock:
+      markImageCachedLocked(id)
+      generation = bumpImageGenerationLocked(id)
+      cacheGeneration = imageCacheGeneration
+    publishImageMessage(
+      ImageMsg(
+        kind: ImkReplacePixie,
+        id: id,
+        generation: generation,
+        cacheGeneration: cacheGeneration,
+        pimg: ensureMove image,
+      )
+    )
 
 proc imageRef*(id: ImageId): ImageRef =
   ## Retain an existing image ID for the current thread.

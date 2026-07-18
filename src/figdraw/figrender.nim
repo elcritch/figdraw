@@ -1762,7 +1762,7 @@ proc processImageMessages*(ctx: BackendContext) {.forbids: [AppMainThreadEff].} 
   var img: ImageMsg
   while tryRecvImageMsg(ctx.imageMessages, img):
     case img.kind
-    of ImkPutPixie, ImkPutGlyphPixie:
+    of ImkPutPixie:
       trace "image loaded", id = $img.id.Hash
       if not imageMessageCurrent(img):
         debug "skipping stale pixie image", imageId = img.id.Hash
@@ -1770,12 +1770,35 @@ proc processImageMessages*(ctx: BackendContext) {.forbids: [AppMainThreadEff].} 
       if img.pimg == nil:
         debug "skipping nil pixie image", imageId = img.id.Hash
         continue
-      var imgObj = ImgObj(id: img.id, kind: PixieImg, pimg: img.pimg)
-      ctx.putImage(imgObj)
-      if img.kind == ImkPutGlyphPixie:
-        ctx.markGlyphEntry(img.id.Hash, img.fontId, img.typefaceId)
-      else:
-        ctx.markImageEntry(img.id)
+      ctx.replaceImageInAtlas(img.id, img.pimg)
+    of ImkPutGlyphPixie:
+      trace "glyph image loaded", id = $img.id.Hash
+      if not imageMessageCurrent(img):
+        debug "skipping stale glyph image", imageId = img.id.Hash
+        continue
+      if img.pimg == nil:
+        debug "skipping nil glyph image", imageId = img.id.Hash
+        continue
+      let key = img.id.Hash
+      var glyphExists = false
+      if key in ctx.entries and key in ctx.atlasEntryMetaPtr():
+        let meta = ctx.atlasEntryMetaPtr()[key]
+        glyphExists =
+          meta.kind == aekGlyph and meta.fontId == img.fontId and
+          meta.typefaceId == img.typefaceId
+      if not glyphExists:
+        var imgObj = ImgObj(id: img.id, kind: PixieImg, pimg: img.pimg)
+        ctx.putImage(imgObj)
+        ctx.markGlyphEntry(key, img.fontId, img.typefaceId)
+    of ImkReplacePixie:
+      trace "image replaced", id = $img.id.Hash
+      if not imageMessageCurrent(img):
+        debug "skipping stale replacement image", imageId = img.id.Hash
+        continue
+      if img.pimg == nil:
+        debug "skipping nil replacement image", imageId = img.id.Hash
+        continue
+      ctx.replaceImageInAtlas(img.id, img.pimg)
     of ImkPutFlippy:
       trace "image loaded", id = $img.id.Hash
       if not imageMessageCurrent(img):
@@ -1784,9 +1807,10 @@ proc processImageMessages*(ctx: BackendContext) {.forbids: [AppMainThreadEff].} 
       if img.flippy.mipmaps.len == 0:
         debug "skipping empty flippy image", imageId = img.id.Hash
         continue
-      var imgObj = ImgObj(id: img.id, kind: FlippyImg, flippy: move(img.flippy))
-      ctx.putImage(imgObj)
-      ctx.markImageEntry(img.id)
+      if not ctx.hasImageEntry(img.id):
+        var imgObj = ImgObj(id: img.id, kind: FlippyImg, flippy: move(img.flippy))
+        ctx.putImage(imgObj)
+        ctx.markImageEntry(img.id)
     of ImkClearImage:
       trace "image cleared", id = $img.id.Hash
       ctx.removeImage(img.id)

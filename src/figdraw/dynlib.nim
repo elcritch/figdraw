@@ -500,6 +500,12 @@ proc loadImage*(id: ImageId, image: Image) {.inline.} =
 proc loadImage*[T](id: ImageId, image: T) {.inline.} =
   putFigImage(id, image.toImage())
 
+proc replaceImage*(id: ImageId, image: Image) {.inline.} =
+  replaceFigImage(id, image)
+
+proc replaceImage*[T](id: ImageId, image: T) {.inline.} =
+  replaceFigImage(id, image.toImage())
+
 proc imgId*(name: string): ImageId {.inline.} =
   figImageId(name)
 

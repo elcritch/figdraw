@@ -209,6 +209,10 @@ control:
 ```nim
 let id = loadImage("photos/frame-001.png")
 
+# Update a video frame or live canvas. Matching dimensions reuse the atlas slot;
+# changed dimensions allocate a new slot under the same stable ID.
+replaceImage(id, nextFrame)
+
 # Later, when the image scrolls out of the active range:
 clearImage(id)
 
@@ -221,6 +225,12 @@ its renderer atlas lookup entry. They do not compact or reclaim holes inside the
 packed texture atlas. Use `clearImageCache()` or `clearImageCache(renderer)` as
 the memory relief path when the atlas grows past a budget; this resets the atlas
 storage and currently visible images should be loaded again by the application.
+
+`replaceImage(id, pixels)` publishes the newest pixels to every renderer and
+updates FigDraw's replay cache. Existing slots are updated in place when their
+dimensions match. If dimensions change, FigDraw removes the old lookup and packs
+a new slot. Rebuilt atlases and renderers added later replay the latest pixels.
+See `examples/siwin_replace_image.nim` for a real-time Pixie canvas demo.
 
 ### Font Cache Management
 

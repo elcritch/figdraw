@@ -204,6 +204,7 @@ proc noteAtlasRebuilt*(impl: BackendContext) =
     inc nextAtlasGeneration
     impl.atlasGenerationValue = nextAtlasGeneration
   inc impl.atlasRebuildCountValue
+  replayImageMessages(impl.imageMessages)
 
 proc noteAtlasCreated*(impl: BackendContext) =
   if impl.atlasGenerationValue == 0'u64:
@@ -357,6 +358,35 @@ proc removeAtlasEntry*(impl: BackendContext, key: Hash) =
 
 proc markImageEntry*(impl: BackendContext, id: ImageId) =
   impl.atlasEntryMetaPtr()[id.Hash] = AtlasEntryMeta(kind: aekImage, imageId: id)
+
+proc hasImageEntry*(impl: BackendContext, id: ImageId): bool =
+  let key = id.Hash
+  if key notin impl.entriesPtr()[] or key notin impl.atlasEntryMetaPtr():
+    return false
+  let meta = impl.atlasEntryMetaPtr()[key]
+  meta.kind == aekImage and meta.imageId == id
+
+proc replaceImageInAtlas*(impl: BackendContext, id: ImageId, image: Image) =
+  ## Update a matching image slot or allocate a replacement slot.
+  let key = id.Hash
+  var dimensionsMatch = false
+  if key in impl.entriesPtr()[] and key in impl.atlasEntryMetaPtr():
+    let meta = impl.atlasEntryMetaPtr()[key]
+    if meta.kind == aekImage and meta.imageId == id:
+      let
+        imageRect = impl.entriesPtr()[][key]
+        atlasSize = impl.atlasSize()
+        entryWidth = round(imageRect.w * atlasSize.float32).int
+        entryHeight = round(imageRect.h * atlasSize.float32).int
+      dimensionsMatch = entryWidth == image.width and entryHeight == image.height
+
+  if dimensionsMatch:
+    impl.updateImage(key, image)
+  else:
+    if key in impl.entriesPtr()[]:
+      impl.removeAtlasEntry(key)
+    impl.putImage(key, image)
+  impl.markImageEntry(id)
 
 proc markGlyphEntry*(
     impl: BackendContext, key: Hash, fontId: FontId, typefaceId: TypefaceId

@@ -206,6 +206,9 @@ proc loadFigImage*(filePath: string): ImageId {.exportabi.} =
 proc putFigImage*(id: ImageId, value: Image) {.exportabi.} =
   loadImage(id, value.image)
 
+proc replaceFigImage*(id: ImageId, value: Image) {.exportabi.} =
+  replaceImage(id, value.image)
+
 proc clearFigImage*(id: ImageId) {.exportabi.} =
   clearImage(id)
 
