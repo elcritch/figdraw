@@ -20,6 +20,6 @@ proc fontFallbackResolver*(): FontFallbackResolver =
   ## Returns the fallback resolver installed on the current thread.
   activeFontFallbackResolver
 
-proc `fontFallbackResolver=`*(resolver: FontFallbackResolver) =
+proc setFontFallbackResolver*(resolver: FontFallbackResolver) =
   ## Installs a fallback resolver on the current thread.
   activeFontFallbackResolver = resolver
