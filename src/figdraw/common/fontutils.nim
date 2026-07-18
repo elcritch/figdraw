@@ -3,6 +3,9 @@ import std/[hashes, unicode]
 import pkg/vmath
 
 import ./fonttypes
+import ./fontfallbacks
+
+export fontfallbacks
 
 when figdrawTextBackend != "harfbuzzy" and figdrawTextBackend != "hybrid":
   import pkg/pixie/fonts
