@@ -1428,13 +1428,44 @@ suite "fontutils":
       let charPos = vec2(glyph.pos.x, glyph.pos.y - glyph.descent)
       check abs(charPos.x - expected.x) < 0.01'f32
       check abs(charPos.y - expected.y) < 0.01'f32
-      check glyph.glyphId == syntheticFontGlyphId(glyph.fontId, glyph.rune)
+      when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
+        let shaped = typeset(
+          rect(0, 0, 80, 40), uiFont, $glyph.rune, minContent = false, wrap = false
+        )
+        require shaped.arrangedGlyphs.len == 1
+        check glyph.glyphId == shaped.arrangedGlyphs[0].glyphId
+      else:
+        check glyph.glyphId == syntheticFontGlyphId(glyph.fontId, glyph.rune)
       check arrangement.sourceRune(idx) == positions[idx][0]
       check arrangement.sourceRuneRange(idx) == idx .. idx
       if not glyph.rune.isWhiteSpace:
         check hasImage(glyph.hash().ImageId)
       inc idx
     check idx == positions.len
+
+  when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
+    test "placeGlyphs resolves fallback font and glyph ids":
+      let
+        primaryData = readFile(figDataDir() / "Ubuntu.ttf")
+        fallbackPath = "deps/pixie/tests/fonts/NotoEmoji.otf"
+        primaryId = loadTypeface("Ubuntu.ttf", primaryData, TTF)
+        fallbackId = loadTypeface(fallbackPath)
+        coffee = "☕".runeAt(0)
+        positions = [("A".runeAt(0), vec2(12, 16)), (coffee, vec2(40, 16))]
+      var uiFont = FigFont(typefaceId: primaryId, size: 18.0'f32)
+      uiFont.fallbackTypefaceIds = @[fallbackId]
+
+      let
+        arrangement = placeGlyphs(uiFont, positions, origin = GlyphTopLeft)
+        shapedCoffee =
+          typeset(rect(0, 0, 80, 40), uiFont, $coffee, minContent = false, wrap = false)
+
+      require arrangement.arrangedGlyphs.len == 2
+      require shapedCoffee.arrangedGlyphs.len == 1
+      check getFigFont(arrangement.arrangedGlyphs[0].fontId).typefaceId == primaryId
+      check getFigFont(arrangement.arrangedGlyphs[1].fontId).typefaceId == fallbackId
+      check arrangement.arrangedGlyphs[1].glyphId ==
+        shapedCoffee.arrangedGlyphs[0].glyphId
 
   test "clearImageCache clears glyph markers and allows regeneration":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")

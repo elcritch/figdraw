@@ -350,6 +350,50 @@ proc pxScale(typeface: hb.Typeface, font: FigFont): float32 =
     return 1.0'f32
   font.size / upem.float32
 
+func placedRuneSkipsRaster(rune: Rune): bool =
+  let codepoint = rune.uint32
+  rune.isWhiteSpace or codepoint in [0x200C'u32, 0x200D'u32] or
+    codepoint in 0xFE00'u32 .. 0xFE0F'u32 or codepoint in 0xE0100'u32 .. 0xE01EF'u32
+
+proc resolvePlacedGlyph*(
+    font: FigFont, rune: Rune
+): tuple[
+  glyphFont: GlyphFont,
+  glyphId: FontGlyphId,
+  advance: float32,
+  imageOffset: Vec2,
+  skipsRaster: bool,
+] =
+  ## Resolves a source rune for explicit placement without applying text layout.
+  let fontInfos = initHarfbuzzFontInfos(font)
+  if fontInfos.len == 0:
+    raise newException(ValueError, "explicit glyph placement requires a typeface")
+
+  var selectedIndex = 0
+  if not rune.placedRuneSkipsRaster:
+    for index, info in fontInfos:
+      if info.typeface.font.hasGlyph(rune.uint32):
+        selectedIndex = index
+        break
+
+  let selected = fontInfos[selectedIndex]
+  result.glyphFont = selected.glyphFont
+  result.skipsRaster = rune.placedRuneSkipsRaster
+  if result.skipsRaster and not rune.isWhiteSpace:
+    return
+
+  var glyphId: hb.Codepoint
+  try:
+    glyphId = selected.typeface.font.nominalGlyph(rune.uint32)
+  except ValueError:
+    discard
+  result.glyphId = FontGlyphId(glyphId.uint32)
+  if glyphId != 0 or not result.skipsRaster:
+    let scale = selected.typeface.pxScale(font)
+    result.advance = selected.typeface.font.horizontalAdvance(glyphId).float32 * scale
+    result.imageOffset =
+      imageOffsetForGlyph(selected.typeface, glyphId, selected.glyphFont, scale)
+
 proc nextClusterBoundary(run: hb.ShapedRun, cluster: int): int =
   var boundaries = @[run.textRun.byteEnd]
   for glyph in run.glyphRun.glyphs:

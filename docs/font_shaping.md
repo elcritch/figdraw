@@ -13,7 +13,11 @@ helpers, and raster dispatch. Harfbuzzy stays behind FigDraw adapters.
 `figdrawTextBackend` is a compile-time string define:
 
 ```nim
-const figdrawTextBackend* {.strdefine.} = "pixie"
+const figdrawTextBackend* {.strdefine.} =
+  when defined(feature.figdraw.textBackendHarfbuzzy):
+    "harfbuzzy"
+  else:
+    "pixie"
 ```
 
 Supported modes:
@@ -60,8 +64,9 @@ Important fields:
 
 `FigFont` carries shaping controls in backend-neutral terms:
 
-- `fallbackTypefaceIds`: Ordered fallback typeface ids. Harfbuzzy shaping tries
-  the primary typeface first, then fallbacks for unsupported shaped runs.
+- `fallbackTypefaceIds`: Ordered fallback typeface ids. Harfbuzzy shaping keeps
+  the primary typeface wherever it has coverage, then splits a script run into
+  maximal segments when later typefaces are needed.
 - `language`: Optional BCP 47 language for language-sensitive shaping. An empty
   value lets HarfBuzz use an unspecified language.
 - `features`: OpenType feature settings such as `fontFeature("liga", 0)` or
@@ -209,6 +214,8 @@ The Harfbuzzy adapter converts shaped runs into FigDraw data:
 - A single styled input span can become multiple FigDraw spans when fallback
   picks different typefaces. Each emitted span keeps the input fill and stores
   the actual shaped `fontId` used by its glyph run.
+- Explicitly positioned text from `placeGlyphs` retains caller positions while
+  resolving each source rune to the selected backend's font-scoped glyph id.
 - HarfBuzz glyph flags are consumed inside the adapter so preferred wrapping can
   respect unsafe-to-break metadata without exposing HarfBuzz-specific flags.
 - Source byte and rune ranges are stored in `GlyphSourceRange`.
