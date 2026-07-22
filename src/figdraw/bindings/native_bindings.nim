@@ -48,6 +48,9 @@ type
   NativeWindowSize* = object
     w*, h*: int32
 
+  NativeLogicalSize* = object
+    w*, h*: float32
+
   NativeWindowPos* = object
     x*, y*: int32
 
@@ -367,6 +370,10 @@ proc siwinBackingSize*(appHandle: NativeSiwinApp): NativeWindowSize =
   let size = siwinApp(appHandle).window.backingSize()
   NativeWindowSize(w: size.x, h: size.y)
 
+proc siwinLogicalSize*(appHandle: NativeSiwinApp): NativeLogicalSize =
+  let size = siwinApp(appHandle).window.logicalSize()
+  NativeLogicalSize(w: size.x, h: size.y)
+
 proc siwinInputUsesBackingPixels*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.inputUsesBackingPixels()
 
@@ -617,5 +624,5 @@ proc renderFrame*(
   renderFrame(appHandle, renders, width, height, true, 1, 1, 1, 1)
 
 proc renderFrame*(appHandle: NativeSiwinApp, renders: var Renders) =
-  let size = siwinApp(appHandle).window.backingSize()
-  renderFrame(appHandle, renders, size.x.float32, size.y.float32)
+  let size = siwinApp(appHandle).window.logicalSize()
+  renderFrame(appHandle, renders, size.x, size.y)
