@@ -215,11 +215,6 @@ jobs:
     - name: Install Deps
       run: atlas install -t:8 --features:windy,sdl2,siwin,sharedlib,harfbuzz
 
-    - name: Build Bindings
-      run: |
-        nim bindings
-        nim c examples/siwin_shared.nim
-
     # - name: Build Surfer Examples
     #   if: runner.os == 'Linux' && matrix.display == 'wayland'
     #   run: |
