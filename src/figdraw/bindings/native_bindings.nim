@@ -75,21 +75,21 @@ type
     autoScale: bool
     title: string
 
-proc systemFontDirs*(): seq[string] {.exportabi.} =
+proc systemFontDirs*(): seq[string] =
   systemfonts.systemFontDirs()
 
-proc systemFontFiles*(): seq[string] {.exportabi.} =
+proc systemFontFiles*(): seq[string] =
   systemfonts.systemFontFiles()
 
-proc textBackend*(): string {.exportabi.} =
+proc textBackend*(): string =
   ## Text backend compiled into this native library.
   fonttypes.textBackend()
 
-proc textBackendFeatures*(): Strings {.exportabi.} =
+proc textBackendFeatures*(): Strings =
   ## Backend capabilities compiled into this native library.
   fonttypes.textBackendFeatures()
 
-proc supportedFontFileExtensions*(): Strings {.exportabi.} =
+proc supportedFontFileExtensions*(): Strings =
   ## Typeface file extensions accepted by FigDraw's font loader.
   fonttypes.supportedFontFileExtensions()
 
@@ -158,61 +158,61 @@ func nativePlacement(value: PopupPlacement): NativePopupPlacement =
     reactive: value.reactive,
   )
 
-proc isNil*(value: NativeSiwinApp): bool {.exportabi.} =
+proc isNil*(value: NativeSiwinApp): bool =
   value.raw == nil
 
-proc isNil*(value: Image): bool {.exportabi.} =
+proc isNil*(value: Image): bool =
   value.raw == nil
 
-proc newPixieImage*(width, height: int): Image {.exportabi.} =
+proc newPixieImage*(width, height: int): Image =
   wrap(pixie.newImage(width, height))
 
-proc readPixieImage*(filePath: string): Image {.exportabi.} =
+proc readPixieImage*(filePath: string): Image =
   wrap(pixie.readImage(filePath))
 
-proc decodePixieImage*(data: string): Image {.exportabi.} =
+proc decodePixieImage*(data: string): Image =
   wrap(pixie.decodeImage(data))
 
-proc encodePng*(value: Image): string {.exportabi.} =
+proc encodePng*(value: Image): string =
   png.encodePng(value.image)
 
-proc writePixieImage*(value: Image, filePath: string) {.exportabi.} =
+proc writePixieImage*(value: Image, filePath: string) =
   value.image.writeFile(filePath)
 
-proc copyImage*(value: Image): Image {.exportabi.} =
+proc copyImage*(value: Image): Image =
   wrap(value.image.copy())
 
-proc imageWidth*(value: Image): int {.exportabi.} =
+proc imageWidth*(value: Image): int =
   value.image.width
 
-proc imageHeight*(value: Image): int {.exportabi.} =
+proc imageHeight*(value: Image): int =
   value.image.height
 
-proc imagePixel*(value: Image, x, y: int): ColorRGBA {.exportabi.} =
+proc imagePixel*(value: Image, x, y: int): ColorRGBA =
   value.image[x, y].rgba()
 
-proc setImagePixel*(value: Image, x, y: int, color: ColorRGBA) {.exportabi.} =
+proc setImagePixel*(value: Image, x, y: int, color: ColorRGBA) =
   value.image[x, y] = color
 
-proc fillImage*(value: Image, color: ColorRGBA) {.exportabi.} =
+proc fillImage*(value: Image, color: ColorRGBA) =
   value.image.fill(color)
 
-proc figImageId*(name: string): ImageId {.exportabi.} =
+proc figImageId*(name: string): ImageId =
   imgId(name)
 
-proc loadFigImage*(filePath: string): ImageId {.exportabi.} =
+proc loadFigImage*(filePath: string): ImageId =
   loadImage(filePath)
 
-proc putFigImage*(id: ImageId, value: Image) {.exportabi.} =
+proc putFigImage*(id: ImageId, value: Image) =
   loadImage(id, value.image)
 
-proc replaceFigImage*(id: ImageId, value: Image) {.exportabi.} =
+proc replaceFigImage*(id: ImageId, value: Image) =
   replaceImage(id, value.image)
 
-proc clearFigImage*(id: ImageId) {.exportabi.} =
+proc clearFigImage*(id: ImageId) =
   clearImage(id)
 
-proc hasFigImage*(id: ImageId): bool {.exportabi.} =
+proc hasFigImage*(id: ImageId): bool =
   hasImage(id)
 
 proc typeset*(
@@ -222,7 +222,7 @@ proc typeset*(
     vAlign = FontVertical.Top,
     minContent = false,
     wrap = true,
-): GlyphArrangement {.exportabi.} =
+): GlyphArrangement =
   fontutils.typeset(box, spans, hAlign, vAlign, minContent, wrap)
 
 proc newFigSiwinApp*(
@@ -233,7 +233,7 @@ proc newFigSiwinApp*(
     fullscreen, vsync: bool,
     msaa: int32,
     resizable, frameless, transparent: bool,
-): NativeSiwinApp {.exportabi.} =
+): NativeSiwinApp =
   when UseVulkanBackend:
     let renderer = newFigRenderer(atlasSize, SiwinRenderBackend(), pixelScale)
     let window = newSiwinWindow(
@@ -276,7 +276,7 @@ proc newFigSiwinPopup*(
     atlasSize: int,
     pixelScale: float32,
     transparent, grab: bool,
-): NativeSiwinApp {.exportabi.} =
+): NativeSiwinApp =
   let window = newPopupWindow(
     sharedSiwinGlobals(),
     siwinApp(parentHandle).window,
@@ -294,10 +294,10 @@ proc newFigSiwinPopup*(
     SiwinApp(window: window, renderer: renderer, autoScale: window.configureUiScale())
   )
 
-proc firstStep*(appHandle: NativeSiwinApp, makeVisible: bool) {.exportabi.} =
+proc firstStep*(appHandle: NativeSiwinApp, makeVisible: bool) =
   siwinApp(appHandle).window.firstStep(makeVisible)
 
-proc firstStep*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc firstStep*(appHandle: NativeSiwinApp) =
   firstStep(appHandle, true)
 
 func nativeModifierMask(modifiers: set[ModifierKey]): uint8 =
@@ -307,7 +307,7 @@ func nativeModifierMask(modifiers: set[ModifierKey]): uint8 =
 proc siwinSetEventCallbacks*(
     appHandle: NativeSiwinApp,
     context, resizeCallback, renderCallback, keyCallback, textInputCallback: pointer,
-) {.exportabi.} =
+) =
   let app = siwinApp(appHandle)
   if resizeCallback == nil:
     app.window.eventsHandler.onResize = nil
@@ -344,193 +344,175 @@ proc siwinSetEventCallbacks*(
         context, text, e.text.len, e.repeated
       )
 
-proc step*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc step*(appHandle: NativeSiwinApp) =
   siwinApp(appHandle).window.step()
 
-proc redraw*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc redraw*(appHandle: NativeSiwinApp) =
   siwinApp(appHandle).window.redraw()
 
-proc makeCurrent*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc makeCurrent*(appHandle: NativeSiwinApp) =
   siwinApp(appHandle).window.makeCurrent()
 
-proc close*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc close*(appHandle: NativeSiwinApp) =
   siwinApp(appHandle).window.close()
 
-proc opened*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc opened*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.opened
 
-proc siwinWindowSize*(appHandle: NativeSiwinApp): NativeWindowSize {.exportabi.} =
+proc siwinWindowSize*(appHandle: NativeSiwinApp): NativeWindowSize =
   let size = siwinApp(appHandle).window.size
   NativeWindowSize(w: size.x, h: size.y)
 
-proc siwinBackingSize*(appHandle: NativeSiwinApp): NativeWindowSize {.exportabi.} =
+proc siwinBackingSize*(appHandle: NativeSiwinApp): NativeWindowSize =
   let size = siwinApp(appHandle).window.backingSize()
   NativeWindowSize(w: size.x, h: size.y)
 
-proc siwinInputUsesBackingPixels*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinInputUsesBackingPixels*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.inputUsesBackingPixels()
 
-proc siwinSetWindowSize*(
-    appHandle: NativeSiwinApp, width, height: int32
-) {.exportabi.} =
+proc siwinSetWindowSize*(appHandle: NativeSiwinApp, width, height: int32) =
   siwinApp(appHandle).window.size = ivec2(width, height)
 
-proc siwinWindowPos*(appHandle: NativeSiwinApp): NativeWindowPos {.exportabi.} =
+proc siwinWindowPos*(appHandle: NativeSiwinApp): NativeWindowPos =
   let pos = siwinApp(appHandle).window.pos
   NativeWindowPos(x: pos.x, y: pos.y)
 
-proc siwinSetWindowPos*(appHandle: NativeSiwinApp, x, y: int32) {.exportabi.} =
+proc siwinSetWindowPos*(appHandle: NativeSiwinApp, x, y: int32) =
   siwinApp(appHandle).window.pos = ivec2(x, y)
 
-proc siwinSetTitle*(appHandle: NativeSiwinApp, title: string) {.exportabi.} =
+proc siwinSetTitle*(appHandle: NativeSiwinApp, title: string) =
   let app = siwinApp(appHandle)
   app.window.title = title
   app.title = title
 
-proc siwinTitle*(appHandle: NativeSiwinApp): string {.exportabi.} =
+proc siwinTitle*(appHandle: NativeSiwinApp): string =
   siwinApp(appHandle).title
 
-proc siwinIsVisible*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinIsVisible*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.visible
 
-proc siwinSetVisible*(appHandle: NativeSiwinApp, visible: bool) {.exportabi.} =
+proc siwinSetVisible*(appHandle: NativeSiwinApp, visible: bool) =
   siwinApp(appHandle).window.visible = visible
 
-proc siwinIsFocused*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinIsFocused*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.focused
 
-proc siwinIsFullscreen*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinIsFullscreen*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.fullscreen
 
-proc siwinSetFullscreen*(appHandle: NativeSiwinApp, fullscreen: bool) {.exportabi.} =
+proc siwinSetFullscreen*(appHandle: NativeSiwinApp, fullscreen: bool) =
   siwinApp(appHandle).window.fullscreen = fullscreen
 
-proc siwinIsMaximized*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinIsMaximized*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.maximized
 
-proc siwinSetMaximized*(appHandle: NativeSiwinApp, maximized: bool) {.exportabi.} =
+proc siwinSetMaximized*(appHandle: NativeSiwinApp, maximized: bool) =
   siwinApp(appHandle).window.maximized = maximized
 
-proc siwinIsMinimized*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinIsMinimized*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.minimized
 
-proc siwinSetMinimized*(appHandle: NativeSiwinApp, minimized: bool) {.exportabi.} =
+proc siwinSetMinimized*(appHandle: NativeSiwinApp, minimized: bool) =
   siwinApp(appHandle).window.minimized = minimized
 
-proc siwinIsResizable*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinIsResizable*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.resizable
 
-proc siwinSetResizable*(appHandle: NativeSiwinApp, resizable: bool) {.exportabi.} =
+proc siwinSetResizable*(appHandle: NativeSiwinApp, resizable: bool) =
   siwinApp(appHandle).window.resizable = resizable
 
-proc siwinIsFrameless*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinIsFrameless*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.frameless
 
-proc siwinIsTransparent*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinIsTransparent*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.transparent
 
-proc siwinSetFrameless*(appHandle: NativeSiwinApp, frameless: bool) {.exportabi.} =
+proc siwinSetFrameless*(appHandle: NativeSiwinApp, frameless: bool) =
   siwinApp(appHandle).window.frameless = frameless
 
-proc siwinMinSize*(appHandle: NativeSiwinApp): NativeWindowSize {.exportabi.} =
+proc siwinMinSize*(appHandle: NativeSiwinApp): NativeWindowSize =
   let size = siwinApp(appHandle).window.minSize
   NativeWindowSize(w: size.x, h: size.y)
 
-proc siwinSetMinSize*(appHandle: NativeSiwinApp, width, height: int32) {.exportabi.} =
+proc siwinSetMinSize*(appHandle: NativeSiwinApp, width, height: int32) =
   siwinApp(appHandle).window.minSize = ivec2(width, height)
 
-proc siwinMaxSize*(appHandle: NativeSiwinApp): NativeWindowSize {.exportabi.} =
+proc siwinMaxSize*(appHandle: NativeSiwinApp): NativeWindowSize =
   let size = siwinApp(appHandle).window.maxSize
   NativeWindowSize(w: size.x, h: size.y)
 
-proc siwinSetMaxSize*(appHandle: NativeSiwinApp, width, height: int32) {.exportabi.} =
+proc siwinSetMaxSize*(appHandle: NativeSiwinApp, width, height: int32) =
   siwinApp(appHandle).window.maxSize = ivec2(width, height)
 
-proc siwinUsesCustomTitlebar*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinUsesCustomTitlebar*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.customTitlebar
 
-proc siwinSupportsCustomTitlebar*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinSupportsCustomTitlebar*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.supportsCustomTitlebar()
 
-proc siwinSetCustomTitlebar*(appHandle: NativeSiwinApp, enabled: bool) {.exportabi.} =
+proc siwinSetCustomTitlebar*(appHandle: NativeSiwinApp, enabled: bool) =
   siwinApp(appHandle).window.customTitlebar = enabled
 
-proc siwinSetTitleRegion*(
-    appHandle: NativeSiwinApp, x, y, width, height: float32
-) {.exportabi.} =
+proc siwinSetTitleRegion*(appHandle: NativeSiwinApp, x, y, width, height: float32) =
   siwinApp(appHandle).window.setTitleRegion(vec2(x, y), vec2(width, height))
 
-proc siwinSetInputRegion*(
-    appHandle: NativeSiwinApp, x, y, width, height: float32
-) {.exportabi.} =
+proc siwinSetInputRegion*(appHandle: NativeSiwinApp, x, y, width, height: float32) =
   siwinApp(appHandle).window.setInputRegion(vec2(x, y), vec2(width, height))
 
 proc siwinSetBorderWidth*(
     appHandle: NativeSiwinApp, innerWidth, outerWidth, diagonalSize: float32
-) {.exportabi.} =
+) =
   siwinApp(appHandle).window.setBorderWidth(innerWidth, outerWidth, diagonalSize)
 
-proc siwinStartInteractiveMove*(
-    appHandle: NativeSiwinApp, x, y: float32
-) {.exportabi.} =
+proc siwinStartInteractiveMove*(appHandle: NativeSiwinApp, x, y: float32) =
   siwinApp(appHandle).window.startInteractiveMove(some(vec2(x, y)))
 
 proc siwinStartInteractiveResize*(
     appHandle: NativeSiwinApp, edge: Edge, x, y: float32
-) {.exportabi.} =
+) =
   siwinApp(appHandle).window.startInteractiveResize(edge, some(vec2(x, y)))
 
-proc siwinShowWindowMenu*(appHandle: NativeSiwinApp, x, y: float32) {.exportabi.} =
+proc siwinShowWindowMenu*(appHandle: NativeSiwinApp, x, y: float32) =
   siwinApp(appHandle).window.showWindowMenu(some(vec2(x, y)))
 
-proc siwinSetBuiltinCursor*(
-    appHandle: NativeSiwinApp, cursor: BuiltinCursor
-) {.exportabi.} =
+proc siwinSetBuiltinCursor*(appHandle: NativeSiwinApp, cursor: BuiltinCursor) =
   siwinApp(appHandle).window.cursor = Cursor(kind: builtin, builtin: cursor)
 
-proc siwinMousePos*(appHandle: NativeSiwinApp): NativePoint {.exportabi.} =
+proc siwinMousePos*(appHandle: NativeSiwinApp): NativePoint =
   let pos = siwinApp(appHandle).window.mouse.pos
   NativePoint(x: pos.x, y: pos.y)
 
-proc siwinMouseButtonPressed*(
-    appHandle: NativeSiwinApp, button: MouseButton
-): bool {.exportabi.} =
+proc siwinMouseButtonPressed*(appHandle: NativeSiwinApp, button: MouseButton): bool =
   button in siwinApp(appHandle).window.mouse.pressed
 
-proc siwinKeyPressed*(appHandle: NativeSiwinApp, key: Key): bool {.exportabi.} =
+proc siwinKeyPressed*(appHandle: NativeSiwinApp, key: Key): bool =
   key in siwinApp(appHandle).window.keyboard.pressed
 
-proc siwinModifierPressed*(
-    appHandle: NativeSiwinApp, modifier: ModifierKey
-): bool {.exportabi.} =
+proc siwinModifierPressed*(appHandle: NativeSiwinApp, modifier: ModifierKey): bool =
   modifier in siwinApp(appHandle).window.keyboard.modifiers
 
-proc siwinSetVsync*(appHandle: NativeSiwinApp, enabled: bool) {.exportabi.} =
+proc siwinSetVsync*(appHandle: NativeSiwinApp, enabled: bool) =
   siwinApp(appHandle).window.vsync = enabled
 
-proc siwinUsesSeparateTouch*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinUsesSeparateTouch*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.separateTouch
 
-proc siwinSetSeparateTouch*(appHandle: NativeSiwinApp, enabled: bool) {.exportabi.} =
+proc siwinSetSeparateTouch*(appHandle: NativeSiwinApp, enabled: bool) =
   siwinApp(appHandle).window.separateTouch = enabled
 
-proc siwinCanBecomeKeyWindow*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinCanBecomeKeyWindow*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.canBecomeKeyWindow()
 
-proc siwinSetCanBecomeKeyWindow*(
-    appHandle: NativeSiwinApp, enabled: bool
-) {.exportabi.} =
+proc siwinSetCanBecomeKeyWindow*(appHandle: NativeSiwinApp, enabled: bool) =
   siwinApp(appHandle).window.canBecomeKeyWindow = enabled
 
-proc siwinCanBecomeMainWindow*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinCanBecomeMainWindow*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.canBecomeMainWindow()
 
-proc siwinSetCanBecomeMainWindow*(
-    appHandle: NativeSiwinApp, enabled: bool
-) {.exportabi.} =
+proc siwinSetCanBecomeMainWindow*(appHandle: NativeSiwinApp, enabled: bool) =
   siwinApp(appHandle).window.canBecomeMainWindow = enabled
 
-proc siwinSetIcon*(appHandle: NativeSiwinApp, value: Image) {.exportabi.} =
+proc siwinSetIcon*(appHandle: NativeSiwinApp, value: Image) =
   let image = value.image
   if image.isNil or image.data.len == 0:
     siwinApp(appHandle).window.icon = nil
@@ -541,88 +523,74 @@ proc siwinSetIcon*(appHandle: NativeSiwinApp, value: Image) {.exportabi.} =
       format: rgbx_32bit,
     )
 
-proc siwinClearIcon*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc siwinClearIcon*(appHandle: NativeSiwinApp) =
   siwinApp(appHandle).window.icon = nil
 
-proc siwinClipboardText*(appHandle: NativeSiwinApp): string {.exportabi.} =
+proc siwinClipboardText*(appHandle: NativeSiwinApp): string =
   siwinApp(appHandle).window.clipboard.text
 
-proc siwinSetClipboardText*(appHandle: NativeSiwinApp, value: string) {.exportabi.} =
+proc siwinSetClipboardText*(appHandle: NativeSiwinApp, value: string) =
   siwinApp(appHandle).window.clipboard.text = value
 
-proc siwinClipboardFiles*(appHandle: NativeSiwinApp): seq[string] {.exportabi.} =
+proc siwinClipboardFiles*(appHandle: NativeSiwinApp): seq[string] =
   siwinApp(appHandle).window.clipboard.files
 
-proc siwinSetClipboardFiles*(
-    appHandle: NativeSiwinApp, value: seq[string]
-) {.exportabi.} =
+proc siwinSetClipboardFiles*(appHandle: NativeSiwinApp, value: seq[string]) =
   siwinApp(appHandle).window.clipboard.files = value
 
-proc siwinClipboardData*(
-    appHandle: NativeSiwinApp, mimeType: string
-): string {.exportabi.} =
+proc siwinClipboardData*(appHandle: NativeSiwinApp, mimeType: string): string =
   siwinApp(appHandle).window.clipboard[mimeType]
 
-proc siwinSetClipboardData*(
-    appHandle: NativeSiwinApp, mimeType, value: string
-) {.exportabi.} =
+proc siwinSetClipboardData*(appHandle: NativeSiwinApp, mimeType, value: string) =
   siwinApp(appHandle).window.clipboard[mimeType] = value
 
-proc siwinUiScale*(appHandle: NativeSiwinApp): float32 {.exportabi.} =
+proc siwinUiScale*(appHandle: NativeSiwinApp): float32 =
   siwinApp(appHandle).window.uiScale()
 
-proc siwinIsPopup*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinIsPopup*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.isPopup
 
-proc siwinPopupGrab*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinPopupGrab*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.popupGrab
 
-proc siwinPopupOpen*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc siwinPopupOpen*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).window.popupOpen
 
-proc siwinPopupPlacement*(
-    appHandle: NativeSiwinApp
-): NativePopupPlacement {.exportabi.} =
+proc siwinPopupPlacement*(appHandle: NativeSiwinApp): NativePopupPlacement =
   siwinApp(appHandle).window.placement().nativePlacement()
 
-proc siwinRepositionPopup*(
-    appHandle: NativeSiwinApp, placement: NativePopupPlacement
-) {.exportabi.} =
+proc siwinRepositionPopup*(appHandle: NativeSiwinApp, placement: NativePopupPlacement) =
   siwinApp(appHandle).window.reposition(placement.siwinPlacement())
 
-proc siwinRefreshUiScale*(appHandle: NativeSiwinApp) {.exportabi.} =
+proc siwinRefreshUiScale*(appHandle: NativeSiwinApp) =
   let app = siwinApp(appHandle)
   app.window.refreshUiScale(app.autoScale)
 
-proc siwinBackendName*(appHandle: NativeSiwinApp): string {.exportabi.} =
+proc siwinBackendName*(appHandle: NativeSiwinApp): string =
   siwinApp(appHandle).renderer.siwinBackendName()
 
-proc siwinBackendKind*(appHandle: NativeSiwinApp): RendererBackendKind {.exportabi.} =
+proc siwinBackendKind*(appHandle: NativeSiwinApp): RendererBackendKind =
   siwinApp(appHandle).renderer.backendKind()
 
-proc setTextLcdFiltering*(appHandle: NativeSiwinApp, enabled: bool) {.exportabi.} =
+proc setTextLcdFiltering*(appHandle: NativeSiwinApp, enabled: bool) =
   siwinApp(appHandle).renderer.setTextLcdFiltering(enabled)
 
-proc textLcdFiltering*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc textLcdFiltering*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).renderer.textLcdFiltering()
 
-proc setTextSubpixelPositioning*(
-    appHandle: NativeSiwinApp, enabled: bool
-) {.exportabi.} =
+proc setTextSubpixelPositioning*(appHandle: NativeSiwinApp, enabled: bool) =
   siwinApp(appHandle).renderer.setTextSubpixelPositioning(enabled)
 
-proc textSubpixelPositioning*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc textSubpixelPositioning*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).renderer.textSubpixelPositioning()
 
-proc setTextSubpixelGlyphVariants*(
-    appHandle: NativeSiwinApp, enabled: bool
-) {.exportabi.} =
+proc setTextSubpixelGlyphVariants*(appHandle: NativeSiwinApp, enabled: bool) =
   siwinApp(appHandle).renderer.setTextSubpixelGlyphVariants(enabled)
 
-proc textSubpixelGlyphVariants*(appHandle: NativeSiwinApp): bool {.exportabi.} =
+proc textSubpixelGlyphVariants*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).renderer.textSubpixelGlyphVariants()
 
-proc siwinDisplayServerName*(appHandle: NativeSiwinApp): string {.exportabi.} =
+proc siwinDisplayServerName*(appHandle: NativeSiwinApp): string =
   siwinApp(appHandle).window.siwinDisplayServerName()
 
 proc renderFrame*(
@@ -631,7 +599,7 @@ proc renderFrame*(
     width, height: float32,
     clearMain: bool,
     clearR, clearG, clearB, clearA: float32,
-) {.exportabi.} =
+) =
   let app = siwinApp(appHandle)
   app.window.refreshUiScale(app.autoScale)
   app.renderer.beginFrame()
@@ -645,9 +613,9 @@ proc renderFrame*(
 
 proc renderFrame*(
     appHandle: NativeSiwinApp, renders: var Renders, width, height: float32
-) {.exportabi.} =
+) =
   renderFrame(appHandle, renders, width, height, true, 1, 1, 1, 1)
 
-proc renderFrame*(appHandle: NativeSiwinApp, renders: var Renders) {.exportabi.} =
+proc renderFrame*(appHandle: NativeSiwinApp, renders: var Renders) =
   let size = siwinApp(appHandle).window.backingSize()
   renderFrame(appHandle, renders, size.x.float32, size.y.float32)

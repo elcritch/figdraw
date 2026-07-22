@@ -1,0 +1,14 @@
+{
+  "includeProcs": [
+    {"source": "native_bindings.nim", "name": "*"},
+    {"source": "../fignodes.nim", "name": "clear"},
+    {"source": "../fignodes.nim", "name": "len"},
+    {"source": "../fignodes.nim", "name": "addRoot"},
+    {"source": "../fignodes.nim", "name": "newRenders"},
+    {"source": "../common/filltypes.nim", "name": "fill"},
+    {"source": "../common/filltypes.nim", "name": "linear"},
+    {"source": "../common/shared.nim", "name": "setFigDataDir"},
+    {"source": "../common/typefaces.nim", "name": "loadTypeface"}
+  ],
+  "requireMatches": true
+}

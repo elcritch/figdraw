@@ -1,17 +1,19 @@
 import std/[os, strutils]
 import binny/native_dynlib
 
-if paramCount() notin 4 .. 5:
-  quit "usage: generate_native_bindings NIMCACHE SOURCE MANIFEST OUTPUT [LIBRARY]"
+if paramCount() notin 5 .. 6:
+  quit "usage: generate_native_bindings NIMCACHE SOURCE_ROOT SOURCE OUTPUT LIBRARY [CONFIG]"
 
-let libraryOverride =
-  if paramCount() == 5:
-    paramStr(5)
-  else:
-    ""
-let config =
-  initNativeBindingsConfig(paramStr(2), paramStr(3), paramStr(1), libraryOverride)
-let outputPath = paramStr(4)
+let
+  exportConfig =
+    if paramCount() == 6:
+      loadNativeExportConfig(paramStr(6))
+    else:
+      NativeExportConfig()
+  config = initBifNativeBindingsConfig(
+    paramStr(3), paramStr(1), paramStr(5), paramStr(2), exportConfig
+  )
+  outputPath = paramStr(4)
 discard config.writeNativeBindings(outputPath)
 
 var bindings = outputPath.readFile()

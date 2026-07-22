@@ -172,8 +172,7 @@ when isMainModule:
         )
         layout = typeset(
           Rect(x: 0, y: 0, w: 160, h: 22),
-          fpsFont,
-          fpsText,
+          [(FontStyle(font: fpsFont, color: fill(rgba(0, 0, 0, 255))), fpsText)],
           hAlign = Right,
           vAlign = Middle,
           minContent = false,
