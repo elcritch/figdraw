@@ -232,15 +232,16 @@ task native_dynlib, "Stage native Nim dynlib artifacts in bin":
   nativeBuild.buildNativeDynlib()
   nativeBuild.stageNativeDynlib("bin")
 
-task native_shared_example, "Build the native Nim siwin shared example":
-  nativeBuild.buildNativeDynlibAndBindings()
+task native_shared_example, "Stage the native dynlib and build the siwin example":
+  nativeBuild.buildNativeDynlib()
+  nativeBuild.stageNativeDynlib("bin")
   runNativeNim(
     [
       "c",
       "-d:release",
       "--mm:arc",
       "-d:useMalloc",
-      "--path:" & nativeBuild.nativeBuildDir,
+      "--path:bin",
       "--out:examples/siwing_shared_native",
       "examples/siwing_shared_native.nim",
     ]
