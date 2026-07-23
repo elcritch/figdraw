@@ -9,7 +9,8 @@
 
 import std/[strformat, strutils]
 import std/os
-import binny/native_dynlib/build
+when defined(feature.figdraw.sharedlib):
+  import binny/native_dynlib/build
 
 when defined(useNativeDynlib):
   switch("path", "bin")
@@ -167,65 +168,56 @@ task test_emscripten, "build emscripten examples":
     if name.startsWith("windy_") and name.endsWith(".nim"):
       nimExec("c", file, "-d:emscripten")
 
-let
-  nativeBackend = getEnv("FIGDRAW_NATIVE_BACKEND", "c").strip().toLowerAscii()
-  nativeProducer = "src/figdraw/bindings/native_bindings.nim"
-  nativeBindings = ".nimcache/native_figdraw" / nativeBackend /
-    "figdraw_native_abi.nim"
+when defined(feature.figdraw.sharedlib):
+  let
+    nativeBackend = getEnv("FIGDRAW_NATIVE_BACKEND", "c").strip().toLowerAscii()
+    nativeProducer = "src/figdraw/bindings/native_bindings.nim"
+    nativeBindings =
+      ".nimcache/native_figdraw" / nativeBackend / "figdraw_native_abi.nim"
 
-var nativeBuild = initNativeDynlibBuildConfig(
-  nativeProducer,
-  "libfigdraw_native",
-  buildRoot = ".nimcache/native_figdraw",
-  bindingsPath = nativeBindings,
-  exportConfigPath = "src/figdraw/bindings/native_dynlib.json",
-  backend = nativeBackend,
-)
-nativeBuild.nimArgs = @[
-  "--mm:orc",
-  "-d:useMalloc",
-  "-d:release",
-  "--path:src",
-  "--path:deps/siwin/src",
-]
-nativeBuild.libraryNameStrdefine = true
-when defined(macosx):
-  nativeBuild.linkerArgs = @[
-    "-framework", "AppKit", "-framework", "CoreFoundation", "-framework",
-    "CoreGraphics", "-framework", "Foundation", "-framework", "Metal", "-framework",
-    "QuartzCore", "-framework", "Security", "-lobjc",
-  ]
-
-proc nativeCommand(arguments: openArray[string]): string =
-  for index, argument in arguments:
-    if index > 0:
-      result.add ' '
-    result.add argument.quoteShell()
-
-proc runNativeNim(arguments: openArray[string]) =
-  var command = @[nativeBuild.compiler]
-  command.add arguments
-  exec nativeCommand(command)
-
-task native_bindings, "Build native Nim dynlib and generate Binny bindings":
-  nativeBuild.buildNativeDynlibAndBindings()
-
-task native_dynlib, "Stage native Nim dynlib artifacts in bin":
-  nativeBuild.buildNativeDynlib()
-  nativeBuild.stageNativeDynlib("bin")
-
-task native_shared_example, "Stage the native dynlib and build the siwin example":
-  nativeBuild.buildNativeDynlib()
-  nativeBuild.stageNativeDynlib("bin")
-  runNativeNim(
-    [
-      "c",
-      "-d:release",
-      "--mm:arc",
-      "-d:useMalloc",
-      "--path:bin",
-      "--out:examples/siwing_shared_native",
-      "examples/siwing_shared_native.nim",
-    ]
+  var nativeBuild = initNativeDynlibBuildConfig(
+    nativeProducer,
+    "libfigdraw_native",
+    buildRoot = ".nimcache/native_figdraw",
+    bindingsPath = nativeBindings,
+    exportConfigPath = "src/figdraw/bindings/native_dynlib.json",
+    backend = nativeBackend,
   )
+  nativeBuild.nimArgs =
+    @["--mm:orc", "-d:useMalloc", "-d:release", "--path:src", "--path:deps/siwin/src"]
+  nativeBuild.libraryNameStrdefine = true
+  when defined(macosx):
+    nativeBuild.linkerArgs =
+      @[
+        "-framework", "AppKit", "-framework", "CoreFoundation", "-framework",
+        "CoreGraphics", "-framework", "Foundation", "-framework", "Metal", "-framework",
+        "QuartzCore", "-framework", "Security", "-lobjc",
+      ]
 
+  proc nativeCommand(arguments: openArray[string]): string =
+    for index, argument in arguments:
+      if index > 0:
+        result.add ' '
+      result.add argument.quoteShell()
+
+  proc runNativeNim(arguments: openArray[string]) =
+    var command = @[nativeBuild.compiler]
+    command.add arguments
+    exec nativeCommand(command)
+
+  task native_bindings, "Build native Nim dynlib and generate Binny bindings":
+    nativeBuild.buildNativeDynlibAndBindings()
+
+  task native_dynlib, "Stage native Nim dynlib artifacts in bin":
+    nativeBuild.buildNativeDynlib()
+    nativeBuild.stageNativeDynlib("bin")
+
+  task native_shared_example, "Stage the native dynlib and build the siwin example":
+    nativeBuild.buildNativeDynlib()
+    nativeBuild.stageNativeDynlib("bin")
+    runNativeNim(
+      [
+        "c", "-d:release", "--mm:arc", "-d:useMalloc", "--path:bin",
+        "--out:examples/siwing_shared_native", "examples/siwing_shared_native.nim",
+      ]
+    )
