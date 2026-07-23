@@ -228,3 +228,4 @@ task native_shared_example, "Stage the native dynlib and build the siwin example
       "examples/siwing_shared_native.nim",
     ]
   )
+
