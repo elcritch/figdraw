@@ -345,11 +345,13 @@ suite "fontutils":
     let arrangement =
       typeset(box, spans, hAlign = Left, vAlign = Top, minContent = false, wrap = false)
 
-    let expectedHash = block:
+    var expectedHash = block:
       var h = Hash(0)
       h = h !& getContentHash(box.wh, spans, Left, Top)
       h = h !& hash(figUiScale())
       !$h
+    when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
+      expectedHash = hash((expectedHash, @[uiFont]))
     check arrangement.contentHash == expectedHash
     check arrangement.spans.len == spans.len
     check arrangement.fonts.len == spans.len

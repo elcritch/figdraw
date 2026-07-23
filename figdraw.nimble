@@ -45,8 +45,7 @@ feature "vulkan":
 feature "metal":
   requires "https://github.com/elcritch/metalx#head"
 feature "sharedlib":
-  requires "gh:treeform/genny#81d9659"
-  requires "gh:elcritch/binny >= 0.4.2"
+  requires "gh:elcritch/binny#c3aa05f214a3074d902a0fc89202508ea81bbd75"
 
 import std/os
 

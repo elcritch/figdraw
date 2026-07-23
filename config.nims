@@ -9,6 +9,8 @@
 
 import std/[strformat, strutils]
 import std/os
+when defined(feature.figdraw.sharedlib):
+  import binny/native_dynlib/build
 
 when defined(useNativeDynlib):
   switch("path", "bin")
@@ -166,80 +168,56 @@ task test_emscripten, "build emscripten examples":
     if name.startsWith("windy_") and name.endsWith(".nim"):
       nimExec("c", file, "-d:emscripten")
 
-task bindings, "Generate bindings":
-  proc compile(libName: string, flags = "") =
-    exec "nim c -f " & flags & " --path:src -d:release " &
-      " -d:gennyNim -d:gennyC -d:gennyPython " &
-      " --app:lib --gc:arc --tlsEmulation:off --out:" & libName &
-      " --outdir:src/figdraw/bindings/generated src/figdraw/bindings/bindings.nim"
-
-  when defined(windows):
-    compile "figdraw.dll"
-  elif defined(macosx):
-    compile "libfigdraw.dylib.arm",
-      "--cpu:arm64 -l:'-target arm64-apple-macos11' -t:'-target arm64-apple-macos11'"
-    compile "libfigdraw.dylib.x64",
-      "--cpu:amd64 -l:'-target x86_64-apple-macos10.12' -t:'-target x86_64-apple-macos10.12'"
-    exec "lipo src/figdraw/bindings/generated/libfigdraw.dylib.arm src/figdraw/bindings/generated/libfigdraw.dylib.x64 -output src/figdraw/bindings/generated/libfigdraw.dylib -create"
-  else:
-    compile "libfigdraw.so"
-
-proc unsupportedNativeDynlibPath(): string =
-  quit "native Nim dynlibs currently support macOS, Linux, and BSD"
-
-# Invoke this task with a compiler that supports the experimental native ABI.
-task native_bindings, "Build native Nim dynlib and generate Binny bindings":
+when defined(feature.figdraw.sharedlib):
   let
-    compiler = getCurrentCompilerExe()
-    cacheDir = ".nimcache/native_figdraw"
-    producer = "src/figdraw/bindings/native_bindings.nim"
-    generator = "src/figdraw/bindings/generate_native_bindings.nim"
-    manifest = cacheDir / "libfigdraw_native.abi.nif"
-    bindings = cacheDir / "figdraw_native_abi.nim"
-    library =
-      when defined(macosx):
-        cacheDir / "libfigdraw_native.dylib"
-      elif defined(linux) or defined(bsd):
-        cacheDir / "libfigdraw_native.so"
-      else:
-        unsupportedNativeDynlibPath()
+    nativeBackend = getEnv("FIGDRAW_NATIVE_BACKEND", "c").strip().toLowerAscii()
+    nativeProducer = "src/figdraw/bindings/native_bindings.nim"
+    nativeBindings =
+      ".nimcache/native_figdraw" / nativeBackend / "figdraw_native_abi.nim"
 
-  exec compiler & " c -f --experimental:abi --emitBif:on --app:lib --mm:orc" &
-    " -d:useMalloc -d:figdrawNativeDynlib -d:release" &
-    " --path:src --path:deps/siwin/src" & " --nimcache:" & cacheDir & " --out:" & library &
-    " " & producer
-  exec compiler & " r -d:release --path:../binny" & " --nimcache:" &
-    cacheDir / "generator" & " " & generator & " " & cacheDir & " " & producer & " " &
-    manifest & " " & bindings
+  var nativeBuild = initNativeDynlibBuildConfig(
+    nativeProducer,
+    "libfigdraw_native",
+    buildRoot = ".nimcache/native_figdraw",
+    bindingsPath = nativeBindings,
+    exportConfigPath = "src/figdraw/bindings/native_dynlib.json",
+    backend = nativeBackend,
+  )
+  nativeBuild.nimArgs =
+    @["--mm:orc", "-d:useMalloc", "-d:release", "--path:src", "--path:deps/siwin/src"]
+  nativeBuild.libraryNameStrdefine = true
+  when defined(macosx):
+    nativeBuild.linkerArgs =
+      @[
+        "-framework", "AppKit", "-framework", "CoreFoundation", "-framework",
+        "CoreGraphics", "-framework", "Foundation", "-framework", "Metal", "-framework",
+        "QuartzCore", "-framework", "Security", "-lobjc",
+      ]
 
-task native_dynlib, "Stage native Nim dynlib artifacts in bin":
-  let
-    compiler = getCurrentCompilerExe()
-    cacheDir = ".nimcache/native_figdraw"
-    producer = "src/figdraw/bindings/native_bindings.nim"
-    generator = "src/figdraw/bindings/generate_native_bindings.nim"
-    manifest = cacheDir / "libfigdraw_native.abi.nif"
-    bindings = "bin" / "figdraw_native_abi.nim"
-    libraryName =
-      when defined(macosx):
-        "libfigdraw_native.dylib"
-      elif defined(linux) or defined(bsd):
-        "libfigdraw_native.so"
-      else:
-        unsupportedNativeDynlibPath()
-    stagedLibrary = "bin" / libraryName
+  proc nativeCommand(arguments: openArray[string]): string =
+    for index, argument in arguments:
+      if index > 0:
+        result.add ' '
+      result.add argument.quoteShell()
 
-  exec compiler & " native_bindings"
-  exec "mkdir -p bin"
-  exec "cp " & (cacheDir / libraryName).quoteShell() & " " & stagedLibrary.quoteShell()
-  exec "cp " & manifest.quoteShell() & " " &
-    ("bin" / manifest.extractFilename()).quoteShell()
-  exec compiler & " r -d:release --path:../binny" & " --nimcache:" &
-    cacheDir / "generator" & " " & generator & " " & cacheDir & " " & producer & " " &
-    manifest & " " & bindings & " " & stagedLibrary
+  proc runNativeNim(arguments: openArray[string]) =
+    var command = @[nativeBuild.compiler]
+    command.add arguments
+    exec nativeCommand(command)
 
-task native_shared_example, "Build the native Nim siwin shared example":
-  let compiler = getCurrentCompilerExe()
-  exec compiler & " native_bindings"
-  exec compiler & " c -d:release --mm:arc -d:useMalloc --path:.nimcache/native_figdraw" &
-    " --out:examples/siwing_shared_native examples/siwing_shared_native.nim"
+  task native_bindings, "Build native Nim dynlib and generate Binny bindings":
+    nativeBuild.buildNativeDynlibAndBindings()
+
+  task native_dynlib, "Stage native Nim dynlib artifacts in bin":
+    nativeBuild.buildNativeDynlib()
+    nativeBuild.stageNativeDynlib("bin")
+
+  task native_shared_example, "Stage the native dynlib and build the siwin example":
+    nativeBuild.buildNativeDynlib()
+    nativeBuild.stageNativeDynlib("bin")
+    runNativeNim(
+      [
+        "c", "-d:release", "--mm:arc", "-d:useMalloc", "--path:bin",
+        "--out:examples/siwing_shared_native", "examples/siwing_shared_native.nim",
+      ]
+    )
