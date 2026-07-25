@@ -153,6 +153,8 @@ type
     instanceSurfaceHint: PresentTargetKind
     presentXlibDisplay: pointer
     presentXlibWindow: uint64
+    presentWaylandDisplay: pointer
+    presentWaylandSurface: pointer
     presentWin32Hinstance: pointer
     presentWin32Hwnd: pointer
     presentMetalLayer: pointer
@@ -366,9 +368,18 @@ proc createPresentSurface(ctx: VulkanContext) =
     else:
       raise newException(ValueError, "Xlib Vulkan surface unsupported on this OS")
   of presentTargetWayland:
-    raise newException(
-      ValueError, "Wayland Vulkan surface creation requires an external surface handle"
-    )
+    when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+      loadVK_KHR_wayland_surface()
+      let createInfo = newVkWaylandSurfaceCreateInfoKHR(
+        display = cast[ptr wl_display](ctx.presentWaylandDisplay),
+        surface = cast[ptr wl_surface](ctx.presentWaylandSurface),
+      )
+      checkVkResult vkCreateWaylandSurfaceKHR(
+        ctx.instance, createInfo.unsafeAddr, nil, ctx.surface.addr
+      )
+      ctx.surfaceOwnedByContext = true
+    else:
+      raise newException(ValueError, "Wayland Vulkan surface unsupported on this OS")
   of presentTargetWin32:
     when defined(windows):
       loadVK_KHR_win32_surface()
@@ -4078,9 +4089,18 @@ proc clearPresentTarget*(ctx: VulkanContext) =
     ctx.linuxSurfaceKind = linuxSurfaceXlib
   ctx.presentXlibDisplay = nil
   ctx.presentXlibWindow = 0
+  ctx.presentWaylandDisplay = nil
+  ctx.presentWaylandSurface = nil
   ctx.presentWin32Hinstance = nil
   ctx.presentWin32Hwnd = nil
   ctx.presentMetalLayer = nil
+
+proc releaseBackendResources*(ctx: VulkanContext) =
+  ## Fully releases Vulkan before the renderer abandons this context.
+  ## clearPresentTarget intentionally preserves a pre-created instance so a
+  ## caller can replace its target; a backend fallback no longer needs it.
+  ctx.destroyGpu()
+  ctx.clearPresentTarget()
 
 method setPresentXlibTarget*(ctx: VulkanContext, display: pointer, window: uint64) =
   ctx.clearPresentTarget()
@@ -4088,6 +4108,17 @@ method setPresentXlibTarget*(ctx: VulkanContext, display: pointer, window: uint6
   ctx.instanceSurfaceHint = presentTargetXlib
   ctx.presentXlibDisplay = display
   ctx.presentXlibWindow = window
+
+proc setPresentWaylandTarget*(
+    ctx: VulkanContext, display: pointer, surface: pointer
+) =
+  if display.isNil or surface.isNil:
+    raise newException(ValueError, "Wayland Vulkan display or surface handle is nil")
+  ctx.clearPresentTarget()
+  ctx.presentTargetKind = presentTargetWayland
+  ctx.instanceSurfaceHint = presentTargetWayland
+  ctx.presentWaylandDisplay = display
+  ctx.presentWaylandSurface = surface
 
 method setPresentWin32Target*(ctx: VulkanContext, hinstance: pointer, hwnd: pointer) =
   ctx.clearPresentTarget()

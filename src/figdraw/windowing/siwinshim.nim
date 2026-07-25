@@ -21,6 +21,17 @@ when defined(macosx):
 when defined(linux) or defined(bsd):
   import siwin/platforms/x11/window as siX11Window
   import siwin/platforms/wayland/window as siWaylandWindow
+  when UseVulkanBackend:
+    import std/importutils
+    privateAccess siWaylandWindow.WindowWayland
+    when UseOpenGlFallback:
+      import x11/x as x11Types except Window
+      import x11/[xlib, xutil]
+      import siwin/platforms/x11/glx as siX11Glx
+      import siwin/platforms/x11/windowOpengl as siX11OpenGlWindow
+      import siwin/platforms/wayland/egl as siWaylandEgl
+      from siwin/platforms/wayland/protocol import Wl_surface, commit
+      import siwin/platforms/wayland/windowOpengl as siWaylandOpenGlWindow
 when UseVulkanBackend:
   import siwin/windowVulkan as siWindowVulkan
   import ../vulkan/vulkan_context
@@ -59,6 +70,17 @@ proc siwinDisplayServerName*(window: Window): string =
   else:
     ""
 
+when UseVulkanBackend and (defined(linux) or defined(bsd)):
+  proc nativeWaylandDisplayHandle(
+      window: siWaylandWindow.WindowWayland
+  ): pointer =
+    window.globals.display.raw
+
+  proc nativeWaylandSurfaceHandle(
+      window: siWaylandWindow.WindowWayland
+  ): pointer =
+    cast[pointer](window.surface.proxy.raw)
+
 proc siwinWindowTitle*[BackendState](
     renderer: FigRenderer[BackendState], window: Window, suffix = "Siwin RenderList"
 ): string =
@@ -70,12 +92,12 @@ proc siwinWindowTitle*[BackendState](
     "figdraw: " & backend & " + " & suffix
 
 func usesOpenGlWindowForVulkanFallback*(platform: Platform, forceOpenGl: bool): bool =
-  ## X11 and Wayland windows cannot acquire an OpenGL context after creation.
-  ## Keep one available when a Vulkan renderer may need to fall back at runtime.
+  ## A forced OpenGL backend uses Siwin's OpenGL window directly. Vulkan builds
+  ## retain the native window handles and create a fallback context only after
+  ## Vulkan releases presentation.
+  discard platform
   if forceOpenGl:
     return true
-  when UseVulkanBackend and UseOpenGlFallback:
-    return platform in {Platform.wayland, Platform.x11}
   false
 
 proc newSiwinWindow*(
@@ -151,7 +173,8 @@ proc newSiwinWindow*(
               transparent = transparent,
             )
           else:
-            # A software window cannot later provide an OpenGL fallback context.
+            # Keep Siwin from owning a GL context while Vulkan is active.
+            # setupBackend retains the handles needed to attach one on failure.
             newSoftwareRenderingWindow(
               globals,
               size = size,
@@ -349,6 +372,46 @@ when (UseMetalBackend or UseVulkanBackend) and defined(macosx):
     ## Controls CAMetalLayer opacity without exposing Objective-C details.
     siwinmetal.setOpaque(handle, opaque)
 
+when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd)):
+  type
+    SiwinOpenGlFallbackKind = enum
+      sogfX11
+      sogfWayland
+
+    SiwinOpenGlFallbackState = ref SiwinOpenGlFallbackStateObj
+    SiwinOpenGlFallbackStateObj = object
+      window: Window
+      initialized: bool
+      case kind: SiwinOpenGlFallbackKind
+      of sogfX11:
+        x11Display: PDisplay
+        x11Drawable: x11Types.Drawable
+        x11Context: siX11Glx.GlxContext
+      of sogfWayland:
+        waylandNativeDisplay: pointer
+        waylandNativeSurface: pointer
+        waylandDisplay: siWaylandEgl.EglDisplay
+        waylandSurface: Wl_surface
+        waylandContext: siWaylandEgl.OpenglContext
+        waylandSize: IVec2
+
+  proc `=destroy`(state: var SiwinOpenGlFallbackStateObj) =
+    try:
+      case state.kind
+      of sogfX11:
+        if state.initialized and not state.x11Display.isNil:
+          state.x11Display.destroy(state.x11Context)
+      of sogfWayland:
+        if state.initialized and not state.waylandDisplay.isNil:
+          discard state.waylandDisplay.eglMakeCurrent(nil, nil, nil)
+          state.waylandContext.destroy()
+    except Exception:
+      discard
+    try:
+      `=destroy`(state.window)
+    except Exception:
+      discard
+
 type
   SiwinRenderBackend* = object
     ## Opaque per-window backend state used by siwin + FigDraw integration.
@@ -357,6 +420,11 @@ type
     presentationReady: bool
     resizeClearColor: Color
     resizeClearColorSet: bool
+    when UseVulkanBackend and UseOpenGlFallback and
+        (defined(linux) or defined(bsd)):
+      openGlFallback: SiwinOpenGlFallbackState
+      openGlFallbackReady: bool
+      openGlFallbackError: string
     when UseMetalBackend and defined(macosx):
       metalLayer*: MetalLayerHandle
     when UseVulkanBackend and defined(macosx):
@@ -411,6 +479,159 @@ proc configureTransparentPresentation*(
     when UseVulkanBackend:
       if not renderer.backendState.vulkanMetalLayer.layer.isNil:
         renderer.backendState.vulkanMetalLayer.setOpaque(false)
+
+when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd)):
+  proc prepareOpenGlFallback(
+      renderer: FigRenderer[SiwinRenderBackend], window: Window
+  ) =
+    renderer.backendState.openGlFallback = nil
+    renderer.backendState.openGlFallbackReady = false
+    renderer.backendState.openGlFallbackError = ""
+
+    if window of siX11OpenGlWindow.WindowX11Opengl or
+        window of siWaylandOpenGlWindow.WindowWaylandOpengl:
+      window.makeCurrent()
+      renderer.backendState.openGlFallbackReady = true
+      return
+
+    if window of siX11Window.WindowX11:
+      let
+        fallback =
+          SiwinOpenGlFallbackState(window: window, kind: sogfX11)
+        x11Window = siX11Window.WindowX11(window)
+        display = cast[PDisplay](x11Window.nativeDisplayHandle())
+        drawable = x11Types.Drawable(x11Window.nativeWindowHandle())
+      renderer.backendState.openGlFallback = fallback
+      fallback.x11Display = display
+      fallback.x11Drawable = drawable
+      renderer.backendState.openGlFallbackReady = true
+      return
+
+    if window of siWaylandWindow.WindowWayland:
+      let
+        fallback =
+          SiwinOpenGlFallbackState(window: window, kind: sogfWayland)
+        waylandWindow = siWaylandWindow.WindowWayland(window)
+        nativeDisplay = waylandWindow.globals.display.raw
+        nativeSurface = cast[pointer](waylandWindow.surface.proxy.raw)
+        size = window.backingSize()
+      renderer.backendState.openGlFallback = fallback
+      if nativeDisplay.isNil or nativeSurface.isNil:
+        raise newException(
+          ValueError, "Wayland display or surface unavailable for OpenGL fallback"
+        )
+
+      fallback.waylandNativeDisplay = nativeDisplay
+      fallback.waylandNativeSurface = nativeSurface
+      fallback.waylandSurface = waylandWindow.surface
+      fallback.waylandSize = ivec2(max(1'i32, size.x), max(1'i32, size.y))
+      renderer.backendState.openGlFallbackReady = true
+      return
+
+    raise newException(
+      ValueError, "Siwin window cannot host an OpenGL fallback context"
+    )
+
+  proc activateOpenGlFallback(
+      renderer: FigRenderer[SiwinRenderBackend]
+  ) =
+    if not renderer.backendState.openGlFallbackReady:
+      let detail =
+        if renderer.backendState.openGlFallbackError.len > 0:
+          ": " & renderer.backendState.openGlFallbackError
+        else:
+          ""
+      raise newException(ValueError, "OpenGL fallback context is unavailable" & detail)
+
+    let fallback = renderer.backendState.openGlFallback
+    if fallback.isNil:
+      renderer.backendState.window.makeCurrent()
+      return
+
+    case fallback.kind
+    of sogfX11:
+      let initializeOpenGl = not fallback.initialized
+      if initializeOpenGl:
+        var attributes: XWindowAttributes
+        if fallback.x11Display.XGetWindowAttributes(
+            fallback.x11Drawable, attributes.addr
+          ) == 0:
+          raise newException(ValueError, "Failed to query X11 window visual")
+        var
+          visualTemplate =
+            XVisualInfo(visualid: XVisualIDFromVisual(attributes.visual))
+          visualCount: cint
+        let visualInfos = fallback.x11Display.XGetVisualInfo(
+          VisualIDMask.clong, visualTemplate.addr, visualCount.addr
+        )
+        if visualInfos.isNil or visualCount <= 0:
+          raise newException(ValueError, "Failed to resolve X11 visual for OpenGL")
+        defer:
+          discard XFree(visualInfos)
+        fallback.x11Context = fallback.x11Display.newGlxContext(visualInfos)
+        fallback.initialized = true
+      fallback.x11Display.makeCurrent(
+        fallback.x11Drawable, fallback.x11Context
+      )
+      if siX11Glx.cGlxCurrentContext().isNil:
+        raise newException(ValueError, "Failed to activate X11 OpenGL fallback")
+      if initializeOpenGl:
+        startOpenGL(openglVersion)
+    of sogfWayland:
+      let size = renderer.backendState.window.backingSize()
+      let resized = ivec2(max(1'i32, size.x), max(1'i32, size.y))
+      let initializeOpenGl = not fallback.initialized
+      if initializeOpenGl:
+        siWaylandEgl.initEgl(fallback.waylandNativeDisplay)
+        fallback.waylandDisplay =
+          siWaylandEgl.eglGetDisplay(fallback.waylandNativeDisplay)
+        fallback.waylandContext = siWaylandEgl.newOpenglContext(
+          fallback.waylandNativeSurface, resized.x, resized.y
+        )
+        fallback.waylandSize = resized
+        fallback.initialized = true
+      if resized != fallback.waylandSize:
+        siWaylandEgl.wl_egl_window_resize(
+          fallback.waylandContext.win, resized.x, resized.y, 0, 0
+        )
+        fallback.waylandSize = resized
+      fallback.waylandContext.makeCurrent()
+      if initializeOpenGl:
+        startOpenGL(openglVersion)
+
+  proc presentOpenGlFallback(
+      renderer: FigRenderer[SiwinRenderBackend]
+  ) =
+    let fallback = renderer.backendState.openGlFallback
+    if fallback.isNil:
+      return
+    case fallback.kind
+    of sogfX11:
+      fallback.x11Display.glxSwapBuffers(fallback.x11Drawable)
+    of sogfWayland:
+      fallback.waylandContext.swapBuffers()
+      fallback.waylandSurface.commit()
+
+  proc usePreparedOpenGlFallback(
+      renderer: FigRenderer[SiwinRenderBackend], reason: string
+  ) =
+    let oldKind = renderer.backendKind()
+    if oldKind == rbOpenGL:
+      return
+    when UseVulkanBackend:
+      if oldKind == rbVulkan:
+        try:
+          renderer.ctx.VulkanContext.releaseBackendResources()
+        except CatchableError as exc:
+          raise newException(
+            ValueError,
+            "Vulkan failed (" & reason &
+              "), and its presentation resources could not be released (" &
+              exc.msg & ")",
+          )
+    renderer.activateOpenGlFallback()
+    renderer.useOpenGlFallback(reason)
+    renderer.backendState.presentationReady = true
 
 proc presentationTarget*(
     renderer: FigRenderer[SiwinRenderBackend]
@@ -473,8 +694,19 @@ proc useDedicatedRenderThread*(renderer: FigRenderer[SiwinRenderBackend]) =
     raise newException(
       ValueError, "the active siwin backend cannot render on a dedicated thread"
     )
+  when UseVulkanBackend and UseOpenGlFallback and
+      (defined(linux) or defined(bsd)):
+    renderer.backendState.openGlFallback = nil
+    renderer.backendState.openGlFallbackReady = false
   renderer.backendState.dedicatedRender = true
   renderer.backendState.window = nil
+
+when UseVulkanBackend:
+  proc maybeInjectVulkanAttachmentFailure() =
+    when defined(vulkanCrashTest):
+      raise newException(
+        ValueError, "Vulkan attachment failure injected by -d:vulkanCrashTest"
+      )
 
 proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a siwin window and FigDraw renderer.
@@ -482,11 +714,18 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
   renderer.backendState.dedicatedRender = false
   renderer.backendState.presentationReady = false
   renderer.backendState.resizeClearColorSet = false
+  when UseVulkanBackend and UseOpenGlFallback and
+      (defined(linux) or defined(bsd)):
+    renderer.backendState.openGlFallback = nil
+    renderer.backendState.openGlFallbackReady = false
+    renderer.backendState.openGlFallbackError = ""
   renderer.configureTransparentPresentation(window)
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     if renderer.forceOpenGlByEnv():
       when NeedSiwinOpenGLContext:
         window.makeCurrent()
+      when UseVulkanBackend and (defined(linux) or defined(bsd)):
+        renderer.backendState.openGlFallbackReady = true
       try:
         # Prefer switching immediately so setup-time backend queries/title reflect
         # the forced backend. If context is not fully ready yet, beginFrame() will
@@ -510,11 +749,15 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
           raise exc
   when UseVulkanBackend:
     if renderer.backendKind() == rbVulkan:
+      when UseOpenGlFallback and (defined(linux) or defined(bsd)):
+        try:
+          renderer.prepareOpenGlFallback(window)
+        except CatchableError as exc:
+          renderer.backendState.openGlFallback = nil
+          renderer.backendState.openGlFallbackReady = false
+          renderer.backendState.openGlFallbackError = exc.msg
       try:
-        when defined(vulkanCrashTest):
-          raise newException(
-            ValueError, "Vulkan attachment failure injected by -d:vulkanCrashTest"
-          )
+        maybeInjectVulkanAttachmentFailure()
         let vkCtx = renderer.ctx.VulkanContext
         var hasPresentTarget = false
         when defined(macosx):
@@ -531,6 +774,10 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
             siX11Window.WindowX11SoftwareRendering(window).setSoftwarePresentEnabled(
               false
             )
+          if window of siWaylandWindow.WindowWaylandSoftwareRendering:
+            siWaylandWindow.WindowWaylandSoftwareRendering(
+              window
+            ).softwarePresentEnabled = false
           surface = window.vulkanSurface()
           if not surface.isNil:
             if window of siWaylandWindow.WindowWayland:
@@ -555,6 +802,13 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
               x11Window.nativeDisplayHandle(), x11Window.nativeWindowHandle()
             )
             hasPresentTarget = true
+          elif surface.isNil and window of siWaylandWindow.WindowWayland:
+            let waylandWindow = siWaylandWindow.WindowWayland(window)
+            vkCtx.setPresentWaylandTarget(
+              waylandWindow.nativeWaylandDisplayHandle(),
+              waylandWindow.nativeWaylandSurfaceHandle(),
+            )
+            hasPresentTarget = true
         if not hasPresentTarget:
           raise newException(
             ValueError,
@@ -563,7 +817,10 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
         renderer.backendState.presentationReady = true
       except CatchableError as exc:
         when UseOpenGlFallback:
-          renderer.useOpenGlFallback(exc.msg)
+          when defined(linux) or defined(bsd):
+            renderer.usePreparedOpenGlFallback(exc.msg)
+          else:
+            renderer.useOpenGlFallback(exc.msg)
         else:
           raise exc
   renderer.configureTransparentPresentation(window)
@@ -586,12 +843,21 @@ proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
       renderer.backendState.vulkanMetalLayer.updateMetalLayer(window)
   when NeedSiwinOpenGLContext:
     if renderer.backendKind() == rbOpenGL:
-      renderer.backendState.window.makeCurrent()
+      when UseVulkanBackend and UseOpenGlFallback and
+          (defined(linux) or defined(bsd)):
+        renderer.activateOpenGlFallback()
+      else:
+        renderer.backendState.window.makeCurrent()
 
 proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
-  ## siwin's step() already flushes OpenGL buffers after onRender callbacks.
-  ## Avoid explicit swapping here to prevent double-buffer flips/flicker.
-  discard
+  ## Siwin OpenGL windows swap after onRender. A fallback context attached to
+  ## a Vulkan/software window must be presented explicitly.
+  when UseVulkanBackend and UseOpenGlFallback and
+      (defined(linux) or defined(bsd)):
+    if renderer.backendKind() == rbOpenGL:
+      renderer.presentOpenGlFallback()
+  else:
+    discard
 
 proc renderFrame*(
     renderer: FigRenderer[SiwinRenderBackend],
@@ -607,11 +873,35 @@ proc renderFrame*(
       renderer.backendState.resizeClearColorSet = true
     else:
       renderer.syncResizeBackgroundColor(clearColor)
-  figrender.renderFrame(
-    renderer,
-    nodes,
-    frameSize,
-    clearMain = clearMain,
-    clearColor = clearColor,
-    allowOpenGlFallback = not renderer.backendState.dedicatedRender,
-  )
+  when UseVulkanBackend and UseOpenGlFallback and
+      (defined(linux) or defined(bsd)):
+    try:
+      figrender.renderFrame(
+        renderer,
+        nodes,
+        frameSize,
+        clearMain = clearMain,
+        clearColor = clearColor,
+        allowOpenGlFallback = false,
+      )
+    except CatchableError as exc:
+      if renderer.backendKind() == rbOpenGL or renderer.backendState.dedicatedRender:
+        raise
+      renderer.usePreparedOpenGlFallback(exc.msg)
+      figrender.renderFrame(
+        renderer,
+        nodes,
+        frameSize,
+        clearMain = clearMain,
+        clearColor = clearColor,
+        allowOpenGlFallback = false,
+      )
+  else:
+    figrender.renderFrame(
+      renderer,
+      nodes,
+      frameSize,
+      clearMain = clearMain,
+      clearColor = clearColor,
+      allowOpenGlFallback = not renderer.backendState.dedicatedRender,
+    )
