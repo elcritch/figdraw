@@ -511,6 +511,10 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
   when UseVulkanBackend:
     if renderer.backendKind() == rbVulkan:
       try:
+        when defined(vulkanCrashTest):
+          raise newException(
+            ValueError, "Vulkan attachment failure injected by -d:vulkanCrashTest"
+          )
         let vkCtx = renderer.ctx.VulkanContext
         var hasPresentTarget = false
         when defined(macosx):
