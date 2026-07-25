@@ -69,6 +69,15 @@ proc siwinWindowTitle*[BackendState](
   else:
     "figdraw: " & backend & " + " & suffix
 
+func usesOpenGlWindowForVulkanFallback*(platform: Platform, forceOpenGl: bool): bool =
+  ## X11 and Wayland windows cannot acquire an OpenGL context after creation.
+  ## Keep one available when a Vulkan renderer may need to fall back at runtime.
+  if forceOpenGl:
+    return true
+  when UseVulkanBackend and UseOpenGlFallback:
+    return platform in {Platform.wayland, Platform.x11}
+  false
+
 proc newSiwinWindow*(
     size: IVec2,
     fullscreen = false,
@@ -79,11 +88,14 @@ proc newSiwinWindow*(
     frameless = false,
     transparent = false,
 ): Window =
-  let forceOpenGl = runtimeForceOpenGlRequested()
+  when UseVulkanBackend:
+    let forceOpenGl = runtimeForceOpenGlRequested()
+    let useOpenGlWindow =
+      usesOpenGlWindowForVulkanFallback(defaultPreferedPlatform(), forceOpenGl)
   let window =
     when defined(macosx):
       when UseVulkanBackend:
-        if forceOpenGl:
+        if useOpenGlWindow:
           newOpenglWindowCocoa(
             size = size,
             title = title,
@@ -128,7 +140,7 @@ proc newSiwinWindow*(
       else:
         let globals = sharedSiwinGlobals()
         when UseVulkanBackend:
-          if forceOpenGl:
+          if useOpenGlWindow:
             newOpenglWindow(
               globals,
               size = size,
@@ -139,7 +151,7 @@ proc newSiwinWindow*(
               transparent = transparent,
             )
           else:
-            # Use a non-GL window for Vulkan so siwin's GL swap path does not flicker.
+            # A software window cannot later provide an OpenGL fallback context.
             newSoftwareRenderingWindow(
               globals,
               size = size,
@@ -160,7 +172,7 @@ proc newSiwinWindow*(
           )
   when NeedSiwinOpenGLContext:
     when UseVulkanBackend:
-      if forceOpenGl:
+      if useOpenGlWindow:
         startOpenGL(openglVersion)
         window.makeCurrent()
     else:
