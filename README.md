@@ -117,6 +117,42 @@ The most stable entry points today are:
 - Scene graph nodes: `import figdraw/fignodes`
 - OpenGL backend: `import figdraw/figrender`
 
+### Software OpenGL
+
+Set `FIGDRAW_SOFTWARE_GL=1` before starting an application to request Mesa
+LLVMpipe instead of GPU acceleration:
+
+```sh
+FIGDRAW_SOFTWARE_GL=1 ./figdraw-app
+```
+
+On Linux and BSD, FigDraw sets `LIBGL_ALWAYS_SOFTWARE=true` and selects
+`GALLIUM_DRIVER=llvmpipe` unless a Gallium driver was already selected. When a
+Metal or Vulkan build includes the OpenGL fallback, this setting also selects
+the OpenGL backend. The active OpenGL vendor, renderer, version, and detected
+software status are logged after context creation.
+
+On Windows, deploy Mesa's `opengl32.dll` and `libgallium_wgl.dll` with the
+application. `FIGDRAW_SOFTWARE_GL=1` selects LLVMpipe within that Mesa
+distribution, but it cannot replace the system OpenGL library by itself.
+
+Set the variable before process startup when possible. If an application sets
+it during startup, call `configureSoftwareOpenGl()` before creating any window
+or OpenGL context:
+
+```nim
+import std/os
+import figdraw/utils/glutils
+
+putEnv("FIGDRAW_SOFTWARE_GL", "1")
+configureSoftwareOpenGl()
+```
+
+This mode still uses the normal window-system context. A machine without X11
+or Wayland also needs a virtual display such as Xvfb; EGL headless contexts are
+not currently provided by FigDraw. Native software OpenGL selection is not
+currently supported on macOS.
+
 Render list example (build a small scene tree):
 
 ```nim

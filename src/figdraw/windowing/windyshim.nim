@@ -65,6 +65,8 @@ proc logicalSize*(window: Window): Vec2 =
   result = vec2(window.backingSize()).descaled()
 
 proc newWindyWindow*(size: IVec2, fullscreen = false, title = "FigDraw"): Window =
+  when NeedWindyOpenGLContext:
+    configureSoftwareOpenGl()
   let size = scaled(
     when defined(emscripten):
       ivec2(0, 0)

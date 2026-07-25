@@ -159,6 +159,8 @@ proc textSubpixelGlyphVariants*[BackendState](
 
 proc runtimeForceOpenGlRequested*(): bool =
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
+    if softwareOpenGlPlatformSupported() and runtimeSoftwareOpenGlRequested():
+      return true
     let force = getEnv("FIGDRAW_FORCE_OPENGL").strip().toLowerAscii()
     if force in ["1", "true", "yes", "on"]:
       return true
@@ -206,7 +208,9 @@ when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
       renderer: FigRenderer[BackendState]
   ): bool =
     if renderer.forceOpenGlByEnv and renderer.backendKind() != rbOpenGL:
-      renderer.useOpenGlFallback("forced by FIGDRAW_BACKEND/FIGDRAW_FORCE_OPENGL")
+      renderer.useOpenGlFallback(
+        "forced by FIGDRAW_BACKEND/FIGDRAW_FORCE_OPENGL/FIGDRAW_SOFTWARE_GL"
+      )
       return true
     false
 
