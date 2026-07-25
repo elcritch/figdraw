@@ -12,14 +12,14 @@ template vulkanBlurRecreateFramebuffers*(ctx: untyped) =
     ctx.backdropBlurTempFramebuffer = vkNullFramebuffer
   if ctx.blurRenderPass == vkNullRenderPass:
     return
-  if ctx.backdropView == vkNullImageView or ctx.backdropBlurTempView == vkNullImageView:
+  if ctx.backdropImage.isNilOrEmpty or ctx.backdropBlurTempImage.isNilOrEmpty:
     return
   if ctx.backdropWidth <= 0 or ctx.backdropHeight <= 0:
     return
 
   let tempInfo = newVkFramebufferCreateInfo(
     renderPass = ctx.blurRenderPass,
-    attachments = [ctx.backdropBlurTempView],
+    attachments = [ctx.backdropBlurTempImage.view],
     width = ctx.backdropWidth.uint32,
     height = ctx.backdropHeight.uint32,
     layers = 1,
@@ -30,7 +30,7 @@ template vulkanBlurRecreateFramebuffers*(ctx: untyped) =
 
   let backdropInfo = newVkFramebufferCreateInfo(
     renderPass = ctx.blurRenderPass,
-    attachments = [ctx.backdropView],
+    attachments = [ctx.backdropImage.view],
     width = ctx.backdropWidth.uint32,
     height = ctx.backdropHeight.uint32,
     layers = 1,
@@ -85,22 +85,27 @@ template vulkanBlurUpdateDescriptorSets*(ctx: untyped) =
   if ctx.blurDescriptorSets[0] == vkNullDescriptorSet or
       ctx.blurDescriptorSets[1] == vkNullDescriptorSet:
     return
-  if ctx.blurUniformBuffers[0] == vkNullBuffer or
-      ctx.blurUniformBuffers[1] == vkNullBuffer:
+  if ctx.blurUniformBuffers[0].isNilOrEmpty or ctx.blurUniformBuffers[1].isNilOrEmpty:
     return
   let src0 =
-    (if ctx.backdropView != vkNullImageView: ctx.backdropView else: ctx.atlasView)
+    if not ctx.backdropImage.isNilOrEmpty:
+      ctx.backdropImage.view
+    else:
+      ctx.atlasImage.view
   let src1 =
-    if ctx.backdropBlurTempView != vkNullImageView: ctx.backdropBlurTempView else: src0
+    if not ctx.backdropBlurTempImage.isNilOrEmpty:
+      ctx.backdropBlurTempImage.view
+    else:
+      src0
   ctx.updateBlurDescriptorSet(
     descriptorSet = ctx.blurDescriptorSets[0],
     srcView = src0,
-    uniformBuffer = ctx.blurUniformBuffers[0],
+    uniformBuffer = ctx.blurUniformBuffers[0].handle,
   )
   ctx.updateBlurDescriptorSet(
     descriptorSet = ctx.blurDescriptorSets[1],
     srcView = src1,
-    uniformBuffer = ctx.blurUniformBuffers[1],
+    uniformBuffer = ctx.blurUniformBuffers[1].handle,
   )
 
 template vulkanBlurWriteUniforms*(ctx, uniformMemory, texelStep, blurRadius: untyped) =
@@ -322,12 +327,9 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
     return
   if ctx.blurDescriptorSets[0] == vkNullDescriptorSet or
       ctx.blurDescriptorSets[1] == vkNullDescriptorSet or
-      ctx.blurUniformBuffers[0] == vkNullBuffer or
-      ctx.blurUniformBuffers[1] == vkNullBuffer or
-      ctx.blurUniformMemories[0] == vkNullMemory or
-      ctx.blurUniformMemories[1] == vkNullMemory:
+      ctx.blurUniformBuffers[0].isNilOrEmpty or ctx.blurUniformBuffers[1].isNilOrEmpty:
     return
-  if ctx.backdropView == vkNullImageView or ctx.backdropBlurTempView == vkNullImageView or
+  if ctx.backdropImage.isNilOrEmpty or ctx.backdropBlurTempImage.isNilOrEmpty or
       ctx.backdropBlurFramebuffer == vkNullFramebuffer or
       ctx.backdropBlurTempFramebuffer == vkNullFramebuffer:
     return
@@ -395,7 +397,7 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
     newLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
-    image: ctx.backdropBlurTempImage,
+    image: ctx.backdropBlurTempImage.handle,
     subresourceRange: newVkImageSubresourceRange(
       aspectMask = VkImageAspectFlags{ColorBit},
       baseMipLevel = 0,
@@ -418,7 +420,7 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
   )
 
   ctx.writeBlurUniforms(
-    uniformMemory = ctx.blurUniformMemories[0],
+    uniformMemory = ctx.blurUniformBuffers[0].allocation,
     texelStep = vec2(1.0'f32 / w, 0.0'f32),
     blurRadius = blurRadius,
   )
@@ -461,7 +463,7 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
     newLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
-    image: ctx.backdropImage,
+    image: ctx.backdropImage.handle,
     subresourceRange: newVkImageSubresourceRange(
       aspectMask = VkImageAspectFlags{ColorBit},
       baseMipLevel = 0,
@@ -484,7 +486,7 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
   )
 
   ctx.writeBlurUniforms(
-    uniformMemory = ctx.blurUniformMemories[1],
+    uniformMemory = ctx.blurUniformBuffers[1].allocation,
     texelStep = vec2(0.0'f32, 1.0'f32 / h),
     blurRadius = blurRadius,
   )

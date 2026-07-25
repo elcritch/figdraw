@@ -35,6 +35,15 @@ when UseVulkanBackend:
 
       check extent.width == 800
       check extent.height == 600
+
+    test "swapchain profile can be selected before runtime initialization":
+      let ctx = VulkanContext()
+
+      check ctx.swapchainProfile() == vspAuto
+      ctx.setSwapchainProfile(vspCompatibility)
+
+      check ctx.swapchainProfile() == vspCompatibility
+      check ctx.activeSwapchainProfile() == vspCompatibility
 else:
   suite "vulkan text runtime toggles":
     test "vulkan backend not enabled":

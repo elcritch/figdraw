@@ -1,4 +1,4 @@
-import std/[hashes, math, strformat]
+import std/[hashes, math, strformat, strutils]
 
 import pkg/chronicles
 import pkg/vulkan
@@ -20,6 +20,36 @@ type
     capabilities*: VkSurfaceCapabilitiesKHR
     formats*: seq[VkSurfaceFormatKHR]
     presentModes*: seq[VkPresentModeKHR]
+
+  VulkanDriverInfo* = object
+    deviceName*: string
+    vendorId*: uint32
+    deviceId*: uint32
+    driverVersion*: uint32
+    deviceType*: VkPhysicalDeviceType
+
+  VulkanSwapchainProfile* = enum
+    vspAuto
+    vspLowLatency
+    vspCompatibility
+    vspThroughput
+
+  VulkanSwapchainPreferences* = object
+    preferredFormats*: seq[VkSurfaceFormatKHR]
+    preferredPresentModes*: seq[VkPresentModeKHR]
+    preferredCompositeAlpha*: seq[VkCompositeAlphaFlagBitsKHR]
+    extraImageCount*: uint32
+    enableTransferSrc*: bool
+
+  VulkanSwapchainConfig* = object
+    profile*: VulkanSwapchainProfile
+    surfaceFormat*: VkSurfaceFormatKHR
+    presentMode*: VkPresentModeKHR
+    compositeAlpha*: VkCompositeAlphaFlagBitsKHR
+    extent*: VkExtent2D
+    imageCount*: uint32
+    imageUsage*: VkImageUsageFlags
+    transferSrcEnabled*: bool
 
 when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
   type VkXlibSurfaceCreateInfoKHRNative* {.bycopy.} = object
@@ -190,6 +220,134 @@ proc chooseSwapExtent*(
     min(capabilities.maxImageExtent.height, result.height),
   )
 
+proc swapchainPreferences*(
+    profile: VulkanSwapchainProfile
+): VulkanSwapchainPreferences =
+  result.preferredFormats = @[
+    VkSurfaceFormatKHR(
+      format: VK_FORMAT_B8G8R8A8_UNORM, colorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+    ),
+    VkSurfaceFormatKHR(
+      format: VK_FORMAT_R8G8B8A8_UNORM, colorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+    ),
+  ]
+  result.preferredCompositeAlpha = @[
+    VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+    VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+  ]
+  result.enableTransferSrc = true
+
+  case profile
+  of vspAuto, vspLowLatency:
+    result.preferredPresentModes =
+      @[VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_FIFO_KHR]
+    result.extraImageCount = 1
+  of vspCompatibility:
+    result.preferredPresentModes = @[VK_PRESENT_MODE_FIFO_KHR]
+    result.extraImageCount = 0
+  of vspThroughput:
+    result.preferredPresentModes =
+      @[VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_FIFO_KHR]
+    result.extraImageCount = 2
+
+proc chooseSwapchainProfile*(
+    requested: VulkanSwapchainProfile, driver: VulkanDriverInfo
+): VulkanSwapchainProfile =
+  if requested != vspAuto:
+    return requested
+
+  let deviceName = driver.deviceName.toLowerAscii()
+  if driver.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU:
+    return vspCompatibility
+  for softwareDriver in ["lavapipe", "llvmpipe", "swiftshader", "software rasterizer"]:
+    if softwareDriver in deviceName:
+      return vspCompatibility
+  vspLowLatency
+
+proc choosePreferredSurfaceFormat(
+    available: seq[VkSurfaceFormatKHR], preferred: seq[VkSurfaceFormatKHR]
+): VkSurfaceFormatKHR =
+  if available.len == 0:
+    raise newException(ValueError, "Vulkan surface has no swapchain formats")
+
+  if available.len == 1 and available[0].format == VK_FORMAT_UNDEFINED and
+      preferred.len > 0:
+    return preferred[0]
+
+  for preference in preferred:
+    for format in available:
+      if format.format == preference.format and
+          format.colorSpace == preference.colorSpace:
+        return format
+  available[0]
+
+proc choosePreferredPresentMode(
+    available, preferred: seq[VkPresentModeKHR]
+): VkPresentModeKHR =
+  if available.len == 0:
+    raise newException(ValueError, "Vulkan surface has no present modes")
+  for preference in preferred:
+    for mode in available:
+      if mode == preference:
+        return mode
+  for mode in available:
+    if mode == VK_PRESENT_MODE_FIFO_KHR:
+      return mode
+  available[0]
+
+proc choosePreferredCompositeAlpha(
+    supported: VkCompositeAlphaFlagsKHR, preferred: seq[VkCompositeAlphaFlagBitsKHR]
+): VkCompositeAlphaFlagBitsKHR =
+  for alphaMode in preferred:
+    if alphaMode in supported:
+      return alphaMode
+  chooseSwapCompositeAlpha(supported)
+
+proc chooseSwapchainConfig*(
+    support: SwapChainSupportDetails,
+    width, height: int32,
+    preferences: VulkanSwapchainPreferences,
+    profile = vspLowLatency,
+): VulkanSwapchainConfig =
+  if ColorAttachmentBit notin support.capabilities.supportedUsageFlags:
+    raise newException(
+      ValueError, "Vulkan swapchain images do not support color attachment usage"
+    )
+
+  result.profile = profile
+  result.surfaceFormat =
+    choosePreferredSurfaceFormat(support.formats, preferences.preferredFormats)
+  result.presentMode =
+    choosePreferredPresentMode(support.presentModes, preferences.preferredPresentModes)
+  result.compositeAlpha = choosePreferredCompositeAlpha(
+    support.capabilities.supportedCompositeAlpha, preferences.preferredCompositeAlpha
+  )
+  result.extent = chooseSwapExtent(support.capabilities, width, height)
+
+  let desiredImageCount =
+    uint64(support.capabilities.minImageCount) + uint64(preferences.extraImageCount)
+  result.imageCount = min(desiredImageCount, uint64(high(uint32))).uint32
+  if support.capabilities.maxImageCount > 0:
+    result.imageCount = min(result.imageCount, support.capabilities.maxImageCount)
+
+  result.transferSrcEnabled =
+    preferences.enableTransferSrc and
+    TransferSrcBit in support.capabilities.supportedUsageFlags
+  result.imageUsage =
+    if result.transferSrcEnabled:
+      VkImageUsageFlags{ColorAttachmentBit, TransferSrcBit}
+    else:
+      VkImageUsageFlags{ColorAttachmentBit}
+
+proc chooseSwapchainConfig*(
+    support: SwapChainSupportDetails,
+    width, height: int32,
+    requestedProfile: VulkanSwapchainProfile,
+    driver: VulkanDriverInfo,
+): VulkanSwapchainConfig =
+  let profile = chooseSwapchainProfile(requestedProfile, driver)
+  chooseSwapchainConfig(support, width, height, swapchainPreferences(profile), profile)
+
 proc findQueueFamilies*(
     physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR, requirePresent: bool
 ): QueueFamilyIndices =
@@ -212,6 +370,16 @@ proc findQueueFamilies*(
 proc physicalDeviceName*(physicalDevice: VkPhysicalDevice): string =
   let props = getPhysicalDeviceProperties(physicalDevice)
   $cast[cstring](props.deviceName.addr)
+
+proc queryVulkanDriverInfo*(physicalDevice: VkPhysicalDevice): VulkanDriverInfo =
+  let props = getPhysicalDeviceProperties(physicalDevice)
+  VulkanDriverInfo(
+    deviceName: $cast[cstring](props.deviceName.addr),
+    vendorId: props.vendorID,
+    deviceId: props.deviceID,
+    driverVersion: props.driverVersion,
+    deviceType: props.deviceType,
+  )
 
 proc vulkanApiVersion*(version: uint32): string =
   &"{vkVersionMajor(version)}.{vkVersionMinor(version)}.{vkVersionPatch(version)}"
