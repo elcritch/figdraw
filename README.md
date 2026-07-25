@@ -31,20 +31,6 @@ atlas install --feature:windy --feature:sdl2
 nim c -r examples/windy_renderlist.nim
 ```
 
-The core Siwin examples can also run against the native Nim dynamic library.
-Build and stage the library, NIF manifest, and generated ABI module first with
-the patched compiler, then compile an example with `-d:useNativeDynlib`:
-
-```sh
-../Nim/bin/nim native_dynlib
-../Nim/bin/nim c -r -d:useNativeDynlib examples/siwin_renderlist.nim
-```
-
-The equivalent Nimble task is `FIGDRAW_NATIVE_NIM=../Nim/bin/nim nimble nativeDynlib`.
-
-The same switch is supported by `siwin_cell_grid.nim`,
-`siwin_image_renderlist.nim`, and `siwin_two_windows.nim`.
-
 ```sh
 # Use as a dependency (in your own project):
 atlas use https://github.com/elcritch/figdraw
@@ -101,7 +87,8 @@ Future directions may include adding support for SDF textures for text rendering
 
 The next big item is hopefully setting up some examples of doing WebGL version with Windy.
 
-Finally there will be a C API and a setup to compile FigDraw as a shared library. 
+An experimental native dynamic-library build is available; see
+[Experimental Native Dynamic Library](#experimental-native-dynamic-library).
 
 ## Requirements
 
@@ -844,6 +831,33 @@ When subpixel positioning is enabled, glyph-variant mode switches from UV-shift
 sampling to pre-baked 10-step glyph variants for A/B comparison.
 
 These are implemented for OpenGL and Vulkan backends. Other backends ignore them for now.
+
+## Experimental Native Dynamic Library
+
+The native Nim dynamic-library feature is experimental and requires a recent
+Nim `devel` build. Stable Nim releases may not yet include the compiler support
+it relies on.
+
+Install the Siwin and shared-library dependencies with Atlas:
+
+```sh
+atlas install --features:siwin,sharedlib
+```
+
+The core Siwin examples can run against the native dynamic library. Use the
+recent devel compiler to build and stage the library, NIF manifest, and
+generated ABI module, then compile an example with `-d:useNativeDynlib`:
+
+```sh
+../Nim/bin/nim native_dynlib
+../Nim/bin/nim c -r -d:useNativeDynlib examples/siwin_renderlist.nim
+```
+
+The equivalent Nimble task is
+`FIGDRAW_NATIVE_NIM=../Nim/bin/nim nimble nativeDynlib`.
+
+The same switch is supported by `siwin_cell_grid.nim`,
+`siwin_image_renderlist.nim`, and `siwin_two_windows.nim`.
 
 ## Thread Safety Notes
 
