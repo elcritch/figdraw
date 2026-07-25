@@ -285,7 +285,7 @@ proc inputUsesBackingPixels*(window: Window): bool =
   when defined(macosx):
     not window.isNil
   elif defined(linux) or defined(bsd):
-    window of siWaylandWindow.WindowWayland
+    window of siX11Window.WindowX11 or window of siWaylandWindow.WindowWayland
   else:
     false
 
@@ -295,9 +295,7 @@ proc logicalSize*(window: Window): Vec2 =
   if window.isNil:
     return vec2(0.0'f32, 0.0'f32)
   if window.inputUsesBackingPixels():
-    let scale = window.inputDeviceScale()
-    let backing = window.backingSize()
-    return vec2(backing.x.float32 / scale, backing.y.float32 / scale)
+    return vec2(window.backingSize()).descaled()
   vec2(window.size)
 
 proc contentScale*(window: Window): float32 =

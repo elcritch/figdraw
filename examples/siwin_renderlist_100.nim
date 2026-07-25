@@ -47,6 +47,9 @@ when isMainModule:
       backendState = SiwinRenderBackend(),
     )
   let useAutoScale = appWindow.configureUiScale()
+  when defined(linux) or defined(bsd):
+    if appWindow.siwinDisplayServerName() == "x11" and size != size.scaled():
+      appWindow.size = size.scaled()
   renderer.setupBackend(appWindow)
   appWindow.title = siwinWindowTitle(renderer, appWindow, "Siwin RenderList")
 
@@ -126,7 +129,7 @@ when isMainModule:
       app_running = false,
     onResize: proc(e: ResizeEvent) =
       appWindow.refreshUiScale(useAutoScale)
-      redraw(),
+      appWindow.redraw(),
     onKey: proc(e: KeyEvent) =
       if e.pressed and e.key == Key.escape:
         close(e.window)

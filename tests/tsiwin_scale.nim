@@ -1,33 +1,17 @@
-import std/[os, unittest]
+import std/[math, os, unittest]
 
 import figdraw/common/shared
 import figdraw/windowing/siwinshim
 
 suite "siwin scale":
-  test "X11 content scale ignores Xft.dpi because window size is physical pixels":
+  test "X11 logical size accounts for backing pixel scale":
     when defined(linux) or defined(bsd):
       block runNativeWindow:
         if getEnv("DISPLAY").len == 0:
           skip()
           break runNativeWindow
 
-        let
-          oldPath = getEnv("PATH")
-          fakeBin = getTempDir() / "figdraw-fake-xrdb-" & $getCurrentProcessId()
-          fakeXrdb = fakeBin / "xrdb"
-        createDir(fakeBin)
-        writeFile(fakeXrdb, "#!/bin/sh\nprintf 'Xft.dpi:\\t144\\n'\n")
-        setFilePermissions(
-          fakeXrdb,
-          {
-            fpUserRead, fpUserWrite, fpUserExec, fpGroupRead, fpGroupExec, fpOthersRead,
-            fpOthersExec,
-          },
-        )
-        putEnv("PATH", fakeBin & PathSep & oldPath)
         defer:
-          putEnv("PATH", oldPath)
-          removeDir(fakeBin)
           setFigUiScale(1.0'f32)
 
         let window = newSiwinWindow(
@@ -39,9 +23,17 @@ suite "siwin scale":
           if window.siwinDisplayServerName() != "x11":
             skip()
           else:
-            check window.contentScale() == window.uiScale()
+            check window.inputUsesBackingPixels()
+
+            setFigUiScale(1.5'f32)
+            let
+              backing = window.backingSize()
+              logical = window.logicalSize()
+            check abs(logical.x * figUiScale() - backing.x.float32) < 0.01'f32
+            check abs(logical.y * figUiScale() - backing.y.float32) < 0.01'f32
+
             discard window.configureUiScale()
-            check figUiScale() == window.uiScale()
+            check figUiScale() == window.contentScale()
         finally:
           window.close()
     else:

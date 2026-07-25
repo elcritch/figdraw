@@ -683,7 +683,7 @@ proc `pos=`*(window: Window, value: vmath.IVec2) =
 proc logicalSize*(window: Window): vmath.Vec2 =
   let
     size = window.backingSize()
-    scale = max(window.contentScale(), 0.0001'f32)
+    scale = max(figUiScale(), 0.0001'f32)
   vec2(size.x.float32 / scale, size.y.float32 / scale)
 
 proc `title=`*(window: Window, value: string) =
@@ -896,6 +896,9 @@ proc textSubpixelGlyphVariants*(renderer: FigRenderer[SiwinRenderBackend]): bool
 
 proc siwinWindowTitle*(suffix = "Siwin RenderList"): string =
   "figdraw: native dynlib + " & suffix
+
+proc siwinDisplayServerName*(window: Window): string =
+  figdraw_native_abi.siwinDisplayServerName(window.handle)
 
 proc siwinWindowTitle*(
     renderer: FigRenderer[SiwinRenderBackend],
