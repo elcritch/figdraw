@@ -22,6 +22,27 @@ type
     attribs*: seq[ShaderAttrib]
     uniforms*: seq[Uniform]
 
+func usesGlslEsShaderProfile*(
+    glVersion, shadingLanguageVersion: string
+): bool =
+  ## Detects whether the active context expects GLSL ES shader sources.
+  let
+    version = glVersion.toLowerAscii()
+    shadingVersion = shadingLanguageVersion.toLowerAscii()
+  version.contains("opengl es") or shadingVersion.contains("glsl es")
+
+proc currentContextUsesGlslEsShaderProfile*(): bool =
+  ## Selects a shader profile without first submitting incompatible GLSL.
+  when defined(emscripten) or defined(useOpenGlEs):
+    true
+  else:
+    let
+      versionRaw = cast[cstring](glGetString(GL_VERSION))
+      shadingVersionRaw = cast[cstring](glGetString(GL_SHADING_LANGUAGE_VERSION))
+      version = if versionRaw.isNil: "" else: $versionRaw
+      shadingVersion = if shadingVersionRaw.isNil: "" else: $shadingVersionRaw
+    usesGlslEsShaderProfile(version, shadingVersion)
+
 proc getErrorLog*(
     id: GLuint,
     path: string,

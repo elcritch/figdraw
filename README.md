@@ -106,7 +106,8 @@ Finally there will be a C API and a setup to compile FigDraw as a shared library
 ## Requirements
 
 - Nim `>= 2.0.10` (ARC/ORC-based memory managers; required by `src/figdraw/common/rchannels.nim`)
-- OpenGL (desktop GL by default; GLES/emscripten shader paths via `-d:useOpenGlEs` and/or `-d:emscripten`)
+- OpenGL (desktop GL and GLES contexts are detected at runtime; emscripten uses
+  the GLES shader path)
 
 ## Using Library
 
@@ -785,7 +786,7 @@ Import `figdraw/debugtools` for lightweight render-tree inspection helpers. `fig
 ## Useful Defines
 
 - `-d:figdraw.names=true`: enables `Fig.name` for debugging (enabled for tests in `tests/config.nims`)
-- `-d:useOpenGlEs`: select GLES/emscripten shader sources when GLSL 3.30 is not available
+- `-d:useOpenGlEs`: force GLES/emscripten shader sources instead of runtime profile detection
 - `-d:useFigDrawTextures`: force the legacy texture-based shape rendering path (disables SDF shapes)
 - `-d:openglMajor=3 -d:openglMinor=3`: override the requested OpenGL version (see `src/figdraw/utils/glutils.nim`)
 

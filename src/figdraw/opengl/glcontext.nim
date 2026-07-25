@@ -234,6 +234,24 @@ proc ensureBackdropBlurTempTexture(ctx: OpenGlContext, frameSize: Vec2) =
     return
   ctx.backdropBlurTempTexture = ctx.createBackdropTexture(w, h)
 
+proc loadGlslEsShaders(ctx: OpenGlContext) =
+  ctx.maskShader =
+    newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
+  ctx.mainShader =
+    newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/atlas.frag")
+  ctx.rectMaskShader = newShaderStatic(
+    "glsl/emscripten/atlas_rect_mask.vert", "glsl/emscripten/atlas_rect_mask.frag"
+  )
+  ctx.blurShader =
+    newShaderStatic("glsl/emscripten/blur.vert", "glsl/emscripten/blur.frag")
+
+proc loadDesktopGlslShaders(ctx: OpenGlContext) =
+  ctx.maskShader = newShaderStatic("glsl/atlas.vert", "glsl/mask.frag")
+  ctx.mainShader = newShaderStatic("glsl/atlas.vert", "glsl/atlas.frag")
+  ctx.rectMaskShader =
+    newShaderStatic("glsl/atlas_rect_mask.vert", "glsl/atlas_rect_mask.frag")
+  ctx.blurShader = newShaderStatic("glsl/blur.vert", "glsl/blur.frag")
+
 proc newContext*(
     atlasSize = 1024,
     atlasMargin = 4,
@@ -276,34 +294,17 @@ proc newContext*(
 
   result.addMaskTexture()
 
-  when defined(emscripten) or defined(useOpenGlEs):
-    result.maskShader =
-      newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
-    result.mainShader =
-      newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/atlas.frag")
-    result.rectMaskShader = newShaderStatic(
-      "glsl/emscripten/atlas_rect_mask.vert", "glsl/emscripten/atlas_rect_mask.frag"
-    )
-    result.blurShader =
-      newShaderStatic("glsl/emscripten/blur.vert", "glsl/emscripten/blur.frag")
+  let useGlslEsShaders = currentContextUsesGlslEsShaderProfile()
+  info "Selecting OpenGL shader profile",
+    profile = if useGlslEsShaders: "GLSL ES" else: "desktop GLSL"
+  if useGlslEsShaders:
+    result.loadGlslEsShaders()
   else:
     try:
-      result.maskShader = newShaderStatic("glsl/atlas.vert", "glsl/mask.frag")
-      result.mainShader = newShaderStatic("glsl/atlas.vert", "glsl/atlas.frag")
-      result.rectMaskShader =
-        newShaderStatic("glsl/atlas_rect_mask.vert", "glsl/atlas_rect_mask.frag")
-      result.blurShader = newShaderStatic("glsl/blur.vert", "glsl/blur.frag")
+      result.loadDesktopGlslShaders()
     except ShaderCompilationError:
       info "OpenGL 3.30 failed, trying GLSL ES fallback"
-      result.maskShader =
-        newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/mask.frag")
-      result.mainShader =
-        newShaderStatic("glsl/emscripten/atlas.vert", "glsl/emscripten/atlas.frag")
-      result.rectMaskShader = newShaderStatic(
-        "glsl/emscripten/atlas_rect_mask.vert", "glsl/emscripten/atlas_rect_mask.frag"
-      )
-      result.blurShader =
-        newShaderStatic("glsl/emscripten/blur.vert", "glsl/emscripten/blur.frag")
+      result.loadGlslEsShaders()
 
   result.positions.buffer.componentType = cGL_FLOAT
   result.positions.buffer.kind = bkVEC2
