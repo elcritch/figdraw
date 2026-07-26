@@ -461,6 +461,48 @@ discard menuItems.addRoot(Fig(
 discard renders.addChildren(0.ZLevel, root, menuItems)
 ```
 
+### Fragment-backed render trees
+
+`RenderFragments` adds independently replaceable subtrees without changing the layout or behavior
+of `Renders` and `RenderList`. It provides the same layer/root/child helpers, plus `RenderCursor`
+overloads for inserting nested fragments. Fragment insertion does not copy nodes into the base
+`Renders`, so existing base indexes stay stable:
+
+```nim
+var fragments = newRenderFragments()
+let root = fragments.addRoot(0.ZLevel, Fig(kind: nkRectangle))
+
+var menu = RenderList()
+discard menu.addRoot(Fig(kind: nkRectangle))
+let menuRoots = fragments.insertChildren(0.ZLevel, root, menu, 0)
+
+var submenu = RenderList()
+discard submenu.addRoot(Fig(kind: nkRectangle))
+discard fragments.insertChildren(menuRoots[0], submenu, 0)
+```
+
+Keep a returned cursor to replace that fragment later. `updateFragment` preserves the fragment's
+position and identity, and returns cursors for the replacement roots:
+
+```nim
+var updatedMenu = RenderList()
+discard updatedMenu.addRoot(Fig(kind: nkRectangle))
+let updatedRoots = fragments.updateFragment(menuRoots[0], updatedMenu)
+```
+
+Use the `RenderFragments` helpers for mutation after wrapping or inserting fragments so its logical
+traversal metadata stays synchronized. `renderRoot` and `renderFrame` accept the `RenderInput` union
+(`Renders | RenderFragments`), so existing whole-tree rendering remains source compatible while a
+fragment-backed tree can be sent through the same renderer entry points.
+
+The animated examples replace the card fragment every frame while leaving the base render tree
+intact:
+
+```sh
+nim r examples/siwin_renderfragments.nim
+nim r examples/windy_renderfragments.nim
+```
+
 ## Transform Nodes
 
 Use `nkTransform` as a non-drawing container to apply transforms to descendants.

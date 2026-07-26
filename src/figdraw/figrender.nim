@@ -8,6 +8,7 @@ import pkg/chronicles
 import ./commons
 import ./figbackend
 import ./fignodes
+import ./renderfragments
 import ./common/fontglyphs
 import ./common/typefaces
 export figbackend
@@ -494,43 +495,53 @@ proc renderText(ctx: BackendContext, node: Fig) {.forbids: [AppMainThreadEff].} 
 
 import macros except `$`
 
-var postRenderImpl {.compileTime.}: seq[NimNode]
-
-macro ifrender(check, code: untyped, post: untyped = nil) =
-  ## check if code should be drawn
+macro renderStages(body: untyped): untyped =
+  ## Expands `ifrender` stages and their cleanup at the `postRender` marker.
   ##
-  ## re-order code from:
-  ## ifrender: a finally: a'
-  ## ifrender: b finally: b'
-  ## ifrender: c finally: c'
-  ##
-  ## to a pyramid form:
-  ## a
-  ##   b
-  ##     c
-  ##     c'
-  ##   b'
-  ## a'
-  ##
+  ## Keeping the complete stage list in one macro expansion avoids sharing
+  ## compile-time state between instantiations of the generic renderer.
+  body.expectKind(nnkStmtList)
   result = newStmtList()
-  let checkval = genSym(nskLet, "checkval")
-  result.add quote do:
-    # currLevel and `check`
-    let `checkval` = `check`
-    if `checkval`:
-      `code`
+  var
+    cleanups: seq[NimNode]
+    foundPostRender = false
 
-  if post != nil:
-    post.expectKind(nnkFinally)
-    let postBlock = post[0]
-    postRenderImpl.add quote do:
-      if `checkval`:
-        `postBlock`
+  for statement in body:
+    let isCall = statement.kind in {nnkCall, nnkCommand}
+    if isCall and statement.len > 0 and statement[0].eqIdent("ifrender"):
+      if foundPostRender:
+        error("ifrender must precede postRender", statement)
+      if statement.len notin {3, 4}:
+        error(
+          "ifrender expects a condition, body, and optional finally block", statement
+        )
 
-macro postRender() =
-  result = newStmtList()
-  while postRenderImpl.len() > 0:
-    result.add postRenderImpl.pop()
+      let
+        check = statement[1]
+        code = statement[2]
+        checkValue = genSym(nskLet, "checkValue")
+      result.add quote do:
+        let `checkValue` = `check`
+        if `checkValue`:
+          `code`
+
+      if statement.len == 4:
+        statement[3].expectKind(nnkFinally)
+        let cleanup = statement[3][0]
+        cleanups.add quote do:
+          if `checkValue`:
+            `cleanup`
+    elif isCall and statement.len == 1 and statement[0].eqIdent("postRender"):
+      if foundPostRender:
+        error("renderStages accepts only one postRender marker", statement)
+      for cleanupIndex in countdown(cleanups.high, 0):
+        result.add cleanups[cleanupIndex]
+      foundPostRender = true
+    else:
+      result.add statement
+
+  if not foundPostRender:
+    error("renderStages requires a postRender marker", body)
 
 proc scaledCorners(
     corners: array[DirectionCorners, uint16]
@@ -1663,11 +1674,11 @@ proc renderBackdropBlur(ctx: BackendContext, node: Fig) =
   overlay.stroke = RenderStroke(weight: 0.0'f32, fill: fill(rgba(0, 0, 0, 0)))
   ctx.renderBoxes(overlay)
 
-proc render(
-    ctx: BackendContext, nodes: seq[Fig], nodeIdx, parentIdx: FigIdx
+proc render[Input: RenderInput](
+    ctx: BackendContext, nodes: Input, nodeCursor: RenderCursor
 ) {.forbids: [AppMainThreadEff].} =
   template node(): auto =
-    nodes[nodeIdx.int]
+    nodes[nodeCursor]
 
   ## Draws the node.
   ##
@@ -1678,73 +1689,75 @@ proc render(
     return
   let box = node.screenBox.scaled()
 
-  # handle node rotation
-  ifrender node.rotation != 0:
-    ctx.saveTransform()
-    ctx.translate(box.xy + box.wh / 2)
-    ctx.rotate(node.rotation / 180 * PI)
-    ctx.translate(-(box.xy + box.wh / 2))
-  finally:
-    ctx.restoreTransform()
+  renderStages:
+    # handle node rotation
+    ifrender node.rotation != 0:
+      ctx.saveTransform()
+      ctx.translate(box.xy + box.wh / 2)
+      ctx.rotate(node.rotation / 180 * PI)
+      ctx.translate(-(box.xy + box.wh / 2))
+    finally:
+      ctx.restoreTransform()
 
-  ifrender node.kind == nkTransform:
-    ctx.saveTransform()
-    if node.transform.translation.x != 0.0'f32 or node.transform.translation.y != 0.0'f32:
-      ctx.translate(node.transform.translation.scaled())
-    if node.transform.useMatrix:
-      ctx.applyTransform(node.transform.matrix)
-  finally:
-    ctx.restoreTransform()
+    ifrender node.kind == nkTransform:
+      ctx.saveTransform()
+      if node.transform.translation.x != 0.0'f32 or
+          node.transform.translation.y != 0.0'f32:
+        ctx.translate(node.transform.translation.scaled())
+      if node.transform.useMatrix:
+        ctx.applyTransform(node.transform.matrix)
+    finally:
+      ctx.restoreTransform()
 
-  ifrender node.kind == nkRectangle:
-    ctx.renderDropShadows(node)
+    ifrender node.kind == nkRectangle:
+      ctx.renderDropShadows(node)
 
-  # handle clipping children content based on this node
-  ifrender NfClipContent in node.flags:
-    ctx.beginMask(node.screenBox.scaled(), node.corners.scaledCorners())
-    ctx.endMask()
-  finally:
-    ctx.popMask()
+    # handle clipping children content based on this node
+    ifrender NfClipContent in node.flags:
+      ctx.beginMask(node.screenBox.scaled(), node.corners.scaledCorners())
+      ctx.endMask()
+    finally:
+      ctx.popMask()
 
-  ifrender NfRectMaskContent in node.flags:
-    ctx.beginRectMask(node.screenBox.scaled(), node.corners.scaledCorners())
-  finally:
-    ctx.popRectMask()
+    ifrender NfRectMaskContent in node.flags:
+      ctx.beginRectMask(node.screenBox.scaled(), node.corners.scaledCorners())
+    finally:
+      ctx.popRectMask()
 
-  ifrender true:
-    if node.kind == nkText:
-      ctx.renderText(node)
-    elif node.kind == nkDrawable:
-      ctx.renderDrawable(node)
-    elif node.kind == nkRectangle:
-      ctx.renderBoxes(node)
-    elif node.kind == nkImage:
-      ctx.renderImage(node)
-    elif node.kind == nkMsdfImage:
-      ctx.renderMsdfImage(node)
-    elif node.kind == nkMtsdfImage:
-      ctx.renderMtsdfImage(node)
-    elif node.kind == nkBackdropBlur:
-      ctx.renderBackdropBlur(node)
+    ifrender true:
+      if node.kind == nkText:
+        ctx.renderText(node)
+      elif node.kind == nkDrawable:
+        ctx.renderDrawable(node)
+      elif node.kind == nkRectangle:
+        ctx.renderBoxes(node)
+      elif node.kind == nkImage:
+        ctx.renderImage(node)
+      elif node.kind == nkMsdfImage:
+        ctx.renderMsdfImage(node)
+      elif node.kind == nkMtsdfImage:
+        ctx.renderMtsdfImage(node)
+      elif node.kind == nkBackdropBlur:
+        ctx.renderBackdropBlur(node)
 
-  ifrender node.kind == nkRectangle:
-    when not defined(useFigDrawTextures):
-      if node.hasActiveInnerShadow():
-        ctx.renderInnerShadows(node)
-    else:
-      if NfClipContent notin node.flags:
+    ifrender node.kind == nkRectangle:
+      when not defined(useFigDrawTextures):
         if node.hasActiveInnerShadow():
-          ctx.beginMask(node.screenBox.scaled(), node.corners.scaledCorners())
-          ctx.endMask()
           ctx.renderInnerShadows(node)
-          ctx.popMask()
       else:
-        ctx.renderInnerShadows(node)
+        if NfClipContent notin node.flags:
+          if node.hasActiveInnerShadow():
+            ctx.beginMask(node.screenBox.scaled(), node.corners.scaledCorners())
+            ctx.endMask()
+            ctx.renderInnerShadows(node)
+            ctx.popMask()
+        else:
+          ctx.renderInnerShadows(node)
 
-  for childIdx in childIndex(nodes, nodeIdx):
-    ctx.render(nodes, childIdx, nodeIdx)
+    for child in nodes.children(nodeCursor):
+      ctx.render(nodes, child)
 
-  postRender()
+    postRender()
 
 proc processImageMessages*(ctx: BackendContext) {.forbids: [AppMainThreadEff].} =
   ctx.ensureImageMessageSubscription()
@@ -1851,23 +1864,23 @@ proc processImageMessages*(ctx: BackendContext) {.forbids: [AppMainThreadEff].} 
         clearGlyphRasterFontCache(img.fontId)
         ctx.clearFontGlyphs(img.fontId)
 
-proc renderRoot*(
-    ctx: BackendContext, nodes: var Renders
+proc renderRoot*[Input: RenderInput](
+    ctx: BackendContext, nodes: var Input
 ) {.forbids: [AppMainThreadEff].} =
   ## draw roots for each level
   ctx.processImageMessages()
-  for zlvl, list in nodes.layers.pairs():
-    for rootIdx in list.rootIds:
-      ctx.render(list.nodes, rootIdx, -1.FigIdx)
+  for zlvl, _ in nodes.pairs():
+    for root in nodes.roots(zlvl):
+      ctx.render(nodes, root)
 
   ctx.publishAtlasUsage()
 
 proc processImageMessages*[BackendState](renderer: FigRenderer[BackendState]) =
   renderer.ctx.processImageMessages()
 
-proc renderFrame*[BackendState](
+proc renderFrame*[BackendState; Input: RenderInput](
     renderer: FigRenderer[BackendState],
-    nodes: var Renders,
+    nodes: var Input,
     frameSize: Vec2,
     clearMain: bool = true,
     clearColor: Color = color(1.0, 1.0, 1.0, 1.0),
