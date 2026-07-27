@@ -203,6 +203,31 @@ proc newSiwinWindow*(
     window.fullscreen = true
   result = window
 
+proc newSiwinLayerSurfaceWindow*(
+    size: IVec2,
+    title = "FigDraw Layer Surface",
+    screen = -1'i32,
+    config: LayerSurfaceConfig,
+    transparent = false,
+): Window =
+  ## Creates a Wayland layer-shell surface backed by FigDraw's selected GPU
+  ## renderer. The renderer is attached separately with `setupBackend`, just
+  ## like a normal Siwin window.
+  when defined(linux) or defined(bsd):
+    let globals = sharedSiwinGlobals()
+    result = siWindow.newLayerSurfaceWindow(
+      globals,
+      size = size,
+      title = title,
+      screen = screen,
+      config = config,
+      transparent = transparent,
+    )
+  else:
+    raise SiwinPlatformSupportDefect.newException(
+      "Layer-shell surfaces require Wayland"
+    )
+
 proc newSiwinWindow*(
     renderer: FigRenderer,
     size: IVec2,
