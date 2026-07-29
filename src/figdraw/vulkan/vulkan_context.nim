@@ -1659,11 +1659,12 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     vendorId = ctx.driverInfo.vendorId,
     swapchainProfile = $ctx.activeSwapchainProfile
 
-  var queueCreateInfos = @[
-    newVkDeviceQueueCreateInfo(
-      queueFamilyIndex = ctx.queueFamily, queuePriorities = [1.0'f32]
-    )
-  ]
+  var queueCreateInfos =
+    @[
+      newVkDeviceQueueCreateInfo(
+        queueFamilyIndex = ctx.queueFamily, queuePriorities = [1.0'f32]
+      )
+    ]
   if ctx.presentQueueFamily != ctx.queueFamily:
     queueCreateInfos.add(
       newVkDeviceQueueCreateInfo(
@@ -3007,7 +3008,10 @@ method drawRoundedRectSdf*(
     shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
 ) =
   if fill.kind == figbackend.bfLinear3 and
-      mode in {sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA}:
+      mode in {
+        sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA, sdfModeEllipseAA,
+        sdfModeEllipseAnnularAA,
+      }:
     ctx.drawRoundedRectSdfVulkan(
       rect = rect,
       colors = [fill.lin3Start, fill.lin3Start, fill.lin3Start, fill.lin3Start],

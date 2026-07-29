@@ -1555,6 +1555,96 @@ proc renderDrawableArc(
   else:
     ctx.renderDrawableArcSegments(origin, op, stroke, nodeSteps)
 
+when defined(useFigDrawTextures):
+  func ellipsePoint(center, radii: Vec2, angle: float32): Vec2 =
+    center + vec2(cos(angle) * radii.x, sin(angle) * radii.y)
+
+  proc renderDrawableEllipseApprox(
+      ctx: BackendContext,
+      origin: Vec2,
+      op: DrawableOp,
+      radii: Vec2,
+      fill: Fill,
+      stroke: RenderStroke,
+  ) =
+    let
+      sweep = PI.float32 * 2.0'f32
+      steps = adaptiveArcStepCount(max(radii.x, radii.y), sweep)
+      center = origin + op.ellipseCenter
+
+    if fillAlphaMax(fill) > 0'u8:
+      let fillColor = fillCenterColor(fill).rgba()
+      for step in 0 ..< steps:
+        let
+          angle0 = sweep * step.float32 / steps.float32
+          angle1 = sweep * (step + 1).float32 / steps.float32
+          p0 = origin + ellipsePoint(op.ellipseCenter, radii, angle0)
+          p1 = origin + ellipsePoint(op.ellipseCenter, radii, angle1)
+        ctx.drawFilledQuad(
+          [center.scaled(), p0.scaled(), p1.scaled(), p1.scaled()],
+          [fillColor, fillColor, fillColor, fillColor],
+        )
+
+    if stroke.weight > 0.0'f32 and fillAlphaMax(stroke.fill) > 0'u8:
+      let
+        join = stroke.resolveCurveJoin()
+        joinRadius = max(0.0'f32, stroke.weight) * 0.5'f32
+        segmentStroke = stroke.withCap(scButt)
+      for step in 0 ..< steps:
+        let
+          previousAngle = sweep * (step - 1).float32 / steps.float32
+          angle = sweep * step.float32 / steps.float32
+          nextAngle = sweep * (step + 1).float32 / steps.float32
+          previous = ellipsePoint(op.ellipseCenter, radii, previousAngle)
+          point = ellipsePoint(op.ellipseCenter, radii, angle)
+          next = ellipsePoint(op.ellipseCenter, radii, nextAngle)
+        ctx.renderDrawableLine(origin, drawableLine(point, next), segmentStroke)
+        ctx.renderDrawableStrokeJoin(
+          origin, point, point - previous, next - point, joinRadius, stroke.fill, join
+        )
+
+proc renderDrawableEllipse(
+    ctx: BackendContext, origin: Vec2, op: DrawableOp, fill: Fill, stroke: RenderStroke
+) =
+  let radii = vec2(max(0.0'f32, op.ellipseRadii.x), max(0.0'f32, op.ellipseRadii.y))
+  if radii.x <= 0.0'f32 or radii.y <= 0.0'f32:
+    return
+
+  when not defined(useFigDrawTextures):
+    let
+      box = rect(
+          origin.x + op.ellipseCenter.x - radii.x,
+          origin.y + op.ellipseCenter.y - radii.y,
+          radii.x * 2.0'f32,
+          radii.y * 2.0'f32,
+        )
+        .scaled()
+      corners = zeroCorners().scaledCorners()
+
+    if fillAlphaMax(fill) > 0'u8:
+      ctx.drawRoundedRectSdf(
+        rect = box,
+        fill = fill.toBackendFill(),
+        radii = corners,
+        mode = figbackend.SdfMode.sdfModeEllipseAA,
+        factor = 4.0'f32,
+        spread = 0.0'f32,
+        shapeSize = vec2(0.0'f32, 0.0'f32),
+      )
+
+    if stroke.weight > 0.0'f32 and fillAlphaMax(stroke.fill) > 0'u8:
+      ctx.drawRoundedRectSdf(
+        rect = box,
+        fill = stroke.fill.toBackendFill(),
+        radii = corners,
+        mode = figbackend.SdfMode.sdfModeEllipseAnnularAA,
+        factor = stroke.weight.scaled(),
+        spread = 0.0'f32,
+        shapeSize = vec2(0.0'f32, 0.0'f32),
+      )
+  else:
+    ctx.renderDrawableEllipseApprox(origin, op, radii, fill, stroke)
+
 proc renderDrawableOps(ctx: BackendContext, node: Fig) =
   let
     origin = node.screenBox.xy
@@ -1573,6 +1663,8 @@ proc renderDrawableOps(ctx: BackendContext, node: Fig) =
       ctx.renderDrawableBezier(origin, op, stroke, nodeSteps)
     of dkArc:
       ctx.renderDrawableArc(origin, op, stroke, nodeSteps)
+    of dkEllipse:
+      ctx.renderDrawableEllipse(origin, op, fill, stroke)
 
 proc renderDrawable*(ctx: BackendContext, node: Fig) =
   if node.drawAa <= 0.0'f32:
