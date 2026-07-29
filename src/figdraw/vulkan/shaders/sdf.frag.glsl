@@ -95,13 +95,12 @@ float cornerValue(vec4 values, vec2 p) {
 
 float sdEllipse(vec2 p, vec2 radii) {
   vec2 safeRadii = max(radii, vec2(0.000001));
-  vec2 normalized = p / safeRadii;
-  float implicit = dot(normalized, normalized) - 1.0;
-  float gradientLength = length(p / (safeRadii * safeRadii));
-  if (gradientLength <= 0.000001) {
+  float k0 = length(p / safeRadii);
+  if (k0 <= 0.000001) {
     return -min(safeRadii.x, safeRadii.y);
   }
-  return implicit / max(2.0 * gradientLength, 0.000001);
+  float k1 = length(p / (safeRadii * safeRadii));
+  return k0 * (k0 - 1.0) / max(k1, 0.000001);
 }
 
 float sdRoundedEllipseBox(vec2 p, vec2 b, vec4 packedRadii) {

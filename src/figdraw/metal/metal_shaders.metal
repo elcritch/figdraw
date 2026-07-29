@@ -110,13 +110,12 @@ float sdEllipticalRoundedBox(float2 p, float2 b, float4 packedRadii) {
 
 float sdEllipse(float2 p, float2 radii) {
   float2 safeRadii = max(radii, float2(0.000001));
-  float2 normalized = p / safeRadii;
-  float implicit = dot(normalized, normalized) - 1.0;
-  float gradientLength = length(p / (safeRadii * safeRadii));
-  if (gradientLength <= 0.000001) {
+  float k0 = length(p / safeRadii);
+  if (k0 <= 0.000001) {
     return -min(safeRadii.x, safeRadii.y);
   }
-  return implicit / max(2.0 * gradientLength, 0.000001);
+  float k1 = length(p / (safeRadii * safeRadii));
+  return k0 * (k0 - 1.0) / max(k1, 0.000001);
 }
 
 float dot2(float2 v) {
