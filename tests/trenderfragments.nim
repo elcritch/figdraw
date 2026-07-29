@@ -28,7 +28,7 @@ method drawRoundedRectSdf*(
     ctx: RecordingBackend,
     rect: Rect,
     colors: array[4, ColorRGBA],
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode,
     factor: float32,
     spread: float32,

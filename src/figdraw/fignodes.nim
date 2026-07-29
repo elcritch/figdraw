@@ -67,6 +67,10 @@ type
     of nkRectangle:
       shadows*: array[ShadowCount, RenderShadow]
       stroke*: RenderStroke
+      ## Vertical corner radii used when `cornerRadiusMode` is `crmElliptical`.
+      ## The shared `corners` field supplies the horizontal radii.
+      cornerRadiiY*: CornerRadii
+      cornerRadiusMode*: CornerRadiusMode
     of nkText:
       textLayout*: GlyphArrangement
       selectionRange*: FigSelectionRange

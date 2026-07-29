@@ -59,6 +59,11 @@ proc toRenderFig*[N](current: N): Fig =
 
   case current.kind
   of nkRectangle:
+    when compiles(current.cornerRadiusMode):
+      result.cornerRadiusMode = current.cornerRadiusMode
+    when compiles(current.cornerRadiiY):
+      for corner in DirectionCorners:
+        result.cornerRadiiY[corner] = cornerToU16(current.cornerRadiiY[corner])
     result.stroke.weight = current.stroke.weight
     when compiles(current.stroke.fill):
       result.stroke.fill = current.stroke.fill

@@ -9,6 +9,7 @@ type RecordingBackend = ref object of BackendContext
   mats: seq[Mat4]
   draws: seq[Rect]
   sdfModes: seq[SdfMode]
+  sdfRadii: seq[CornerRadii2D[float32]]
   aaFactor: float32
   aaChanges: seq[float32]
 
@@ -24,14 +25,14 @@ method drawRoundedRectSdf*(
     ctx: RecordingBackend,
     rect: Rect,
     colors: array[4, ColorRGBA],
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode,
     factor: float32,
     spread: float32,
     shapeSize: Vec2,
 ) =
   discard colors
-  discard radii
+  ctx.sdfRadii.add radii
   ctx.sdfModes.add mode
   discard factor
   discard spread
@@ -103,6 +104,7 @@ proc newRecordingBackend(): RecordingBackend =
     mats: @[],
     draws: @[],
     sdfModes: @[],
+    sdfRadii: @[],
     aaFactor: DefaultSdfAaFactor,
     aaChanges: @[],
   )
@@ -130,6 +132,45 @@ proc renderedDrawableDraws(
   result = ctx.draws
 
 suite "nkTransform render behavior":
+  test "passes elliptical rectangle corner axes to the backend":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkRectangle,
+        screenBox: rect(5.0'f32, 7.0'f32, 40.0'f32, 20.0'f32),
+        fill: fill(rgba(255, 0, 0, 255)),
+        corners: [12'u16, 10'u16, 8'u16, 6'u16],
+        cornerRadiiY: [4'u16, 5'u16, 6'u16, 7'u16],
+        cornerRadiusMode: crmElliptical,
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.sdfRadii.len == 1
+    check ctx.sdfRadii[0].x == [12.0'f32, 10.0'f32, 8.0'f32, 6.0'f32]
+    check ctx.sdfRadii[0].y == [4.0'f32, 5.0'f32, 6.0'f32, 7.0'f32]
+
+  test "promotes circular rectangle corners to equal axes":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkRectangle,
+        screenBox: rect(5.0'f32, 7.0'f32, 40.0'f32, 20.0'f32),
+        fill: fill(rgba(255, 0, 0, 255)),
+        corners: [12'u16, 10'u16, 8'u16, 6'u16],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.sdfRadii.len == 1
+    check ctx.sdfRadii[0].x == ctx.sdfRadii[0].y
+
   test "applies translation to child nodes":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
 

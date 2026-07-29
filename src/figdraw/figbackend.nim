@@ -525,7 +525,7 @@ method drawRoundedRectSdf*(
     impl: BackendContext,
     rect: Rect,
     colors: array[4, ColorRGBA],
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode,
     factor: float32,
     spread: float32,
@@ -537,7 +537,7 @@ method drawRoundedRectSdf*(
     impl: BackendContext,
     rect: Rect,
     fill: BackendFill,
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode,
     factor: float32,
     spread: float32,
@@ -557,7 +557,7 @@ method drawRoundedRectSdf*(
     impl: BackendContext,
     rect: Rect,
     color: Color,
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode,
     factor: float32,
     spread: float32,
@@ -603,15 +603,12 @@ method drawMtsdfImage*(
   raise newException(ValueError, "Backend drawMtsdfImage unavailable")
 
 method drawBackdropBlur*(
-    impl: BackendContext,
-    rect: Rect,
-    radii: array[DirectionCorners, float32],
-    blurRadius: float32,
+    impl: BackendContext, rect: Rect, radii: CornerRadii2D[float32], blurRadius: float32
 ) {.base.} =
   raise newException(ValueError, "Backend drawBackdropBlur unavailable")
 
 method beginMask*(
-    impl: BackendContext, clipRect: Rect, radii: array[DirectionCorners, float32]
+    impl: BackendContext, clipRect: Rect, radii: CornerRadii2D[float32]
 ) {.base.} =
   raise newException(ValueError, "Backend beginMask unavailable")
 
@@ -622,7 +619,7 @@ method popMask*(impl: BackendContext) {.base.} =
   raise newException(ValueError, "Backend popMask unavailable")
 
 method beginRectMask*(
-    impl: BackendContext, maskRect: Rect, radii: array[DirectionCorners, float32]
+    impl: BackendContext, maskRect: Rect, radii: CornerRadii2D[float32]
 ) {.base.} =
   impl.beginMask(maskRect, radii)
   impl.endMask()

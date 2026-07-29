@@ -42,7 +42,10 @@ const uint sdfModeBezierStrokeButtAA = 19u;
 const uint sdfModeBezierStrokeSquareAA = 20u;
 const uint sdfModeEllipseAA = 21u;
 const uint sdfModeEllipseAnnularAA = 22u;
+const uint sdfEllipticalCornersFlag = 128u;
 const uint sdfFillModeShift = 256u;
+const float packedRadiusAxisMax = 4095.0;
+const float packedRadiusAxisScale = 4096.0;
 
 float median(float a, float b, float c) {
   return max(min(a, b), min(max(a, b), c));
@@ -66,6 +69,32 @@ float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
   return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - rr;
 }
 
+float sdBox(vec2 p, vec2 b) {
+  vec2 q = abs(p) - b;
+  return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);
+}
+
+float sdRoundedCorner(vec2 p, vec2 b, float radius) {
+  vec2 q = abs(p) - b + vec2(radius);
+  return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - radius;
+}
+
+vec2 unpackCornerRadii(float packed, vec2 halfExtents) {
+  packed = min(
+    floor(packed + 0.5), packedRadiusAxisMax * (packedRadiusAxisScale + 1.0)
+  );
+  float qy = floor(packed / packedRadiusAxisScale);
+  float qx = packed - qy * packedRadiusAxisScale;
+  return vec2(qx, qy) * halfExtents / packedRadiusAxisMax;
+}
+
+float cornerValue(vec4 values, vec2 p) {
+  if (p.x > 0.0) {
+    return (p.y > 0.0) ? values.x : values.y;
+  }
+  return (p.y > 0.0) ? values.z : values.w;
+}
+
 float sdEllipse(vec2 p, vec2 radii) {
   vec2 safeRadii = max(radii, vec2(0.000001));
   float k0 = length(p / safeRadii);
@@ -74,6 +103,29 @@ float sdEllipse(vec2 p, vec2 radii) {
   }
   float k1 = length(p / (safeRadii * safeRadii));
   return k0 * (k0 - 1.0) / max(k1, 0.000001);
+}
+
+float sdRoundedEllipseBox(vec2 p, vec2 b, vec4 packedRadii) {
+  float packed = cornerValue(packedRadii, p);
+  if (packed < 0.0) {
+    return sdRoundedCorner(p, b, -packed - 1.0);
+  }
+  vec2 radii = unpackCornerRadii(packed, b);
+  // A zero axis deliberately means a square corner. This also keeps the
+  // public representation unambiguous for mixed square and elliptical corners.
+  if (radii.x <= 0.0 || radii.y <= 0.0) {
+    return sdBox(p, b);
+  }
+  if (radii.x == radii.y) {
+    return sdRoundedCorner(p, b, radii.x);
+  }
+
+  vec2 absPos = abs(p);
+  vec2 cornerCenter = b - radii;
+  if (absPos.x > cornerCenter.x && absPos.y > cornerCenter.y) {
+    return sdEllipse(absPos - cornerCenter, radii);
+  }
+  return sdBox(p, b);
 }
 
 float dot2(vec2 v) {
@@ -184,7 +236,10 @@ float rectMaskAlpha(vec2 pixelPos) {
     dot(vRectMaskMatY.xy, pixelPos) + vRectMaskMatY.z
   );
   vec2 q = local - vRectMaskParams.xy;
-  float dist = sdRoundedBox(vec2(q.x, -q.y), vRectMaskParams.zw, vRectMaskRadii);
+  vec2 maskPos = vec2(q.x, -q.y);
+  float dist = (vRectMaskMatY.w > 0.0)
+    ? sdRoundedEllipseBox(maskPos, vRectMaskParams.zw, vRectMaskRadii)
+    : sdRoundedBox(maskPos, vRectMaskParams.zw, vRectMaskRadii);
   return 1.0 - clamp(uFS.aaFactor * dist + 0.5, 0.0, 1.0);
 }
 
@@ -231,7 +286,9 @@ vec4 evalFillColor(
 
 void main() {
   uint fillMode = vSdfMode / sdfFillModeShift;
-  uint sdfModeInt = vSdfMode - fillMode * sdfFillModeShift;
+  uint sdfModeAndFlags = vSdfMode - fillMode * sdfFillModeShift;
+  bool hasEllipticalCorners = (sdfModeAndFlags & sdfEllipticalCornersFlag) != 0u;
+  uint sdfModeInt = sdfModeAndFlags & ~sdfEllipticalCornersFlag;
   vec2 quadHalfExtents = vSdfParams.xy;
   bool insetMode = (sdfModeInt == sdfModeInsetShadow);
   vec2 shapeHalfExtents = insetMode ? quadHalfExtents : vSdfParams.zw;
@@ -245,6 +302,8 @@ void main() {
     dist = sdBezier(p, vSdfParams.zw, vSdfRadii.xy, vSdfRadii.zw);
   } else if (isEllipseMode(sdfModeInt)) {
     dist = sdEllipse(p, shapeHalfExtents);
+  } else if (hasEllipticalCorners) {
+    dist = sdRoundedEllipseBox(vec2(p.x, -p.y), shapeHalfExtents, vSdfRadii);
   } else {
     dist = sdRoundedBox(vec2(p.x, -p.y), shapeHalfExtents, vSdfRadii);
   }
@@ -329,9 +388,13 @@ void main() {
         vec2 qClip = vec2(p.x, -p.y);
         vec2 shadowOffset = vec2(vSdfParams.z, -vSdfParams.w);
         vec2 qShadow = qClip - shadowOffset;
-        float clipDist = sdRoundedBox(qClip, quadHalfExtents, vSdfRadii);
+        float clipDist = hasEllipticalCorners
+          ? sdRoundedEllipseBox(qClip, quadHalfExtents, vSdfRadii)
+          : sdRoundedBox(qClip, quadHalfExtents, vSdfRadii);
         float clipAlpha = 1.0 - clamp(uFS.aaFactor * clipDist + 0.5, 0.0, 1.0);
-        float shadowDist = sdRoundedBox(qShadow, quadHalfExtents, vSdfRadii);
+        float shadowDist = hasEllipticalCorners
+          ? sdRoundedEllipseBox(qShadow, quadHalfExtents, vSdfRadii)
+          : sdRoundedBox(qShadow, quadHalfExtents, vSdfRadii);
         float sd = shadowDist + sdfSpread;
         float a = shadowProfile(sd, sdfFactor);
         float insetAlpha = (sd < 0.0) ? min(a, 1.0) : 1.0;

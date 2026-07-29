@@ -42,6 +42,8 @@ type
     kind*: FigKind
     shadows*: array[2, Shadow]
     corners*: array[DirectionCorners, float32]
+    cornerRadiiY*: array[DirectionCorners, float32]
+    cornerRadiusMode*: CornerRadiusMode
     image*: ImageStyle
     textLayout*: GlyphArrangement
     points*: seq[Vec2]

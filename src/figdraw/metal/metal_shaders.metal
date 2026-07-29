@@ -54,24 +54,58 @@ float msdfScreenPxRange(texture2d<float> atlasTex, float2 uv, float pxRange) {
   return max(0.5 * dot(unitRange, screenTexSize), 1.0);
 }
 
-float sdRoundedBox(float2 p, float2 b, float4 r) {
-  float rr;
+float sdEllipse(float2 p, float2 radii);
+
+float sdRoundedCorner(float2 p, float2 b, float radius) {
+  float2 q = abs(p) - b + float2(radius);
+  return min(max(q.x, q.y), 0.0) + length(max(q, float2(0.0))) - radius;
+}
+
+float sdBox(float2 p, float2 b) {
+  float2 q = abs(p) - b;
+  return length(max(q, float2(0.0))) + min(max(q.x, q.y), 0.0);
+}
+
+float cornerValue(float4 values, float2 p) {
   if (p.x > 0.0) {
-    if (p.y > 0.0) {
-      rr = r.x;
-    } else {
-      rr = r.y;
-    }
-  } else {
-    if (p.y > 0.0) {
-      rr = r.z;
-    } else {
-      rr = r.w;
-    }
+    return (p.y > 0.0) ? values.x : values.y;
+  }
+  return (p.y > 0.0) ? values.z : values.w;
+}
+
+float sdRoundedBox(float2 p, float2 b, float4 r) {
+  return sdRoundedCorner(p, b, cornerValue(r, p));
+}
+
+float2 unpackEllipticalRadius(float packed, float2 halfExtents) {
+  constexpr float quantization = 4095.0;
+  constexpr float quantizationBase = 4096.0;
+  float roundedPacked = floor(packed + 0.5);
+  float qy = floor(roundedPacked / quantizationBase);
+  float qx = roundedPacked - qy * quantizationBase;
+  return float2(qx / quantization * halfExtents.x, qy / quantization * halfExtents.y);
+}
+
+float sdEllipticalRoundedBox(float2 p, float2 b, float4 packedRadii) {
+  float packed = cornerValue(packedRadii, p);
+  if (packed < 0.0) {
+    return sdRoundedCorner(p, b, -packed - 1.0);
   }
 
-  float2 q = abs(p) - b + float2(rr, rr);
-  return min(max(q.x, q.y), 0.0) + length(max(q, float2(0.0))) - rr;
+  float2 radii = unpackEllipticalRadius(packed, b);
+  if (radii.x <= 0.0 || radii.y <= 0.0) {
+    return sdBox(p, b);
+  }
+
+  if (radii.x == radii.y) {
+    return sdRoundedCorner(p, b, radii.x);
+  }
+
+  float2 q = abs(p) - b + radii;
+  if (q.x <= 0.0 || q.y <= 0.0) {
+    return sdBox(p, b);
+  }
+  return sdEllipse(q, radii);
 }
 
 float sdEllipse(float2 p, float2 radii) {
@@ -205,7 +239,10 @@ float rectMaskAlpha(
     dot(matY.xy, pos) + matY.z
   );
   float2 q = local - params.xy;
-  float dist = sdRoundedBox(float2(q.x, -q.y), params.zw, radii);
+  float2 localPos = float2(q.x, -q.y);
+  float dist = matY.w > 0.5
+    ? sdEllipticalRoundedBox(localPos, params.zw, radii)
+    : sdRoundedBox(localPos, params.zw, radii);
   return 1.0 - clamp(aaFactor * dist + 0.5, 0.0, 1.0);
 }
 
@@ -339,7 +376,9 @@ float4 evalMainFragment(
 
   int packedSdfMode = int(sdfMode);
   int fillMode = packedSdfMode / 256;
-  int sdfModeInt = packedSdfMode - fillMode * 256;
+  int sdfModeFlags = packedSdfMode - fillMode * 256;
+  bool elliptical = (sdfModeFlags & 128) != 0;
+  int sdfModeInt = sdfModeFlags & 127;
   float2 quadHalfExtents = sdfParams.xy;
   bool insetMode = (sdfModeInt == sdfModeInsetShadow);
   float2 shapeHalfExtents = insetMode ? quadHalfExtents : sdfParams.zw;
@@ -355,7 +394,10 @@ float4 evalMainFragment(
   } else if (isEllipseMode(sdfModeInt)) {
     dist = sdEllipse(p, shapeHalfExtents);
   } else {
-    dist = sdRoundedBox(float2(p.x, -p.y), shapeHalfExtents, sdfRadii);
+    float2 localPos = float2(p.x, -p.y);
+    dist = elliptical
+      ? sdEllipticalRoundedBox(localPos, shapeHalfExtents, sdfRadii)
+      : sdRoundedBox(localPos, shapeHalfExtents, sdfRadii);
   }
 
   float sdfFactor = sdfFactors.x;
@@ -448,9 +490,13 @@ float4 evalMainFragment(
         float2 qClip = float2(p.x, -p.y);
         float2 shadowOffset = float2(sdfParams.z, -sdfParams.w);
         float2 qShadow = qClip - shadowOffset;
-        float clipDist = sdRoundedBox(qClip, quadHalfExtents, sdfRadii);
+        float clipDist = elliptical
+          ? sdEllipticalRoundedBox(qClip, quadHalfExtents, sdfRadii)
+          : sdRoundedBox(qClip, quadHalfExtents, sdfRadii);
         float clipAlpha = 1.0 - clamp(u.aaFactor * clipDist + 0.5, 0.0, 1.0);
-        float shadowDist = sdRoundedBox(qShadow, quadHalfExtents, sdfRadii);
+        float shadowDist = elliptical
+          ? sdEllipticalRoundedBox(qShadow, quadHalfExtents, sdfRadii)
+          : sdRoundedBox(qShadow, quadHalfExtents, sdfRadii);
         float sd = shadowDist + sdfSpread;
         float a = shadowProfile(sd, sdfFactor);
         float insetAlpha = (sd < 0.0) ? min(a, 1.0) : 1.0;
@@ -551,7 +597,9 @@ fragment float4 fs_mask(
   float alpha;
   int packedSdfMode = int(in.sdfMode);
   int fillMode = packedSdfMode / 256;
-  int sdfModeInt = packedSdfMode - fillMode * 256;
+  int sdfModeFlags = packedSdfMode - fillMode * 256;
+  bool elliptical = (sdfModeFlags & 128) != 0;
+  int sdfModeInt = sdfModeFlags & 127;
   if (sdfModeInt == sdfModeAtlas) {
     alpha = atlasTex.sample(s, in.uv).a * in.color.a;
   } else {
@@ -580,7 +628,10 @@ fragment float4 fs_mask(
         dist = abs(dist + halfWidth) - halfWidth;
       }
     } else {
-      dist = sdRoundedBox(float2(p.x, -p.y), shapeHalfExtents, in.sdfRadii);
+      float2 localPos = float2(p.x, -p.y);
+      dist = elliptical
+        ? sdEllipticalRoundedBox(localPos, shapeHalfExtents, in.sdfRadii)
+        : sdRoundedBox(localPos, shapeHalfExtents, in.sdfRadii);
     }
     float cl = clamp(u.aaFactor * dist + 0.5, 0.0, 1.0);
     alpha = (1.0 - cl) * in.color.a;
