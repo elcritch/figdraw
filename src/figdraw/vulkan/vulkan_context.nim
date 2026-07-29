@@ -3064,8 +3064,7 @@ method drawRoundedRectSdf*(
 ) =
   if fill.kind == figbackend.bfLinear3 and
       mode in {
-        sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA, sdfModeEllipseAA,
-        sdfModeEllipseAnnularAA,
+        sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA,
       }:
     ctx.drawRoundedRectSdfVulkan(
       rect = rect,

@@ -110,12 +110,13 @@ float sdEllipticalRoundedBox(float2 p, float2 b, float4 packedRadii) {
 
 float sdEllipse(float2 p, float2 radii) {
   float2 safeRadii = max(radii, float2(0.000001));
-  float k0 = length(p / safeRadii);
-  if (k0 <= 0.000001) {
+  float2 normalized = p / safeRadii;
+  float implicit = dot(normalized, normalized) - 1.0;
+  float gradientLength = length(p / (safeRadii * safeRadii));
+  if (gradientLength <= 0.000001) {
     return -min(safeRadii.x, safeRadii.y);
   }
-  float k1 = length(p / (safeRadii * safeRadii));
-  return k0 * (k0 - 1.0) / max(k1, 0.000001);
+  return implicit / max(2.0 * gradientLength, 0.000001);
 }
 
 float dot2(float2 v) {
@@ -169,10 +170,6 @@ float sdBezier(float2 pos, float2 A, float2 B, float2 C) {
 
 bool isBezierStrokeMode(int sdfModeInt) {
   return sdfModeInt == 18 || sdfModeInt == 19 || sdfModeInt == 20;
-}
-
-bool isEllipseMode(int sdfModeInt) {
-  return sdfModeInt == 21 || sdfModeInt == 22;
 }
 
 float cross2(float2 a, float2 b) {
@@ -371,8 +368,6 @@ float4 evalMainFragment(
   const int sdfModeBezierStrokeAA = 18;
   const int sdfModeBezierStrokeButtAA = 19;
   const int sdfModeBezierStrokeSquareAA = 20;
-  const int sdfModeEllipseAA = 21;
-  const int sdfModeEllipseAnnularAA = 22;
 
   int packedSdfMode = int(sdfMode);
   int fillMode = packedSdfMode / 256;
@@ -391,8 +386,6 @@ float4 evalMainFragment(
   float dist;
   if (isBezierStrokeMode(sdfModeInt)) {
     dist = sdBezier(p, sdfParams.zw, sdfRadii.xy, sdfRadii.zw);
-  } else if (isEllipseMode(sdfModeInt)) {
-    dist = sdEllipse(p, shapeHalfExtents);
   } else {
     float2 localPos = float2(p.x, -p.y);
     dist = elliptical
@@ -464,8 +457,7 @@ float4 evalMainFragment(
         alpha = (sd < 0.0) ? 1.0 : 0.0;
         break;
       }
-      case sdfModeAnnularAA:
-      case sdfModeEllipseAnnularAA: {
+      case sdfModeAnnularAA: {
         float f = sdfFactor * 0.5;
         float sd = abs(dist + f) - f;
         float cl = clamp(u.aaFactor * sd + 0.5, 0.0, 1.0);
@@ -592,7 +584,7 @@ fragment float4 fs_mask(
     texture2d<float> atlasTex [[texture(0)]],
     texture2d<float> maskTex [[texture(1)]]) {
   const int sdfModeAtlas = 0;
-  const int sdfModeEllipseAnnularAA = 22;
+  const int sdfModeAnnularAA = 12;
 
   float alpha;
   int packedSdfMode = int(in.sdfMode);
@@ -621,17 +613,15 @@ fragment float4 fs_mask(
         max(in.sdfFactors.x, 0.0) * 0.5,
         sdfModeInt
       );
-    } else if (isEllipseMode(sdfModeInt)) {
-      dist = sdEllipse(p, shapeHalfExtents);
-      if (sdfModeInt == sdfModeEllipseAnnularAA) {
-        float halfWidth = max(in.sdfFactors.x, 0.0) * 0.5;
-        dist = abs(dist + halfWidth) - halfWidth;
-      }
     } else {
       float2 localPos = float2(p.x, -p.y);
       dist = elliptical
         ? sdEllipticalRoundedBox(localPos, shapeHalfExtents, in.sdfRadii)
         : sdRoundedBox(localPos, shapeHalfExtents, in.sdfRadii);
+    }
+    if (sdfModeInt == sdfModeAnnularAA) {
+      float halfWidth = max(in.sdfFactors.x, 0.0) * 0.5;
+      dist = abs(dist + halfWidth) - halfWidth;
     }
     float cl = clamp(u.aaFactor * dist + 0.5, 0.0, 1.0);
     alpha = (1.0 - cl) * in.color.a;

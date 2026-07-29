@@ -385,7 +385,7 @@ suite "nkTransform render behavior":
     check smallDraws.len > 0
     check largeDraws.len > smallDraws.len
 
-  test "renders ellipse fill and stroke with ellipse sdf modes":
+  test "renders ellipse fill and stroke with elliptical corners":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
 
     discard renders.addRoot(
@@ -395,7 +395,7 @@ suite "nkTransform render behavior":
         screenBox: rect(5.0'f32, 7.0'f32, 30.0'f32, 20.0'f32),
         fill: fill(rgba(20, 40, 80, 255)),
         drawStroke: RenderStroke(weight: 2.0'f32, fill: fill(rgba(255, 0, 0, 255))),
-        drawOps: @[drawableEllipse(vec2(10.0'f32, 8.0'f32), vec2(6.0'f32, 3.0'f32))],
+        drawOps: @[drawableEllipse(vec2(10.0'f32, 8.0'f32), vec2(6.25'f32, 3.5'f32))],
       ),
     )
 
@@ -403,11 +403,15 @@ suite "nkTransform render behavior":
     ctx.renderRoot(renders)
 
     check ctx.draws.len == 2
-    check ctx.sdfModes == @[sdfModeEllipseAA, sdfModeEllipseAnnularAA]
-    check abs(ctx.draws[0].x - 9.0'f32) < 0.0001'f32
-    check abs(ctx.draws[0].y - 12.0'f32) < 0.0001'f32
-    check abs(ctx.draws[0].w - 12.0'f32) < 0.0001'f32
-    check abs(ctx.draws[0].h - 6.0'f32) < 0.0001'f32
+    check ctx.sdfModes == @[sdfModeClipAA, sdfModeAnnularAA]
+    check ctx.sdfRadii.len == 2
+    for radii in ctx.sdfRadii:
+      check radii.x == [6.25'f32, 6.25'f32, 6.25'f32, 6.25'f32]
+      check radii.y == [3.5'f32, 3.5'f32, 3.5'f32, 3.5'f32]
+    check abs(ctx.draws[0].x - 8.75'f32) < 0.0001'f32
+    check abs(ctx.draws[0].y - 11.5'f32) < 0.0001'f32
+    check abs(ctx.draws[0].w - 12.5'f32) < 0.0001'f32
+    check abs(ctx.draws[0].h - 7.0'f32) < 0.0001'f32
 
   test "ignores ellipse drawables with a zero radius":
     check renderedDrawableDraws(

@@ -40,8 +40,6 @@ const uint sdfModeBackdropBlur = 17u;
 const uint sdfModeBezierStrokeAA = 18u;
 const uint sdfModeBezierStrokeButtAA = 19u;
 const uint sdfModeBezierStrokeSquareAA = 20u;
-const uint sdfModeEllipseAA = 21u;
-const uint sdfModeEllipseAnnularAA = 22u;
 const uint sdfEllipticalCornersFlag = 128u;
 const uint sdfFillModeShift = 256u;
 const float packedRadiusAxisMax = 4095.0;
@@ -97,12 +95,13 @@ float cornerValue(vec4 values, vec2 p) {
 
 float sdEllipse(vec2 p, vec2 radii) {
   vec2 safeRadii = max(radii, vec2(0.000001));
-  float k0 = length(p / safeRadii);
-  if (k0 <= 0.000001) {
+  vec2 normalized = p / safeRadii;
+  float implicit = dot(normalized, normalized) - 1.0;
+  float gradientLength = length(p / (safeRadii * safeRadii));
+  if (gradientLength <= 0.000001) {
     return -min(safeRadii.x, safeRadii.y);
   }
-  float k1 = length(p / (safeRadii * safeRadii));
-  return k0 * (k0 - 1.0) / max(k1, 0.000001);
+  return implicit / max(2.0 * gradientLength, 0.000001);
 }
 
 float sdRoundedEllipseBox(vec2 p, vec2 b, vec4 packedRadii) {
@@ -179,10 +178,6 @@ bool isBezierStrokeMode(uint sdfModeInt) {
     sdfModeInt == sdfModeBezierStrokeButtAA ||
     sdfModeInt == sdfModeBezierStrokeSquareAA
   );
-}
-
-bool isEllipseMode(uint sdfModeInt) {
-  return sdfModeInt == sdfModeEllipseAA || sdfModeInt == sdfModeEllipseAnnularAA;
 }
 
 float cross2(vec2 a, vec2 b) {
@@ -300,8 +295,6 @@ void main() {
   float dist;
   if (isBezierStrokeMode(sdfModeInt)) {
     dist = sdBezier(p, vSdfParams.zw, vSdfRadii.xy, vSdfRadii.zw);
-  } else if (isEllipseMode(sdfModeInt)) {
-    dist = sdEllipse(p, shapeHalfExtents);
   } else if (hasEllipticalCorners) {
     dist = sdRoundedEllipseBox(vec2(p.x, -p.y), shapeHalfExtents, vSdfRadii);
   } else {
@@ -362,8 +355,7 @@ void main() {
         alpha = (sd < 0.0) ? 1.0 : 0.0;
         break;
       }
-      case sdfModeAnnularAA:
-      case sdfModeEllipseAnnularAA: {
+      case sdfModeAnnularAA: {
         float f = sdfFactor * 0.5;
         float sd = abs(dist + f) - f;
         float cl = clamp(uFS.aaFactor * sd + 0.5, 0.0, 1.0);

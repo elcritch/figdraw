@@ -1535,10 +1535,7 @@ method drawRoundedRectSdf*(
     shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
 ) =
   if fill.kind == figbackend.bfLinear3 and
-      mode in {
-        sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA, sdfModeEllipseAA,
-        sdfModeEllipseAnnularAA,
-      }:
+      mode in {sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA}:
     ctx.drawRoundedRectSdfMetal(
       rect = rect,
       colors = [fill.lin3Start, fill.lin3Start, fill.lin3Start, fill.lin3Start],

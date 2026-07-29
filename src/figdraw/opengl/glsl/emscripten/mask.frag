@@ -18,11 +18,10 @@ uniform float aaFactor;
 uniform bool maskTexEnabled;
 
 const int sdfModeAtlas = 0;
+const int sdfModeAnnularAA = 12;
 const int sdfModeBezierStrokeAA = 18;
 const int sdfModeBezierStrokeButtAA = 19;
 const int sdfModeBezierStrokeSquareAA = 20;
-const int sdfModeEllipseAA = 21;
-const int sdfModeEllipseAnnularAA = 22;
 
 float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
   float rr;
@@ -46,12 +45,13 @@ float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
 
 float sdEllipse(vec2 p, vec2 radii) {
   vec2 safeRadii = max(radii, vec2(0.000001));
-  float k0 = length(p / safeRadii);
-  if (k0 <= 0.000001) {
+  vec2 normalized = p / safeRadii;
+  float implicit = dot(normalized, normalized) - 1.0;
+  float gradientLength = length(p / (safeRadii * safeRadii));
+  if (gradientLength <= 0.000001) {
     return -min(safeRadii.x, safeRadii.y);
   }
-  float k1 = length(p / (safeRadii * safeRadii));
-  return k0 * (k0 - 1.0) / max(k1, 0.000001);
+  return implicit / max(2.0 * gradientLength, 0.000001);
 }
 
 float selectCornerRadius(vec4 radii, vec2 p) {
@@ -143,10 +143,6 @@ bool isBezierStrokeMode(int sdfModeInt) {
   );
 }
 
-bool isEllipseMode(int sdfModeInt) {
-  return sdfModeInt == sdfModeEllipseAA || sdfModeInt == sdfModeEllipseAnnularAA;
-}
-
 float cross2(vec2 a, vec2 b) {
   return a.x * b.y - a.y * b.x;
 }
@@ -218,16 +214,14 @@ void main() {
         max(sdfFactors.x, 0.0) * 0.5,
         sdfModeInt
       );
-    } else if (isEllipseMode(sdfModeInt)) {
-      dist = sdEllipse(p, shapeHalfExtents);
-      if (sdfModeInt == sdfModeEllipseAnnularAA) {
-        float halfWidth = max(sdfFactors.x, 0.0) * 0.5;
-        dist = abs(dist + halfWidth) - halfWidth;
-      }
     } else if (ellipticalRadii) {
       dist = sdEllipticalRoundedBox(vec2(p.x, -p.y), shapeHalfExtents, sdfRadii);
     } else {
       dist = sdRoundedBox(vec2(p.x, -p.y), shapeHalfExtents, sdfRadii);
+    }
+    if (sdfModeInt == sdfModeAnnularAA) {
+      float halfWidth = max(sdfFactors.x, 0.0) * 0.5;
+      dist = abs(dist + halfWidth) - halfWidth;
     }
     float cl = clamp(aaFactor * dist + 0.5, 0.0, 1.0);
     alpha = (1.0 - cl) * color.a;
