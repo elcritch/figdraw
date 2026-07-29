@@ -8,6 +8,7 @@ type RecordingBackend = ref object of BackendContext
   mat: Mat4
   mats: seq[Mat4]
   draws: seq[Rect]
+  sdfModes: seq[SdfMode]
   aaFactor: float32
   aaChanges: seq[float32]
 
@@ -31,7 +32,7 @@ method drawRoundedRectSdf*(
 ) =
   discard colors
   discard radii
-  discard mode
+  ctx.sdfModes.add mode
   discard factor
   discard spread
   discard shapeSize
@@ -98,7 +99,12 @@ method setSdfAaFactor*(ctx: RecordingBackend, aaFactor: float32) =
 
 proc newRecordingBackend(): RecordingBackend =
   RecordingBackend(
-    mat: mat4(), mats: @[], draws: @[], aaFactor: DefaultSdfAaFactor, aaChanges: @[]
+    mat: mat4(),
+    mats: @[],
+    draws: @[],
+    sdfModes: @[],
+    aaFactor: DefaultSdfAaFactor,
+    aaChanges: @[],
   )
 
 proc renderedDrawableDraws(
@@ -337,6 +343,35 @@ suite "nkTransform render behavior":
 
     check smallDraws.len > 0
     check largeDraws.len > smallDraws.len
+
+  test "renders ellipse fill and stroke with ellipse sdf modes":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkDrawable,
+        screenBox: rect(5.0'f32, 7.0'f32, 30.0'f32, 20.0'f32),
+        fill: fill(rgba(20, 40, 80, 255)),
+        drawStroke: RenderStroke(weight: 2.0'f32, fill: fill(rgba(255, 0, 0, 255))),
+        drawOps: @[drawableEllipse(vec2(10.0'f32, 8.0'f32), vec2(6.0'f32, 3.0'f32))],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.draws.len == 2
+    check ctx.sdfModes == @[sdfModeEllipseAA, sdfModeEllipseAnnularAA]
+    check abs(ctx.draws[0].x - 9.0'f32) < 0.0001'f32
+    check abs(ctx.draws[0].y - 12.0'f32) < 0.0001'f32
+    check abs(ctx.draws[0].w - 12.0'f32) < 0.0001'f32
+    check abs(ctx.draws[0].h - 6.0'f32) < 0.0001'f32
+
+  test "ignores ellipse drawables with a zero radius":
+    check renderedDrawableDraws(
+      drawableEllipse(vec2(10.0'f32, 10.0'f32), vec2(8.0'f32, 0.0'f32))
+    ).len == 0
 
   test "renders explicit bevel joins for decomposed arc drawable":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())

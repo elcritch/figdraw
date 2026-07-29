@@ -150,6 +150,7 @@ suite "test layers":
         drawableLine(vec2(1.0'f32, 2.0'f32), vec2(3.0'f32, 4.0'f32)),
         drawableCircle(vec2(8.0'f32, 9.0'f32), 5.0'f32),
         drawableArc(vec2(12.0'f32, 13.0'f32), 7.0'f32, 0.0'f32, 1.0'f32),
+        drawableEllipse(vec2(15.0'f32, 16.0'f32), vec2(9.0'f32, 4.0'f32)),
       ]
 
     let converted = drawable.toRenderFig()
@@ -159,11 +160,14 @@ suite "test layers":
     check converted.drawStroke.fill.color == rgba(200, 40, 70, 255)
     check converted.drawSteps == 36'u16
     check converted.drawAa == 0.85'f32
-    check converted.drawOps.len == 3
+    check converted.drawOps.len == 4
     check converted.drawOps[0].kind == dkLine
     check converted.drawOps[1].kind == dkCircle
     check converted.drawOps[2].kind == dkArc
     check converted.drawOps[2].arcCenter == vec2(12.0'f32, 13.0'f32)
+    check converted.drawOps[3].kind == dkEllipse
+    check converted.drawOps[3].ellipseCenter == vec2(15.0'f32, 16.0'f32)
+    check converted.drawOps[3].ellipseRadii == vec2(9.0'f32, 4.0'f32)
 
   test "transfer converts legacy drawable points to rect ops":
     var legacy = FigTest(kind: nkDrawable)

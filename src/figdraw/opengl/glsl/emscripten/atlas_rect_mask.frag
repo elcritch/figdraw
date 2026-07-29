@@ -42,6 +42,8 @@ const int sdfModeBackdropBlur = 17;
 const int sdfModeBezierStrokeAA = 18;
 const int sdfModeBezierStrokeButtAA = 19;
 const int sdfModeBezierStrokeSquareAA = 20;
+const int sdfModeEllipseAA = 21;
+const int sdfModeEllipseAnnularAA = 22;
 
 float median(float a, float b, float c) {
   return max(min(a, b), min(max(a, b), c));
@@ -72,6 +74,16 @@ float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
 
   vec2 q = abs(p) - b + vec2(rr, rr);
   return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - rr;
+}
+
+float sdEllipse(vec2 p, vec2 radii) {
+  vec2 safeRadii = max(radii, vec2(0.000001));
+  float k0 = length(p / safeRadii);
+  if (k0 <= 0.000001) {
+    return -min(safeRadii.x, safeRadii.y);
+  }
+  float k1 = length(p / (safeRadii * safeRadii));
+  return k0 * (k0 - 1.0) / max(k1, 0.000001);
 }
 
 float dot2(vec2 v) {
@@ -125,6 +137,10 @@ bool isBezierStrokeMode(int sdfModeInt) {
     sdfModeInt == sdfModeBezierStrokeButtAA ||
     sdfModeInt == sdfModeBezierStrokeSquareAA
   );
+}
+
+bool isEllipseMode(int sdfModeInt) {
+  return sdfModeInt == sdfModeEllipseAA || sdfModeInt == sdfModeEllipseAnnularAA;
 }
 
 float cross2(vec2 a, vec2 b) {
@@ -238,6 +254,8 @@ void main() {
   float dist;
   if (isBezierStrokeMode(sdfModeInt)) {
     dist = sdBezier(p, sdfParams.zw, sdfRadii.xy, sdfRadii.zw);
+  } else if (isEllipseMode(sdfModeInt)) {
+    dist = sdEllipse(p, shapeHalfExtents);
   } else {
     dist = sdRoundedBox(vec2(p.x, -p.y), shapeHalfExtents, sdfRadii);
   }
@@ -301,7 +319,9 @@ void main() {
       float f = sdfFactor * 0.5;
       float sd = abs(dist + f) - f;
       alpha = (sd < 0.0) ? 1.0 : 0.0;
-    } else if (sdfModeInt == sdfModeAnnularAA) {
+    } else if (
+      sdfModeInt == sdfModeAnnularAA || sdfModeInt == sdfModeEllipseAnnularAA
+    ) {
       float f = sdfFactor * 0.5;
       float sd = abs(dist + f) - f;
       float cl = clamp(aaFactor * sd + 0.5, 0.0, 1.0);

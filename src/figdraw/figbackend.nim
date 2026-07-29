@@ -50,6 +50,8 @@ type SdfMode* {.pure.} = enum
   sdfModeBezierStrokeAA = 18
   sdfModeBezierStrokeButtAA = 19
   sdfModeBezierStrokeSquareAA = 20
+  sdfModeEllipseAA = 21
+  sdfModeEllipseAnnularAA = 22
 
 func bezierStrokeSdfMode*(cap: StrokeCap): SdfMode =
   case cap
