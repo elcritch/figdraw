@@ -16,6 +16,7 @@ type
     dkRectangle
     dkBezier
     dkArc
+    dkEllipse
 
   DrawableOp* = object
     case kind*: DrawableKind
@@ -36,6 +37,9 @@ type
       startAngle*: float32
       sweepAngle*: float32
       arcSteps*: uint16
+    of dkEllipse:
+      ellipseCenter*: Vec2
+      ellipseRadii*: Vec2
 
   RenderList* = object
     nodes*: seq[Fig]
@@ -235,6 +239,13 @@ proc drawableCircle*(center: Vec2, radius: float32): DrawableOp =
 proc drawableCircle*(x: float32, y: float32, radius: float32): DrawableOp =
   drawableCircle(vec2(x, y), radius)
 
+proc drawableEllipse*(center, radii: Vec2): DrawableOp =
+  ## Creates a filled and/or stroked axis-aligned ellipse drawable op.
+  DrawableOp(kind: dkEllipse, ellipseCenter: center, ellipseRadii: radii)
+
+proc drawableEllipse*(x, y, radiusX, radiusY: float32): DrawableOp =
+  drawableEllipse(vec2(x, y), vec2(radiusX, radiusY))
+
 proc drawableRect*(
     box: Rect, corners: CornerRadii = [0'u16, 0'u16, 0'u16, 0'u16]
 ): DrawableOp =
@@ -279,27 +290,16 @@ proc drawableArc*(
   )
 
 proc drawableArc*(
-    center: Vec2,
-    radius: float32,
-    startAngle: float32,
-    sweepAngle: float32,
+    center: Vec2, radius: float32, startAngle: float32, sweepAngle: float32
 ): DrawableOp =
-  drawableArc(
-      center,
-      radius,
-      startAngle,
-      sweepAngle,
-      0'u16,
-  )
+  drawableArc(center, radius, startAngle, sweepAngle, 0'u16)
 
 proc drawableArc*(
     x, y, radius, startAngle, sweepAngle: float32, steps: uint16
 ): DrawableOp =
   drawableArc(vec2(x, y), radius, startAngle, sweepAngle, steps)
 
-proc drawableArc*(
-    x, y, radius, startAngle, sweepAngle: float32
-): DrawableOp =
+proc drawableArc*(x, y, radius, startAngle, sweepAngle: float32): DrawableOp =
   drawableArc(vec2(x, y), radius, startAngle, sweepAngle, 0)
 
 proc clear*(list: var RenderList) =
@@ -549,4 +549,3 @@ proc contains*(r: Renders, lvl: ZLevel): bool =
   r.layers.contains(lvl)
 
 {.pop.}
-

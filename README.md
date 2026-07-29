@@ -503,6 +503,23 @@ nim r examples/siwin_renderfragments.nim
 nim r examples/windy_renderfragments.nim
 ```
 
+## Drawable operations
+
+`nkDrawable` nodes support lines, circles, ellipses, rectangles, Bézier curves, and circular arcs.
+Ellipse centers and radii use coordinates local to the drawable node:
+
+```nim
+let ellipse = Fig(
+  kind: nkDrawable,
+  screenBox: rect(20, 20, 160, 100),
+  fill: rgba(43, 159, 234, 255),
+  drawStroke: RenderStroke(weight: 2, fill: rgba(20, 40, 60, 255)),
+  drawOps: @[
+    drawableEllipse(vec2(80, 50), vec2(70, 35)),
+  ],
+)
+```
+
 ## Transform Nodes
 
 Use `nkTransform` as a non-drawing container to apply transforms to descendants.

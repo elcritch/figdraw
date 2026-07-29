@@ -159,6 +159,20 @@ suite "drawable helper render":
     check curve.controls[2].x.approxEq(24.0'f32)
     check curve.steps == 8'u16
 
+  test "ellipse math":
+    let
+      vectorEllipse =
+        drawableEllipse(vec2(12.0'f32, 18.0'f32), vec2(24.0'f32, 10.0'f32))
+      scalarEllipse = drawableEllipse(12.0'f32, 18.0'f32, 24.0'f32, 10.0'f32)
+
+    check vectorEllipse.kind == dkEllipse
+    check vectorEllipse.ellipseCenter.x.approxEq(12.0'f32)
+    check vectorEllipse.ellipseCenter.y.approxEq(18.0'f32)
+    check vectorEllipse.ellipseRadii.x.approxEq(24.0'f32)
+    check vectorEllipse.ellipseRadii.y.approxEq(10.0'f32)
+    check scalarEllipse.ellipseCenter == vectorEllipse.ellipseCenter
+    check scalarEllipse.ellipseRadii == vectorEllipse.ellipseRadii
+
   test "arc math":
     let defaultArc =
       drawableArc(vec2(12.0'f32, 18.0'f32), 24.0'f32, 0.0'f32, 3.1415927'f32)
