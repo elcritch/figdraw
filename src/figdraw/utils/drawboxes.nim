@@ -39,8 +39,6 @@ proc drawRoundedRect*[R](
     doStroke: bool = false,
     outerShadowFill: bool = false,
 ) =
-  mixin toKey, hasImage, addImage
-
   if rect.w <= 0 or rect.h <= -0:
     return
 
@@ -113,7 +111,7 @@ proc drawRoundedRect*[R](
         echo "generating corner: ", msg
         image.writeFile("examples/" & msg & ".png")
 
-      ctx.putImage(toKey(cornerHashes[corner]), image)
+      ctx.putImage(cornerHashes[corner], image)
 
     let
       xy = rect.xy
@@ -208,3 +206,94 @@ proc drawRoundedRect*[R](
 
     ctx.drawRect(rect(ceil(rect.x), ceil(rect.y + bh), ww, hrh), color)
     ctx.drawRect(rect(ceil(rect.x + rrw), ceil(rect.y + bh), ww, hrh), color)
+
+proc ellipticalRoundedRectPath(
+    width, height: float32, radii: CornerRadii2D[float32]
+): Path =
+  var radii = radii
+  for corner in DirectionCorners:
+    radii.x[corner] = clamp(radii.x[corner], 0.0'f32, width * 0.5'f32)
+    radii.y[corner] = clamp(radii.y[corner], 0.0'f32, height * 0.5'f32)
+
+  result = newPath()
+  let
+    topLeft = vec2(radii.x[dcTopLeft], radii.y[dcTopLeft])
+    topRight = vec2(radii.x[dcTopRight], radii.y[dcTopRight])
+    bottomLeft = vec2(radii.x[dcBottomLeft], radii.y[dcBottomLeft])
+    bottomRight = vec2(radii.x[dcBottomRight], radii.y[dcBottomRight])
+
+  if topLeft.x > 0.0'f32 and topLeft.y > 0.0'f32:
+    result.moveTo(topLeft.x, 0.0'f32)
+  else:
+    result.moveTo(0.0'f32, 0.0'f32)
+
+  if topRight.x > 0.0'f32 and topRight.y > 0.0'f32:
+    result.lineTo(width - topRight.x, 0.0'f32)
+    result.ellipticalArcTo(
+      topRight.x, topRight.y, 0.0'f32, false, true, width, topRight.y
+    )
+  else:
+    result.lineTo(width, 0.0'f32)
+
+  if bottomRight.x > 0.0'f32 and bottomRight.y > 0.0'f32:
+    result.lineTo(width, height - bottomRight.y)
+    result.ellipticalArcTo(
+      bottomRight.x, bottomRight.y, 0.0'f32, false, true, width - bottomRight.x, height
+    )
+  else:
+    result.lineTo(width, height)
+
+  if bottomLeft.x > 0.0'f32 and bottomLeft.y > 0.0'f32:
+    result.lineTo(bottomLeft.x, height)
+    result.ellipticalArcTo(
+      bottomLeft.x, bottomLeft.y, 0.0'f32, false, true, 0.0'f32, height - bottomLeft.y
+    )
+  else:
+    result.lineTo(0.0'f32, height)
+
+  if topLeft.x > 0.0'f32 and topLeft.y > 0.0'f32:
+    result.lineTo(0.0'f32, topLeft.y)
+    result.ellipticalArcTo(
+      topLeft.x, topLeft.y, 0.0'f32, false, true, topLeft.x, 0.0'f32
+    )
+  else:
+    result.lineTo(0.0'f32, 0.0'f32)
+  result.closePath()
+
+proc drawRoundedRect*[R](
+    ctx: R,
+    rect: Rect,
+    color: Color,
+    radii: CornerRadii2D[float32],
+    weight: float32 = -1.0'f32,
+    doStroke: bool = false,
+    outerShadowFill: bool = false,
+) =
+  ## CPU-rasterized compatibility path for the legacy texture renderer.
+  mixin putImage, drawImage
+
+  if radii.isCircular:
+    ctx.drawRoundedRect(rect, color, radii.x, weight, doStroke, outerShadowFill)
+    return
+  if rect.w <= 0.0'f32 or rect.h <= 0.0'f32:
+    return
+
+  let
+    width = ceil(rect.w).int
+    height = ceil(rect.h).int
+    imageKey =
+      hash((6218, width, height, radii.x, radii.y, weight, doStroke, outerShadowFill))
+  if imageKey notin ctx.entries:
+    var image = newImage(width, height)
+    let
+      path = ellipticalRoundedRectPath(width.float32, height.float32, radii)
+      white = rgba(255, 255, 255, 255)
+    if doStroke:
+      # Pixie centers strokes on the path, while FigDraw's SDF stroke lies
+      # inside the shape boundary.
+      image.strokePath(path, white, strokeWidth = 2.0'f32 * max(weight, 0.0'f32))
+    else:
+      image.fillPath(path, white)
+    ctx.putImage(imageKey, image)
+
+  ctx.drawImage(imageKey, rect.xy, color, false)

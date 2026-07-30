@@ -37,8 +37,6 @@ const int sdfModeBackdropBlur = 17;
 const int sdfModeBezierStrokeAA = 18;
 const int sdfModeBezierStrokeButtAA = 19;
 const int sdfModeBezierStrokeSquareAA = 20;
-const int sdfModeEllipseAA = 21;
-const int sdfModeEllipseAnnularAA = 22;
 
 float median(float a, float b, float c) {
   return max(min(a, b), min(max(a, b), c));
@@ -78,6 +76,42 @@ float sdEllipse(vec2 p, vec2 radii) {
   }
   float k1 = length(p / (safeRadii * safeRadii));
   return k0 * (k0 - 1.0) / max(k1, 0.000001);
+}
+
+float selectCornerRadius(vec4 radii, vec2 p) {
+  if (p.x > 0.0) {
+    return (p.y > 0.0) ? radii.x : radii.y;
+  }
+  return (p.y > 0.0) ? radii.z : radii.w;
+}
+
+vec2 decodeEllipticalCornerRadii(vec4 packedRadii, vec2 halfExtents, vec2 p) {
+  float packedValue = floor(selectCornerRadius(packedRadii, p) + 0.5);
+  return vec2(
+    mod(packedValue, 4096.0) * halfExtents.x / 4095.0,
+    floor(packedValue / 4096.0) * halfExtents.y / 4095.0
+  );
+}
+
+float sdEllipticalRoundedBox(vec2 p, vec2 b, vec4 packedRadii) {
+  float selectedRadius = selectCornerRadius(packedRadii, p);
+  if (selectedRadius < 0.0) {
+    return sdRoundedBox(p, b, vec4(-selectedRadius - 1.0));
+  }
+  vec2 radii = decodeEllipticalCornerRadii(packedRadii, b, p);
+  if (radii.x <= 0.0 || radii.y <= 0.0) {
+    vec2 q = abs(p) - b;
+    return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0)));
+  }
+  if (radii.x == radii.y) {
+    return sdRoundedBox(p, b, vec4(radii.x));
+  }
+
+  vec2 q = abs(p) - b + radii;
+  if (q.x > 0.0 && q.y > 0.0) {
+    return sdEllipse(q, radii);
+  }
+  return max(q.x - radii.x, q.y - radii.y);
 }
 
 float dot2(vec2 v) {
@@ -131,10 +165,6 @@ bool isBezierStrokeMode(int sdfModeInt) {
     sdfModeInt == sdfModeBezierStrokeButtAA ||
     sdfModeInt == sdfModeBezierStrokeSquareAA
   );
-}
-
-bool isEllipseMode(int sdfModeInt) {
-  return sdfModeInt == sdfModeEllipseAA || sdfModeInt == sdfModeEllipseAnnularAA;
 }
 
 float cross2(vec2 a, vec2 b) {
@@ -223,6 +253,10 @@ void main() {
   int packedSdfMode = int(sdfMode);
   int fillMode = packedSdfMode / 256;
   int sdfModeInt = packedSdfMode - fillMode * 256;
+  bool ellipticalRadii = sdfModeInt >= 128;
+  if (ellipticalRadii) {
+    sdfModeInt -= 128;
+  }
   vec2 quadHalfExtents = sdfParams.xy;
   bool insetMode = (sdfModeInt == sdfModeInsetShadow);
   vec2 shapeHalfExtents = insetMode ? quadHalfExtents : sdfParams.zw;
@@ -235,8 +269,8 @@ void main() {
   float dist;
   if (isBezierStrokeMode(sdfModeInt)) {
     dist = sdBezier(p, sdfParams.zw, sdfRadii.xy, sdfRadii.zw);
-  } else if (isEllipseMode(sdfModeInt)) {
-    dist = sdEllipse(p, shapeHalfExtents);
+  } else if (ellipticalRadii) {
+    dist = sdEllipticalRoundedBox(vec2(p.x, -p.y), shapeHalfExtents, sdfRadii);
   } else {
     dist = sdRoundedBox(vec2(p.x, -p.y), shapeHalfExtents, sdfRadii);
   }
@@ -306,8 +340,7 @@ void main() {
         alpha = (sd < 0.0) ? 1.0 : 0.0;
         break;
       }
-      case sdfModeAnnularAA:
-      case sdfModeEllipseAnnularAA: {
+      case sdfModeAnnularAA: {
         float f = sdfFactor * 0.5;
         float sd = abs(dist + f) - f;
         float cl = clamp(aaFactor * sd + 0.5, 0.0, 1.0);
@@ -332,9 +365,13 @@ void main() {
         vec2 qClip = vec2(p.x, -p.y);
         vec2 shadowOffset = vec2(sdfParams.z, -sdfParams.w);
         vec2 qShadow = qClip - shadowOffset;
-        float clipDist = sdRoundedBox(qClip, quadHalfExtents, sdfRadii);
+        float clipDist = ellipticalRadii ?
+          sdEllipticalRoundedBox(qClip, quadHalfExtents, sdfRadii) :
+          sdRoundedBox(qClip, quadHalfExtents, sdfRadii);
         float clipAlpha = 1.0 - clamp(aaFactor * clipDist + 0.5, 0.0, 1.0);
-        float shadowDist = sdRoundedBox(qShadow, quadHalfExtents, sdfRadii);
+        float shadowDist = ellipticalRadii ?
+          sdEllipticalRoundedBox(qShadow, quadHalfExtents, sdfRadii) :
+          sdRoundedBox(qShadow, quadHalfExtents, sdfRadii);
         float sd = shadowDist + sdfSpread;
         float a = shadowProfile(sd, sdfFactor);
         float insetAlpha = (sd < 0.0) ? min(a, 1.0) : 1.0;

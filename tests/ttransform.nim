@@ -9,6 +9,8 @@ type RecordingBackend = ref object of BackendContext
   mats: seq[Mat4]
   draws: seq[Rect]
   sdfModes: seq[SdfMode]
+  sdfRadii: seq[CornerRadii2D[float32]]
+  backdropRadii: seq[CornerRadii2D[float32]]
   aaFactor: float32
   aaChanges: seq[float32]
 
@@ -24,14 +26,14 @@ method drawRoundedRectSdf*(
     ctx: RecordingBackend,
     rect: Rect,
     colors: array[4, ColorRGBA],
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode,
     factor: float32,
     spread: float32,
     shapeSize: Vec2,
 ) =
   discard colors
-  discard radii
+  ctx.sdfRadii.add radii
   ctx.sdfModes.add mode
   discard factor
   discard spread
@@ -69,6 +71,16 @@ method drawFilledQuad*(
   let topLeft = (ctx.mat * vec3(verts[0].x, verts[0].y, 1.0'f32)).xy
   ctx.draws.add rect(topLeft.x, topLeft.y, 0.0'f32, 0.0'f32)
 
+method drawBackdropBlur*(
+    ctx: RecordingBackend,
+    rect: Rect,
+    radii: CornerRadii2D[float32],
+    blurRadius: float32,
+) =
+  discard rect
+  discard blurRadius
+  ctx.backdropRadii.add radii
+
 method translate*(ctx: RecordingBackend, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
 
@@ -103,6 +115,8 @@ proc newRecordingBackend(): RecordingBackend =
     mats: @[],
     draws: @[],
     sdfModes: @[],
+    sdfRadii: @[],
+    backdropRadii: @[],
     aaFactor: DefaultSdfAaFactor,
     aaChanges: @[],
   )
@@ -130,6 +144,66 @@ proc renderedDrawableDraws(
   result = ctx.draws
 
 suite "nkTransform render behavior":
+  test "passes elliptical rectangle corner axes to the backend":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkRectangle,
+        screenBox: rect(5.0'f32, 7.0'f32, 40.0'f32, 20.0'f32),
+        fill: fill(rgba(255, 0, 0, 255)),
+        flags: {NfEllipticalCorners},
+        corners: [12'u16, 10'u16, 8'u16, 6'u16],
+        cornerRadiiY: [4'u16, 5'u16, 6'u16, 7'u16],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.sdfRadii.len == 1
+    check ctx.sdfRadii[0].x == [12.0'f32, 10.0'f32, 8.0'f32, 6.0'f32]
+    check ctx.sdfRadii[0].y == [4.0'f32, 5.0'f32, 6.0'f32, 7.0'f32]
+
+  test "promotes circular rectangle corners to equal axes":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkRectangle,
+        screenBox: rect(5.0'f32, 7.0'f32, 40.0'f32, 20.0'f32),
+        fill: fill(rgba(255, 0, 0, 255)),
+        corners: [12'u16, 10'u16, 8'u16, 6'u16],
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.sdfRadii.len == 1
+    check ctx.sdfRadii[0].x == ctx.sdfRadii[0].y
+
+  test "passes common elliptical corners to backdrop blur":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkBackdropBlur,
+        flags: {NfEllipticalCorners},
+        screenBox: rect(5.0'f32, 7.0'f32, 40.0'f32, 20.0'f32),
+        corners: [12'u16, 10'u16, 8'u16, 6'u16],
+        cornerRadiiY: [4'u16, 5'u16, 6'u16, 7'u16],
+        backdropBlur: BackdropBlurStyle(blur: 10.0'f32),
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.backdropRadii.len == 1
+    check ctx.backdropRadii[0].x == [12.0'f32, 10.0'f32, 8.0'f32, 6.0'f32]
+    check ctx.backdropRadii[0].y == [4.0'f32, 5.0'f32, 6.0'f32, 7.0'f32]
+
   test "applies translation to child nodes":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
 
@@ -344,7 +418,7 @@ suite "nkTransform render behavior":
     check smallDraws.len > 0
     check largeDraws.len > smallDraws.len
 
-  test "renders ellipse fill and stroke with ellipse sdf modes":
+  test "renders ellipse fill and stroke with elliptical corners":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
 
     discard renders.addRoot(
@@ -354,7 +428,7 @@ suite "nkTransform render behavior":
         screenBox: rect(5.0'f32, 7.0'f32, 30.0'f32, 20.0'f32),
         fill: fill(rgba(20, 40, 80, 255)),
         drawStroke: RenderStroke(weight: 2.0'f32, fill: fill(rgba(255, 0, 0, 255))),
-        drawOps: @[drawableEllipse(vec2(10.0'f32, 8.0'f32), vec2(6.0'f32, 3.0'f32))],
+        drawOps: @[drawableEllipse(vec2(10.0'f32, 8.0'f32), vec2(6.25'f32, 3.5'f32))],
       ),
     )
 
@@ -362,11 +436,15 @@ suite "nkTransform render behavior":
     ctx.renderRoot(renders)
 
     check ctx.draws.len == 2
-    check ctx.sdfModes == @[sdfModeEllipseAA, sdfModeEllipseAnnularAA]
-    check abs(ctx.draws[0].x - 9.0'f32) < 0.0001'f32
-    check abs(ctx.draws[0].y - 12.0'f32) < 0.0001'f32
-    check abs(ctx.draws[0].w - 12.0'f32) < 0.0001'f32
-    check abs(ctx.draws[0].h - 6.0'f32) < 0.0001'f32
+    check ctx.sdfModes == @[sdfModeClipAA, sdfModeAnnularAA]
+    check ctx.sdfRadii.len == 2
+    for radii in ctx.sdfRadii:
+      check radii.x == [6.25'f32, 6.25'f32, 6.25'f32, 6.25'f32]
+      check radii.y == [3.5'f32, 3.5'f32, 3.5'f32, 3.5'f32]
+    check abs(ctx.draws[0].x - 8.75'f32) < 0.0001'f32
+    check abs(ctx.draws[0].y - 11.5'f32) < 0.0001'f32
+    check abs(ctx.draws[0].w - 12.5'f32) < 0.0001'f32
+    check abs(ctx.draws[0].h - 7.0'f32) < 0.0001'f32
 
   test "ignores ellipse drawables with a zero radius":
     check renderedDrawableDraws(

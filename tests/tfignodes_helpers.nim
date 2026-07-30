@@ -13,6 +13,27 @@ proc childIds(list: RenderList, parentIdx: FigIdx): seq[int] =
     result.add list.nodes[childIdx.int].nodeId()
 
 suite "RenderList helper APIs":
+  test "CornerRadii2D detects circular and elliptical axes":
+    let circular = initCornerRadii2D([4'u16, 6'u16, 8'u16, 10'u16])
+    let elliptical =
+      initCornerRadii2D([4'u16, 6'u16, 8'u16, 10'u16], [2'u16, 3'u16, 4'u16, 5'u16])
+
+    check circular.isCircular
+    check circular.x == circular.y
+    check not elliptical.isCircular
+
+  test "common elliptical corner fields keep Fig within its size limit":
+    let node = Fig(
+      kind: nkBackdropBlur,
+      flags: {NfEllipticalCorners},
+      corners: [8'u16, 7'u16, 6'u16, 5'u16],
+      cornerRadiiY: [4'u16, 3'u16, 2'u16, 1'u16],
+    )
+
+    check sizeof(Fig) == 256
+    check NfEllipticalCorners in node.flags
+    check node.cornerRadiiY == [4'u16, 3'u16, 2'u16, 1'u16]
+
   test "insertRoot shifts existing root and parent indexes":
     var list = RenderList()
     let rootA = list.addRoot(testFig(10))

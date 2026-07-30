@@ -13,6 +13,9 @@ import ./common/fontglyphs
 import ./common/typefaces
 export figbackend
 
+when defined(useFigDrawTextures):
+  import ./utils/[drawboxes, drawshadows]
+
 when UseMetalBackend and UseOpenGlFallback:
   import ./metal/metal_context as preferred_backend
   import metalx/[metal, cametal]
@@ -543,11 +546,34 @@ macro renderStages(body: untyped): untyped =
   if not foundPostRender:
     error("renderStages requires a postRender marker", body)
 
-proc scaledCorners(
-    corners: array[DirectionCorners, uint16]
-): array[DirectionCorners, float32] =
+proc scaledCorners(corners: array[DirectionCorners, uint16]): CornerRadii2D[float32] =
   for corner in DirectionCorners:
-    result[corner] = corners[corner].float32.scaled()
+    let radius = corners[corner].float32.scaled()
+    result.x[corner] = radius
+    result.y[corner] = radius
+
+proc scaledCorners(corners: CornerRadii2D[uint16]): CornerRadii2D[float32] =
+  for corner in DirectionCorners:
+    result.x[corner] = corners.x[corner].float32.scaled()
+    result.y[corner] = corners.y[corner].float32.scaled()
+
+proc scaledCorners(corners: CornerRadii2D[float32]): CornerRadii2D[float32] =
+  for corner in DirectionCorners:
+    result.x[corner] = corners.x[corner].scaled()
+    result.y[corner] = corners.y[corner].scaled()
+
+func resolvedCorners(node: Fig): CornerRadii2D[uint16] =
+  result = initCornerRadii2D(node.corners)
+  if NfEllipticalCorners in node.flags:
+    result.y = node.cornerRadiiY
+
+proc scaledCorners(node: Fig): CornerRadii2D[float32] =
+  node.resolvedCorners().scaledCorners()
+
+func `-`(corners: CornerRadii2D[float32], amount: float32): CornerRadii2D[float32] =
+  for corner in DirectionCorners:
+    result.x[corner] = corners.x[corner] - amount
+    result.y[corner] = corners.y[corner] - amount
 
 func lerpColor(a, b: ColorRGBA, t: float32): ColorRGBA =
   let
@@ -656,7 +682,7 @@ proc renderDropShadows(ctx: BackendContext, node: Fig) =
         rect = quadRect,
         shapeSize = shadowRect.wh,
         fill = shadow.fill.toBackendFill(),
-        radii = node.corners.scaledCorners(),
+        radii = node.scaledCorners(),
         mode = figbackend.SdfMode.sdfModeDropShadow,
         factor = shadowBlur,
         spread = shadowSpread,
@@ -674,13 +700,11 @@ proc renderDropShadows(ctx: BackendContext, node: Fig) =
           let box = node.screenBox.scaled().atXY(
               x = shadow.x.scaled() + xblur, y = shadow.y.scaled() + yblur
             )
-          ctx.drawRoundedRect(
-            rect = box, color = color, radius = node.corners.scaledCorners()
-          )
+          ctx.drawRoundedRect(rect = box, color = color, radius = node.scaledCorners())
     else:
       ctx.fillRoundedRectWithShadowSdf(
         rect = node.screenBox.scaled(),
-        radii = node.corners.scaledCorners(),
+        radii = node.scaledCorners(),
         shadowX = shadow.x.scaled(),
         shadowY = shadow.y.scaled(),
         shadowBlur = shadow.blur.scaled(),
@@ -713,7 +737,7 @@ proc renderInnerShadows(ctx: BackendContext, node: Fig) =
         rect = box,
         shapeSize = shadowOffset,
         fill = shadow.fill.toBackendFill(),
-        radii = node.corners.scaledCorners(),
+        radii = node.scaledCorners(),
         mode = figbackend.SdfMode.sdfModeInsetShadow,
         factor = shadowBlur,
         spread = shadowSpread,
@@ -737,15 +761,12 @@ proc renderInnerShadows(ctx: BackendContext, node: Fig) =
         else:
           box.y += shadow.y.scaled() + blurAmt
         ctx.strokeRoundedRect(
-          rect = box,
-          color = color,
-          weight = blur,
-          radius = node.corners.scaledCorners() - blur,
+          rect = box, color = color, weight = blur, radius = node.scaledCorners() - blur
         )
     else:
       ctx.fillRoundedRectWithShadowSdf(
         rect = node.screenBox.scaled(),
-        radii = node.corners.scaledCorners(),
+        radii = node.scaledCorners(),
         shadowX = shadow.x.scaled(),
         shadowY = shadow.y.scaled(),
         shadowBlur = shadow.blur.scaled(),
@@ -782,18 +803,19 @@ func radiusCorner(radius: float32): uint16 =
     return high(uint16)
   round(radius).uint16
 
-proc renderRoundedShape(
+proc renderRoundedShapeScaledCorners(
     ctx: BackendContext,
     shapeBox: Rect,
     shapeFill: Fill,
     shapeStroke: RenderStroke,
-    shapeCorners: array[DirectionCorners, uint16],
+    corners: CornerRadii2D[float32],
 ) =
   let
     box = shapeBox.scaled()
-    corners = shapeCorners.scaledCorners()
     hasGradient =
       shapeFill.kind in {flLinear2, flLinear3} and fillAlphaMax(shapeFill) > 0'u8
+  when defined(useFigDrawTextures):
+    let hasCorners = corners != default(CornerRadii2D[float32])
 
   if hasGradient:
     when not defined(useFigDrawTextures):
@@ -808,7 +830,7 @@ proc renderRoundedShape(
       )
     else:
       let fillColor = fillCenterColor(shapeFill)
-      if shapeCorners != [0'u16, 0'u16, 0'u16, 0'u16]:
+      if hasCorners:
         ctx.drawRoundedRect(rect = box, color = fillColor, radii = corners)
       else:
         ctx.drawRect(box, fillColor)
@@ -825,7 +847,7 @@ proc renderRoundedShape(
         shapeSize = vec2(0.0'f32, 0.0'f32),
       )
     else:
-      if shapeCorners != [0'u16, 0'u16, 0'u16, 0'u16]:
+      if hasCorners:
         ctx.drawRoundedRect(rect = box, color = fillColor, radii = corners)
       else:
         ctx.drawRect(box, fillColor)
@@ -849,6 +871,39 @@ proc renderRoundedShape(
         weight = shapeStroke.weight.scaled(),
         doStroke = true,
       )
+
+proc renderRoundedShape(
+    ctx: BackendContext,
+    shapeBox: Rect,
+    shapeFill: Fill,
+    shapeStroke: RenderStroke,
+    shapeCorners: CornerRadii2D[uint16],
+) =
+  ctx.renderRoundedShapeScaledCorners(
+    shapeBox, shapeFill, shapeStroke, shapeCorners.scaledCorners()
+  )
+
+proc renderRoundedShape(
+    ctx: BackendContext,
+    shapeBox: Rect,
+    shapeFill: Fill,
+    shapeStroke: RenderStroke,
+    shapeCorners: CornerRadii2D[float32],
+) =
+  ctx.renderRoundedShapeScaledCorners(
+    shapeBox, shapeFill, shapeStroke, shapeCorners.scaledCorners()
+  )
+
+proc renderRoundedShape(
+    ctx: BackendContext,
+    shapeBox: Rect,
+    shapeFill: Fill,
+    shapeStroke: RenderStroke,
+    shapeCorners: array[DirectionCorners, uint16],
+) =
+  ctx.renderRoundedShape(
+    shapeBox, shapeFill, shapeStroke, initCornerRadii2D(shapeCorners)
+  )
 
 func vectorLength(v: Vec2): float32 =
   sqrt(v.x * v.x + v.y * v.y)
@@ -1555,54 +1610,6 @@ proc renderDrawableArc(
   else:
     ctx.renderDrawableArcSegments(origin, op, stroke, nodeSteps)
 
-when defined(useFigDrawTextures):
-  func ellipsePoint(center, radii: Vec2, angle: float32): Vec2 =
-    center + vec2(cos(angle) * radii.x, sin(angle) * radii.y)
-
-  proc renderDrawableEllipseApprox(
-      ctx: BackendContext,
-      origin: Vec2,
-      op: DrawableOp,
-      radii: Vec2,
-      fill: Fill,
-      stroke: RenderStroke,
-  ) =
-    let
-      sweep = PI.float32 * 2.0'f32
-      steps = adaptiveArcStepCount(max(radii.x, radii.y), sweep)
-      center = origin + op.ellipseCenter
-
-    if fillAlphaMax(fill) > 0'u8:
-      let fillColor = fillCenterColor(fill).rgba()
-      for step in 0 ..< steps:
-        let
-          angle0 = sweep * step.float32 / steps.float32
-          angle1 = sweep * (step + 1).float32 / steps.float32
-          p0 = origin + ellipsePoint(op.ellipseCenter, radii, angle0)
-          p1 = origin + ellipsePoint(op.ellipseCenter, radii, angle1)
-        ctx.drawFilledQuad(
-          [center.scaled(), p0.scaled(), p1.scaled(), p1.scaled()],
-          [fillColor, fillColor, fillColor, fillColor],
-        )
-
-    if stroke.weight > 0.0'f32 and fillAlphaMax(stroke.fill) > 0'u8:
-      let
-        join = stroke.resolveCurveJoin()
-        joinRadius = max(0.0'f32, stroke.weight) * 0.5'f32
-        segmentStroke = stroke.withCap(scButt)
-      for step in 0 ..< steps:
-        let
-          previousAngle = sweep * (step - 1).float32 / steps.float32
-          angle = sweep * step.float32 / steps.float32
-          nextAngle = sweep * (step + 1).float32 / steps.float32
-          previous = ellipsePoint(op.ellipseCenter, radii, previousAngle)
-          point = ellipsePoint(op.ellipseCenter, radii, angle)
-          next = ellipsePoint(op.ellipseCenter, radii, nextAngle)
-        ctx.renderDrawableLine(origin, drawableLine(point, next), segmentStroke)
-        ctx.renderDrawableStrokeJoin(
-          origin, point, point - previous, next - point, joinRadius, stroke.fill, join
-        )
-
 proc renderDrawableEllipse(
     ctx: BackendContext, origin: Vec2, op: DrawableOp, fill: Fill, stroke: RenderStroke
 ) =
@@ -1610,40 +1617,17 @@ proc renderDrawableEllipse(
   if radii.x <= 0.0'f32 or radii.y <= 0.0'f32:
     return
 
-  when not defined(useFigDrawTextures):
-    let
-      box = rect(
-          origin.x + op.ellipseCenter.x - radii.x,
-          origin.y + op.ellipseCenter.y - radii.y,
-          radii.x * 2.0'f32,
-          radii.y * 2.0'f32,
-        )
-        .scaled()
-      corners = zeroCorners().scaledCorners()
-
-    if fillAlphaMax(fill) > 0'u8:
-      ctx.drawRoundedRectSdf(
-        rect = box,
-        fill = fill.toBackendFill(),
-        radii = corners,
-        mode = figbackend.SdfMode.sdfModeEllipseAA,
-        factor = 4.0'f32,
-        spread = 0.0'f32,
-        shapeSize = vec2(0.0'f32, 0.0'f32),
-      )
-
-    if stroke.weight > 0.0'f32 and fillAlphaMax(stroke.fill) > 0'u8:
-      ctx.drawRoundedRectSdf(
-        rect = box,
-        fill = stroke.fill.toBackendFill(),
-        radii = corners,
-        mode = figbackend.SdfMode.sdfModeEllipseAnnularAA,
-        factor = stroke.weight.scaled(),
-        spread = 0.0'f32,
-        shapeSize = vec2(0.0'f32, 0.0'f32),
-      )
-  else:
-    ctx.renderDrawableEllipseApprox(origin, op, radii, fill, stroke)
+  let box = rect(
+    origin.x + op.ellipseCenter.x - radii.x,
+    origin.y + op.ellipseCenter.y - radii.y,
+    radii.x * 2.0'f32,
+    radii.y * 2.0'f32,
+  )
+  var corners: CornerRadii2D[float32]
+  for corner in DirectionCorners:
+    corners.x[corner] = radii.x
+    corners.y[corner] = radii.y
+  ctx.renderRoundedShape(box, fill, stroke, corners)
 
 proc renderDrawableOps(ctx: BackendContext, node: Fig) =
   let
@@ -1684,7 +1668,7 @@ proc renderDrawable*(ctx: BackendContext, node: Fig) =
 
 proc renderBoxes(ctx: BackendContext, node: Fig) =
   ## drawing boxes for rectangles
-  ctx.renderRoundedShape(node.screenBox, node.fill, node.stroke, node.corners)
+  ctx.renderRoundedShape(node.screenBox, node.fill, node.stroke, node.resolvedCorners())
 
 proc renderImage(ctx: BackendContext, node: Fig) =
   if node.image.id.int == 0:
@@ -1752,7 +1736,7 @@ proc renderBackdropBlur(ctx: BackendContext, node: Fig) =
   if node.backdropBlur.blur > 0.0'f32:
     ctx.drawBackdropBlur(
       rect = box,
-      radii = node.corners.scaledCorners(),
+      radii = node.scaledCorners(),
       blurRadius = node.backdropBlur.blur.scaled(),
     )
 
@@ -1763,6 +1747,9 @@ proc renderBackdropBlur(ctx: BackendContext, node: Fig) =
   overlay.screenBox = node.screenBox
   overlay.fill = node.fill
   overlay.corners = node.corners
+  overlay.cornerRadiiY = node.cornerRadiiY
+  if NfEllipticalCorners in node.flags:
+    overlay.flags.incl NfEllipticalCorners
   overlay.stroke = RenderStroke(weight: 0.0'f32, fill: fill(rgba(0, 0, 0, 0)))
   ctx.renderBoxes(overlay)
 
@@ -1806,13 +1793,13 @@ proc render[Input: RenderInput](
 
     # handle clipping children content based on this node
     ifrender NfClipContent in node.flags:
-      ctx.beginMask(node.screenBox.scaled(), node.corners.scaledCorners())
+      ctx.beginMask(node.screenBox.scaled(), node.scaledCorners())
       ctx.endMask()
     finally:
       ctx.popMask()
 
     ifrender NfRectMaskContent in node.flags:
-      ctx.beginRectMask(node.screenBox.scaled(), node.corners.scaledCorners())
+      ctx.beginRectMask(node.screenBox.scaled(), node.scaledCorners())
     finally:
       ctx.popRectMask()
 
@@ -1839,7 +1826,7 @@ proc render[Input: RenderInput](
       else:
         if NfClipContent notin node.flags:
           if node.hasActiveInnerShadow():
-            ctx.beginMask(node.screenBox.scaled(), node.corners.scaledCorners())
+            ctx.beginMask(node.screenBox.scaled(), node.scaledCorners())
             ctx.endMask()
             ctx.renderInnerShadows(node)
             ctx.popMask()

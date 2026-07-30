@@ -2146,12 +2146,81 @@ func roundedRadiiVec(radii: array[DirectionCorners, float32], halfExtents: Vec2)
   )
 
 const
+  SdfEllipseFlag = 128
+  SdfRadiusQuantization = 4095.0'f32
+  SdfRadiusQuantizationBase = 4096.0'f32
   SdfFillSolidOrVertex = 0
   SdfFillLinear3X = 1
   SdfFillLinear3Y = 2
   SdfFillLinear3DiagTLBR = 3
   SdfFillLinear3DiagBLTR = 4
   SdfFillModeShift = 256
+
+func roundedRadius(radius, maximum: float32): float32 =
+  if radius <= 0.0'f32:
+    0.0'f32
+  else:
+    max(1.0'f32, min(radius, maximum)).round()
+
+func packEllipticalRadius(rx, ry: float32, halfExtents: Vec2): float32 =
+  let
+    qx = round(
+      clamp(rx / max(halfExtents.x, 0.000001'f32), 0.0'f32, 1.0'f32) *
+        SdfRadiusQuantization
+    )
+    qy = round(
+      clamp(ry / max(halfExtents.y, 0.000001'f32), 0.0'f32, 1.0'f32) *
+        SdfRadiusQuantization
+    )
+  qx + qy * SdfRadiusQuantizationBase
+
+func packCircularRadius(radius: float32): float32 =
+  ## Negative values preserve a circular corner inside an otherwise elliptical
+  ## primitive without consuming another vertex attribute.
+  -(radius + 1.0'f32)
+
+func roundedRadiiVec(
+    radii: CornerRadii2D[float32], halfExtents: Vec2
+): tuple[radii: Vec4, elliptical: bool] =
+  var allCircular = true
+  for corner in DirectionCorners:
+    if radii.x[corner] != radii.y[corner]:
+      allCircular = false
+
+  if allCircular:
+    return (roundedRadiiVec(radii.x, halfExtents), false)
+
+  let radiiX = [
+    dcTopLeft: roundedRadius(radii.x[dcTopLeft], halfExtents.x),
+    dcTopRight: roundedRadius(radii.x[dcTopRight], halfExtents.x),
+    dcBottomLeft: roundedRadius(radii.x[dcBottomLeft], halfExtents.x),
+    dcBottomRight: roundedRadius(radii.x[dcBottomRight], halfExtents.x),
+  ]
+  let radiiY = [
+    dcTopLeft: roundedRadius(radii.y[dcTopLeft], halfExtents.y),
+    dcTopRight: roundedRadius(radii.y[dcTopRight], halfExtents.y),
+    dcBottomLeft: roundedRadius(radii.y[dcBottomLeft], halfExtents.y),
+    dcBottomRight: roundedRadius(radii.y[dcBottomRight], halfExtents.y),
+  ]
+  let circleMaxRadius = min(halfExtents.x, halfExtents.y)
+  func encodeCorner(corner: DirectionCorners): float32 =
+    let
+      sameInputAxes = radii.x[corner] == radii.y[corner]
+      circleRadius = roundedRadius(radii.x[corner], circleMaxRadius)
+    if sameInputAxes:
+      return packCircularRadius(circleRadius)
+    if radiiX[corner] == radiiY[corner]:
+      return packCircularRadius(radiiX[corner])
+    packEllipticalRadius(radiiX[corner], radiiY[corner], halfExtents)
+  (
+    vec4(
+      encodeCorner(dcTopRight),
+      encodeCorner(dcBottomRight),
+      encodeCorner(dcTopLeft),
+      encodeCorner(dcBottomLeft),
+    ),
+    true,
+  )
 
 func linear3FillMode(axis: FillGradientAxis): int =
   case axis
@@ -2160,8 +2229,11 @@ func linear3FillMode(axis: FillGradientAxis): int =
   of fgaDiagTLBR: SdfFillLinear3DiagTLBR
   of fgaDiagBLTR: SdfFillLinear3DiagBLTR
 
-func encodeSdfMode(mode: SdfMode, fillMode: int): SdfModeData =
-  let packed = mode.int + fillMode * SdfFillModeShift
+func encodeSdfMode(
+    mode: SdfMode, fillMode: int, elliptical: bool = false
+): SdfModeData =
+  let packed =
+    mode.int + (if elliptical: SdfEllipseFlag else: 0) + fillMode * SdfFillModeShift
   when SdfModeData is float32: packed.float32 else: packed.uint16
 
 proc activeTextSubpixelShift(ctx: VulkanContext): float32 =
@@ -2173,18 +2245,24 @@ func `*`*(m: Mat4, v: Vec2): Vec2 =
   (m * vec3(v.x, v.y, 0.0)).xy
 
 proc makeRectMask(
-    ctx: VulkanContext, maskRect: Rect, radii: array[DirectionCorners, float32]
+    ctx: VulkanContext, maskRect: Rect, radii: CornerRadii2D[float32]
 ): RectMask =
   let
     halfExtents = maskRect.wh * 0.5'f32
     center = maskRect.xy + halfExtents
     invMat = ctx.mat.inverse()
+    encodedRadii = roundedRadiiVec(radii, halfExtents)
   RectMask(
     kind: rmkFast,
     params: vec4(center.x, center.y, halfExtents.x, halfExtents.y),
-    radii: roundedRadiiVec(radii, halfExtents),
+    radii: encodedRadii.radii,
     matX: vec4(invMat[0, 0], invMat[1, 0], invMat[3, 0], 1.0'f32),
-    matY: vec4(invMat[0, 1], invMat[1, 1], invMat[3, 1], 0.0'f32),
+    matY: vec4(
+      invMat[0, 1],
+      invMat[1, 1],
+      invMat[3, 1],
+      if encodedRadii.elliptical: 1.0'f32 else: 0.0'f32,
+    ),
   )
 
 proc setRectMaskVert4(
@@ -2830,7 +2908,7 @@ method drawRoundedRectSdf*(
     ctx: VulkanContext,
     rect: Rect,
     color: Color,
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode = sdfModeClipAA,
     factor: float32 = 4.0,
     spread: float32 = 0.0,
@@ -2851,7 +2929,7 @@ proc drawRoundedRectSdfVulkan(
     ctx: VulkanContext,
     rect: Rect,
     colors: array[4, ColorRGBA],
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode = sdfModeClipAA,
     factor: float32 = 4.0,
     spread: float32 = 0.0,
@@ -2884,31 +2962,8 @@ proc drawRoundedRectSdfVulkan(
         vec4(
           quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x, shapeHalfExtents.y
         )
-    maxRadius = min(shapeHalfExtents.x, shapeHalfExtents.y)
-    radiiClamped = [
-      dcTopLeft: (
-        if radii[dcTopLeft] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
-      ),
-      dcTopRight: (
-        if radii[dcTopRight] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
-      ),
-      dcBottomLeft: (
-        if radii[dcBottomLeft] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
-      ),
-      dcBottomRight: (
-        if radii[dcBottomRight] <= 0.0'f32: 0.0'f32
-        else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
-      ),
-    ]
-    r4 = vec4(
-      radiiClamped[dcTopRight],
-      radiiClamped[dcBottomRight],
-      radiiClamped[dcTopLeft],
-      radiiClamped[dcBottomLeft],
-    )
+    encodedRadii = roundedRadiiVec(radii, shapeHalfExtents)
+    r4 = encodedRadii.radii
 
   assert ctx.quadCount < ctx.maxQuads
 
@@ -2968,7 +3023,7 @@ proc drawRoundedRectSdfVulkan(
   ctx.sdfFactors.setVert2(offset + 2, factors)
   ctx.sdfFactors.setVert2(offset + 3, factors)
 
-  let modeVal = encodeSdfMode(mode, fillMode)
+  let modeVal = encodeSdfMode(mode, fillMode, encodedRadii.elliptical)
   ctx.sdfModeAttr[offset + 0] = modeVal
   ctx.sdfModeAttr[offset + 1] = modeVal
   ctx.sdfModeAttr[offset + 2] = modeVal
@@ -2981,7 +3036,7 @@ method drawRoundedRectSdf*(
     ctx: VulkanContext,
     rect: Rect,
     colors: array[4, ColorRGBA],
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode = sdfModeClipAA,
     factor: float32 = 4.0,
     spread: float32 = 0.0,
@@ -3001,7 +3056,7 @@ method drawRoundedRectSdf*(
     ctx: VulkanContext,
     rect: Rect,
     fill: figbackend.BackendFill,
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode = sdfModeClipAA,
     factor: float32 = 4.0,
     spread: float32 = 0.0,
@@ -3009,8 +3064,7 @@ method drawRoundedRectSdf*(
 ) =
   if fill.kind == figbackend.bfLinear3 and
       mode in {
-        sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA, sdfModeEllipseAA,
-        sdfModeEllipseAnnularAA,
+        sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA,
       }:
     ctx.drawRoundedRectSdfVulkan(
       rect = rect,
@@ -3164,10 +3218,7 @@ proc runBackdropSeparableBlur(
   vulkanBlurRunSeparable(ctx, blurRadius, blurRect)
 
 method drawBackdropBlur*(
-    ctx: VulkanContext,
-    rect: Rect,
-    radii: array[DirectionCorners, float32],
-    blurRadius: float32,
+    ctx: VulkanContext, rect: Rect, radii: CornerRadii2D[float32], blurRadius: float32
 ) =
   if blurRadius <= 0.0'f32 or rect.w <= 0.0'f32 or rect.h <= 0.0'f32:
     return
@@ -3423,9 +3474,7 @@ proc clearMask*(ctx: VulkanContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   ctx.flush()
 
-method beginMask*(
-    ctx: VulkanContext, clipRect: Rect, radii: array[DirectionCorners, float32]
-) =
+method beginMask*(ctx: VulkanContext, clipRect: Rect, radii: CornerRadii2D[float32]) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginMask has already been called."
   ctx.flush()
@@ -3464,7 +3513,7 @@ method popMask*(ctx: VulkanContext) =
   ctx.applyClipScissor()
 
 method beginRectMask*(
-    ctx: VulkanContext, maskRect: Rect, radii: array[DirectionCorners, float32]
+    ctx: VulkanContext, maskRect: Rect, radii: CornerRadii2D[float32]
 ) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginRectMask cannot start inside a mask."

@@ -165,6 +165,26 @@ proc makeRenders(w, h: float32): Renders =
   ))
 ```
 
+Corners are circular by default, so existing `corners` values keep their original
+meaning. Set `NfEllipticalCorners` to make `corners` supply each horizontal radius and
+`cornerRadiiY` supply the corresponding vertical radius:
+
+```nim
+discard result.addChild(0.ZLevel, rootIdx, Fig(
+  kind: nkRectangle,
+  screenBox: rect(360, 60, 240, 140),
+  fill: rgba(40, 120, 220, 255),
+  flags: {NfEllipticalCorners},
+  corners: [80'u16, 40'u16, 24'u16, 60'u16],
+  cornerRadiiY: [28'u16, 64'u16, 12'u16, 36'u16],
+))
+```
+
+Set all four X radii to half the width and all four Y radii to half the height to draw a
+filled ellipse with an `nkRectangle`. The common fields and flag also apply to rounded
+masks, clipping, and backdrop blurs. If every X/Y pair is equal, the renderer uses its
+existing circular-corner shader path.
+
 Feed the resulting `Renders` into the OpenGL backend; see the examples below for a full render loop.
 
 For a complete working example (window + GL context + render loop), see:
@@ -806,7 +826,9 @@ path by default:
 nim r examples/windy_renderlist.nim
 ```
 
-To force the older texture path, compile with `-d:useFigDrawTextures`.
+To force the older texture path, compile with `-d:useFigDrawTextures`. Elliptical
+fills and strokes use a CPU-rasterized texture in that mode; its legacy shadow cache
+still approximates elliptical corners using their horizontal radii.
 
 Notes:
 

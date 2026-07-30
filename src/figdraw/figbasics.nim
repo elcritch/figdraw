@@ -30,6 +30,10 @@ type
 
   CornerRadii* = array[DirectionCorners, uint16]
 
+  CornerRadii2D*[T] = object
+    ## Per-corner horizontal and vertical radii used by rendering backends.
+    x*, y*: array[DirectionCorners, T]
+
   FigKind* = enum
     ## Different types of nodes.
     nkFrame
@@ -51,6 +55,7 @@ type
     NfSelectText
     NfInvertY
     NfRectMaskContent
+    NfEllipticalCorners
 
   ShadowStyle* = enum
     ## Supports drop and inner shadows.
@@ -138,3 +143,22 @@ converter toCornerRadii*[T: SomeNumber](a: array[4, T]): CornerRadii =
 converter toCornerRadii*[T: SomeNumber](a: array[DirectionCorners, T]): CornerRadii =
   for c in DirectionCorners:
     result[c] = cornerToU16(a[c])
+
+func initCornerRadii2D*[T](radii: array[DirectionCorners, T]): CornerRadii2D[T] =
+  ## Promotes circular corner radii to two equal axes.
+  CornerRadii2D[T](x: radii, y: radii)
+
+converter toCornerRadii2D*[T](radii: array[DirectionCorners, T]): CornerRadii2D[T] =
+  ## Preserves source compatibility for circular backend calls.
+  initCornerRadii2D(radii)
+
+func initCornerRadii2D*[T](x, y: array[DirectionCorners, T]): CornerRadii2D[T] =
+  ## Creates independently controlled horizontal and vertical corner radii.
+  CornerRadii2D[T](x: x, y: y)
+
+func isCircular*[T](radii: CornerRadii2D[T]): bool =
+  ## Returns true when every corner has equal horizontal and vertical radii.
+  for corner in DirectionCorners:
+    if radii.x[corner] != radii.y[corner]:
+      return false
+  true

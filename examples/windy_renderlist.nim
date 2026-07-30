@@ -88,8 +88,7 @@ proc makeRenderTree*(w, h: float32): Renders =
           spread: 0,
           x: -6,
           y: -6,
-          fill:
-            linear(rgba(25, 25, 25, 90), rgba(65, 65, 65, 175), axis = fgaDiagTLBR),
+          fill: linear(rgba(25, 25, 25, 90), rgba(65, 65, 65, 175), axis = fgaDiagTLBR),
         ),
         RenderShadow(
           style: InnerShadow,
@@ -104,6 +103,34 @@ proc makeRenderTree*(w, h: float32): Renders =
         RenderShadow(),
         RenderShadow(),
       ],
+    ),
+  )
+  discard result.addChild(
+    0.ZLevel,
+    rootIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      screenBox: rect(580, 60, 160, 100),
+      fill: rgba(238, 140, 30, 255),
+      corners: [80'u16, 80'u16, 80'u16, 80'u16],
+      cornerRadiiY: [50'u16, 50'u16, 50'u16, 50'u16],
+      flags: {NfEllipticalCorners},
+      stroke: RenderStroke(weight: 4.0, fill: rgba(90, 45, 0, 255).color),
+    ),
+  )
+  discard result.addChild(
+    0.ZLevel,
+    rootIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      screenBox: rect(480, 330, 240, 140),
+      fill: rgba(150, 75, 210, 255),
+      corners: [90'u16, 36'u16, 70'u16, 24'u16],
+      cornerRadiiY: [24'u16, 60'u16, 18'u16, 54'u16],
+      flags: {NfEllipticalCorners},
+      stroke: RenderStroke(weight: 4.0, fill: rgba(55, 20, 90, 255).color),
     ),
   )
 
