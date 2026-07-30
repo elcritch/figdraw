@@ -514,9 +514,9 @@ float4 evalMainFragment(
     }
   }
 
-  float2 normalizedPos =
-    float2(pos.x / u.windowFrame.x, pos.y / u.windowFrame.y);
   if (u.maskTexEnabled != 0) {
+    float2 normalizedPos =
+      float2(pos.x / u.windowFrame.x, pos.y / u.windowFrame.y);
     fragColor.w *= maskTex.sample(s, normalizedPos).x;
   }
   return fragColor;
@@ -626,9 +626,9 @@ fragment float4 fs_mask(
     alpha = (1.0 - cl) * in.color.a;
   }
 
-  float2 normalizedPos =
-    float2(in.pos.x / u.windowFrame.x, in.pos.y / u.windowFrame.y);
   if (u.maskTexEnabled != 0) {
+    float2 normalizedPos =
+      float2(in.pos.x / u.windowFrame.x, in.pos.y / u.windowFrame.y);
     alpha *= maskTex.sample(s, normalizedPos).r;
   }
   return float4(alpha);

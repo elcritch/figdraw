@@ -47,33 +47,12 @@ type RectMask = object
   matX: Vec4
   matY: Vec4
 
+type CpuBuffer[T] = object
+  data: seq[T]
+
 type FlushBuffers = object
-  positions: ObjcOwned[MTLBuffer]
-  positionsCapacity: int
-  colors: ObjcOwned[MTLBuffer]
-  colorsCapacity: int
-  fillMidColors: ObjcOwned[MTLBuffer]
-  fillMidColorsCapacity: int
-  fillStopColors: ObjcOwned[MTLBuffer]
-  fillStopColorsCapacity: int
-  uvs: ObjcOwned[MTLBuffer]
-  uvsCapacity: int
-  sdfParams: ObjcOwned[MTLBuffer]
-  sdfParamsCapacity: int
-  sdfRadii: ObjcOwned[MTLBuffer]
-  sdfRadiiCapacity: int
-  sdfModeAttr: ObjcOwned[MTLBuffer]
-  sdfModeAttrCapacity: int
-  sdfFactors: ObjcOwned[MTLBuffer]
-  sdfFactorsCapacity: int
-  rectMaskParams: ObjcOwned[MTLBuffer]
-  rectMaskParamsCapacity: int
-  rectMaskRadii: ObjcOwned[MTLBuffer]
-  rectMaskRadiiCapacity: int
-  rectMaskMatX: ObjcOwned[MTLBuffer]
-  rectMaskMatXCapacity: int
-  rectMaskMatY: ObjcOwned[MTLBuffer]
-  rectMaskMatYCapacity: int
+  data: ObjcOwned[MTLBuffer]
+  capacity: int
 
 type FrameArena = object
   flushBuffers: seq[FlushBuffers]
@@ -128,19 +107,19 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
 
   # Buffer data mirrored on CPU and uploaded each flush.
   indices: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[uint16]]
-  positions: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
-  colors: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[uint8]]
-  fillMidColors: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[uint8]]
-  fillStopColors: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[uint8]]
-  uvs: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
-  sdfParams: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
-  sdfRadii: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
-  sdfModeAttr: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[SdfModeData]]
-  sdfFactors: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
-  rectMaskParams: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
-  rectMaskRadii: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
-  rectMaskMatX: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
-  rectMaskMatY: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[float32]]
+  positions: CpuBuffer[float32]
+  colors: CpuBuffer[uint8]
+  fillMidColors: CpuBuffer[uint8]
+  fillStopColors: CpuBuffer[uint8]
+  uvs: CpuBuffer[float32]
+  sdfParams: CpuBuffer[float32]
+  sdfRadii: CpuBuffer[float32]
+  sdfModeAttr: CpuBuffer[SdfModeData]
+  sdfFactors: CpuBuffer[float32]
+  rectMaskParams: CpuBuffer[float32]
+  rectMaskRadii: CpuBuffer[float32]
+  rectMaskMatX: CpuBuffer[float32]
+  rectMaskMatY: CpuBuffer[float32]
   rectMaskStack: seq[RectMask]
 
   # SDF shader uniform (global)
@@ -543,62 +522,6 @@ proc ensureDeviceAndPipelines(ctx: MetalContext) =
         if not err.isNil:
           error "Failed to create Metal blur pipeline", error = $err
         raise newException(ValueError, "Failed to create Metal blur pipeline")
-
-proc upload(ctx: MetalContext) =
-  let vertexCount = ctx.quadCount * 4
-  if vertexCount <= 0:
-    return
-
-  copyToBuf(
-    ctx.positions.buffer.borrow, ctx.positions.data, vertexCount * 2 * sizeof(float32)
-  )
-  copyToBuf(ctx.uvs.buffer.borrow, ctx.uvs.data, vertexCount * 2 * sizeof(float32))
-  copyToBuf(ctx.colors.buffer.borrow, ctx.colors.data, vertexCount * 4 * sizeof(uint8))
-  copyToBuf(
-    ctx.fillMidColors.buffer.borrow,
-    ctx.fillMidColors.data,
-    vertexCount * 4 * sizeof(uint8),
-  )
-  copyToBuf(
-    ctx.fillStopColors.buffer.borrow,
-    ctx.fillStopColors.data,
-    vertexCount * 4 * sizeof(uint8),
-  )
-  copyToBuf(
-    ctx.sdfParams.buffer.borrow, ctx.sdfParams.data, vertexCount * 4 * sizeof(float32)
-  )
-  copyToBuf(
-    ctx.sdfRadii.buffer.borrow, ctx.sdfRadii.data, vertexCount * 4 * sizeof(float32)
-  )
-  copyToBuf(
-    ctx.sdfModeAttr.buffer.borrow,
-    ctx.sdfModeAttr.data,
-    vertexCount * sizeof(SdfModeData),
-  )
-  copyToBuf(
-    ctx.sdfFactors.buffer.borrow, ctx.sdfFactors.data, vertexCount * 2 * sizeof(float32)
-  )
-  if ctx.batchHasRectMask:
-    copyToBuf(
-      ctx.rectMaskParams.buffer.borrow,
-      ctx.rectMaskParams.data,
-      vertexCount * 4 * sizeof(float32),
-    )
-    copyToBuf(
-      ctx.rectMaskRadii.buffer.borrow,
-      ctx.rectMaskRadii.data,
-      vertexCount * 4 * sizeof(float32),
-    )
-    copyToBuf(
-      ctx.rectMaskMatX.buffer.borrow,
-      ctx.rectMaskMatX.data,
-      vertexCount * 4 * sizeof(float32),
-    )
-    copyToBuf(
-      ctx.rectMaskMatY.buffer.borrow,
-      ctx.rectMaskMatY.data,
-      vertexCount * 4 * sizeof(float32),
-    )
 
 proc grow(ctx: MetalContext) =
   let nextSize = ctx.atlasSize * 2
@@ -2048,6 +1971,17 @@ proc ensureFlushBufferCapacity(
   )
   capacity = newCapacity
 
+func alignedUploadOffset(offset: int): int {.inline.} =
+  (offset + 15) and not 15
+
+proc copyToUpload[T](base: pointer, offset: int, src: seq[T], bytes: int) {.inline.} =
+  if bytes <= 0:
+    return
+  assert not base.isNil, "MTLBuffer cannot be nil"
+  assert src.len * sizeof(T) >= bytes, "buffer src too small"
+  let dst = cast[pointer](cast[uint](base) + offset.uint)
+  copyMem(dst, src[0].addr, bytes)
+
 proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   if ctx.quadCount == 0:
     return
@@ -2089,16 +2023,42 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
     raise newException(ValueError, "No active Metal frame arena")
 
   # Reuse one buffer slot per flush within the frame arena. Arenas are reused only
-  # after their command buffer has completed.
-  let positionsBytes = vertexCount * 2 * sizeof(float32)
-  let uvsBytes = vertexCount * 2 * sizeof(float32)
-  let colorsBytes = vertexCount * 4 * sizeof(uint8)
-  let fillMidColorsBytes = vertexCount * 4 * sizeof(uint8)
-  let fillStopColorsBytes = vertexCount * 4 * sizeof(uint8)
-  let sdfParamsBytes = vertexCount * 4 * sizeof(float32)
-  let sdfRadiiBytes = vertexCount * 4 * sizeof(float32)
-  let sdfModeBytes = vertexCount * sizeof(SdfModeData)
-  let sdfFactorsBytes = vertexCount * 2 * sizeof(float32)
+  # after their command buffer has completed. Attributes remain structure-of-arrays
+  # for efficient vertex fetches, but share one Metal allocation.
+  let
+    positionsBytes = vertexCount * 2 * sizeof(float32)
+    uvsBytes = vertexCount * 2 * sizeof(float32)
+    colorsBytes = vertexCount * 4 * sizeof(uint8)
+    fillMidColorsBytes = vertexCount * 4 * sizeof(uint8)
+    fillStopColorsBytes = vertexCount * 4 * sizeof(uint8)
+    sdfParamsBytes = vertexCount * 4 * sizeof(float32)
+    sdfRadiiBytes = vertexCount * 4 * sizeof(float32)
+    sdfModeBytes = vertexCount * sizeof(SdfModeData)
+    sdfFactorsBytes = vertexCount * 2 * sizeof(float32)
+    rectMaskParamsBytes =
+      if useRectMaskPipeline:
+        vertexCount * 4 * sizeof(float32)
+      else:
+        0
+    rectMaskRadiiBytes = rectMaskParamsBytes
+    rectMaskMatXBytes = rectMaskParamsBytes
+    rectMaskMatYBytes = rectMaskParamsBytes
+
+    positionsOffset = 0
+    uvsOffset = alignedUploadOffset(positionsOffset + positionsBytes)
+    colorsOffset = alignedUploadOffset(uvsOffset + uvsBytes)
+    fillMidColorsOffset = alignedUploadOffset(colorsOffset + colorsBytes)
+    fillStopColorsOffset = alignedUploadOffset(fillMidColorsOffset + fillMidColorsBytes)
+    sdfParamsOffset = alignedUploadOffset(fillStopColorsOffset + fillStopColorsBytes)
+    sdfRadiiOffset = alignedUploadOffset(sdfParamsOffset + sdfParamsBytes)
+    sdfModeOffset = alignedUploadOffset(sdfRadiiOffset + sdfRadiiBytes)
+    sdfFactorsOffset = alignedUploadOffset(sdfModeOffset + sdfModeBytes)
+    rectMaskParamsOffset = alignedUploadOffset(sdfFactorsOffset + sdfFactorsBytes)
+    rectMaskRadiiOffset =
+      alignedUploadOffset(rectMaskParamsOffset + rectMaskParamsBytes)
+    rectMaskMatXOffset = alignedUploadOffset(rectMaskRadiiOffset + rectMaskRadiiBytes)
+    rectMaskMatYOffset = alignedUploadOffset(rectMaskMatXOffset + rectMaskMatXBytes)
+    uploadBytes = alignedUploadOffset(rectMaskMatYOffset + rectMaskMatYBytes)
 
   var arena = addr ctx.frameArenas[ctx.activeArena]
   if arena[].flushBufferCursor >= arena[].flushBuffers.len:
@@ -2107,109 +2067,52 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   inc arena[].flushBufferCursor
 
   ctx.ensureFlushBufferCapacity(
-    flushBuffers[].positions, flushBuffers[].positionsCapacity, positionsBytes
+    flushBuffers[].data, flushBuffers[].capacity, uploadBytes
   )
-  ctx.ensureFlushBufferCapacity(
-    flushBuffers[].uvs, flushBuffers[].uvsCapacity, uvsBytes
+
+  let uploadBase = flushBuffers[].data.borrow.contents()
+  copyToUpload(uploadBase, positionsOffset, ctx.positions.data, positionsBytes)
+  copyToUpload(uploadBase, uvsOffset, ctx.uvs.data, uvsBytes)
+  copyToUpload(uploadBase, colorsOffset, ctx.colors.data, colorsBytes)
+  copyToUpload(
+    uploadBase, fillMidColorsOffset, ctx.fillMidColors.data, fillMidColorsBytes
   )
-  ctx.ensureFlushBufferCapacity(
-    flushBuffers[].colors, flushBuffers[].colorsCapacity, colorsBytes
+  copyToUpload(
+    uploadBase, fillStopColorsOffset, ctx.fillStopColors.data, fillStopColorsBytes
   )
-  ctx.ensureFlushBufferCapacity(
-    flushBuffers[].fillMidColors,
-    flushBuffers[].fillMidColorsCapacity,
-    fillMidColorsBytes,
-  )
-  ctx.ensureFlushBufferCapacity(
-    flushBuffers[].fillStopColors,
-    flushBuffers[].fillStopColorsCapacity,
-    fillStopColorsBytes,
-  )
-  ctx.ensureFlushBufferCapacity(
-    flushBuffers[].sdfParams, flushBuffers[].sdfParamsCapacity, sdfParamsBytes
-  )
-  ctx.ensureFlushBufferCapacity(
-    flushBuffers[].sdfRadii, flushBuffers[].sdfRadiiCapacity, sdfRadiiBytes
-  )
-  ctx.ensureFlushBufferCapacity(
-    flushBuffers[].sdfModeAttr, flushBuffers[].sdfModeAttrCapacity, sdfModeBytes
-  )
-  ctx.ensureFlushBufferCapacity(
-    flushBuffers[].sdfFactors, flushBuffers[].sdfFactorsCapacity, sdfFactorsBytes
-  )
+  copyToUpload(uploadBase, sdfParamsOffset, ctx.sdfParams.data, sdfParamsBytes)
+  copyToUpload(uploadBase, sdfRadiiOffset, ctx.sdfRadii.data, sdfRadiiBytes)
+  copyToUpload(uploadBase, sdfModeOffset, ctx.sdfModeAttr.data, sdfModeBytes)
+  copyToUpload(uploadBase, sdfFactorsOffset, ctx.sdfFactors.data, sdfFactorsBytes)
   if useRectMaskPipeline:
-    let
-      rectMaskParamsBytes = vertexCount * 4 * sizeof(float32)
-      rectMaskRadiiBytes = vertexCount * 4 * sizeof(float32)
-      rectMaskMatXBytes = vertexCount * 4 * sizeof(float32)
-      rectMaskMatYBytes = vertexCount * 4 * sizeof(float32)
-    ctx.ensureFlushBufferCapacity(
-      flushBuffers[].rectMaskParams,
-      flushBuffers[].rectMaskParamsCapacity,
-      rectMaskParamsBytes,
+    copyToUpload(
+      uploadBase, rectMaskParamsOffset, ctx.rectMaskParams.data, rectMaskParamsBytes
     )
-    ctx.ensureFlushBufferCapacity(
-      flushBuffers[].rectMaskRadii,
-      flushBuffers[].rectMaskRadiiCapacity,
-      rectMaskRadiiBytes,
+    copyToUpload(
+      uploadBase, rectMaskRadiiOffset, ctx.rectMaskRadii.data, rectMaskRadiiBytes
     )
-    ctx.ensureFlushBufferCapacity(
-      flushBuffers[].rectMaskMatX,
-      flushBuffers[].rectMaskMatXCapacity,
-      rectMaskMatXBytes,
+    copyToUpload(
+      uploadBase, rectMaskMatXOffset, ctx.rectMaskMatX.data, rectMaskMatXBytes
     )
-    ctx.ensureFlushBufferCapacity(
-      flushBuffers[].rectMaskMatY,
-      flushBuffers[].rectMaskMatYCapacity,
-      rectMaskMatYBytes,
+    copyToUpload(
+      uploadBase, rectMaskMatYOffset, ctx.rectMaskMatY.data, rectMaskMatYBytes
     )
 
-  copyToBuf(flushBuffers[].positions.borrow, ctx.positions.data, positionsBytes)
-  copyToBuf(flushBuffers[].uvs.borrow, ctx.uvs.data, uvsBytes)
-  copyToBuf(flushBuffers[].colors.borrow, ctx.colors.data, colorsBytes)
-  copyToBuf(
-    flushBuffers[].fillMidColors.borrow, ctx.fillMidColors.data, fillMidColorsBytes
-  )
-  copyToBuf(
-    flushBuffers[].fillStopColors.borrow, ctx.fillStopColors.data, fillStopColorsBytes
-  )
-  copyToBuf(flushBuffers[].sdfParams.borrow, ctx.sdfParams.data, sdfParamsBytes)
-  copyToBuf(flushBuffers[].sdfRadii.borrow, ctx.sdfRadii.data, sdfRadiiBytes)
-  copyToBuf(flushBuffers[].sdfModeAttr.borrow, ctx.sdfModeAttr.data, sdfModeBytes)
-  copyToBuf(flushBuffers[].sdfFactors.borrow, ctx.sdfFactors.data, sdfFactorsBytes)
+  let uploadBuffer = flushBuffers[].data.borrow
+  setVertexBuffer(enc, uploadBuffer, NSUInteger(positionsOffset), 0)
+  setVertexBuffer(enc, uploadBuffer, NSUInteger(uvsOffset), 1)
+  setVertexBuffer(enc, uploadBuffer, NSUInteger(colorsOffset), 2)
+  setVertexBuffer(enc, uploadBuffer, NSUInteger(sdfParamsOffset), 3)
+  setVertexBuffer(enc, uploadBuffer, NSUInteger(sdfRadiiOffset), 4)
+  setVertexBuffer(enc, uploadBuffer, NSUInteger(sdfModeOffset), 5)
+  setVertexBuffer(enc, uploadBuffer, NSUInteger(sdfFactorsOffset), 6)
+  setVertexBuffer(enc, uploadBuffer, NSUInteger(fillMidColorsOffset), 7)
+  setVertexBuffer(enc, uploadBuffer, NSUInteger(fillStopColorsOffset), 8)
   if useRectMaskPipeline:
-    let
-      rectMaskParamsBytes = vertexCount * 4 * sizeof(float32)
-      rectMaskRadiiBytes = vertexCount * 4 * sizeof(float32)
-      rectMaskMatXBytes = vertexCount * 4 * sizeof(float32)
-      rectMaskMatYBytes = vertexCount * 4 * sizeof(float32)
-    copyToBuf(
-      flushBuffers[].rectMaskParams.borrow, ctx.rectMaskParams.data, rectMaskParamsBytes
-    )
-    copyToBuf(
-      flushBuffers[].rectMaskRadii.borrow, ctx.rectMaskRadii.data, rectMaskRadiiBytes
-    )
-    copyToBuf(
-      flushBuffers[].rectMaskMatX.borrow, ctx.rectMaskMatX.data, rectMaskMatXBytes
-    )
-    copyToBuf(
-      flushBuffers[].rectMaskMatY.borrow, ctx.rectMaskMatY.data, rectMaskMatYBytes
-    )
-
-  setVertexBuffer(enc, flushBuffers[].positions.borrow, 0, 0)
-  setVertexBuffer(enc, flushBuffers[].uvs.borrow, 0, 1)
-  setVertexBuffer(enc, flushBuffers[].colors.borrow, 0, 2)
-  setVertexBuffer(enc, flushBuffers[].sdfParams.borrow, 0, 3)
-  setVertexBuffer(enc, flushBuffers[].sdfRadii.borrow, 0, 4)
-  setVertexBuffer(enc, flushBuffers[].sdfModeAttr.borrow, 0, 5)
-  setVertexBuffer(enc, flushBuffers[].sdfFactors.borrow, 0, 6)
-  setVertexBuffer(enc, flushBuffers[].fillMidColors.borrow, 0, 7)
-  setVertexBuffer(enc, flushBuffers[].fillStopColors.borrow, 0, 8)
-  if useRectMaskPipeline:
-    setVertexBuffer(enc, flushBuffers[].rectMaskParams.borrow, 0, 9)
-    setVertexBuffer(enc, flushBuffers[].rectMaskRadii.borrow, 0, 10)
-    setVertexBuffer(enc, flushBuffers[].rectMaskMatX.borrow, 0, 11)
-    setVertexBuffer(enc, flushBuffers[].rectMaskMatY.borrow, 0, 12)
+    setVertexBuffer(enc, uploadBuffer, NSUInteger(rectMaskParamsOffset), 9)
+    setVertexBuffer(enc, uploadBuffer, NSUInteger(rectMaskRadiiOffset), 10)
+    setVertexBuffer(enc, uploadBuffer, NSUInteger(rectMaskMatXOffset), 11)
+    setVertexBuffer(enc, uploadBuffer, NSUInteger(rectMaskMatYOffset), 12)
 
   type VSUniforms = object
     proj: Mat4
@@ -2305,99 +2208,6 @@ proc newContext*(
     result.rectMaskMatX.data = newSeq[float32](4 * maxQuads * 4)
     result.rectMaskMatY.data = newSeq[float32](4 * maxQuads * 4)
     result.rectMaskStack = @[]
-
-    # Allocate GPU buffers.
-    result.positions.buffer.resetRetained(
-      newBufferWithLength(
-        result.device.borrow,
-        NSUInteger(result.positions.data.len * sizeof(float32)),
-        MTLResourceOptions(0),
-      )
-    )
-    result.colors.buffer.resetRetained(
-      newBufferWithLength(
-        result.device.borrow,
-        NSUInteger(result.colors.data.len * sizeof(uint8)),
-        MTLResourceOptions(0),
-      )
-    )
-    result.fillMidColors.buffer.resetRetained(
-      newBufferWithLength(
-        result.device.borrow,
-        NSUInteger(result.fillMidColors.data.len * sizeof(uint8)),
-        MTLResourceOptions(0),
-      )
-    )
-    result.fillStopColors.buffer.resetRetained(
-      newBufferWithLength(
-        result.device.borrow,
-        NSUInteger(result.fillStopColors.data.len * sizeof(uint8)),
-        MTLResourceOptions(0),
-      )
-    )
-    result.uvs.buffer.resetRetained(
-      newBufferWithLength(
-        result.device.borrow,
-        NSUInteger(result.uvs.data.len * sizeof(float32)),
-        MTLResourceOptions(0),
-      )
-    )
-    result.sdfParams.buffer.resetRetained(
-      newBufferWithLength(
-        result.device.borrow,
-        NSUInteger(result.sdfParams.data.len * sizeof(float32)),
-        MTLResourceOptions(0),
-      )
-    )
-    result.sdfRadii.buffer.resetRetained(
-      newBufferWithLength(
-        result.device.borrow,
-        NSUInteger(result.sdfRadii.data.len * sizeof(float32)),
-        MTLResourceOptions(0),
-      )
-    )
-    result.sdfModeAttr.buffer.resetRetained(
-      newBufferWithLength(
-        result.device.borrow,
-        NSUInteger(result.sdfModeAttr.data.len * sizeof(SdfModeData)),
-        MTLResourceOptions(0),
-      )
-    )
-    result.sdfFactors.buffer.resetRetained(
-      newBufferWithLength(
-        result.device.borrow,
-        NSUInteger(result.sdfFactors.data.len * sizeof(float32)),
-        MTLResourceOptions(0),
-      )
-    )
-    result.rectMaskParams.buffer.resetRetained(
-      newBufferWithLength(
-        result.device.borrow,
-        NSUInteger(result.rectMaskParams.data.len * sizeof(float32)),
-        MTLResourceOptions(0),
-      )
-    )
-    result.rectMaskRadii.buffer.resetRetained(
-      newBufferWithLength(
-        result.device.borrow,
-        NSUInteger(result.rectMaskRadii.data.len * sizeof(float32)),
-        MTLResourceOptions(0),
-      )
-    )
-    result.rectMaskMatX.buffer.resetRetained(
-      newBufferWithLength(
-        result.device.borrow,
-        NSUInteger(result.rectMaskMatX.data.len * sizeof(float32)),
-        MTLResourceOptions(0),
-      )
-    )
-    result.rectMaskMatY.buffer.resetRetained(
-      newBufferWithLength(
-        result.device.borrow,
-        NSUInteger(result.rectMaskMatY.data.len * sizeof(float32)),
-        MTLResourceOptions(0),
-      )
-    )
 
     # Indices are static.
     result.indices.data = newSeq[uint16](maxQuads * 6)
