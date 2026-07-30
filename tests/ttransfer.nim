@@ -125,17 +125,16 @@ suite "test layers":
     check converted.backdropBlur.blur == 14.0'f32
     check converted.corners == blurNode.corners
 
-  test "transfer keeps elliptical rectangle corner axes":
-    var rectangle = FigTest(kind: nkRectangle)
+  test "transfer keeps common elliptical corner axes and flag":
+    var rectangle = FigTest(kind: nkRectangle, flags: {NfEllipticalCorners})
     rectangle.corners = [12.0'f32, 10.0'f32, 8.0'f32, 6.0'f32]
     rectangle.cornerRadiiY = [3.0'f32, 4.0'f32, 5.0'f32, 6.0'f32]
-    rectangle.cornerRadiusMode = crmElliptical
 
     let converted = rectangle.toRenderFig()
     check converted.kind == nkRectangle
     check converted.corners == [12'u16, 10'u16, 8'u16, 6'u16]
     check converted.cornerRadiiY == [3'u16, 4'u16, 5'u16, 6'u16]
-    check converted.cornerRadiusMode == crmElliptical
+    check NfEllipticalCorners in converted.flags
 
   test "transfer keeps nkTransform style":
     var transformNode = Fig(kind: nkTransform)

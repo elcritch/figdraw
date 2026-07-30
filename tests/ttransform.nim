@@ -10,6 +10,7 @@ type RecordingBackend = ref object of BackendContext
   draws: seq[Rect]
   sdfModes: seq[SdfMode]
   sdfRadii: seq[CornerRadii2D[float32]]
+  backdropRadii: seq[CornerRadii2D[float32]]
   aaFactor: float32
   aaChanges: seq[float32]
 
@@ -70,6 +71,16 @@ method drawFilledQuad*(
   let topLeft = (ctx.mat * vec3(verts[0].x, verts[0].y, 1.0'f32)).xy
   ctx.draws.add rect(topLeft.x, topLeft.y, 0.0'f32, 0.0'f32)
 
+method drawBackdropBlur*(
+    ctx: RecordingBackend,
+    rect: Rect,
+    radii: CornerRadii2D[float32],
+    blurRadius: float32,
+) =
+  discard rect
+  discard blurRadius
+  ctx.backdropRadii.add radii
+
 method translate*(ctx: RecordingBackend, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
 
@@ -105,6 +116,7 @@ proc newRecordingBackend(): RecordingBackend =
     draws: @[],
     sdfModes: @[],
     sdfRadii: @[],
+    backdropRadii: @[],
     aaFactor: DefaultSdfAaFactor,
     aaChanges: @[],
   )
@@ -140,9 +152,9 @@ suite "nkTransform render behavior":
         kind: nkRectangle,
         screenBox: rect(5.0'f32, 7.0'f32, 40.0'f32, 20.0'f32),
         fill: fill(rgba(255, 0, 0, 255)),
+        flags: {NfEllipticalCorners},
         corners: [12'u16, 10'u16, 8'u16, 6'u16],
         cornerRadiiY: [4'u16, 5'u16, 6'u16, 7'u16],
-        cornerRadiusMode: crmElliptical,
       ),
     )
 
@@ -170,6 +182,27 @@ suite "nkTransform render behavior":
 
     check ctx.sdfRadii.len == 1
     check ctx.sdfRadii[0].x == ctx.sdfRadii[0].y
+
+  test "passes common elliptical corners to backdrop blur":
+    var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())
+    discard renders.addRoot(
+      0.ZLevel,
+      Fig(
+        kind: nkBackdropBlur,
+        flags: {NfEllipticalCorners},
+        screenBox: rect(5.0'f32, 7.0'f32, 40.0'f32, 20.0'f32),
+        corners: [12'u16, 10'u16, 8'u16, 6'u16],
+        cornerRadiiY: [4'u16, 5'u16, 6'u16, 7'u16],
+        backdropBlur: BackdropBlurStyle(blur: 10.0'f32),
+      ),
+    )
+
+    let ctx = newRecordingBackend()
+    ctx.renderRoot(renders)
+
+    check ctx.backdropRadii.len == 1
+    check ctx.backdropRadii[0].x == [12.0'f32, 10.0'f32, 8.0'f32, 6.0'f32]
+    check ctx.backdropRadii[0].y == [4.0'f32, 5.0'f32, 6.0'f32, 7.0'f32]
 
   test "applies translation to child nodes":
     var renders = Renders(layers: initOrderedTable[ZLevel, RenderList]())

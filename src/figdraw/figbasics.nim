@@ -30,11 +30,6 @@ type
 
   CornerRadii* = array[DirectionCorners, uint16]
 
-  CornerRadiusMode* = enum
-    ## Selects circular or independently controlled elliptical rectangle corners.
-    crmCircular
-    crmElliptical
-
   CornerRadii2D*[T] = object
     ## Per-corner horizontal and vertical radii used by rendering backends.
     x*, y*: array[DirectionCorners, T]
@@ -60,6 +55,7 @@ type
     NfSelectText
     NfInvertY
     NfRectMaskContent
+    NfEllipticalCorners
 
   ShadowStyle* = enum
     ## Supports drop and inner shadows.

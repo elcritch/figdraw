@@ -22,8 +22,17 @@ suite "RenderList helper APIs":
     check circular.x == circular.y
     check not elliptical.isCircular
 
-  test "elliptical rectangle fields keep Fig below its size limit":
-    check sizeof(Fig) == 248
+  test "common elliptical corner fields keep Fig within its size limit":
+    let node = Fig(
+      kind: nkBackdropBlur,
+      flags: {NfEllipticalCorners},
+      corners: [8'u16, 7'u16, 6'u16, 5'u16],
+      cornerRadiiY: [4'u16, 3'u16, 2'u16, 1'u16],
+    )
+
+    check sizeof(Fig) == 256
+    check NfEllipticalCorners in node.flags
+    check node.cornerRadiiY == [4'u16, 3'u16, 2'u16, 1'u16]
 
   test "insertRoot shifts existing root and parent indexes":
     var list = RenderList()

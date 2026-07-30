@@ -81,7 +81,7 @@ func hasRoundedCorners(node: Fig): bool =
     let
       radiusX = node.corners[corner]
       radiusY =
-        if node.kind == nkRectangle and node.cornerRadiusMode == crmElliptical:
+        if NfEllipticalCorners in node.flags:
           node.cornerRadiiY[corner]
         else:
           radiusX

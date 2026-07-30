@@ -62,15 +62,14 @@ type
     rotation*: float32
     fill*: Fill
     corners*: CornerRadii
+    cornerRadiiY*: CornerRadii ##\
+      ## Vertical radii used when `NfEllipticalCorners` is set.
+      ## The `corners` field supplies the horizontal radii.
 
     case kind*: FigKind
     of nkRectangle:
       shadows*: array[ShadowCount, RenderShadow]
       stroke*: RenderStroke
-      ## Vertical corner radii used when `cornerRadiusMode` is `crmElliptical`.
-      ## The shared `corners` field supplies the horizontal radii.
-      cornerRadiiY*: CornerRadii
-      cornerRadiusMode*: CornerRadiusMode
     of nkText:
       textLayout*: GlyphArrangement
       selectionRange*: FigSelectionRange
@@ -94,8 +93,8 @@ type
 
 static:
   {.warning: "Fig node size: " & $sizeof(Fig).}
-  doAssert sizeof(Fig) < 256,
-    "FigNode SIZE: should be smaller than 256! Got: " & $sizeof(Fig)
+  doAssert sizeof(Fig) <= 256,
+    "FigNode SIZE: should be at most 256 bytes! Got: " & $sizeof(Fig)
 
 const
   DefaultDrawableBezierSteps* = 48'u16

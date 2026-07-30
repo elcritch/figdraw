@@ -564,7 +564,7 @@ proc scaledCorners(corners: CornerRadii2D[float32]): CornerRadii2D[float32] =
 
 func resolvedCorners(node: Fig): CornerRadii2D[uint16] =
   result = initCornerRadii2D(node.corners)
-  if node.kind == nkRectangle and node.cornerRadiusMode == crmElliptical:
+  if NfEllipticalCorners in node.flags:
     result.y = node.cornerRadiiY
 
 proc scaledCorners(node: Fig): CornerRadii2D[float32] =
@@ -1736,7 +1736,7 @@ proc renderBackdropBlur(ctx: BackendContext, node: Fig) =
   if node.backdropBlur.blur > 0.0'f32:
     ctx.drawBackdropBlur(
       rect = box,
-      radii = node.corners.scaledCorners(),
+      radii = node.scaledCorners(),
       blurRadius = node.backdropBlur.blur.scaled(),
     )
 
@@ -1747,6 +1747,9 @@ proc renderBackdropBlur(ctx: BackendContext, node: Fig) =
   overlay.screenBox = node.screenBox
   overlay.fill = node.fill
   overlay.corners = node.corners
+  overlay.cornerRadiiY = node.cornerRadiiY
+  if NfEllipticalCorners in node.flags:
+    overlay.flags.incl NfEllipticalCorners
   overlay.stroke = RenderStroke(weight: 0.0'f32, fill: fill(rgba(0, 0, 0, 0)))
   ctx.renderBoxes(overlay)
 
