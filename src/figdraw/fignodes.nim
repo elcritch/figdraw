@@ -159,7 +159,8 @@ proc insertNodes(list: var RenderList, insertIdx: int, nodes: openArray[Fig]) =
 template pairs*(r: Renders): auto =
   r.layers.pairs()
 
-iterator childIndex*(nodes: seq[Fig], current: FigIdx): FigIdx =
+iterator childIndex*(nodes: openArray[Fig], current: FigIdx): FigIdx =
+  ## Iterates through a borrowed view to avoid copying a RenderList's node sequence.
   let childCnt = nodes[current.int].childCount
 
   var idx = current.int + 1
