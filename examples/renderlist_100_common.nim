@@ -106,7 +106,7 @@ proc makeRenderTree*(w, h: float32, frame: int): Renders =
         zlevel: 0.ZLevel,
         corners: [uint16(c0), uint16(c1), uint16(c2), uint16(c3)],
         cornerRadiiY: [uint16(c0), uint16(c1 * 2), uint16(c2), uint16(c3 * 2)],
-        flags: {NfEllipticalCorners},
+        flags: when defined(noEllipseCorners): {} else: {NfEllipticalCorners},
         screenBox: rect(redStartX + offsetX, redStartY + offsetY, redW, redH),
         fill: rgba(220, 40, 40, 155),
         stroke: RenderStroke(weight: 5.0, fill: rgba(0, 0, 0, 155).color),
