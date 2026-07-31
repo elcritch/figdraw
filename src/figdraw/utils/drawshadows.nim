@@ -288,3 +288,16 @@ proc fillRoundedRectWithShadowSdf*[R](
     #   ctx.drawRect(rect(rect.x + maxRadius.float32, rect.y, w - 2*maxRadius.float32, h), shadowColor)
     #   ctx.drawRect(rect(rect.x, rect.y + maxRadius.float32, maxRadius.float32, h - 2*maxRadius.float32), shadowColor)
     #   ctx.drawRect(rect(rect.x + w - maxRadius.float32, rect.y + maxRadius.float32, maxRadius.float32, h - 2*maxRadius.float32), shadowColor)
+
+proc fillRoundedRectWithShadowSdf*[R](
+    ctx: R,
+    rect: Rect,
+    radii: CornerRadii2D[float32],
+    shadowX, shadowY, shadowBlur, shadowSpread: float32,
+    shadowColor: Color,
+    innerShadow = false,
+) =
+  ## The legacy nine-patch shadow cache only supports circular corner patches.
+  ctx.fillRoundedRectWithShadowSdf(
+    rect, radii.x, shadowX, shadowY, shadowBlur, shadowSpread, shadowColor, innerShadow
+  )

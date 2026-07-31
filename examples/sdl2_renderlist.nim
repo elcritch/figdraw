@@ -77,6 +77,34 @@ proc makeRenderTree*(w, h: float32): Renders =
       fill: rgba(60, 90, 220, 255),
     ),
   )
+  discard result.addChild(
+    0.ZLevel,
+    rootIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      screenBox: rect(580, 60, 160, 100),
+      fill: rgba(238, 140, 30, 255),
+      corners: [80'u16, 80'u16, 80'u16, 80'u16],
+      cornerRadiiY: [50'u16, 50'u16, 50'u16, 50'u16],
+      flags: {NfEllipticalCorners},
+      stroke: RenderStroke(weight: 4.0, fill: rgba(90, 45, 0, 255).color),
+    ),
+  )
+  discard result.addChild(
+    0.ZLevel,
+    rootIdx,
+    Fig(
+      kind: nkRectangle,
+      childCount: 0,
+      screenBox: rect(480, 330, 240, 140),
+      fill: rgba(150, 75, 210, 255),
+      corners: [90'u16, 36'u16, 70'u16, 24'u16],
+      cornerRadiiY: [24'u16, 60'u16, 18'u16, 54'u16],
+      flags: {NfEllipticalCorners},
+      stroke: RenderStroke(weight: 4.0, fill: rgba(55, 20, 90, 255).color),
+    ),
+  )
 
 proc newSdlWindow(size: IVec2, title: string): SdlWindow =
   if sdl2.init(INIT_VIDEO) != SdlSuccess:

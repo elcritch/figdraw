@@ -527,8 +527,10 @@ func `[]`(t: var Table[Hash, Rect], key: string): Rect =
 proc hash(v: Vec2): Hash =
   hash((v.x, v.y))
 
-proc hash(radii: array[DirectionCorners, float32]): Hash =
-  for r in radii:
+proc hash(radii: CornerRadii2D[float32]): Hash =
+  for r in radii.x:
+    result = result !& hash(r)
+  for r in radii.y:
     result = result !& hash(r)
 
 proc grow(ctx: OpenGlContext) =
@@ -738,31 +740,80 @@ proc setVertColor(buf: var seq[uint8], i: int, color: ColorRGBA) =
   buf[i * 4 + 2] = color.b
   buf[i * 4 + 3] = color.a
 
-func roundedRadiiVec(radii: array[DirectionCorners, float32], halfExtents: Vec2): Vec4 =
-  let maxRadius = min(halfExtents.x, halfExtents.y)
-  let radiiClamped = [
-    dcTopLeft: (
-      if radii[dcTopLeft] <= 0.0'f32: 0.0'f32
-      else: max(1.0'f32, min(radii[dcTopLeft], maxRadius)).round()
-    ),
-    dcTopRight: (
-      if radii[dcTopRight] <= 0.0'f32: 0.0'f32
-      else: max(1.0'f32, min(radii[dcTopRight], maxRadius)).round()
-    ),
-    dcBottomLeft: (
-      if radii[dcBottomLeft] <= 0.0'f32: 0.0'f32
-      else: max(1.0'f32, min(radii[dcBottomLeft], maxRadius)).round()
-    ),
-    dcBottomRight: (
-      if radii[dcBottomRight] <= 0.0'f32: 0.0'f32
-      else: max(1.0'f32, min(radii[dcBottomRight], maxRadius)).round()
-    ),
+type PackedCornerRadii = tuple[values: Vec4, elliptical: bool]
+
+func clampRadius(radius, maxRadius: float32): float32 =
+  if radius <= 0.0'f32:
+    0.0'f32
+  else:
+    max(1.0'f32, min(radius, maxRadius)).round()
+
+func roundedRadiiVec(
+    radii: CornerRadii2D[float32], halfExtents: Vec2
+): PackedCornerRadii =
+  ## Retain the old scalar encoding for circular corners. Elliptical corners
+  ## use two normalized 12-bit components packed into each float.
+  if radii.isCircular:
+    let maxRadius = min(halfExtents.x, halfExtents.y)
+    let radiiClamped = [
+      dcTopLeft: clampRadius(radii.x[dcTopLeft], maxRadius),
+      dcTopRight: clampRadius(radii.x[dcTopRight], maxRadius),
+      dcBottomLeft: clampRadius(radii.x[dcBottomLeft], maxRadius),
+      dcBottomRight: clampRadius(radii.x[dcBottomRight], maxRadius),
+    ]
+    return (
+      values: vec4(
+        radiiClamped[dcTopRight],
+        radiiClamped[dcBottomRight],
+        radiiClamped[dcTopLeft],
+        radiiClamped[dcBottomLeft],
+      ),
+      elliptical: false,
+    )
+
+  let radiiX = [
+    dcTopLeft: (clampRadius(radii.x[dcTopLeft], halfExtents.x)),
+    dcTopRight: (clampRadius(radii.x[dcTopRight], halfExtents.x)),
+    dcBottomLeft: (clampRadius(radii.x[dcBottomLeft], halfExtents.x)),
+    dcBottomRight: (clampRadius(radii.x[dcBottomRight], halfExtents.x)),
   ]
-  vec4(
-    radiiClamped[dcTopRight],
-    radiiClamped[dcBottomRight],
-    radiiClamped[dcTopLeft],
-    radiiClamped[dcBottomLeft],
+  let radiiY = [
+    dcTopLeft: clampRadius(radii.y[dcTopLeft], halfExtents.y),
+    dcTopRight: clampRadius(radii.y[dcTopRight], halfExtents.y),
+    dcBottomLeft: clampRadius(radii.y[dcBottomLeft], halfExtents.y),
+    dcBottomRight: clampRadius(radii.y[dcBottomRight], halfExtents.y),
+  ]
+  let circleMaxRadius = min(halfExtents.x, halfExtents.y)
+  func pack(radiusX, radiusY: float32): float32 =
+    let
+      quantizedX = round(
+        clamp(radiusX / max(halfExtents.x, 0.000001'f32), 0.0'f32, 1.0'f32) * 4095.0'f32
+      )
+      quantizedY = round(
+        clamp(radiusY / max(halfExtents.y, 0.000001'f32), 0.0'f32, 1.0'f32) * 4095.0'f32
+      )
+    quantizedX + quantizedY * 4096.0'f32
+
+  func encodeCorner(corner: DirectionCorners): float32 =
+    let
+      sameInputAxes = radii.x[corner] == radii.y[corner]
+      circleRadius = clampRadius(radii.x[corner], circleMaxRadius)
+    if sameInputAxes:
+      # A mixed primitive may still contain a circular corner. Preserve the
+      # legacy radius clamp and mark it for the shader's circle SDF.
+      return -(circleRadius + 1.0'f32)
+    if radiiX[corner] == radiiY[corner]:
+      return -(radiiX[corner] + 1.0'f32)
+    pack(radiiX[corner], radiiY[corner])
+
+  (
+    values: vec4(
+      encodeCorner(dcTopRight),
+      encodeCorner(dcBottomRight),
+      encodeCorner(dcTopLeft),
+      encodeCorner(dcBottomLeft),
+    ),
+    elliptical: true,
   )
 
 proc activeSubpixelShift(ctx: OpenGlContext): float32 =
@@ -778,18 +829,24 @@ proc setQuadSubpixelShift(ctx: OpenGlContext, offset: int) =
   ctx.subpixelShifts.data.setVert1(offset + 3, shift)
 
 proc makeRectMask(
-    ctx: OpenGlContext, maskRect: Rect, radii: array[DirectionCorners, float32]
+    ctx: OpenGlContext, maskRect: Rect, radii: CornerRadii2D[float32]
 ): RectMask =
   let
     halfExtents = maskRect.wh * 0.5'f32
     center = maskRect.xy + halfExtents
     invMat = ctx.mat.inverse()
+    packedRadii = roundedRadiiVec(radii, halfExtents)
   RectMask(
     kind: rmkFast,
     params: vec4(center.x, center.y, halfExtents.x, halfExtents.y),
-    radii: roundedRadiiVec(radii, halfExtents),
+    radii: packedRadii.values,
     matX: vec4(invMat[0, 0], invMat[1, 0], invMat[3, 0], 1.0'f32),
-    matY: vec4(invMat[0, 1], invMat[1, 1], invMat[3, 1], 0.0'f32),
+    matY: vec4(
+      invMat[0, 1],
+      invMat[1, 1],
+      invMat[3, 1],
+      if packedRadii.elliptical: 1.0'f32 else: 0.0'f32,
+    ),
   )
 
 proc setRectMaskVert4(
@@ -932,6 +989,7 @@ const
   SdfFillLinear3Y = 2
   SdfFillLinear3DiagTLBR = 3
   SdfFillLinear3DiagBLTR = 4
+  SdfEllipticalRadiiFlag = 128
   SdfFillModeShift = 256
 
 func linear3FillMode(axis: FillGradientAxis): int =
@@ -941,8 +999,12 @@ func linear3FillMode(axis: FillGradientAxis): int =
   of fgaDiagTLBR: SdfFillLinear3DiagTLBR
   of fgaDiagBLTR: SdfFillLinear3DiagBLTR
 
-func encodeSdfMode(mode: SdfMode, fillMode: int): SdfModeData =
-  let packed = mode.int + fillMode * SdfFillModeShift
+func encodeSdfMode(
+    mode: SdfMode, fillMode: int, ellipticalRadii: bool = false
+): SdfModeData =
+  let packed =
+    mode.int + (if ellipticalRadii: SdfEllipticalRadiiFlag else: 0) +
+    fillMode * SdfFillModeShift
   when SdfModeData is float32: packed.float32 else: packed.uint16
 
 proc setFillExtraColors(
@@ -1367,7 +1429,7 @@ method drawRoundedRectSdf*(
     ctx: OpenGlContext,
     rect: Rect,
     color: Color,
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode = sdfModeClipAA,
     factor: float32 = 4.0,
     spread: float32 = 0.0,
@@ -1388,7 +1450,7 @@ proc drawRoundedRectSdfOpenGl(
     ctx: OpenGlContext,
     rect: Rect,
     colors: array[4, ColorRGBA],
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode = sdfModeClipAA,
     factor: float32 = 4.0,
     spread: float32 = 0.0,
@@ -1422,7 +1484,8 @@ proc drawRoundedRectSdfOpenGl(
         vec4(
           quadHalfExtents.x, quadHalfExtents.y, shapeHalfExtents.x, shapeHalfExtents.y
         )
-    r4 = roundedRadiiVec(radii, shapeHalfExtents)
+    packedRadii = roundedRadiiVec(radii, shapeHalfExtents)
+    r4 = packedRadii.values
 
   assert ctx.quadCount < ctx.maxQuads
 
@@ -1483,9 +1546,9 @@ proc drawRoundedRectSdfOpenGl(
   ctx.sdfFactors.data.setVert2(offset + 3, factors)
 
   when defined(emscripten):
-    let modeVal = encodeSdfMode(mode, fillMode)
+    let modeVal = encodeSdfMode(mode, fillMode, packedRadii.elliptical)
   else:
-    let modeVal = encodeSdfMode(mode, fillMode)
+    let modeVal = encodeSdfMode(mode, fillMode, packedRadii.elliptical)
   ctx.sdfModeAttr.data[offset + 0] = modeVal
   ctx.sdfModeAttr.data[offset + 1] = modeVal
   ctx.sdfModeAttr.data[offset + 2] = modeVal
@@ -1499,7 +1562,7 @@ method drawRoundedRectSdf*(
     ctx: OpenGlContext,
     rect: Rect,
     colors: array[4, ColorRGBA],
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode = sdfModeClipAA,
     factor: float32 = 4.0,
     spread: float32 = 0.0,
@@ -1519,7 +1582,7 @@ method drawRoundedRectSdf*(
     ctx: OpenGlContext,
     rect: Rect,
     fill: figbackend.BackendFill,
-    radii: array[DirectionCorners, float32],
+    radii: CornerRadii2D[float32],
     mode: SdfMode = sdfModeClipAA,
     factor: float32 = 4.0,
     spread: float32 = 0.0,
@@ -1527,8 +1590,7 @@ method drawRoundedRectSdf*(
 ) =
   if fill.kind == figbackend.bfLinear3 and
       mode in {
-        sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA, sdfModeEllipseAA,
-        sdfModeEllipseAnnularAA,
+        sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA,
       }:
     ctx.drawRoundedRectSdfOpenGl(
       rect = rect,
@@ -1724,10 +1786,7 @@ proc runBackdropSeparableBlur(ctx: OpenGlContext, blurRadius: float32) =
     glEnable(GL_BLEND)
 
 method drawBackdropBlur*(
-    ctx: OpenGlContext,
-    rect: Rect,
-    radii: array[DirectionCorners, float32],
-    blurRadius: float32,
+    ctx: OpenGlContext, rect: Rect, radii: CornerRadii2D[float32], blurRadius: float32
 ) =
   if blurRadius <= 0.0'f32 or rect.w <= 0.0'f32 or rect.h <= 0.0'f32:
     return
@@ -1824,9 +1883,7 @@ proc clearMask*(ctx: OpenGlContext) =
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
-method beginMask*(
-    ctx: OpenGlContext, clipRect: Rect, radii: array[DirectionCorners, float32]
-) =
+method beginMask*(ctx: OpenGlContext, clipRect: Rect, radii: CornerRadii2D[float32]) =
   ## Starts drawing into a mask.
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginMask has already been called."
@@ -1873,7 +1930,7 @@ method popMask*(ctx: OpenGlContext) =
   dec ctx.maskTextureWrite
 
 method beginRectMask*(
-    ctx: OpenGlContext, maskRect: Rect, radii: array[DirectionCorners, float32]
+    ctx: OpenGlContext, maskRect: Rect, radii: CornerRadii2D[float32]
 ) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginRectMask cannot start inside a mask."

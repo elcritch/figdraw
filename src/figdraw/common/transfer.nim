@@ -56,6 +56,9 @@ proc toRenderFig*[N](current: N): Fig =
   when compiles(current.corners):
     for corner in DirectionCorners:
       result.corners[corner] = cornerToU16(current.corners[corner])
+  when compiles(current.cornerRadiiY):
+    for corner in DirectionCorners:
+      result.cornerRadiiY[corner] = cornerToU16(current.cornerRadiiY[corner])
 
   case current.kind
   of nkRectangle:

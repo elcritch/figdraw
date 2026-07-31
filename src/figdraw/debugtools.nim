@@ -77,8 +77,15 @@ func offsetRect(r: Rect, offset: Vec2): Rect =
   rect(r.x + offset.x, r.y + offset.y, r.w, r.h)
 
 func hasRoundedCorners(node: Fig): bool =
-  for radius in node.corners:
-    if radius != 0'u16:
+  for corner in DirectionCorners:
+    let
+      radiusX = node.corners[corner]
+      radiusY =
+        if NfEllipticalCorners in node.flags:
+          node.cornerRadiiY[corner]
+        else:
+          radiusX
+    if radiusX != 0'u16 and radiusY != 0'u16:
       return true
 
 func hasFillAlpha(fill: Fill): bool =
@@ -139,8 +146,7 @@ proc collectDebugFigs(
   let effectiveBox = node.screenBox.offsetRect(nodeTranslation)
   if NfDisableRender in node.flags:
     result.add DebugFig(
-      hit: FigHit(location: location, node: node, bounds: effectiveBox),
-      disabled: true,
+      hit: FigHit(location: location, node: node, bounds: effectiveBox), disabled: true
     )
     return
 
@@ -185,7 +191,7 @@ proc collectDebugFigs(
     if list.nodes[childIdx].childOf(nodeIdx):
       collectDebugFigs(
         list, zlevel, childIdx.FigIdx, nextHasClip, nextClip, nodeTranslation,
-        approximate, result
+        approximate, result,
       )
       inc foundChildren
     inc childIdx
