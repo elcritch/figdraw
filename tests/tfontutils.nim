@@ -1639,7 +1639,7 @@ suite "fontutils":
       candidates = @["Arial", "Segoe UI", "Tahoma", "Verdana", "Calibri"]
     elif defined(macosx):
       candidates = @["Helvetica", "Arial", "Menlo", "SFNS"]
-    elif defined(linux) or defined(freebsd):
+    elif defined(linux) or defined(bsd):
       candidates = @["DejaVu Sans", "Noto Sans", "Liberation Sans", "Ubuntu"]
 
     let systemPath = firstLoadableSystemFontPath(candidates)

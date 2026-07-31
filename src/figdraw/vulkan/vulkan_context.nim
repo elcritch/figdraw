@@ -54,7 +54,7 @@ type PresentTargetKind* = enum
   presentTargetWin32
   presentTargetMetal
 
-when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+when defined(linux) or defined(bsd):
   type LinuxSurfaceKind = enum
     linuxSurfaceXlib
     linuxSurfaceXcb
@@ -160,7 +160,7 @@ type
     presentWin32Hinstance: pointer
     presentWin32Hwnd: pointer
     presentMetalLayer: pointer
-    when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+    when defined(linux) or defined(bsd):
       linuxSurfaceKind: LinuxSurfaceKind
 
     surface: VkSurfaceKHR
@@ -315,7 +315,7 @@ proc createPresentSurface(ctx: VulkanContext) =
 
   case ctx.presentTargetKind
   of presentTargetXlib:
-    when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+    when defined(linux) or defined(bsd):
       case ctx.linuxSurfaceKind
       of linuxSurfaceXcb:
         let fnPtr = vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXcbSurfaceKHR")
@@ -362,7 +362,7 @@ proc createPresentSurface(ctx: VulkanContext) =
     else:
       raise newException(ValueError, "Xlib Vulkan surface unsupported on this OS")
   of presentTargetWayland:
-    when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+    when defined(linux) or defined(bsd):
       loadVK_KHR_wayland_surface()
       let createInfo = newVkWaylandSurfaceCreateInfoKHR(
         display = cast[ptr wl_display](ctx.presentWaylandDisplay),
@@ -1389,7 +1389,7 @@ proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
     enabledExtNames.add(VkKhrSurfaceExtensionName)
     case surfaceTargetKind
     of presentTargetXlib:
-      when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+      when defined(linux) or defined(bsd):
         let hasXlib = VkKhrXlibSurfaceExtensionName in availableExts
         let hasXcb = VkKhrXcbSurfaceExtensionName in availableExts
         if hasXlib:
@@ -1408,7 +1408,7 @@ proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
       else:
         enabledExtNames.add(VkKhrXlibSurfaceExtensionName)
     of presentTargetWayland:
-      when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+      when defined(linux) or defined(bsd):
         if VkKhrWaylandSurfaceExtensionName in availableExts:
           enabledExtNames.add(VkKhrWaylandSurfaceExtensionName)
         else:
@@ -1435,7 +1435,7 @@ proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
     availableExtensionsCount = availableExts.len,
     availableLayers = availableLayers,
     presentTarget = $surfaceTargetKind
-  when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+  when defined(linux) or defined(bsd):
     debug "Selected Linux Vulkan surface extension mode",
       linuxSurfaceKind = $ctx.linuxSurfaceKind
 
@@ -3865,7 +3865,7 @@ proc newContext*(
   result.presentQueueFamily = 0
   result.presentTargetKind = presentTargetNone
   result.instanceSurfaceHint = presentTargetNone
-  when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+  when defined(linux) or defined(bsd):
     result.linuxSurfaceKind = linuxSurfaceXlib
   result.surface = vkNullSurface
   result.surfaceOwnedByContext = false
@@ -3989,7 +3989,7 @@ proc clearPresentTarget*(ctx: VulkanContext) =
     ctx.surfaceOwnedByContext = false
   ctx.presentTargetKind = presentTargetNone
   ctx.instanceSurfaceHint = presentTargetNone
-  when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+  when defined(linux) or defined(bsd):
     ctx.linuxSurfaceKind = linuxSurfaceXlib
   ctx.presentXlibDisplay = nil
   ctx.presentXlibWindow = 0
