@@ -40,6 +40,14 @@ when NeedSiwinOpenGLContext:
   import figdraw/utils/glutils
 
 export siWindow, siWindowOpengl, vmath
+when defined(linux) or defined(bsd):
+  type
+    LayerSurfaceLayer* = siWaylandWindow.LayerSurfaceLayer
+    LayerSurfaceAnchor* = siWaylandWindow.LayerSurfaceAnchor
+    LayerSurfaceKeyboardMode* = siWaylandWindow.LayerSurfaceKeyboardMode
+    LayerSurfaceMargins* = siWaylandWindow.LayerSurfaceMargins
+    LayerSurfaceConfig* = siWaylandWindow.LayerSurfaceConfig
+
 when defined(macosx):
   export siCocoaWindow
 
@@ -229,9 +237,8 @@ proc newSiwinLayerSurfaceWindow*(
       startOpenGL(openglVersion)
       result.makeCurrent()
   else:
-    raise SiwinPlatformSupportDefect.newException(
-      "Layer-shell surfaces require Wayland"
-    )
+    raise
+      SiwinPlatformSupportDefect.newException("Layer-shell surfaces require Wayland")
 
 proc newSiwinLayerSurfaceWindow*(
     renderer: FigRenderer,
@@ -248,8 +255,7 @@ proc newSiwinLayerSurfaceWindow*(
   when defined(linux) or defined(bsd):
     let
       globals = sharedSiwinGlobals()
-      forceOpenGl =
-        runtimeForceOpenGlRequested() or renderer.forceOpenGlByEnv()
+      forceOpenGl = runtimeForceOpenGlRequested() or renderer.forceOpenGlByEnv()
 
     when UseVulkanBackend:
       if not forceOpenGl and renderer.backendKind() == rbVulkan:
@@ -283,9 +289,8 @@ proc newSiwinLayerSurfaceWindow*(
         "The selected FigDraw backend cannot create an OpenGL layer surface"
       )
   else:
-    raise SiwinPlatformSupportDefect.newException(
-      "Layer-shell surfaces require Wayland"
-    )
+    raise
+      SiwinPlatformSupportDefect.newException("Layer-shell surfaces require Wayland")
 
 proc newSiwinWindow*(
     renderer: FigRenderer,
