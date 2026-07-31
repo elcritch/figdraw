@@ -51,7 +51,7 @@ type
     imageUsage*: VkImageUsageFlags
     transferSrcEnabled*: bool
 
-when defined(linux) or defined(freebsd) or defined(openbsd) or defined(netbsd):
+when defined(linux) or defined(bsd):
   type VkXlibSurfaceCreateInfoKHRNative* {.bycopy.} = object
     sType*: VkStructureType
     pNext*: pointer

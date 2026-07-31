@@ -57,7 +57,7 @@ suite "system fonts":
         timesNewRoman = findSystemFontFile(["Times New Roman"])
       check helvetica.extractFilename == "Helvetica.ttc"
       check timesNewRoman.extractFilename == "Times New Roman.ttf"
-  elif defined(linux) or defined(freebsd):
+  elif defined(linux) or defined(bsd):
     test "detect display server from environment":
       let oldWayland = getEnv("WAYLAND_DISPLAY", "")
       let oldDisplay = getEnv("DISPLAY", "")
