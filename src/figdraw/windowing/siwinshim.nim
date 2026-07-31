@@ -210,19 +210,78 @@ proc newSiwinLayerSurfaceWindow*(
     config: LayerSurfaceConfig,
     transparent = false,
 ): Window =
-  ## Creates a Wayland layer-shell surface backed by FigDraw's selected GPU
-  ## renderer. The renderer is attached separately with `setupBackend`, just
-  ## like a normal Siwin window.
+  ## Creates an OpenGL Wayland layer-shell surface.
+  ##
+  ## Prefer the renderer-taking overload when the window must use FigDraw's
+  ## selected Vulkan or OpenGL backend.
   when defined(linux) or defined(bsd):
-    let globals = sharedSiwinGlobals()
-    result = siWindow.newLayerSurfaceWindow(
-      globals,
+    when NeedSiwinOpenGLContext:
+      configureSoftwareOpenGl()
+    result = siWindowOpengl.newOpenglLayerSurfaceWindow(
+      sharedSiwinGlobals(),
       size = size,
       title = title,
       screen = screen,
       config = config,
       transparent = transparent,
     )
+    when NeedSiwinOpenGLContext:
+      startOpenGL(openglVersion)
+      result.makeCurrent()
+  else:
+    raise SiwinPlatformSupportDefect.newException(
+      "Layer-shell surfaces require Wayland"
+    )
+
+proc newSiwinLayerSurfaceWindow*(
+    renderer: FigRenderer,
+    size: IVec2,
+    title = "FigDraw Layer Surface",
+    screen = -1'i32,
+    config: LayerSurfaceConfig,
+    transparent = false,
+): Window =
+  ## Creates a renderer-specific Wayland layer-shell surface.
+  ##
+  ## Vulkan renderers provide their instance to Siwin so it can create a native
+  ## Vulkan surface. OpenGL renderers use Siwin's EGL-backed OpenGL window.
+  when defined(linux) or defined(bsd):
+    let
+      globals = sharedSiwinGlobals()
+      forceOpenGl =
+        runtimeForceOpenGlRequested() or renderer.forceOpenGlByEnv()
+
+    when UseVulkanBackend:
+      if not forceOpenGl and renderer.backendKind() == rbVulkan:
+        let vkCtx = renderer.ctx.VulkanContext
+        vkCtx.setInstanceSurfaceHint(presentTargetWayland)
+        vkCtx.ensureInstance()
+        return siWindowVulkan.newVulkanLayerSurfaceWindow(
+          globals,
+          vkCtx.instanceHandle(),
+          size = size,
+          title = title,
+          screen = screen,
+          config = config,
+          transparent = transparent,
+        )
+
+    when NeedSiwinOpenGLContext:
+      configureSoftwareOpenGl()
+      result = siWindowOpengl.newOpenglLayerSurfaceWindow(
+        globals,
+        size = size,
+        title = title,
+        screen = screen,
+        config = config,
+        transparent = transparent,
+      )
+      startOpenGL(openglVersion)
+      result.makeCurrent()
+    else:
+      raise SiwinPlatformSupportDefect.newException(
+        "The selected FigDraw backend cannot create an OpenGL layer surface"
+      )
   else:
     raise SiwinPlatformSupportDefect.newException(
       "Layer-shell surfaces require Wayland"
