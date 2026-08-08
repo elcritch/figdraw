@@ -211,18 +211,18 @@ proc newSiwinWindow*(
     window.fullscreen = true
   result = window
 
-proc newSiwinLayerSurfaceWindow*(
-    size: IVec2,
-    title = "FigDraw Layer Surface",
-    screen = -1'i32,
-    config: LayerSurfaceConfig,
-    transparent = false,
-): Window =
-  ## Creates an OpenGL Wayland layer-shell surface.
-  ##
-  ## Prefer the renderer-taking overload when the window must use FigDraw's
-  ## selected Vulkan or OpenGL backend.
-  when defined(linux) or defined(bsd):
+when defined(linux) or defined(bsd):
+  proc newSiwinLayerSurfaceWindow*(
+      size: IVec2,
+      title = "FigDraw Layer Surface",
+      screen = -1'i32,
+      config: LayerSurfaceConfig,
+      transparent = false,
+  ): Window =
+    ## Creates an OpenGL Wayland layer-shell surface.
+    ##
+    ## Prefer the renderer-taking overload when the window must use FigDraw's
+    ## selected Vulkan or OpenGL backend.
     when NeedSiwinOpenGLContext:
       configureSoftwareOpenGl()
     result = siWindowOpengl.newOpenglLayerSurfaceWindow(
@@ -236,23 +236,19 @@ proc newSiwinLayerSurfaceWindow*(
     when NeedSiwinOpenGLContext:
       startOpenGL(openglVersion)
       result.makeCurrent()
-  else:
-    raise
-      SiwinPlatformSupportDefect.newException("Layer-shell surfaces require Wayland")
 
-proc newSiwinLayerSurfaceWindow*(
-    renderer: FigRenderer,
-    size: IVec2,
-    title = "FigDraw Layer Surface",
-    screen = -1'i32,
-    config: LayerSurfaceConfig,
-    transparent = false,
-): Window =
-  ## Creates a renderer-specific Wayland layer-shell surface.
-  ##
-  ## Vulkan renderers provide their instance to Siwin so it can create a native
-  ## Vulkan surface. OpenGL renderers use Siwin's EGL-backed OpenGL window.
-  when defined(linux) or defined(bsd):
+  proc newSiwinLayerSurfaceWindow*(
+      renderer: FigRenderer,
+      size: IVec2,
+      title = "FigDraw Layer Surface",
+      screen = -1'i32,
+      config: LayerSurfaceConfig,
+      transparent = false,
+  ): Window =
+    ## Creates a renderer-specific Wayland layer-shell surface.
+    ##
+    ## Vulkan renderers provide their instance to Siwin so it can create a native
+    ## Vulkan surface. OpenGL renderers use Siwin's EGL-backed OpenGL window.
     let
       globals = sharedSiwinGlobals()
       forceOpenGl = runtimeForceOpenGlRequested() or renderer.forceOpenGlByEnv()
@@ -288,9 +284,6 @@ proc newSiwinLayerSurfaceWindow*(
       raise SiwinPlatformSupportDefect.newException(
         "The selected FigDraw backend cannot create an OpenGL layer surface"
       )
-  else:
-    raise
-      SiwinPlatformSupportDefect.newException("Layer-shell surfaces require Wayland")
 
 proc newSiwinWindow*(
     renderer: FigRenderer,
