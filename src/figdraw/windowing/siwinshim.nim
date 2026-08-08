@@ -40,6 +40,14 @@ when NeedSiwinOpenGLContext:
   import figdraw/utils/glutils
 
 export siWindow, siWindowOpengl, vmath
+when defined(linux) or defined(bsd):
+  type
+    LayerSurfaceLayer* = siWaylandWindow.LayerSurfaceLayer
+    LayerSurfaceAnchor* = siWaylandWindow.LayerSurfaceAnchor
+    LayerSurfaceKeyboardMode* = siWaylandWindow.LayerSurfaceKeyboardMode
+    LayerSurfaceMargins* = siWaylandWindow.LayerSurfaceMargins
+    LayerSurfaceConfig* = siWaylandWindow.LayerSurfaceConfig
+
 when defined(macosx):
   export siCocoaWindow
 
@@ -202,6 +210,80 @@ proc newSiwinWindow*(
   if fullscreen:
     window.fullscreen = true
   result = window
+
+when defined(linux) or defined(bsd):
+  proc newSiwinLayerSurfaceWindow*(
+      size: IVec2,
+      title = "FigDraw Layer Surface",
+      screen = -1'i32,
+      config: LayerSurfaceConfig,
+      transparent = false,
+  ): Window =
+    ## Creates an OpenGL Wayland layer-shell surface.
+    ##
+    ## Prefer the renderer-taking overload when the window must use FigDraw's
+    ## selected Vulkan or OpenGL backend.
+    when NeedSiwinOpenGLContext:
+      configureSoftwareOpenGl()
+    result = siWindowOpengl.newOpenglLayerSurfaceWindow(
+      sharedSiwinGlobals(),
+      size = size,
+      title = title,
+      screen = screen,
+      config = config,
+      transparent = transparent,
+    )
+    when NeedSiwinOpenGLContext:
+      startOpenGL(openglVersion)
+      result.makeCurrent()
+
+  proc newSiwinLayerSurfaceWindow*(
+      renderer: FigRenderer,
+      size: IVec2,
+      title = "FigDraw Layer Surface",
+      screen = -1'i32,
+      config: LayerSurfaceConfig,
+      transparent = false,
+  ): Window =
+    ## Creates a renderer-specific Wayland layer-shell surface.
+    ##
+    ## Vulkan renderers provide their instance to Siwin so it can create a native
+    ## Vulkan surface. OpenGL renderers use Siwin's EGL-backed OpenGL window.
+    let
+      globals = sharedSiwinGlobals()
+      forceOpenGl = runtimeForceOpenGlRequested() or renderer.forceOpenGlByEnv()
+
+    when UseVulkanBackend:
+      if not forceOpenGl and renderer.backendKind() == rbVulkan:
+        let vkCtx = renderer.ctx.VulkanContext
+        vkCtx.setInstanceSurfaceHint(presentTargetWayland)
+        vkCtx.ensureInstance()
+        return siWindowVulkan.newVulkanLayerSurfaceWindow(
+          globals,
+          vkCtx.instanceHandle(),
+          size = size,
+          title = title,
+          screen = screen,
+          config = config,
+          transparent = transparent,
+        )
+
+    when NeedSiwinOpenGLContext:
+      configureSoftwareOpenGl()
+      result = siWindowOpengl.newOpenglLayerSurfaceWindow(
+        globals,
+        size = size,
+        title = title,
+        screen = screen,
+        config = config,
+        transparent = transparent,
+      )
+      startOpenGL(openglVersion)
+      result.makeCurrent()
+    else:
+      raise SiwinPlatformSupportDefect.newException(
+        "The selected FigDraw backend cannot create an OpenGL layer surface"
+      )
 
 proc newSiwinWindow*(
     renderer: FigRenderer,
