@@ -197,10 +197,15 @@ jobs:
       uses: actions/cache@v3
       with:
         path: deps/
-        key: ${{ runner.os }}-${{ matrix.display }}-${{ matrix.renderer }}-nim${{ matrix.nimversion }}-${{ hashFiles('figdraw.nimble') }}
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.display }}-${{ matrix.renderer }}-nim${{ matrix.nimversion }}-${{ hashFiles('figdraw.nimble') }}
 
     - name: Setup Nim environment
+      if: runner.os != 'macOS'
       run: atlas --binary --github-path env ${{ matrix.nimversion }}
+
+    - name: Setup native Nim environment (macOS)
+      if: runner.os == 'macOS'
+      run: atlas --source --github-path env ${{ matrix.nimversion }}
 
     - name: Nim version
       run: |
