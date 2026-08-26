@@ -8,7 +8,10 @@
     {"source": "../common/filltypes.nim", "name": "fill"},
     {"source": "../common/filltypes.nim", "name": "linear"},
     {"source": "../common/shared.nim", "name": "setFigDataDir"},
-    {"source": "../common/typefaces.nim", "name": "loadTypeface"}
+    {"source": "../common/typefaces.nim", "name": "loadTypeface"},
+    {"source": "../utils/drawutils.nim", "name": "figDashedRoundedRectBorder"},
+    {"source": "../utils/drawutils.nim", "name": "figDottedRoundedRectBorder"},
+    {"source": "../utils/drawutils.nim", "name": "figRoundedRectBorder"}
   ],
   "requireMatches": true
 }

@@ -184,7 +184,7 @@ when defined(feature.figdraw.sharedlib):
     backend = nativeBackend,
   )
   nativeBuild.nimArgs =
-    @["--mm:orc", "-d:useMalloc", "-d:release", "--path:src", "--path:deps/siwin/src"]
+    @["--mm:arc", "-d:useMalloc", "-d:release", "--path:src", "--path:deps/siwin/src"]
   nativeBuild.libraryNameStrdefine = true
   when defined(macosx):
     nativeBuild.linkerArgs =
