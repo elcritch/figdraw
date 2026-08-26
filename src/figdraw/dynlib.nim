@@ -29,7 +29,32 @@ const figdrawTextBackend* {.strdefine.} =
 type
   ImageRef* = ImageId
 
+  DirectionCorners* = enum
+    dcTopLeft
+    dcTopRight
+    dcBottomLeft
+    dcBottomRight
+
+  CornerRadii2D*[T] = object
+    x*, y*: array[DirectionCorners, T]
+
   SiwinRenderBackend* = object
+
+  SiwinPresentationTarget* = object
+
+  WindowVisualRegion* = object
+    pos*: vmath.IVec2
+    size*: vmath.IVec2
+
+  WindowBackdropConfig* = object
+    regions*: seq[WindowVisualRegion]
+    case kind*: WindowBackdropKind
+    of wbkMaterial:
+      material*: WindowBackdropMaterial
+    of wbkNone, wbkBlur:
+      discard
+
+  WindowVisualEffectError* = object of CatchableError
 
   Mouse* = object
     pos*: vmath.Vec2
@@ -47,13 +72,7 @@ type
     handle: NativeSiwinApp
     eventsHandler*: WindowEventsHandler
     clipboard*: Clipboard
-    wasOpened: bool
-    pollReady: bool
-    lastMouse: Mouse
-    lastKeyboard: Keyboard
-    lastPos: vmath.IVec2
-    lastFocused, lastFullscreen, lastMaximized, lastFrameless: bool
-    lastPopupOpen: bool
+    backdropConfig: WindowBackdropConfig
     autoScale: bool
     width, height: int32
     titleText: string
@@ -164,6 +183,10 @@ type
     onStateBoolChanged*: proc(e: StateBoolChangedEvent)
     onPopupDone*: proc(e: PopupEvent)
 
+converter nilToImageRef*(value: typeof(nil)): ImageRef =
+  discard value
+  default(ImageRef)
+
 proc dispatchNativeResize(
     context: pointer, width, height: int32, initial: bool
 ) {.cdecl.} =
@@ -173,10 +196,51 @@ proc dispatchNativeResize(
       ResizeEvent(window: window, size: vmath.ivec2(width, height), initial: initial)
     )
 
+proc dispatchNativeClose(context: pointer) {.cdecl.} =
+  let window = cast[Window](context)
+  if window.eventsHandler.onClose != nil:
+    window.eventsHandler.onClose(CloseEvent(window: window))
+
 proc dispatchNativeRender(context: pointer) {.cdecl.} =
   let window = cast[Window](context)
   if window.eventsHandler.onRender != nil:
     window.eventsHandler.onRender(RenderEvent(window: window))
+
+proc dispatchNativeWindowMove(context: pointer, x, y: int32) {.cdecl.} =
+  let window = cast[Window](context)
+  if window.eventsHandler.onWindowMove != nil:
+    window.eventsHandler.onWindowMove(
+      WindowMoveEvent(window: window, pos: vmath.ivec2(x, y))
+    )
+
+proc dispatchNativeMouseMove(context: pointer, x, y: float32, kind: uint8) {.cdecl.} =
+  let window = cast[Window](context)
+  if window.eventsHandler.onMouseMove != nil:
+    window.eventsHandler.onMouseMove(
+      MouseMoveEvent(window: window, pos: vmath.vec2(x, y), kind: MouseMoveKind(kind))
+    )
+
+proc dispatchNativeMouseButton(
+    context: pointer, button: MouseButton, pressed, generated: bool
+) {.cdecl.} =
+  let window = cast[Window](context)
+  if window.eventsHandler.onMouseButton != nil:
+    window.eventsHandler.onMouseButton(
+      MouseButtonEvent(
+        window: window, button: button, pressed: pressed, generated: generated
+      )
+    )
+
+proc dispatchNativeScroll(
+    context: pointer, delta, deltaX: float, device: uint8
+) {.cdecl.} =
+  let window = cast[Window](context)
+  if window.eventsHandler.onScroll != nil:
+    window.eventsHandler.onScroll(
+      ScrollEvent(
+        window: window, delta: delta, deltaX: deltaX, device: ScrollDeviceKind(device)
+      )
+    )
 
 proc dispatchNativeKey(
     context: pointer, key: Key, pressed, repeated, generated: bool, modifierMask: uint8
@@ -210,14 +274,42 @@ proc dispatchNativeTextInput(
       TextInputEvent(window: window, text: value, repeated: repeated)
     )
 
+proc dispatchNativeStateBoolChanged(
+    context: pointer, value: bool, kind: uint8, isExternal: bool
+) {.cdecl.} =
+  let window = cast[Window](context)
+  if window.eventsHandler.onStateBoolChanged != nil:
+    window.eventsHandler.onStateBoolChanged(
+      StateBoolChangedEvent(
+        window: window,
+        value: value,
+        kind: StateBoolChangedEventKind(kind),
+        isExternal: isExternal,
+      )
+    )
+
+proc dispatchNativePopup(context: pointer, reason: uint8) {.cdecl.} =
+  let window = cast[Window](context)
+  if window.eventsHandler.onPopupDone != nil:
+    window.eventsHandler.onPopupDone(
+      PopupEvent(window: window, reason: PopupDismissReason(reason))
+    )
+
 proc installEventCallbacks(window: Window) =
   siwinSetEventCallbacks(
     window.handle,
     cast[pointer](window),
+    cast[pointer](dispatchNativeClose),
     cast[pointer](dispatchNativeResize),
     cast[pointer](dispatchNativeRender),
+    cast[pointer](dispatchNativeWindowMove),
+    cast[pointer](dispatchNativeMouseMove),
+    cast[pointer](dispatchNativeMouseButton),
+    cast[pointer](dispatchNativeScroll),
     cast[pointer](dispatchNativeKey),
     cast[pointer](dispatchNativeTextInput),
+    cast[pointer](dispatchNativeStateBoolChanged),
+    cast[pointer](dispatchNativePopup),
   )
 
 converter toNativeRect*(value: bumpy.Rect): figdraw_native_abi.Rect {.inline.} =
@@ -287,6 +379,16 @@ proc drawableBezier*(
   for control in controls:
     result.controls.add control.toNativeVec2()
 
+proc drawableEllipse*(center, radii: vmath.Vec2): DrawableOp {.inline.} =
+  DrawableOp(
+    kind: dkEllipse,
+    ellipseCenter: center.toNativeVec2(),
+    ellipseRadii: radii.toNativeVec2(),
+  )
+
+proc drawableEllipse*(x, y, radiusX, radiusY: float32): DrawableOp {.inline.} =
+  drawableEllipse(vmath.vec2(x, y), vmath.vec2(radiusX, radiusY))
+
 proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
   when v is SomeFloat:
     if v <= 0:
@@ -303,11 +405,36 @@ proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
 
 converter toCornerRadii*[T: SomeNumber](a: array[4, T]): CornerRadii =
   for i in 0 ..< 4:
-    result[DirectionCorners(i)] = cornerToU16(a[i])
+    result[i] = cornerToU16(a[i])
 
 converter toCornerRadii*[T: SomeNumber](a: array[DirectionCorners, T]): CornerRadii =
   for c in DirectionCorners:
-    result[c] = cornerToU16(a[c])
+    result[c.ord] = cornerToU16(a[c])
+
+func initCornerRadii2D*[T](radii: array[DirectionCorners, T]): CornerRadii2D[T] =
+  CornerRadii2D[T](x: radii, y: radii)
+
+converter toCornerRadii2D*[T](radii: array[DirectionCorners, T]): CornerRadii2D[T] =
+  initCornerRadii2D(radii)
+
+func initCornerRadii2D*[T](x, y: array[DirectionCorners, T]): CornerRadii2D[T] =
+  CornerRadii2D[T](x: x, y: y)
+
+func isCircular*[T](radii: CornerRadii2D[T]): bool =
+  for corner in DirectionCorners:
+    if radii.x[corner] != radii.y[corner]:
+      return false
+  true
+
+proc initWindowBackdrop*(
+    regions: openArray[WindowVisualRegion] = []
+): WindowBackdropConfig =
+  WindowBackdropConfig(kind: wbkBlur, regions: @regions)
+
+proc initWindowBackdrop*(
+    material: WindowBackdropMaterial, regions: openArray[WindowVisualRegion] = []
+): WindowBackdropConfig =
+  WindowBackdropConfig(kind: wbkMaterial, material: material, regions: @regions)
 
 const
   clearColor* = chroma.color(0, 0, 0, 0)
@@ -375,7 +502,7 @@ proc placeGlyphs*(
     newSeqOfCap[(figdraw_native_abi.Rune, figdraw_native_abi.Vec2)](glyphs.len)
   for (rune, pos) in glyphs:
     nativeGlyphs.add((rune.toNativeRune(), pos.toNativeVec2()))
-  figdraw_native_abi.placeGlyphs(style, nativeGlyphs, origin)
+  figdraw_native_abi.placeStyledGlyphs(style, nativeGlyphs, origin)
 
 template registerStaticTypeface*(
     name: static[string], path: static[string], kind: static[TypeFaceKinds] = TTF
@@ -594,7 +721,10 @@ proc setClipboardData*(clipboard: Clipboard, mimeType, value: string) =
     clipboard.mimeTypes.add mimeType
 
 proc availableMimeTypes*(clipboard: Clipboard): seq[string] =
-  clipboard.mimeTypes
+  result = siwinClipboardMimeTypes(clipboard.window.handle)
+  for mimeType in clipboard.mimeTypes:
+    if mimeType notin result:
+      result.add mimeType
 
 proc setupBackend*(renderer: FigRenderer[SiwinRenderBackend], window: Window) =
   if window.handle.isNil:
@@ -680,6 +810,9 @@ proc pos*(window: Window): vmath.IVec2 =
 proc `pos=`*(window: Window, value: vmath.IVec2) =
   siwinSetWindowPos(window.handle, value.x, value.y)
 
+proc nativeWindowKey*(window: Window): pointer =
+  siwinNativeWindowKey(window.handle)
+
 proc logicalSize*(window: Window): vmath.Vec2 =
   let
     size = window.backingSize()
@@ -689,6 +822,9 @@ proc logicalSize*(window: Window): vmath.Vec2 =
 proc `title=`*(window: Window, value: string) =
   window.titleText = value
   siwinSetTitle(window.handle, value)
+
+proc title*(window: Window): string =
+  siwinTitle(window.handle)
 
 proc visible*(window: Window): bool =
   siwinIsVisible(window.handle)
@@ -732,6 +868,104 @@ proc `frameless=`*(window: Window, value: bool) =
 proc transparent*(window: Window): bool =
   siwinIsTransparent(window.handle)
 
+proc visualCapabilities*(window: Window): set[WindowVisualCapability] =
+  siwinVisualCapabilities(window.handle)
+
+proc supports*(window: Window, capability: WindowVisualCapability): bool =
+  capability in window.visualCapabilities()
+
+proc backdrop*(window: Window): WindowBackdropConfig =
+  window.backdropConfig
+
+proc trySetBackdrop*(window: Window, config: WindowBackdropConfig): bool =
+  var regions = newSeqOfCap[NativeWindowVisualRegion](config.regions.len)
+  for region in config.regions:
+    regions.add NativeWindowVisualRegion(
+      x: region.pos.x, y: region.pos.y, width: region.size.x, height: region.size.y
+    )
+  let material =
+    case config.kind
+    of wbkMaterial: config.material
+    of wbkNone, wbkBlur: wbmDefault
+  result = siwinTrySetBackdrop(window.handle, config.kind, material, regions)
+  if result:
+    window.backdropConfig = config
+
+proc clearBackdrop*(window: Window) =
+  discard window.trySetBackdrop(WindowBackdropConfig(kind: wbkNone))
+
+proc setBackdrop*(window: Window, config: WindowBackdropConfig) =
+  if not window.trySetBackdrop(config):
+    raise WindowVisualEffectError.newException(
+      "window backdrop effect is not supported by this backend or configuration"
+    )
+
+proc minSize*(window: Window): vmath.IVec2 =
+  let size = siwinMinSize(window.handle)
+  vmath.ivec2(size.w, size.h)
+
+proc `minSize=`*(window: Window, value: vmath.IVec2) =
+  siwinSetMinSize(window.handle, value.x, value.y)
+
+proc maxSize*(window: Window): vmath.IVec2 =
+  let size = siwinMaxSize(window.handle)
+  vmath.ivec2(size.w, size.h)
+
+proc `maxSize=`*(window: Window, value: vmath.IVec2) =
+  siwinSetMaxSize(window.handle, value.x, value.y)
+
+proc customTitlebar*(window: Window): bool =
+  siwinUsesCustomTitlebar(window.handle)
+
+proc supportsCustomTitlebar*(window: Window): bool =
+  siwinSupportsCustomTitlebar(window.handle)
+
+proc `customTitlebar=`*(window: Window, value: bool) =
+  siwinSetCustomTitlebar(window.handle, value)
+
+proc setTitleRegion*(window: Window, pos, size: vmath.Vec2) =
+  siwinSetTitleRegion(window.handle, pos.x, pos.y, size.x, size.y)
+
+proc setInputRegion*(window: Window, pos, size: vmath.Vec2) =
+  siwinSetInputRegion(window.handle, pos.x, pos.y, size.x, size.y)
+
+proc setBorderWidth*(window: Window, innerWidth, outerWidth, diagonalSize: float32) =
+  siwinSetBorderWidth(window.handle, innerWidth, outerWidth, diagonalSize)
+
+proc startInteractiveMove*(window: Window, pos: vmath.Vec2) =
+  siwinStartInteractiveMove(window.handle, pos.x, pos.y)
+
+proc startInteractiveResize*(window: Window, edge: Edge, pos: vmath.Vec2) =
+  siwinStartInteractiveResize(window.handle, edge, pos.x, pos.y)
+
+proc showWindowMenu*(window: Window, pos: vmath.Vec2) =
+  siwinShowWindowMenu(window.handle, pos.x, pos.y)
+
+proc `cursor=`*(window: Window, value: BuiltinCursor) =
+  siwinSetBuiltinCursor(window.handle, value)
+
+proc `vsync=`*(window: Window, value: bool) =
+  window.vsync = value
+  siwinSetVsync(window.handle, value)
+
+proc separateTouch*(window: Window): bool =
+  siwinUsesSeparateTouch(window.handle)
+
+proc `separateTouch=`*(window: Window, value: bool) =
+  siwinSetSeparateTouch(window.handle, value)
+
+proc canBecomeKeyWindow*(window: Window): bool =
+  siwinCanBecomeKeyWindow(window.handle)
+
+proc `canBecomeKeyWindow=`*(window: Window, value: bool) =
+  siwinSetCanBecomeKeyWindow(window.handle, value)
+
+proc canBecomeMainWindow*(window: Window): bool =
+  siwinCanBecomeMainWindow(window.handle)
+
+proc `canBecomeMainWindow=`*(window: Window, value: bool) =
+  siwinSetCanBecomeMainWindow(window.handle, value)
+
 proc `icon=`*(window: Window, image: Image) {.inline.} =
   figdraw_native_abi.siwinSetIcon(window.handle, image)
 
@@ -751,16 +985,6 @@ proc close*(window: Window) =
 proc firstStep*(window: Window, makeVisible = true) =
   window.installEventCallbacks()
   firstStep(window.handle, makeVisible)
-  window.wasOpened = window.opened
-  window.lastMouse = window.mouse()
-  window.lastKeyboard = window.keyboard()
-  window.lastPos = window.pos()
-  window.lastFocused = window.focused()
-  window.lastFullscreen = window.fullscreen()
-  window.lastMaximized = window.maximized()
-  window.lastFrameless = window.frameless()
-  window.lastPopupOpen = siwinPopupOpen(window.handle)
-  window.pollReady = true
 
 proc redraw*(window: Window) =
   redraw(window.handle)
@@ -772,81 +996,14 @@ proc step*(window: Window) =
   window.installEventCallbacks()
   step(window.handle)
 
-  let
-    currentMouse = window.mouse()
-    currentKeyboard = window.keyboard()
-    currentPos = window.pos()
-    currentFocused = window.focused()
-    currentFullscreen = window.fullscreen()
-    currentMaximized = window.maximized()
-    currentFrameless = window.frameless()
-    currentPopupOpen = siwinPopupOpen(window.handle)
+proc presentationTarget*(
+    renderer: FigRenderer[SiwinRenderBackend]
+): SiwinPresentationTarget =
+  discard renderer
 
-  if window.pollReady:
-    if currentMouse.pos != window.lastMouse.pos and
-        window.eventsHandler.onMouseMove != nil:
-      window.eventsHandler.onMouseMove(
-        MouseMoveEvent(
-          window: window,
-          pos: currentMouse.pos,
-          kind: if currentMouse.pressed == {}: move else: moveWhileDragging,
-        )
-      )
-
-    if window.eventsHandler.onMouseButton != nil:
-      for button in MouseButton:
-        let
-          wasPressed = button in window.lastMouse.pressed
-          isPressed = button in currentMouse.pressed
-        if wasPressed != isPressed:
-          window.eventsHandler.onMouseButton(
-            MouseButtonEvent(window: window, button: button, pressed: isPressed)
-          )
-
-    if currentPos != window.lastPos and window.eventsHandler.onWindowMove != nil:
-      window.eventsHandler.onWindowMove(
-        WindowMoveEvent(window: window, pos: currentPos)
-      )
-
-    template dispatchState(kindValue, currentValue, previousValue: untyped) =
-      if currentValue != previousValue and window.eventsHandler.onStateBoolChanged != nil:
-        window.eventsHandler.onStateBoolChanged(
-          StateBoolChangedEvent(
-            window: window, value: currentValue, kind: kindValue, isExternal: true
-          )
-        )
-
-    dispatchState(StateBoolChangedEventKind.focus, currentFocused, window.lastFocused)
-    dispatchState(
-      StateBoolChangedEventKind.fullscreen, currentFullscreen, window.lastFullscreen
-    )
-    dispatchState(
-      StateBoolChangedEventKind.maximized, currentMaximized, window.lastMaximized
-    )
-    dispatchState(
-      StateBoolChangedEventKind.frameless, currentFrameless, window.lastFrameless
-    )
-
-    if window.lastPopupOpen and not currentPopupOpen and
-        window.eventsHandler.onPopupDone != nil:
-      window.eventsHandler.onPopupDone(
-        PopupEvent(window: window, reason: pdrCompositorDismissed)
-      )
-
-  window.lastMouse = currentMouse
-  window.lastKeyboard = currentKeyboard
-  window.lastPos = currentPos
-  window.lastFocused = currentFocused
-  window.lastFullscreen = currentFullscreen
-  window.lastMaximized = currentMaximized
-  window.lastFrameless = currentFrameless
-  window.lastPopupOpen = currentPopupOpen
-  window.pollReady = true
-
-  let isOpened = window.opened
-  if window.wasOpened and not isOpened and window.eventsHandler.onClose != nil:
-    window.eventsHandler.onClose(CloseEvent(window: window))
-  window.wasOpened = isOpened
+proc updatePresentationTarget*(target: SiwinPresentationTarget, window: Window) =
+  discard target
+  discard window
 
 proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   discard renderer

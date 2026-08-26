@@ -177,40 +177,40 @@ jobs:
         ls -la /usr/share/vulkan/icd.d || true
         vulkaninfo --summary || true
 
-    - name: Install GrabNim
-      if: runner.os != 'Windows'
-      run: |
-        curl -fsSL https://codeberg.org/janAkali/grabnim/raw/branch/master/misc/install.sh | sh
-        echo "$HOME/.local/share/grabnim/current/bin" >> $GITHUB_PATH
-        echo "$HOME/.nimble/bin" >> $GITHUB_PATH
-
-    - name: Install Nim
-      if: runner.os != 'Windows'
-      run: |
-        grabnim ${{ matrix.nimversion }}
-        nim -v
-
-    - name: Install Nim (Windows)
+    # Atlas's Windows release currently needs the OpenSSL runtime bundled by Nim.
+    - name: Install Nim bootstrap (Windows)
       if: runner.os == 'Windows'
       uses: jiro4989/setup-nim-action@v2
       with:
         nim-version: ${{ matrix.nimversion }}
 
     - name: Install Atlas
-      run: curl -fsSL https://raw.githubusercontent.com/nim-lang/atlas/HEAD/install.sh | bash -
-
-    - name: Versions
       run: |
-        echo "Nim:: "
-        nim -v
-        echo "Nimble:: "
+        curl -fsSL https://raw.githubusercontent.com/nim-lang/atlas/HEAD/install.sh | bash -
+        echo "$HOME/.nimble/bin" >> "$GITHUB_PATH"
+
+    - name: Atlas version
+      run: |
         atlas -v
 
     - name: Cache packages
       uses: actions/cache@v3
       with:
         path: deps/
-        key: ${{ runner.os }}-${{ matrix.display }}-${{ matrix.renderer }}-${{ hashFiles('figdraw.nimble') }}
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.display }}-${{ matrix.renderer }}-nim${{ matrix.nimversion }}-${{ hashFiles('figdraw.nimble') }}
+
+    - name: Setup Nim environment
+      if: runner.os != 'macOS'
+      run: atlas --binary --github-path env ${{ matrix.nimversion }}
+
+    - name: Setup native Nim environment (macOS)
+      if: runner.os == 'macOS'
+      run: atlas --source --github-path env ${{ matrix.nimversion }}
+
+    - name: Nim version
+      run: |
+        command -v nim
+        nim -v
 
     - name: Install Deps
       run: atlas install -t:8 --features:windy,sdl2,siwin,harfbuzz
@@ -321,57 +321,4 @@ jobs:
           ${{ runner.temp }}/weston.log
         if-no-files-found: ignore
 
-  native-dynlib:
-    name: ubuntu-24.04-native-dynlib-devel
-    runs-on: ubuntu-24.04
-    steps:
-    - uses: actions/checkout@v1
-
-    - name: Install native build dependencies
-      timeout-minutes: 15
-      run: |
-        sudo apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-          pkg-config \
-          libx11-xcb-dev \
-          libxcb1-dev \
-          libxcursor-dev \
-          libxkbcommon-dev \
-          libxrender-dev \
-          libwayland-dev \
-          libwayland-egl-backend-dev \
-          libgl1-mesa-dev \
-          libgles2-mesa-dev \
-          libegl1-mesa-dev
-
-    - name: Install GrabNim
-      run: |
-        curl -fsSL https://codeberg.org/janAkali/grabnim/raw/branch/master/misc/install.sh | sh
-        echo "$HOME/.local/share/grabnim/current/bin" >> "$GITHUB_PATH"
-        echo "$HOME/.nimble/bin" >> "$GITHUB_PATH"
-
-    - name: Install Nim devel
-      run: |
-        grabnim devel
-        eval "$(grabnim use devel)"
-        nim -v
-        echo "$(grabnim path devel)/bin" >> "$GITHUB_PATH"
-
-    - name: Install Atlas
-      run: curl -fsSL https://raw.githubusercontent.com/nim-lang/atlas/HEAD/install.sh | bash -
-
-    - name: Cache native packages
-      uses: actions/cache@v3
-      with:
-        path: deps/
-        key: ${{ runner.os }}-native-dynlib-devel-${{ hashFiles('figdraw.nimble') }}
-
-    - name: Install native dependencies
-      run: atlas install -t:8 --features:siwin,sharedlib
-
-    - name: Build native dynlib
-      run: |
-        nim -v
-        nim native_dynlib
-        test -f bin/figdraw_native_abi.nim
-        test -f bin/libfigdraw_native.so
+  # Native dynlib CI is temporarily disabled until Atlas can pin a historical devel build.

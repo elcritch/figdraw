@@ -16,16 +16,27 @@ import figdraw/utils/drawutils
 import figdraw/windowing/siwinshim
 
 type
+  NativeCloseCallback = proc(context: pointer) {.cdecl.}
   NativeResizeCallback =
     proc(context: pointer, width, height: int32, initial: bool) {.cdecl.}
   NativeRenderCallback = proc(context: pointer) {.cdecl.}
+  NativeWindowMoveCallback = proc(context: pointer, x, y: int32) {.cdecl.}
+  NativeMouseMoveCallback = proc(context: pointer, x, y: float32, kind: uint8) {.cdecl.}
+  NativeMouseButtonCallback =
+    proc(context: pointer, button: MouseButton, pressed, generated: bool) {.cdecl.}
+  NativeScrollCallback =
+    proc(context: pointer, delta, deltaX: float, device: uint8) {.cdecl.}
   NativeKeyCallback = proc(
     context: pointer, key: Key, pressed, repeated, generated: bool, modifierMask: uint8
   ) {.cdecl.}
   NativeTextInputCallback =
     proc(context, text: pointer, textLen: int, repeated: bool) {.cdecl.}
+  NativeStateBoolChangedCallback =
+    proc(context: pointer, value: bool, kind: uint8, isExternal: bool) {.cdecl.}
+  NativePopupCallback = proc(context: pointer, reason: uint8) {.cdecl.}
 
   PopupConstraintAdjustments* = set[PopupConstraintAdjustment]
+  WindowVisualCapabilities* = set[WindowVisualCapability]
   FigFlagSet* = set[FigFlags]
   Vec2s* = seq[Vec2]
   Figs* = seq[Fig]
@@ -57,6 +68,9 @@ type
   NativePoint* = object
     x*, y*: float32
 
+  NativeWindowVisualRegion* = object
+    x*, y*, width*, height*: int32
+
   NativePopupPlacement* = object
     anchorX*, anchorY*: int32
     anchorWidth*, anchorHeight*: int32
@@ -78,10 +92,10 @@ type
     autoScale: bool
     title: string
 
-proc systemFontDirs*(): seq[string] =
+proc systemFontDirs*(): Strings =
   systemfonts.systemFontDirs()
 
-proc systemFontFiles*(): seq[string] =
+proc systemFontFiles*(): Strings =
   systemfonts.systemFontFiles()
 
 proc textBackend*(): string =
@@ -228,6 +242,13 @@ proc typeset*(
 ): GlyphArrangement =
   fontutils.typeset(box, spans, hAlign, vAlign, minContent, wrap)
 
+proc placeStyledGlyphs*(
+    style: FontStyle,
+    glyphs: openArray[(Rune, Vec2)],
+    origin: GlyphOrigin = GlyphTopLeft,
+): GlyphArrangement =
+  fontutils.placeGlyphs(style, glyphs, origin)
+
 proc newFigSiwinApp*(
     width, height: int32,
     title: string,
@@ -309,9 +330,17 @@ func nativeModifierMask(modifiers: set[ModifierKey]): uint8 =
 
 proc siwinSetEventCallbacks*(
     appHandle: NativeSiwinApp,
-    context, resizeCallback, renderCallback, keyCallback, textInputCallback: pointer,
+    context, closeCallback, resizeCallback, renderCallback, windowMoveCallback,
+      mouseMoveCallback, mouseButtonCallback, scrollCallback, keyCallback,
+      textInputCallback, stateBoolChangedCallback, popupCallback: pointer,
 ) =
   let app = siwinApp(appHandle)
+  if closeCallback == nil:
+    app.window.eventsHandler.onClose = nil
+  else:
+    app.window.eventsHandler.onClose = proc(e: CloseEvent) =
+      discard e
+      cast[NativeCloseCallback](closeCallback)(context)
   if resizeCallback == nil:
     app.window.eventsHandler.onResize = nil
   else:
@@ -321,7 +350,34 @@ proc siwinSetEventCallbacks*(
     app.window.eventsHandler.onRender = nil
   else:
     app.window.eventsHandler.onRender = proc(e: RenderEvent) =
+      discard e
       cast[NativeRenderCallback](renderCallback)(context)
+  if windowMoveCallback == nil:
+    app.window.eventsHandler.onWindowMove = nil
+  else:
+    app.window.eventsHandler.onWindowMove = proc(e: WindowMoveEvent) =
+      cast[NativeWindowMoveCallback](windowMoveCallback)(context, e.pos.x, e.pos.y)
+  if mouseMoveCallback == nil:
+    app.window.eventsHandler.onMouseMove = nil
+  else:
+    app.window.eventsHandler.onMouseMove = proc(e: MouseMoveEvent) =
+      cast[NativeMouseMoveCallback](mouseMoveCallback)(
+        context, e.pos.x, e.pos.y, e.kind.ord.uint8
+      )
+  if mouseButtonCallback == nil:
+    app.window.eventsHandler.onMouseButton = nil
+  else:
+    app.window.eventsHandler.onMouseButton = proc(e: MouseButtonEvent) =
+      cast[NativeMouseButtonCallback](mouseButtonCallback)(
+        context, e.button, e.pressed, e.generated
+      )
+  if scrollCallback == nil:
+    app.window.eventsHandler.onScroll = nil
+  else:
+    app.window.eventsHandler.onScroll = proc(e: ScrollEvent) =
+      cast[NativeScrollCallback](scrollCallback)(
+        context, e.delta, e.deltaX, e.device.ord.uint8
+      )
   if keyCallback == nil:
     app.window.eventsHandler.onKey = nil
   else:
@@ -346,6 +402,18 @@ proc siwinSetEventCallbacks*(
       cast[NativeTextInputCallback](textInputCallback)(
         context, text, e.text.len, e.repeated
       )
+  if stateBoolChangedCallback == nil:
+    app.window.eventsHandler.onStateBoolChanged = nil
+  else:
+    app.window.eventsHandler.onStateBoolChanged = proc(e: StateBoolChangedEvent) =
+      cast[NativeStateBoolChangedCallback](stateBoolChangedCallback)(
+        context, e.value, e.kind.ord.uint8, e.isExternal
+      )
+  if popupCallback == nil:
+    app.window.eventsHandler.onPopupDone = nil
+  else:
+    app.window.eventsHandler.onPopupDone = proc(e: PopupEvent) =
+      cast[NativePopupCallback](popupCallback)(context, e.reason.ord.uint8)
 
 proc step*(appHandle: NativeSiwinApp) =
   siwinApp(appHandle).window.step()
@@ -436,6 +504,9 @@ proc siwinIsTransparent*(appHandle: NativeSiwinApp): bool =
 
 proc siwinSetFrameless*(appHandle: NativeSiwinApp, frameless: bool) =
   siwinApp(appHandle).window.frameless = frameless
+
+proc siwinNativeWindowKey*(appHandle: NativeSiwinApp): pointer =
+  cast[pointer](siwinApp(appHandle).window)
 
 proc siwinMinSize*(appHandle: NativeSiwinApp): NativeWindowSize =
   let size = siwinApp(appHandle).window.minSize
@@ -539,10 +610,10 @@ proc siwinClipboardText*(appHandle: NativeSiwinApp): string =
 proc siwinSetClipboardText*(appHandle: NativeSiwinApp, value: string) =
   siwinApp(appHandle).window.clipboard.text = value
 
-proc siwinClipboardFiles*(appHandle: NativeSiwinApp): seq[string] =
+proc siwinClipboardFiles*(appHandle: NativeSiwinApp): Strings =
   siwinApp(appHandle).window.clipboard.files
 
-proc siwinSetClipboardFiles*(appHandle: NativeSiwinApp, value: seq[string]) =
+proc siwinSetClipboardFiles*(appHandle: NativeSiwinApp, value: Strings) =
   siwinApp(appHandle).window.clipboard.files = value
 
 proc siwinClipboardData*(appHandle: NativeSiwinApp, mimeType: string): string =
@@ -550,6 +621,9 @@ proc siwinClipboardData*(appHandle: NativeSiwinApp, mimeType: string): string =
 
 proc siwinSetClipboardData*(appHandle: NativeSiwinApp, mimeType, value: string) =
   siwinApp(appHandle).window.clipboard[mimeType] = value
+
+proc siwinClipboardMimeTypes*(appHandle: NativeSiwinApp): Strings =
+  siwinApp(appHandle).window.clipboard.availableMimeTypes
 
 proc siwinUiScale*(appHandle: NativeSiwinApp): float32 =
   siwinApp(appHandle).window.uiScale()
@@ -572,6 +646,28 @@ proc siwinRepositionPopup*(appHandle: NativeSiwinApp, placement: NativePopupPlac
 proc siwinRefreshUiScale*(appHandle: NativeSiwinApp) =
   let app = siwinApp(appHandle)
   app.window.refreshUiScale(app.autoScale)
+
+proc siwinVisualCapabilities*(appHandle: NativeSiwinApp): WindowVisualCapabilities =
+  siwinApp(appHandle).window.visualCapabilities()
+
+proc siwinTrySetBackdrop*(
+    appHandle: NativeSiwinApp,
+    kind: WindowBackdropKind,
+    material: WindowBackdropMaterial,
+    regions: openArray[NativeWindowVisualRegion],
+): bool =
+  var nativeRegions = newSeqOfCap[WindowVisualRegion](regions.len)
+  for region in regions:
+    nativeRegions.add WindowVisualRegion(
+      pos: ivec2(region.x, region.y), size: ivec2(region.width, region.height)
+    )
+  let config =
+    case kind
+    of wbkNone, wbkBlur:
+      WindowBackdropConfig(kind: kind, regions: nativeRegions)
+    of wbkMaterial:
+      WindowBackdropConfig(kind: kind, material: material, regions: nativeRegions)
+  siwinApp(appHandle).window.trySetBackdrop(config)
 
 proc siwinBackendName*(appHandle: NativeSiwinApp): string =
   siwinApp(appHandle).renderer.siwinBackendName()
