@@ -177,6 +177,13 @@ jobs:
         ls -la /usr/share/vulkan/icd.d || true
         vulkaninfo --summary || true
 
+    # Atlas's Windows release currently needs the OpenSSL runtime bundled by Nim.
+    - name: Install Nim bootstrap (Windows)
+      if: runner.os == 'Windows'
+      uses: jiro4989/setup-nim-action@v2
+      with:
+        nim-version: ${{ matrix.nimversion }}
+
     - name: Install Atlas
       run: |
         curl -fsSL https://raw.githubusercontent.com/nim-lang/atlas/HEAD/install.sh | bash -
@@ -196,7 +203,9 @@ jobs:
       run: atlas --binary --github-path env ${{ matrix.nimversion }}
 
     - name: Nim version
-      run: nim -v
+      run: |
+        command -v nim
+        nim -v
 
     - name: Install Deps
       run: atlas install -t:8 --features:windy,sdl2,siwin,harfbuzz
