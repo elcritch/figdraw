@@ -344,18 +344,22 @@ jobs:
           libgles2-mesa-dev \
           libegl1-mesa-dev
 
-    - name: Install GrabNim
+    - name: Install Nim devel snapshot
+      env:
+        NIM_DEVEL_TAG: 2026-07-21-devel-adda34bcb84fec12e92be74181256a9413e741b0
+        NIM_DEVEL_ARCHIVE: nim-2.3.1-linux_x64.tar.xz
+        NIM_DEVEL_SHA256: f987585a2772ef9a3d16dcbd92b47db2bfbd509dabd019d2075987fa9270073d
       run: |
-        curl -fsSL https://codeberg.org/janAkali/grabnim/raw/branch/master/misc/install.sh | sh
-        echo "$HOME/.local/share/grabnim/current/bin" >> "$GITHUB_PATH"
-        echo "$HOME/.nimble/bin" >> "$GITHUB_PATH"
-
-    - name: Install Nim devel
-      run: |
-        grabnim devel
-        eval "$(grabnim use devel)"
-        nim -v
-        echo "$(grabnim path devel)/bin" >> "$GITHUB_PATH"
+        NIM_DEVEL_DIR="${RUNNER_TEMP}/nim-devel"
+        NIM_DEVEL_PATH="${RUNNER_TEMP}/${NIM_DEVEL_ARCHIVE}"
+        curl -fsSL \
+          "https://github.com/nim-lang/nightlies/releases/download/${NIM_DEVEL_TAG}/${NIM_DEVEL_ARCHIVE}" \
+          -o "${NIM_DEVEL_PATH}"
+        echo "${NIM_DEVEL_SHA256}  ${NIM_DEVEL_PATH}" | sha256sum --check
+        mkdir -p "${NIM_DEVEL_DIR}"
+        tar -xJf "${NIM_DEVEL_PATH}" --strip-components=1 -C "${NIM_DEVEL_DIR}"
+        echo "${NIM_DEVEL_DIR}/bin" >> "$GITHUB_PATH"
+        "${NIM_DEVEL_DIR}/bin/nim" -v
 
     - name: Install Atlas
       run: curl -fsSL https://raw.githubusercontent.com/nim-lang/atlas/HEAD/install.sh | bash -
