@@ -61,6 +61,12 @@
 ##     move C to position 0
 ##     after:  [fragment C] [fragment A] [fragment B]
 ##
+## When reconciling a complete sibling order, use `reorderChildFragments` or
+## `reorderRootFragments`. They reorder every fragment edge in one linear pass;
+## repeatedly moving individual siblings would require repeated sequence shifts.
+## Physical node positions remain fixed while fragment edges exchange their
+## fragment identities.
+##
 ## Fragment graphs are mutable and are not safe to share concurrently. Use a
 ## materialized `Renders` value when an independent snapshot is required.
 
@@ -1114,6 +1120,96 @@ proc moveFragmentToRoot*(
     ),
   )
 
+proc reorderFragmentEdges(
+    fragments: RenderFragments,
+    entries: var seq[RenderChild],
+    zlevel: ZLevel,
+    ordered: openArray[RenderFragmentHandle],
+) =
+  var available = initTable[uint64, RenderFragment]()
+  for entry in entries:
+    if entry.kind == rckFragment:
+      available[entry.fragment.id] = entry.fragment
+
+  if ordered.len != available.len:
+    raise newException(
+      RenderFragmentError, "fragment reorder must contain every sibling fragment"
+    )
+
+  var requested = initTable[uint64, bool]()
+  for handle in ordered:
+    fragments.requireHandle(handle)
+    if handle.fragment.zlevel != zlevel or handle.fragment.id notin available:
+      raise newException(
+        RenderFragmentError, "fragment reorder contains a non-sibling fragment"
+      )
+    if handle.fragment.id in requested:
+      raise newException(
+        RenderFragmentError, "fragment reorder contains a duplicate fragment"
+      )
+    requested[handle.fragment.id] = true
+
+  var
+    nextEntries = newSeqOfCap[RenderChild](entries.len)
+    fragmentIndex = 0
+  for entry in entries:
+    if entry.kind == rckNode:
+      nextEntries.add entry
+    else:
+      nextEntries.add ordered[fragmentIndex].fragment.fragmentChild()
+      inc fragmentIndex
+  entries = move nextEntries
+
+proc reorderChildFragments*(
+    fragments: RenderFragments,
+    parent: RenderCursor,
+    ordered: openArray[RenderFragmentHandle],
+) =
+  ## Reorders all direct child-fragment edges beneath `parent` in one pass.
+  ##
+  ## `ordered` must contain every directly attached child fragment exactly once.
+  ## Physical child nodes keep their positions; fragment edges exchange their
+  ## order around those nodes. Fragment IDs, generations, cursors, and nested
+  ## attachments remain valid. Invalid input raises `RenderFragmentError` before
+  ## mutation. Cost is O(n) in the logical child count.
+  fragments.requireCursor(parent)
+  let key = parent.index.entryKey()
+  if parent.fragment.isNil:
+    if key notin fragments.layerEntries[parent.zlevel].childEntries:
+      if ordered.len == 0:
+        return
+      raise newException(
+        RenderFragmentError, "fragment reorder contains a non-sibling fragment"
+      )
+    fragments.reorderFragmentEdges(
+      fragments.layerEntries[parent.zlevel].childEntries[key], parent.zlevel, ordered
+    )
+  else:
+    parent.fragment.list.ensureEntries(parent.fragment.entries)
+    if key notin parent.fragment.entries.childEntries:
+      if ordered.len == 0:
+        return
+      raise newException(
+        RenderFragmentError, "fragment reorder contains a non-sibling fragment"
+      )
+    fragments.reorderFragmentEdges(
+      parent.fragment.entries.childEntries[key], parent.zlevel, ordered
+    )
+
+proc reorderRootFragments*(
+    fragments: RenderFragments, zlevel: ZLevel, ordered: openArray[RenderFragmentHandle]
+) =
+  ## Reorders all fragment edges in one layer root sequence in one pass.
+  ##
+  ## `ordered` must contain every root fragment in the layer exactly once.
+  ## Physical roots keep their positions; fragment edges exchange their order
+  ## around those roots. Invalid input is rejected before mutation. Cost is O(n)
+  ## in the logical root count.
+  fragments.ensureLayer(zlevel)
+  fragments.reorderFragmentEdges(
+    fragments.layerEntries[zlevel].rootEntries, zlevel, ordered
+  )
+
 proc removeFragmentEdge(entries: var RenderEntries, target: RenderFragment): bool =
   for idx, entry in entries.rootEntries:
     if entry.kind == rckFragment and entry.fragment == target:
@@ -1181,20 +1277,65 @@ proc updateFragment*(
   let replacement = fragments.replaceFragmentSubtree(handle, move updated)
   fragments.fragmentRoots(replacement)
 
-proc appendMaterialized(
+proc appendMaterializedEntry(
+  fragments: RenderFragments,
+  list: var RenderList,
+  zlevel: ZLevel,
+  owner: RenderFragment,
+  entry: RenderChild,
+  parent: FigIdx,
+)
+
+proc appendMaterializedNode(
     fragments: RenderFragments,
     list: var RenderList,
-    cursor: RenderCursor,
+    zlevel: ZLevel,
+    owner: RenderFragment,
+    index: FigIdx,
     parent: FigIdx,
-): FigIdx =
-  var node = fragments[cursor]
-  node.childCount = 0
-  if parent.int < 0:
-    result = list.addRoot(node)
+) =
+  var
+    node: Fig
+    entries: ptr RenderEntries
+  if owner.isNil:
+    node = fragments.base.layers[zlevel].nodes[index.int]
+    entries = addr fragments.layerEntries[zlevel]
   else:
-    result = list.addChild(parent, node)
-  for child in fragments.children(cursor):
-    discard fragments.appendMaterialized(list, child, result)
+    node = owner.list.nodes[index.int]
+    entries = addr owner.entries
+
+  node.childCount = 0
+  var materialized: FigIdx
+  if parent.int < 0:
+    materialized = list.addRoot(node)
+  else:
+    materialized = list.addChild(parent, node)
+
+  let key = index.entryKey()
+  if key in entries[].childEntries:
+    let children = addr entries[].childEntries[key]
+    for child in children[]:
+      fragments.appendMaterializedEntry(list, zlevel, owner, child, materialized)
+
+proc appendMaterializedEntry(
+    fragments: RenderFragments,
+    list: var RenderList,
+    zlevel: ZLevel,
+    owner: RenderFragment,
+    entry: RenderChild,
+    parent: FigIdx,
+) =
+  case entry.kind
+  of rckNode:
+    fragments.appendMaterializedNode(list, zlevel, owner, entry.node, parent)
+  of rckFragment:
+    if not entry.fragment.attached:
+      raise
+        newException(RenderFragmentError, "render tree contains a detached fragment")
+    for root in entry.fragment.entries.rootEntries:
+      if root.kind != rckNode:
+        raise newException(RenderFragmentError, "fragment root metadata is invalid")
+      fragments.appendMaterializedNode(list, zlevel, entry.fragment, root.node, parent)
 
 proc materialize*(fragments: RenderFragments): Renders =
   ## Flattens the logical fragment graph into an independent monolithic tree.
@@ -1203,6 +1344,6 @@ proc materialize*(fragments: RenderFragments): Renders =
   result = newRenders()
   for lvl in fragments.levels():
     var list = RenderList()
-    for root in fragments.roots(lvl):
-      discard fragments.appendMaterialized(list, root, (-1).FigIdx)
+    for root in fragments.layerEntries[lvl].rootEntries:
+      fragments.appendMaterializedEntry(list, lvl, nil, root, (-1).FigIdx)
     result.setLayer(lvl, move list)

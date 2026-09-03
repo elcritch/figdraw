@@ -522,6 +522,9 @@ Fragments can be moved or reordered without rebuilding their contents. `moveFrag
 fragment beneath a node, while `moveFragmentToRoot` places it in a layer root sequence. Positions
 refer to the final logical slot sequence and count both physical nodes and fragment slots. These
 operations preserve fragment IDs, generations, cursors, and nested attachments.
+For a complete sibling-list reconciliation, use `reorderChildFragments` or
+`reorderRootFragments` instead of issuing one move per sibling. The bulk operations run in one
+linear pass and keep physical node positions fixed while fragment slots exchange order.
 
 Fragment handles and cursors are bound to their owning tree and generation. Operations reject
 foreign, stale, and detached values with `RenderFragmentError`; `handleStatus` can classify a handle

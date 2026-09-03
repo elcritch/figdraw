@@ -381,6 +381,81 @@ suite "RenderFragments APIs":
     check restored.fragmentId() == empty.fragmentId()
     check fragments.childIds(fragments.nodeCursor(0.ZLevel, root)) == @[30, 20]
 
+  test "bulk reorders sibling fragments without moving physical nodes":
+    let fragments = newRenderFragments()
+    let root = fragments.addRoot(0.ZLevel, testFig(10))
+    discard fragments.addChild(0.ZLevel, root, testFig(11))
+    let parent = fragments.nodeCursor(0.ZLevel, root)
+
+    var firstContents = RenderList()
+    discard firstContents.addRoot(testFig(20))
+    let first = fragments.attachChildFragment(parent, 0, move firstContents)
+    let firstRoot = fragments.fragmentRoots(first)[0]
+
+    var nestedContents = RenderList()
+    discard nestedContents.addRoot(testFig(21))
+    let nested = fragments.attachChildFragment(firstRoot, 0, move nestedContents)
+    let nestedRoot = fragments.fragmentRoots(nested)[0]
+
+    var secondContents = RenderList()
+    discard secondContents.addRoot(testFig(30))
+    let second = fragments.attachChildFragment(parent, 2, move secondContents)
+
+    var thirdContents = RenderList()
+    discard thirdContents.addRoot(testFig(40))
+    let third = fragments.attachChildFragment(parent, 1, move thirdContents)
+
+    fragments.reorderChildFragments(parent, [third, second, first])
+    check fragments.childIds(parent) == @[40, 30, 11, 20]
+    check fragments.isValid(first)
+    check fragments.isValid(second)
+    check fragments.isValid(third)
+    check fragments.isValid(nested)
+    check fragments[nestedRoot].nodeId() == 21
+
+    var firstRootContents = RenderList()
+    discard firstRootContents.addRoot(testFig(50))
+    let firstRootFragment =
+      fragments.attachRootFragment(0.ZLevel, 0, move firstRootContents)
+    var secondRootContents = RenderList()
+    discard secondRootContents.addRoot(testFig(60))
+    let secondRootFragment =
+      fragments.attachRootFragment(0.ZLevel, 2, move secondRootContents)
+
+    fragments.reorderRootFragments(0.ZLevel, [secondRootFragment, firstRootFragment])
+    check fragments.rootCursors(0.ZLevel).mapIt(fragments[it].nodeId()) == @[60, 10, 50]
+
+  test "invalid bulk reorders leave sibling order unchanged":
+    let
+      fragments = newRenderFragments()
+      other = newRenderFragments()
+      root = fragments.addRoot(0.ZLevel, testFig(10))
+      parent = fragments.nodeCursor(0.ZLevel, root)
+
+    var firstContents = RenderList()
+    discard firstContents.addRoot(testFig(20))
+    let first = fragments.attachChildFragment(parent, 0, move firstContents)
+    var secondContents = RenderList()
+    discard secondContents.addRoot(testFig(30))
+    let second = fragments.attachChildFragment(parent, 1, move secondContents)
+
+    let otherRoot = other.addRoot(0.ZLevel, testFig(40))
+    var foreignContents = RenderList()
+    discard foreignContents.addRoot(testFig(50))
+    let foreign =
+      other.attachChildFragment(0.ZLevel, otherRoot, 0, move foreignContents)
+
+    expect RenderFragmentError:
+      fragments.reorderChildFragments(parent, [first])
+    expect RenderFragmentError:
+      fragments.reorderChildFragments(parent, [first, first])
+    expect RenderFragmentError:
+      fragments.reorderChildFragments(parent, [first, foreign])
+
+    check fragments.childIds(parent) == @[20, 30]
+    check fragments.isValid(first)
+    check fragments.isValid(second)
+
   test "invalid fragment moves leave the graph unchanged":
     let fragments = newRenderFragments()
     let root = fragments.addRoot(0.ZLevel, testFig(10))
