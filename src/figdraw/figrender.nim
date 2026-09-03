@@ -1948,9 +1948,14 @@ proc renderRoot*[Input: RenderInput](
 ) {.forbids: [AppMainThreadEff].} =
   ## draw roots for each level
   ctx.processImageMessages()
-  for zlvl, _ in nodes.pairs():
-    for root in nodes.roots(zlvl):
-      ctx.render(nodes, root)
+  when Input is RenderFragments:
+    for zlvl in nodes.levels():
+      for root in nodes.roots(zlvl):
+        ctx.render(nodes, root)
+  else:
+    for zlvl, _ in nodes.pairs():
+      for root in nodes.roots(zlvl):
+        ctx.render(nodes, root)
 
   ctx.publishAtlasUsage()
 

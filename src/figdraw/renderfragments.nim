@@ -412,13 +412,22 @@ proc effectiveChildCount*(fragments: RenderFragments, parent: RenderCursor): int
     parent.fragment.entries.childEntries.getOrDefault(parent.index.entryKey())
   fragments.expandedCount(children)
 
-template pairs*(fragments: RenderFragments): auto =
-  fragments.base.layers.pairs()
+iterator levels*(fragments: RenderFragments): ZLevel =
+  ## Iterates layer identities without exposing mutable `RenderList` storage.
+  for lvl in fragments.base.layers.keys:
+    yield lvl
 
-proc `[]`*(fragments: RenderFragments, lvl: ZLevel): lent RenderList =
+iterator pairs*(fragments: RenderFragments): (ZLevel, RenderList) =
+  ## Iterates layers as detached diagnostic copies.
+  for lvl, list in fragments.base.layers.pairs():
+    yield (lvl, list.cloneRenderList())
+
+proc `[]`*(fragments: RenderFragments, lvl: ZLevel): RenderList =
+  ## Returns a detached layer copy so raw sequence mutation cannot invalidate
+  ## the fragment tree's traversal metadata.
   if fragments.isNil or lvl notin fragments.base.layers:
     raise newException(KeyError, "render layer does not exist")
-  fragments.base.layers[lvl]
+  fragments.base.layers[lvl].cloneRenderList()
 
 proc setLayer*(fragments: RenderFragments, lvl: ZLevel, list: sink RenderList) =
   if lvl in fragments.layerEntries:
@@ -886,7 +895,7 @@ proc materialize*(fragments: RenderFragments): Renders =
   if fragments.isNil:
     raise newException(RenderFragmentError, "cannot materialize a nil fragment tree")
   result = newRenders()
-  for lvl, _ in fragments.pairs():
+  for lvl in fragments.levels():
     var list = RenderList()
     for root in fragments.roots(lvl):
       discard fragments.appendMaterialized(list, root, (-1).FigIdx)

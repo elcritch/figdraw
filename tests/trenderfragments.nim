@@ -320,6 +320,22 @@ suite "RenderFragments APIs":
     check roots.mapIt(fragments[it].nodeId()) == @[10]
     check fragments.childIds(roots[0]) == @[20]
 
+  test "layer reads cannot mutate fragment topology":
+    let fragments = newRenderFragments()
+    let root = fragments.addRoot(0.ZLevel, testFig(10))
+    discard fragments.addChild(0.ZLevel, root, testFig(20))
+
+    var layerCopy = fragments[0.ZLevel]
+    layerCopy.nodes[0].childCount = 0
+    layerCopy.rootIds.setLen(0)
+    for _, list in fragments.pairs():
+      var pairCopy = list
+      pairCopy.nodes.setLen(0)
+
+    let roots = fragments.rootCursors(0.ZLevel)
+    check roots.mapIt(fragments[it].nodeId()) == @[10]
+    check fragments.childIds(roots[0]) == @[20]
+
   test "controlled node update preserves topology":
     let fragments = newRenderFragments()
     let root = fragments.addRoot(4.ZLevel, testFig(10))

@@ -516,6 +516,7 @@ let updatedRoots = fragments.fragmentRoots(updatedMenuFragment)
 Fragment handles and cursors are bound to their owning tree and generation. Operations reject
 foreign, stale, and detached values with `RenderFragmentError`; `handleStatus` can classify a handle
 without mutating the tree. Use `updateNode` for controlled visual changes to an existing node.
+Layer indexing and `pairs` return detached diagnostic copies rather than mutable tree storage.
 
 `attachRootFragment` adds the same persistent slot behavior to a layer root sequence. `materialize`
 creates an independent monolithic `Renders` copy in logical traversal order for compatibility,
