@@ -19,6 +19,14 @@ proc rootCursors(fragments: RenderFragments, zlevel: ZLevel): seq[RenderCursor] 
   for root in fragments.roots(zlevel):
     result.add root
 
+proc rootCursors(renders: Renders, zlevel: ZLevel): seq[RenderCursor] =
+  for root in renders.roots(zlevel):
+    result.add root
+
+proc childIds(renders: Renders, parent: RenderCursor): seq[int] =
+  for child in renders.children(parent):
+    result.add renders[child].nodeId()
+
 type RecordingBackend = ref object of BackendContext
   mat: Mat4
   mats: seq[Mat4]
@@ -204,3 +212,152 @@ suite "RenderFragments APIs":
 
     check fragments.childIds(roots[0]) == @[11]
     check renders[2.ZLevel].nodes.mapIt(it.nodeId()) == @[10, 11]
+
+  test "persistent child fragment survives empty replacement":
+    let fragments = newRenderFragments()
+    let root = fragments.addRoot(0.ZLevel, testFig(10))
+    discard fragments.addChild(0.ZLevel, root, testFig(40))
+
+    var initial = RenderList()
+    discard initial.addRoot(testFig(20))
+    discard initial.addRoot(testFig(30))
+    let handle = fragments.attachChildFragment(0.ZLevel, root, 0, move initial)
+
+    let emptyHandle = fragments.replaceFragment(handle, RenderList())
+    let roots = fragments.rootCursors(0.ZLevel)
+    check fragments.fragmentRoots(emptyHandle).len == 0
+    check fragments.childIds(roots[0]) == @[40]
+
+    var restored = RenderList()
+    discard restored.addRoot(testFig(50))
+    discard restored.addRoot(testFig(60))
+    let restoredHandle = fragments.replaceFragment(emptyHandle, move restored)
+
+    check fragments.fragmentRoots(restoredHandle).len == 2
+    check fragments.childIds(roots[0]) == @[50, 60, 40]
+
+  test "persistent root fragment retains layer position":
+    let fragments = newRenderFragments()
+    discard fragments.addRoot(3.ZLevel, testFig(40))
+
+    var initial = RenderList()
+    discard initial.addRoot(testFig(10))
+    discard initial.addRoot(testFig(20))
+    let handle = fragments.attachRootFragment(3.ZLevel, 0, move initial)
+    check fragments.rootCursors(3.ZLevel).mapIt(fragments[it].nodeId()) == @[10, 20, 40]
+
+    let emptyHandle = fragments.replaceFragment(handle, RenderList())
+    check fragments.rootCursors(3.ZLevel).mapIt(fragments[it].nodeId()) == @[40]
+
+    var restored = RenderList()
+    discard restored.addRoot(testFig(30))
+    discard fragments.replaceFragment(emptyHandle, move restored)
+    check fragments.rootCursors(3.ZLevel).mapIt(fragments[it].nodeId()) == @[30, 40]
+
+  test "rejects foreign stale and detached handles":
+    let first = newRenderFragments()
+    let firstRoot = first.addRoot(0.ZLevel, testFig(10))
+    var child = RenderList()
+    discard child.addRoot(testFig(20))
+    let handle = first.attachChildFragment(0.ZLevel, firstRoot, 0, move child)
+
+    let second = newRenderFragments()
+    check second.handleStatus(handle) == rfsForeignTree
+    expect RenderFragmentError:
+      discard second.replaceFragment(handle, RenderList())
+    check first.fragmentRoots(handle).mapIt(first[it].nodeId()) == @[20]
+
+    var replacement = RenderList()
+    discard replacement.addRoot(testFig(30))
+    let current = first.replaceFragment(handle, move replacement)
+    check first.handleStatus(handle) == rfsStaleFragment
+    check first.handleStatus(current) == rfsValid
+    expect RenderFragmentError:
+      discard first.replaceFragment(handle, RenderList())
+
+    first.removeFragment(current)
+    check first.handleStatus(current) == rfsDetached
+    expect RenderFragmentError:
+      discard first.fragmentRoots(current)
+
+  test "invalidates handles after clear and layer replacement":
+    let cleared = newRenderFragments()
+    let clearedRoot = cleared.addRoot(0.ZLevel, testFig(10))
+    let clearHandle =
+      cleared.attachChildFragment(0.ZLevel, clearedRoot, 0, RenderList())
+    cleared.clear()
+    check cleared.handleStatus(clearHandle) == rfsStaleTree
+
+    let replaced = newRenderFragments()
+    let replacedRoot = replaced.addRoot(2.ZLevel, testFig(10))
+    let layerHandle =
+      replaced.attachChildFragment(2.ZLevel, replacedRoot, 0, RenderList())
+    replaced.setLayer(2.ZLevel, RenderList())
+    check replaced.handleStatus(layerHandle) == rfsStaleLayer
+
+  test "rejects cursors from replaced fragments":
+    let fragments = newRenderFragments()
+    let root = fragments.addRoot(0.ZLevel, testFig(10))
+    var initial = RenderList()
+    discard initial.addRoot(testFig(20))
+    let handle = fragments.attachChildFragment(0.ZLevel, root, 0, move initial)
+    let staleCursor = fragments.fragmentRoots(handle)[0]
+
+    var replacement = RenderList()
+    discard replacement.addRoot(testFig(30))
+    discard fragments.replaceFragment(handle, move replacement)
+    expect RenderFragmentError:
+      discard fragments[staleCursor]
+
+  test "wrapping copies source topology":
+    let renders = newRenders()
+    let root = renders.addRoot(0.ZLevel, testFig(10))
+    discard renders.addChild(0.ZLevel, root, testFig(20))
+    let fragments = newRenderFragments(renders)
+
+    renders[0.ZLevel].clear()
+    let roots = fragments.rootCursors(0.ZLevel)
+    check roots.mapIt(fragments[it].nodeId()) == @[10]
+    check fragments.childIds(roots[0]) == @[20]
+
+  test "controlled node update preserves topology":
+    let fragments = newRenderFragments()
+    let root = fragments.addRoot(4.ZLevel, testFig(10))
+    discard fragments.addChild(4.ZLevel, root, testFig(20))
+    let cursor = fragments.nodeCursor(4.ZLevel, root)
+
+    var replacement = testFig(11, 9.ZLevel)
+    replacement.parent = 99.FigIdx
+    replacement.childCount = 99
+    fragments.updateNode(cursor, replacement)
+
+    check fragments[cursor].nodeId() == 11
+    check fragments[cursor].zlevel == 4.ZLevel
+    check fragments[cursor].parent == (-1).FigIdx
+    check fragments[cursor].childCount == 1
+    check fragments.childIds(cursor) == @[20]
+
+  test "materializes nested fragments in logical order":
+    let fragments = newRenderFragments()
+    let root = fragments.addRoot(0.ZLevel, testFig(10))
+    discard fragments.addChild(0.ZLevel, root, testFig(40))
+
+    var child = RenderList()
+    let childRoot = child.addRoot(testFig(20))
+    discard child.addChild(childRoot, testFig(21))
+    discard child.addRoot(testFig(30))
+    let childHandle = fragments.attachChildFragment(0.ZLevel, root, 0, move child)
+
+    var nested = RenderList()
+    discard nested.addRoot(testFig(22))
+    discard fragments.attachChildFragment(
+      fragments.fragmentRoots(childHandle)[0], 1, move nested
+    )
+
+    let renders = fragments.materialize()
+    let roots = renders.rootCursors(0.ZLevel)
+    check renders[0.ZLevel].nodes.mapIt(it.nodeId()) == @[10, 20, 21, 22, 30, 40]
+    check roots.mapIt(renders[it].nodeId()) == @[10]
+    check renders.childIds(roots[0]) == @[20, 30, 40]
+    let firstChild = toSeq(renders.children(roots[0]))[0]
+    check renders.childIds(firstChild) == @[21, 22]
