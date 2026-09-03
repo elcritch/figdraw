@@ -513,6 +513,16 @@ let updatedMenuFragment = fragments.replaceFragment(menuFragment, updatedMenu)
 let updatedRoots = fragments.fragmentRoots(updatedMenuFragment)
 ```
 
+`replaceFragment` is the safe leaf operation: it rejects a fragment that still owns nested
+fragment attachments. Replace the narrower child fragment when preserving its identity matters.
+Use the explicitly destructive `replaceFragmentSubtree` only when every nested attachment should
+be detached and its handles invalidated.
+
+Fragments can be moved or reordered without rebuilding their contents. `moveFragment` places a
+fragment beneath a node, while `moveFragmentToRoot` places it in a layer root sequence. Positions
+refer to the final logical slot sequence and count both physical nodes and fragment slots. These
+operations preserve fragment IDs, generations, cursors, and nested attachments.
+
 Fragment handles and cursors are bound to their owning tree and generation. Operations reject
 foreign, stale, and detached values with `RenderFragmentError`; `handleStatus` can classify a handle
 without mutating the tree. Use `updateNode` for controlled visual changes to an existing node.

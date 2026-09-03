@@ -1,3 +1,69 @@
+## Fragment-backed render trees
+## ============================
+##
+## `RenderFragments` stores independently replaceable render subtrees behind
+## persistent logical attachment slots. A fragment ID belongs to its slot rather
+## than to any physical `FigIdx`, so replacing one fragment does not reindex base
+## nodes or change sibling fragment identities::
+##
+##     parent
+##     +-- fragment A (id 10) -> [A0, A1]
+##     +-- fragment B (id 11) -> [B0]
+##
+##     replace A
+##
+##     parent
+##     +-- fragment A (id 10) -> [A2, A3, A4]
+##     +-- fragment B (id 11) -> [B0]
+##
+## The returned handle for A has a new generation. The old A handle is stale,
+## while the handle and cursors for B remain valid. `materialize` assigns fresh
+## physical indexes only in its independent monolithic output.
+##
+## Persistent empty attachments
+## ----------------------------
+##
+## One fragment edge represents one position, regardless of how many roots its
+## current contents contain::
+##
+##     slots:       [header] [menu fragment]       [footer]
+##     zero roots:   header                         footer
+##     one root:     header   menu                  footer
+##     many roots:   header   item-1 item-2 item-3  footer
+##
+## Replacing the menu with an empty `RenderList` therefore emits no nodes but
+## retains its handle and exact position. It can later receive one or many roots
+## without inspecting or reindexing its neighbours.
+##
+## Stable structure and replaceable drawing
+## ----------------------------------------
+##
+## Nested fragments are useful when stable structural nodes own independently
+## replaceable drawing and child slots::
+##
+##     view shell fragment
+##     +-- stable transform/clip node
+##         +-- self-drawing fragment
+##         +-- child-view fragment
+##         +-- child-view fragment
+##
+## Use `updateNode` for the stable node and `replaceFragment` for a leaf such as
+## self-drawing. Safe replacement rejects fragments that still contain nested
+## attachments. When discarding a whole logical subtree is intended, use
+## `replaceFragmentSubtree`; it explicitly detaches every nested fragment and
+## invalidates their handles.
+##
+## Use `moveFragment` and `moveFragmentToRoot` to reconcile ordering without
+## replacing content. Moving a fragment preserves its ID, generation, node
+## cursors, and all nested attachments::
+##
+##     before: [fragment A] [fragment B] [fragment C]
+##     move C to position 0
+##     after:  [fragment C] [fragment A] [fragment B]
+##
+## Fragment graphs are mutable and are not safe to share concurrently. Use a
+## materialized `Renders` value when an independent snapshot is required.
+
 import std/tables
 
 import ./fignodes
@@ -28,6 +94,12 @@ type
     childEntries: Table[int16, seq[RenderChild]]
     rootEntries: seq[RenderChild]
     ready: bool
+
+  FragmentAttachment = object
+    zlevel: ZLevel
+    owner: RenderFragment
+    parent: FigIdx
+    position: int
 
   RenderFragment = ref object
     id: uint64
@@ -308,6 +380,10 @@ proc fragmentHandle*(cursor: RenderCursor): RenderFragmentHandle =
   cursor.owner.makeHandle(cursor.fragment)
 
 proc fragmentId*(handle: RenderFragmentHandle): uint64 =
+  ## Returns the stable tree-local identity of a fragment attachment.
+  ##
+  ## Replacement and movement preserve this value. A zero value identifies an
+  ## uninitialized handle.
   if handle.fragment.isNil:
     return 0
   handle.fragment.id
@@ -322,6 +398,26 @@ proc expandedCount(fragments: RenderFragments, entries: openArray[RenderChild]):
         result += entry.fragment.entries.rootEntries.len
 
 proc detachFragment(fragment: RenderFragment)
+
+proc hasFragmentEdges(entries: RenderEntries): bool =
+  for entry in entries.rootEntries:
+    if entry.kind == rckFragment:
+      return true
+  for _, children in entries.childEntries:
+    for entry in children:
+      if entry.kind == rckFragment:
+        return true
+
+proc hasNestedFragments*(
+    fragments: RenderFragments, handle: RenderFragmentHandle
+): bool =
+  ## Reports whether `handle` owns any nested fragment attachments.
+  ##
+  ## A fragment with nested attachments cannot be passed to `replaceFragment`.
+  ## Use narrower leaf fragments, or call `replaceFragmentSubtree` when all
+  ## nested attachments should be detached deliberately.
+  fragments.requireHandle(handle)
+  handle.fragment.entries.hasFragmentEdges()
 
 proc detachFragments(entries: RenderEntries) =
   for entry in entries.rootEntries:
@@ -339,6 +435,129 @@ proc detachFragment(fragment: RenderFragment) =
   fragment.attached = false
   fragment.generation.advance()
   fragment.nodeGeneration.advance()
+
+proc containsFragment(entries: RenderEntries, target: RenderFragment): bool =
+  for entry in entries.rootEntries:
+    if entry.kind == rckFragment:
+      if entry.fragment == target or entry.fragment.entries.containsFragment(target):
+        return true
+  for _, children in entries.childEntries:
+    for entry in children:
+      if entry.kind == rckFragment:
+        if entry.fragment == target or entry.fragment.entries.containsFragment(target):
+          return true
+
+proc findFragmentAttachment(
+    entries: RenderEntries,
+    zlevel: ZLevel,
+    owner: RenderFragment,
+    target: RenderFragment,
+    attachment: var FragmentAttachment,
+): bool =
+  for position, entry in entries.rootEntries:
+    if entry.kind == rckFragment:
+      if entry.fragment == target:
+        attachment = FragmentAttachment(
+          zlevel: zlevel, owner: owner, parent: (-1).FigIdx, position: position
+        )
+        return true
+      if entry.fragment.entries.findFragmentAttachment(
+        zlevel, entry.fragment, target, attachment
+      ):
+        return true
+
+  for parent, children in entries.childEntries:
+    for position, entry in children:
+      if entry.kind == rckFragment:
+        if entry.fragment == target:
+          attachment = FragmentAttachment(
+            zlevel: zlevel, owner: owner, parent: parent.FigIdx, position: position
+          )
+          return true
+        if entry.fragment.entries.findFragmentAttachment(
+          zlevel, entry.fragment, target, attachment
+        ):
+          return true
+
+proc findFragmentAttachment(
+    fragments: RenderFragments,
+    target: RenderFragment,
+    attachment: var FragmentAttachment,
+): bool =
+  for zlevel, entries in fragments.layerEntries:
+    if entries.findFragmentAttachment(zlevel, nil, target, attachment):
+      return true
+
+func sameSequence(a, b: FragmentAttachment): bool =
+  a.zlevel == b.zlevel and a.owner == b.owner and a.parent == b.parent
+
+proc entryCount(fragments: RenderFragments, attachment: FragmentAttachment): int =
+  if attachment.owner.isNil:
+    if attachment.parent.int < 0:
+      return fragments.layerEntries[attachment.zlevel].rootEntries.len
+    return fragments.layerEntries[attachment.zlevel].childEntries.getOrDefault(
+      attachment.parent.entryKey()
+    ).len
+
+  if attachment.parent.int < 0:
+    return attachment.owner.entries.rootEntries.len
+  attachment.owner.entries.childEntries.getOrDefault(attachment.parent.entryKey()).len
+
+proc deleteEntry(fragments: RenderFragments, attachment: FragmentAttachment) =
+  if attachment.owner.isNil:
+    if attachment.parent.int < 0:
+      fragments.layerEntries[attachment.zlevel].rootEntries.delete(attachment.position)
+    else:
+      fragments.layerEntries[attachment.zlevel].childEntries[
+        attachment.parent.entryKey()
+      ].delete(attachment.position)
+  elif attachment.parent.int < 0:
+    attachment.owner.entries.rootEntries.delete(attachment.position)
+  else:
+    attachment.owner.entries.childEntries[attachment.parent.entryKey()].delete(
+      attachment.position
+    )
+
+proc insertEntry(
+    fragments: RenderFragments, attachment: FragmentAttachment, fragment: RenderFragment
+) =
+  let entry = fragment.fragmentChild()
+  if attachment.owner.isNil:
+    if attachment.parent.int < 0:
+      fragments.layerEntries[attachment.zlevel].rootEntries.insert(
+        entry, attachment.position
+      )
+    else:
+      fragments.layerEntries[attachment.zlevel].childEntries
+      .mgetOrPut(attachment.parent.entryKey(), @[])
+      .insert(entry, attachment.position)
+  elif attachment.parent.int < 0:
+    attachment.owner.entries.rootEntries.insert(entry, attachment.position)
+  else:
+    attachment.owner.entries.childEntries
+    .mgetOrPut(attachment.parent.entryKey(), @[])
+    .insert(entry, attachment.position)
+
+proc moveFragmentTo(
+    fragments: RenderFragments,
+    handle: RenderFragmentHandle,
+    destination: FragmentAttachment,
+): RenderFragmentHandle =
+  var source: FragmentAttachment
+  if not fragments.findFragmentAttachment(handle.fragment, source):
+    raise newException(RenderFragmentError, "fragment attachment is missing")
+
+  var destinationLength = fragments.entryCount(destination)
+  if source.sameSequence(destination):
+    dec destinationLength
+  if destination.position > destinationLength:
+    raise newException(RenderFragmentError, "fragment destination is out of range")
+  if source.sameSequence(destination) and source.position == destination.position:
+    return handle
+
+  fragments.deleteEntry(source)
+  fragments.insertEntry(destination, handle.fragment)
+  fragments.makeHandle(handle.fragment)
 
 proc newFragment(
     fragments: RenderFragments, lvl: ZLevel, contents: sink RenderList
@@ -792,11 +1011,9 @@ proc attachRootFragment*(
   fragments.layerEntries[lvl].rootEntries.insert(fragment.fragmentChild(), rootPos.int)
   fragments.makeHandle(fragment)
 
-proc replaceFragment*(
+proc installFragmentContents(
     fragments: RenderFragments, handle: RenderFragmentHandle, contents: sink RenderList
 ): RenderFragmentHandle =
-  ## Replaces fragment contents without changing the persistent attachment slot.
-  fragments.requireHandle(handle)
   contents.relevelList(handle.fragment.zlevel)
   contents.validateRootIds()
   var entries: RenderEntries
@@ -808,6 +1025,94 @@ proc replaceFragment*(
   handle.fragment.generation.advance()
   handle.fragment.nodeGeneration.advance()
   fragments.makeHandle(handle.fragment)
+
+proc replaceFragment*(
+    fragments: RenderFragments, handle: RenderFragmentHandle, contents: sink RenderList
+): RenderFragmentHandle =
+  ## Replaces leaf-fragment contents without changing its persistent slot.
+  ##
+  ## The fragment ID is preserved and the returned handle carries its next
+  ## generation. The previous handle and cursors into the replaced fragment
+  ## become stale; sibling and ancestor handles and cursors remain valid.
+  ##
+  ## This safe operation raises `RenderFragmentError` before mutation when the
+  ## fragment contains nested attachments. Replace the narrower leaf fragment
+  ## instead, or use `replaceFragmentSubtree` to detach the entire nested graph.
+  fragments.requireHandle(handle)
+  if handle.fragment.entries.hasFragmentEdges():
+    raise newException(
+      RenderFragmentError,
+      "cannot replace a fragment with nested attachments; use " &
+        "replaceFragmentSubtree to detach them",
+    )
+  fragments.installFragmentContents(handle, move contents)
+
+proc replaceFragmentSubtree*(
+    fragments: RenderFragments, handle: RenderFragmentHandle, contents: sink RenderList
+): RenderFragmentHandle =
+  ## Replaces a complete fragment subtree and detaches every nested fragment.
+  ##
+  ## Use this destructive operation only when the nested attachment identities
+  ## are no longer needed. All descendant handles and cursors become detached.
+  ## The target fragment keeps its ID and receives a new-generation handle.
+  fragments.requireHandle(handle)
+  fragments.installFragmentContents(handle, move contents)
+
+proc moveFragment*(
+    fragments: RenderFragments,
+    handle: RenderFragmentHandle,
+    parent: RenderCursor,
+    childPos: Natural,
+): RenderFragmentHandle =
+  ## Moves or reorders a fragment beneath `parent` without replacing it.
+  ##
+  ## `childPos` is the fragment's position in the final logical child-slot
+  ## sequence and counts both physical nodes and fragment slots. Movement
+  ## preserves the fragment ID, generation, cursors, and nested attachments.
+  ## Moving across layers or beneath the fragment's own subtree raises
+  ## `RenderFragmentError` without changing the graph.
+  fragments.requireHandle(handle)
+  fragments.requireCursor(parent)
+  if handle.fragment.zlevel != parent.zlevel:
+    raise newException(RenderFragmentError, "cannot move a fragment between layers")
+  if not parent.fragment.isNil and (
+    parent.fragment == handle.fragment or
+    handle.fragment.entries.containsFragment(parent.fragment)
+  ):
+    raise newException(RenderFragmentError, "cannot move a fragment beneath itself")
+
+  fragments.moveFragmentTo(
+    handle,
+    FragmentAttachment(
+      zlevel: parent.zlevel,
+      owner: parent.fragment,
+      parent: parent.index,
+      position: childPos.int,
+    ),
+  )
+
+proc moveFragmentToRoot*(
+    fragments: RenderFragments,
+    handle: RenderFragmentHandle,
+    zlevel: ZLevel,
+    rootPos: Natural,
+): RenderFragmentHandle =
+  ## Moves or reorders a fragment in a layer's root sequence without replacing it.
+  ##
+  ## `rootPos` is the fragment's position in the final logical root-slot
+  ## sequence. Movement preserves the fragment ID, generation, cursors, and all
+  ## nested attachments. Moving between layers raises `RenderFragmentError`
+  ## without changing the graph.
+  fragments.requireHandle(handle)
+  if handle.fragment.zlevel != zlevel:
+    raise newException(RenderFragmentError, "cannot move a fragment between layers")
+
+  fragments.moveFragmentTo(
+    handle,
+    FragmentAttachment(
+      zlevel: zlevel, owner: nil, parent: (-1).FigIdx, position: rootPos.int
+    ),
+  )
 
 proc removeFragmentEdge(entries: var RenderEntries, target: RenderFragment): bool =
   for idx, entry in entries.rootEntries:
@@ -870,9 +1175,10 @@ proc updateFragment*(
     fragments: RenderFragments, cursor: RenderCursor, updated: sink RenderList
 ): seq[RenderCursor] {.discardable.} =
   ## Compatibility wrapper. New code should use `replaceFragment` and retain the
-  ## returned handle.
+  ## returned handle. This preserves the wrapper's historical destructive
+  ## replacement behavior for nested fragments.
   let handle = cursor.fragmentHandle()
-  let replacement = fragments.replaceFragment(handle, move updated)
+  let replacement = fragments.replaceFragmentSubtree(handle, move updated)
   fragments.fragmentRoots(replacement)
 
 proc appendMaterialized(
