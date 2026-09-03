@@ -4,7 +4,7 @@ import figdraw
 
 type FragmentExample* = object
   renders*: RenderFragments
-  fragmentRoot: RenderCursor
+  fragment: RenderFragmentHandle
   logicalSize: Vec2
   frame: int
 
@@ -67,8 +67,9 @@ proc initFragmentExample*(logicalSize: Vec2): FragmentExample =
       fill: linear(rgba(244, 247, 255, 255), rgba(218, 226, 246, 255), axis = fgaY),
     ),
   )
-  result.fragmentRoot =
-    result.renders.insertChildren(0.ZLevel, background, makeCards(logicalSize, 0), 0)[0]
+  result.fragment = result.renders.attachChildFragment(
+    0.ZLevel, background, 0, makeCards(logicalSize, 0)
+  )
 
 proc resize*(example: var FragmentExample, logicalSize: Vec2) =
   if logicalSize != example.logicalSize:
@@ -78,6 +79,6 @@ proc resize*(example: var FragmentExample, logicalSize: Vec2) =
 
 proc update*(example: var FragmentExample) =
   inc example.frame
-  example.fragmentRoot = example.renders.updateFragment(
-    example.fragmentRoot, makeCards(example.logicalSize, example.frame)
-  )[0]
+  example.fragment = example.renders.replaceFragment(
+    example.fragment, makeCards(example.logicalSize, example.frame)
+  )

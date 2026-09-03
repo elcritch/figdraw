@@ -483,9 +483,9 @@ discard renders.addChildren(0.ZLevel, root, menuItems)
 
 ### Fragment-backed render trees
 
-`RenderFragments` adds independently replaceable subtrees without changing the layout or behavior
-of `Renders` and `RenderList`. It provides the same layer/root/child helpers, plus `RenderCursor`
-overloads for inserting nested fragments. Fragment insertion does not copy nodes into the base
+`RenderFragments` adds independently replaceable subtrees without changing the rendering behavior
+of `Renders` and `RenderList`. A fragment is a persistent logical child or layer-root slot whose
+contents can have zero, one, or many roots. Fragment insertion does not copy nodes into the base
 `Renders`, so existing base indexes stay stable:
 
 ```nim
@@ -494,26 +494,51 @@ let root = fragments.addRoot(0.ZLevel, Fig(kind: nkRectangle))
 
 var menu = RenderList()
 discard menu.addRoot(Fig(kind: nkRectangle))
-let menuRoots = fragments.insertChildren(0.ZLevel, root, menu, 0)
+let menuFragment = fragments.attachChildFragment(0.ZLevel, root, 0, menu)
+let menuRoots = fragments.fragmentRoots(menuFragment)
 
 var submenu = RenderList()
 discard submenu.addRoot(Fig(kind: nkRectangle))
-discard fragments.insertChildren(menuRoots[0], submenu, 0)
+discard fragments.attachChildFragment(menuRoots[0], 0, submenu)
 ```
 
-Keep a returned cursor to replace that fragment later. `updateFragment` preserves the fragment's
-position and identity, and returns cursors for the replacement roots:
+Keep the returned handle to replace that fragment later. `replaceFragment` preserves the fragment's
+position and returns its next generation. The handle remains available when the replacement is
+empty, so the same slot can become nonempty again:
 
 ```nim
 var updatedMenu = RenderList()
 discard updatedMenu.addRoot(Fig(kind: nkRectangle))
-let updatedRoots = fragments.updateFragment(menuRoots[0], updatedMenu)
+let updatedMenuFragment = fragments.replaceFragment(menuFragment, updatedMenu)
+let updatedRoots = fragments.fragmentRoots(updatedMenuFragment)
 ```
 
-Use the `RenderFragments` helpers for mutation after wrapping or inserting fragments so its logical
-traversal metadata stays synchronized. `renderRoot` and `renderFrame` accept the `RenderInput` union
-(`Renders | RenderFragments`), so existing whole-tree rendering remains source compatible while a
-fragment-backed tree can be sent through the same renderer entry points.
+`replaceFragment` is the safe leaf operation: it rejects a fragment that still owns nested
+fragment attachments. Replace the narrower child fragment when preserving its identity matters.
+Use the explicitly destructive `replaceFragmentSubtree` only when every nested attachment should
+be detached and its handles invalidated.
+
+Fragments can be moved or reordered without rebuilding their contents. `moveFragment` places a
+fragment beneath a node, while `moveFragmentToRoot` places it in a layer root sequence. Positions
+refer to the final logical slot sequence and count both physical nodes and fragment slots. These
+operations preserve fragment IDs, generations, cursors, and nested attachments.
+For a complete sibling-list reconciliation, use `reorderChildFragments` or
+`reorderRootFragments` instead of issuing one move per sibling. The bulk operations run in one
+linear pass and keep physical node positions fixed while fragment slots exchange order.
+
+Fragment handles and cursors are bound to their owning tree and generation. Operations reject
+foreign, stale, and detached values with `RenderFragmentError`; `handleStatus` can classify a handle
+without mutating the tree. Use `updateNode` for controlled visual changes to an existing node.
+Layer indexing and `pairs` return detached diagnostic copies rather than mutable tree storage.
+
+`attachRootFragment` adds the same persistent slot behavior to a layer root sequence. `materialize`
+creates an independent monolithic `Renders` copy in logical traversal order for compatibility,
+diagnostics, or transfer to another thread.
+
+`renderRoot` and `renderFrame` accept the `RenderInput` union (`Renders | RenderFragments`), so
+existing whole-tree rendering remains source compatible while a fragment-backed tree can be sent
+through the same renderer entry points. The older `insertChildren` and `updateFragment` cursor APIs
+remain as compatibility wrappers, but new code should retain a `RenderFragmentHandle`.
 
 The animated examples replace the card fragment every frame while leaving the base render tree
 intact:

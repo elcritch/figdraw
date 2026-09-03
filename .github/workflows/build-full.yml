@@ -205,7 +205,10 @@ jobs:
 
     - name: Setup native Nim environment (macOS)
       if: runner.os == 'macOS'
-      run: atlas --source --github-path env ${{ matrix.nimversion }}
+      # Atlas 0.15.2 resolves version tags from the wrong working directory in
+      # source mode. An explicit Git ref bypasses that path while retaining a
+      # native arm64 Nim build.
+      run: atlas --source --git-ref=v${{ matrix.nimversion }} --github-path env ${{ matrix.nimversion }}
 
     - name: Nim version
       run: |
