@@ -149,16 +149,15 @@ proc readTypefacePath(
     if typefaces.len == 0:
       raise newException(PixieError, "typeface collection is empty")
 
-    let requested = requestedName.normalizeTypefaceLookupName()
-    var faceIndex = 0
+    let requested = splitFile(requestedName).name
+    var
+      faceIndex = 0
+      matchScore = high(int)
     for index, typeface in typefaces:
-      let faceName = typeface.name().normalizeTypefaceLookupName()
-      if requested.len > 0 and faceName.len > 0 and (
-        faceName == requested or faceName.contains(requested) or
-        requested.contains(faceName)
-      ):
+      let score = fontNameMatchScore(requested, typeface.name())
+      if score >= 0 and score < matchScore:
         faceIndex = index
-        break
+        matchScore = score
 
     result.typeface = typefaces[faceIndex]
     result.typeface.filePath = path & "#" & $faceIndex

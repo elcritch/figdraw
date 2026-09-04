@@ -19,6 +19,41 @@ proc normalizeName(name: string): string =
     if ch in {'a' .. 'z', '0' .. '9'}:
       result.add(ch)
 
+proc fontNameMatchScore*(requestedName, fontName: string): int =
+  ## Ranks a filename or face name for a family request.
+  ##
+  ## A family name may resolve to an explicitly named regular face, but it
+  ## must not resolve to a related family or a styled face. For example,
+  ## "Noto Sans" may match "NotoSans-Regular", but not
+  ## "NotoSansCJK-Bold" or "NotoSansMono".
+  let
+    requested = splitFile(requestedName).name.normalizeName()
+    candidate = fontName.normalizeName()
+  if requested.len == 0 or candidate.len == 0:
+    return -1
+  if candidate == requested:
+    return 0
+  if candidate.startsWith(requested):
+    let suffix = candidate[requested.len .. ^1]
+    if suffix in ["regular", "book", "roman", "normal", "plain", "r"]:
+      return 1
+  -1
+
+proc systemFontFileMatchScore(requestedName, path: string): int =
+  let score = fontNameMatchScore(requestedName, splitFile(path).name)
+  if score >= 0:
+    return score
+
+  let
+    requested = splitFile(requestedName).name.normalizeName()
+    stem = splitFile(path).name.normalizeName()
+    extension = splitFile(path).ext.toLowerAscii()
+  if extension in [".ttc", ".otc"] and requested.startsWith(stem):
+    let suffix = requested[stem.len .. ^1]
+    if suffix in ["sc", "tc", "hk", "jp", "kr"]:
+      return 2
+  -1
+
 proc normalizePathKey(path: string): string =
   path.toLowerAscii().replace('\\', '/')
 
@@ -125,36 +160,25 @@ proc systemFontFiles*(displayServer = detectDisplayServer()): seq[string] =
     except OSError:
       discard
 
-proc findSystemFontFile*(
-    names: openArray[string], displayServer = detectDisplayServer()
-): string =
-  ## Finds the preferred system font path matching one of the candidate names.
+proc findSystemFontFile*(names, fontFiles: openArray[string]): string =
+  ## Finds a preferred font from `fontFiles` matching one of `names`.
   ##
-  ## Exact normalized file and stem matches take precedence over loose partial
-  ## matches, so a request such as "Times New Roman" is not captured by
-  ## "Times.ttc" before "Times New Roman.ttf" is considered.
+  ## An unstyled family request can match a conventional regular suffix, but
+  ## related families and bold, italic, or monospace faces do not qualify.
   if names.len == 0:
     return ""
 
-  let fontFiles = systemFontFiles(displayServer)
   for name in names:
-    let candidate = name.normalizeName()
-    if candidate.len == 0:
-      continue
-    for path in fontFiles:
-      let
-        parts = splitFile(path)
-        stem = parts.name.normalizeName()
-        fileName = (parts.name & parts.ext).normalizeName()
-      if candidate == stem or candidate == fileName:
-        return path
-
-  for name in names:
-    let candidate = name.normalizeName()
-    if candidate.len == 0:
-      continue
-    for path in fontFiles:
-      let stem = splitFile(path).name.normalizeName()
-      if stem.contains(candidate) or candidate.contains(stem):
-        return path
+    let requestedExt = splitFile(name).ext.toLowerAscii()
+    for score in 0 .. 2:
+      for path in fontFiles:
+        if (requestedExt.len == 0 or splitFile(path).ext.toLowerAscii() == requestedExt) and
+            systemFontFileMatchScore(name, path) == score:
+          return path
   ""
+
+proc findSystemFontFile*(
+    names: openArray[string], displayServer = detectDisplayServer()
+): string =
+  ## Finds the preferred installed system font path matching one of `names`.
+  findSystemFontFile(names, systemFontFiles(displayServer))
