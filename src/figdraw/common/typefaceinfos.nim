@@ -488,6 +488,28 @@ proc fallbackFamily(sourceName: string): string =
   let fileName = sourceName.extractFilename()
   result = (if fileName.len > 0: fileName else: sourceName).splitFile().name
 
+proc readTypefaceNameInfo*(sourceName, data: string, faceIndex = 0): TypefaceInfo =
+  ## Reads the names and style flags needed to identify one OpenType face.
+  ##
+  ## Unlike `parseTypefaceInfo`, this deliberately does not read cmap, layout,
+  ## or variation tables. It raises for malformed data so font discovery does
+  ## not mistake a filename-derived fallback for OpenType metadata.
+  let tables = data.readTypefaceTables(faceIndex)
+  result.faceIndex = faceIndex
+  result.localizedNames = data.readLocalizedNames(tables)
+  let
+    family = result.localizedNames.preferredName([16'u16, 1'u16])
+    subfamily = result.localizedNames.preferredName([17'u16, 2'u16])
+    fullName = result.localizedNames.preferredName([4'u16])
+    postScriptName = result.localizedNames.preferredName([6'u16])
+  if family.len == 0:
+    raise newException(ValueError, "font has no usable family name")
+  result.family = family
+  result.subfamily = subfamily
+  result.fullName = if fullName.len > 0: fullName else: family
+  result.postScriptName = postScriptName
+  result.applyStyleInfo(data, tables)
+
 proc parseTypefaceInfo*(
     sourceName, data: string, faceIndex = 0, fallbackFullName = ""
 ): TypefaceInfo =

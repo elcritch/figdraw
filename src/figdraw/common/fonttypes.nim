@@ -129,11 +129,7 @@ type
     sskBytes
 
 const figdrawTextBackend* {.strdefine.} =
-  when defined(feature.figdraw.textBackendHarfbuzzy):
-    "harfbuzzy"
-  else:
-    "pixie"
-
+  when defined(feature.figdraw.textBackendHarfbuzzy): "harfbuzzy" else: "pixie"
 
 static:
   doAssert figdrawTextBackend in ["pixie", "harfbuzzy", "hybrid"]
@@ -162,7 +158,7 @@ func textBackendFeatures*(): seq[string] =
 
 func supportedFontFileExtensions*(): seq[string] =
   ## Typeface file extensions accepted by FigDraw's font loader.
-  @[".ttf", ".otf", ".ttc", ".svg"]
+  @[".ttf", ".otf", ".ttc", ".svg", ".otc"]
 
 proc hash*(id: TypefaceId): Hash {.borrow.}
 proc `==`*(a, b: TypefaceId): bool {.borrow.}

@@ -5,7 +5,8 @@ import figdraw/common/fonttypes
 when defined(useNativeDynlib):
   import figdraw/dynlib
   from figdraw/extras/systemfonts import
-    systemDefaultFontNames, findSystemFontFile, sfrMono
+    systemDefaultFontNames, findSystemFontFile, findSystemTypefaceFile,
+    refreshSystemFontMetadata, fontNameMatchScore, sfrMono
 else:
   import figdraw
 
@@ -37,7 +38,7 @@ suite "system fonts":
     let fonts = systemFontFiles()
     check fonts.len > 0
     for font in fonts:
-      check font.splitFile.ext.toLowerAscii() in supportedFontFileExtensions()
+      check font.splitFile.ext.toLowerAscii() in fonttypes.supportedFontFileExtensions()
 
   test "family lookup rejects related and styled font filenames":
     let font = findSystemFontFile(
@@ -76,6 +77,30 @@ suite "system fonts":
   test "collection face scoring excludes bold before a regular face":
     check fontNameMatchScore("PT Sans", "PT Sans Bold") == -1
     check fontNameMatchScore("PT Sans", "PT Sans Regular") == 1
+
+  test "OpenType metadata selects a regular collection face independent of filename":
+    let
+      tempDir = getTempDir() / "figdraw-system-font-metadata-test"
+      sourcePath = getCurrentDir() / "deps/pixie/tests/fonts/PTSans.ttc"
+      collectionPath = tempDir / "unrelated-name.ttc"
+    if not dirExists(tempDir):
+      createDir(tempDir)
+    defer:
+      refreshSystemFontMetadata()
+      if dirExists(tempDir):
+        removeDir(tempDir)
+
+    var data = readFile(sourcePath)
+    swap(data[12], data[16])
+    swap(data[13], data[17])
+    swap(data[14], data[18])
+    swap(data[15], data[19])
+    writeFile(collectionPath, data)
+    refreshSystemFontMetadata()
+
+    let match = findSystemTypefaceFile(["PT Sans"], [collectionPath])
+    check match.path == collectionPath
+    check match.faceIndex == 1
 
   test "regional family aliases resolve their base collection":
     check findSystemFontFile(["PingFang SC"], ["/fonts/PingFang.ttc"]) ==

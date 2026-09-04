@@ -142,7 +142,7 @@ proc isTypefaceCollection(path: string): bool =
   splitFile(path).ext.toLowerAscii() in [".ttc", ".otc"]
 
 proc readTypefacePath(
-    path, requestedName: string
+    path, requestedName: string, requestedFaceIndex = -1
 ): tuple[typeface: Typeface, source: TypefaceSource] {.raises: [PixieError].} =
   if path.isTypefaceCollection():
     let typefaces = readTypefaces(path)
@@ -150,14 +150,18 @@ proc readTypefacePath(
       raise newException(PixieError, "typeface collection is empty")
 
     let requested = splitFile(requestedName).name
-    var
+    var faceIndex = requestedFaceIndex
+    if faceIndex >= 0 and faceIndex notin 0 ..< typefaces.len:
+      raise
+        newException(PixieError, "requested typeface collection face is not available")
+    if faceIndex < 0:
       faceIndex = 0
-      matchScore = high(int)
-    for index, typeface in typefaces:
-      let score = fontNameMatchScore(requested, typeface.name())
-      if score >= 0 and score < matchScore:
-        faceIndex = index
-        matchScore = score
+      var matchScore = high(int)
+      for index, typeface in typefaces:
+        let score = fontNameMatchScore(requested, typeface.name())
+        if score >= 0 and score < matchScore:
+          faceIndex = index
+          matchScore = score
 
     result.typeface = typefaces[faceIndex]
     result.typeface.filePath = path & "#" & $faceIndex
@@ -224,24 +228,41 @@ proc loadTypeface*(
 ): TypefaceId {.nativeAbi.} =
   ## loads a font from a file and adds it to the font index
 
-  proc resolveTypefacePath(name: string): string =
+  proc resolveTypefacePath(name: string): SystemTypefaceFile =
     let dataPath = figDataDir() / name
     if fileExists(dataPath):
       info "resolved typeface from figDataDir", requested = name, path = dataPath
-      return dataPath
+      return SystemTypefaceFile(path: dataPath, faceIndex: -1)
 
     if fileExists(name):
       info "resolved typeface from direct path", requested = name, path = name
-      return name
+      return SystemTypefaceFile(path: name, faceIndex: -1)
 
-    let stem = splitFile(name).name
-    let systemPath = findSystemFontFile([name, stem])
-    if systemPath.len > 0:
-      info "resolved typeface from system fonts", requested = name, path = systemPath
-      return systemPath
+    if splitFile(name).ext.len > 0:
+      let filePath = findSystemFontFile([name])
+      if filePath.len > 0:
+        info "resolved typeface from exact system font filename",
+          requested = name, path = filePath
+        return SystemTypefaceFile(path: filePath, faceIndex: -1)
+
+    let systemTypeface = findSystemTypefaceFile([name])
+    if systemTypeface.path.len > 0:
+      info "resolved typeface from system font metadata",
+        requested = name,
+        path = systemTypeface.path,
+        faceIndex = systemTypeface.faceIndex
+      return systemTypeface
+
+    let alias = splitFile(name).name.toLowerAscii().replace("-", "")
+    if alias in ["sfns", "ubuntur"]:
+      let filePath = findSystemFontFile([name])
+      if filePath.len > 0:
+        info "resolved typeface from system font alias",
+          requested = name, path = filePath
+        return SystemTypefaceFile(path: filePath, faceIndex: -1)
 
     warn "unable to resolve typeface path", requested = name, figDataDir = figDataDir()
-    result = ""
+    result.faceIndex = -1
 
   var candidateNames = @[name]
   candidateNames.add(fallbackNames)
@@ -251,15 +272,16 @@ proc loadTypeface*(
   var typeface: Typeface
   var source: TypefaceSource
   for candidate in candidateNames:
-    let typefacePath = resolveTypefacePath(candidate)
-    if typefacePath.len > 0:
+    let resolved = resolveTypefacePath(candidate)
+    if resolved.path.len > 0:
       try:
-        (typeface, source) = readTypefacePath(typefacePath, candidate)
+        (typeface, source) =
+          readTypefacePath(resolved.path, candidate, resolved.faceIndex)
         loaded = true
         break
       except PixieError:
         warn "failed to read resolved typeface path",
-          requested = name, candidate = candidate, path = typefacePath
+          requested = name, candidate = candidate, path = resolved.path
 
     var staticEntry: tuple[name: string, data: string, kind: TypeFaceKinds]
     if candidate.staticTypefaceEntry(staticEntry):

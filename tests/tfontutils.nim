@@ -1,4 +1,4 @@
-import std/[hashes, os, tables, unicode, unittest]
+import std/[hashes, os, tables, tempfiles, unicode, unittest]
 
 import pkg/pixie
 import pkg/pixie/fonts
@@ -245,8 +245,86 @@ suite "fontutils":
     check getTypefaceSource(typefaceId).faceIndex == 1
     check info.family == "PT Sans"
     check info.regular
+
     check not info.bold
     check not info.italic
+
+  test "named system-family lookup selects metadata face in a renamed collection":
+    let
+      tempDir = createTempDir("figdraw-named-system-font-test-", "")
+      sourcePath = getCurrentDir() / "deps/pixie/tests/fonts/PTSans.ttc"
+    var fontDir: string
+    when defined(windows):
+      let
+        oldLocalAppData = getEnv("LOCALAPPDATA", "")
+        hadLocalAppData = existsEnv("LOCALAPPDATA")
+      fontDir = tempDir / "Microsoft" / "Windows" / "Fonts"
+    elif defined(macosx):
+      let
+        oldHome = getEnv("HOME", "")
+        hadHome = existsEnv("HOME")
+      fontDir = tempDir / "Library" / "Fonts"
+    else:
+      let
+        oldXdgDataHome = getEnv("XDG_DATA_HOME", "")
+        hadXdgDataHome = existsEnv("XDG_DATA_HOME")
+      fontDir = tempDir / "fonts"
+    let collectionPath = fontDir / "unrelated-name.otc"
+    if not dirExists(fontDir):
+      createDir(fontDir)
+    defer:
+      when defined(windows):
+        if hadLocalAppData:
+          putEnv("LOCALAPPDATA", oldLocalAppData)
+        else:
+          delEnv("LOCALAPPDATA")
+      elif defined(macosx):
+        if hadHome:
+          putEnv("HOME", oldHome)
+        else:
+          delEnv("HOME")
+      else:
+        if hadXdgDataHome:
+          putEnv("XDG_DATA_HOME", oldXdgDataHome)
+        else:
+          delEnv("XDG_DATA_HOME")
+      refreshSystemFontMetadata()
+      if dirExists(tempDir):
+        removeDir(tempDir)
+
+    var collectionData = readFile(sourcePath)
+    collectionData.swapTtcFaceOffsets(0, 1)
+    writeFile(collectionPath, collectionData)
+    when defined(windows):
+      putEnv("LOCALAPPDATA", tempDir)
+    elif defined(macosx):
+      putEnv("HOME", tempDir)
+    else:
+      putEnv("XDG_DATA_HOME", tempDir)
+    refreshSystemFontMetadata()
+
+    let typefaceId = loadTypeface("PT Sans")
+    let info = getTypefaceInfo(typefaceId)
+    check getTypefaceSource(typefaceId).name == collectionPath
+    check getTypefaceSource(typefaceId).faceIndex == 1
+    check info.family == "PT Sans"
+    check info.regular
+
+    let arrangement = typeset(
+      rect(0, 0, 120, 50),
+      FigFont(typefaceId: typefaceId, size: 24.0'f32),
+      "A",
+      minContent = false,
+      wrap = false,
+    )
+    require arrangement.arrangedGlyphs.len == 1
+    for glyph in arrangement.glyphs():
+      check getFigFont(glyph.fontId).typefaceId == typefaceId
+      check glyph.glyphId != FontGlyphId(0)
+      let image = glyph.generateGlyph(force = true, upload = false)
+      require image != nil
+      check image.opaqueBounds().w > 0
+      check image.opaqueBounds().h > 0
 
   test "unknown typeface metadata lookup raises ValueError":
     expect ValueError:

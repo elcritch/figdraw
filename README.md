@@ -776,9 +776,20 @@ Use the source-aware helpers for selection, hit testing, and carets:
 - `caretPositionsFor(sourceRune)`: visual caret rectangles for a source
   insertion index, including split positions at bidi boundaries.
 
-Font collection paths (`.ttc` and `.otc`) are supported; FigDraw selects the
-face whose name best matches the requested font and carries that face index
-through shaping and rasterization. The current Harfbuzzy raster path renders
+Installed named fonts are resolved from their OpenType family and style metadata,
+including typographic family names, rather than their filenames. User font
+directories take precedence over system directories. Font metadata is cached;
+call `refreshSystemFontMetadata()` after installing, replacing, or removing fonts
+in a long-running process. Style matching is strict: a missing style advances to
+the caller's ordered fallback names, then platform defaults. To prefer the same
+family's regular face, list that family explicitly as a fallback. Existing
+`loadTypeface` signatures remain unchanged. The additive
+`findSystemTypefaceFile` lookup returns both `path` and `faceIndex`; the existing
+`findSystemFontFile(names, fontFiles)` overload retains filename-only matching.
+Explicit `.ttc` and `.otc` paths retain their
+documented filename-based selection, with face zero as the default only when no
+face name matches. FigDraw carries the selected face index through shaping and
+rasterization. The current Harfbuzzy raster path renders
 monochrome outlines, not color bitmap, SVG, or COLR glyph paint data.
 
 See [docs/font_shaping.md](docs/font_shaping.md) for the data model details and

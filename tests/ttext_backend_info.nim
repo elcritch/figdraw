@@ -26,4 +26,4 @@ suite "text backend information":
       discard
 
   test "reports supported typeface file extensions":
-    check supportedFontFileExtensions() == @[".ttf", ".otf", ".ttc", ".svg"]
+    check supportedFontFileExtensions() == @[".ttf", ".otf", ".ttc", ".svg", ".otc"]
