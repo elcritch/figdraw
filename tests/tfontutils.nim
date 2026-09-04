@@ -1,4 +1,4 @@
-import std/[hashes, os, tables, tempfiles, unicode, unittest]
+import std/[hashes, options, os, tables, tempfiles, unicode, unittest]
 
 import pkg/pixie
 import pkg/pixie/fonts
@@ -303,8 +303,17 @@ suite "fontutils":
       putEnv("XDG_DATA_HOME", tempDir)
     refreshSystemFontMetadata()
 
+    let systemTypeface = findSystemTypefaceFile(["PT Sans"], [collectionPath])
+    require systemTypeface.isSome
+    let resolvedTypefaceId = loadTypeface(systemTypeface.get())
+    let resolvedInfo = getTypefaceInfo(resolvedTypefaceId)
+    check getTypefaceSource(resolvedTypefaceId).faceIndex == 1
+    check resolvedInfo.family == "PT Sans"
+    check resolvedInfo.regular
+
     let typefaceId = loadTypeface("PT Sans")
     let info = getTypefaceInfo(typefaceId)
+    check typefaceId == resolvedTypefaceId
     check getTypefaceSource(typefaceId).name == collectionPath
     check getTypefaceSource(typefaceId).faceIndex == 1
     check info.family == "PT Sans"

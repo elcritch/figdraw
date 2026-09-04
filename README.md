@@ -784,8 +784,10 @@ in a long-running process. Style matching is strict: a missing style advances to
 the caller's ordered fallback names, then platform defaults. To prefer the same
 family's regular face, list that family explicitly as a fallback. Existing
 `loadTypeface` signatures remain unchanged. The additive
-`findSystemTypefaceFile` lookup returns both `path` and `faceIndex`; the existing
-`findSystemFontFile(names, fontFiles)` overload retains filename-only matching.
+`findSystemTypefaceFile` lookup returns an `Option[SystemTypefaceFile]` containing
+both `path` and `faceIndex`; pass the matched value to `loadTypeface` to load that
+exact face. The existing `findSystemFontFile(names, fontFiles)` overload retains
+filename-only matching.
 Explicit `.ttc` and `.otc` paths retain their
 documented filename-based selection, with face zero as the default only when no
 face name matches. FigDraw carries the selected face index through shaping and

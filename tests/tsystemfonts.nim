@@ -1,4 +1,4 @@
-import std/[os, strutils, unittest]
+import std/[options, os, strutils, unittest]
 
 import figdraw/common/fonttypes
 
@@ -99,8 +99,9 @@ suite "system fonts":
     refreshSystemFontMetadata()
 
     let match = findSystemTypefaceFile(["PT Sans"], [collectionPath])
-    check match.path == collectionPath
-    check match.faceIndex == 1
+    require match.isSome
+    check match.get().path == collectionPath
+    check match.get().faceIndex == 1
 
   test "regional family aliases resolve their base collection":
     check findSystemFontFile(["PingFang SC"], ["/fonts/PingFang.ttc"]) ==

@@ -21,7 +21,9 @@ when defined(figdrawNativeDynlib):
 else:
   {.pragma: nativeAbi.}
 
-export FontRef, TypefaceInfo, TypefaceLocalizedName, TypefaceVariationAxis
+export
+  FontRef, SystemTypefaceFile, TypefaceInfo, TypefaceLocalizedName,
+  TypefaceVariationAxis
 export font, fontId, fontRef, loadTypeface, getTypefaceInfo, convertFont
 export registerStaticTypeface
 

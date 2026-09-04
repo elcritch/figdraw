@@ -2,6 +2,7 @@ import std/os
 import std/strutils
 import std/locks
 import std/math
+import std/options
 import std/tables
 
 import pkg/vmath
@@ -15,7 +16,7 @@ import ./shared
 import ./typefaceinfos
 import ../extras/systemfonts
 
-export TypefaceInfo, TypefaceLocalizedName, TypefaceVariationAxis
+export SystemTypefaceFile, TypefaceInfo, TypefaceLocalizedName, TypefaceVariationAxis
 
 when defined(figdrawNativeDynlib):
   {.pragma: nativeAbi, exportabi.}
@@ -34,6 +35,10 @@ type TypefaceSource* = object
   faceIndex*: int
 
 type
+  ResolvedTypefacePath = object
+    path: string
+    faceIndex: int
+
   FontRefHandle = object
     value: FigFont
     id: FontId
@@ -175,6 +180,8 @@ proc readTypefacePath(
     except IOError as e:
       raise newException(PixieError, e.msg, e)
   else:
+    if requestedFaceIndex > 0:
+      raise newException(PixieError, "standalone typeface face index must be zero")
     try:
       let data = readFile(path)
       let kind = typefaceKindFromPath(path)
@@ -228,30 +235,33 @@ proc loadTypeface*(
 ): TypefaceId {.nativeAbi.} =
   ## loads a font from a file and adds it to the font index
 
-  proc resolveTypefacePath(name: string): SystemTypefaceFile =
+  proc resolveTypefacePath(name: string): ResolvedTypefacePath =
     let dataPath = figDataDir() / name
     if fileExists(dataPath):
       info "resolved typeface from figDataDir", requested = name, path = dataPath
-      return SystemTypefaceFile(path: dataPath, faceIndex: -1)
+      return ResolvedTypefacePath(path: dataPath, faceIndex: -1)
 
     if fileExists(name):
       info "resolved typeface from direct path", requested = name, path = name
-      return SystemTypefaceFile(path: name, faceIndex: -1)
+      return ResolvedTypefacePath(path: name, faceIndex: -1)
 
     if splitFile(name).ext.len > 0:
       let filePath = findSystemFontFile([name])
       if filePath.len > 0:
         info "resolved typeface from exact system font filename",
           requested = name, path = filePath
-        return SystemTypefaceFile(path: filePath, faceIndex: -1)
+        return ResolvedTypefacePath(path: filePath, faceIndex: -1)
 
     let systemTypeface = findSystemTypefaceFile([name])
-    if systemTypeface.path.len > 0:
+    if systemTypeface.isSome:
+      let matchedTypeface = systemTypeface.get()
       info "resolved typeface from system font metadata",
         requested = name,
-        path = systemTypeface.path,
-        faceIndex = systemTypeface.faceIndex
-      return systemTypeface
+        path = matchedTypeface.path,
+        faceIndex = matchedTypeface.faceIndex
+      return ResolvedTypefacePath(
+        path: matchedTypeface.path, faceIndex: matchedTypeface.faceIndex
+      )
 
     let alias = splitFile(name).name.toLowerAscii().replace("-", "")
     if alias in ["sfns", "ubuntur"]:
@@ -259,7 +269,7 @@ proc loadTypeface*(
       if filePath.len > 0:
         info "resolved typeface from system font alias",
           requested = name, path = filePath
-        return SystemTypefaceFile(path: filePath, faceIndex: -1)
+        return ResolvedTypefacePath(path: filePath, faceIndex: -1)
 
     warn "unable to resolve typeface path", requested = name, figDataDir = figDataDir()
     result.faceIndex = -1
@@ -310,6 +320,15 @@ proc loadTypeface*(
 
 proc loadTypeface*(name: string): TypefaceId {.nativeAbi.} =
   loadTypeface(name, [])
+
+proc loadTypeface*(file: SystemTypefaceFile): TypefaceId =
+  ## Loads the exact face returned by `findSystemTypefaceFile`.
+  if file.path.len == 0:
+    raise newException(PixieError, "typeface path is empty")
+  if file.faceIndex < 0:
+    raise newException(PixieError, "typeface face index must not be negative")
+  let (typeface, source) = readTypefacePath(file.path, file.path, file.faceIndex)
+  registerTypeface(typeface, source)
 
 proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId {.nativeAbi.} =
   ## loads a font from buffer and adds it to the font index

@@ -1,5 +1,6 @@
-import std/[os, tempfiles, unicode, unittest]
+import std/[options, os, tempfiles, unicode, unittest]
 
+import figdraw/common/typefaceinfos
 import figdraw/extras/systemfonts
 
 type NameEntry = tuple[id: int, text: string]
@@ -101,14 +102,15 @@ suite "installed font metadata resolution":
   test "family metadata overrides an unrelated filename":
     let path = fixtureDir / "MisleadingName-Bold.ttf"
     writeFile(path, fontMetadata("Fixture Sans"))
-    check findSystemTypefaceFile(["Fixture Sans"], [path]).path == path
-    check findSystemTypefaceFile(["MisleadingName"], [path]).path.len == 0
+    check findSystemTypefaceFile(["Fixture Sans"], [path]) ==
+      some(SystemTypefaceFile(path: path, faceIndex: 0))
+    check findSystemTypefaceFile(["MisleadingName"], [path]).isNone
 
   test "related families cannot consume a regular family as a prefix":
     let path = fixtureDir / "regular.ttf"
     writeFile(path, fontMetadata("Fixture Sans"))
     for name in ["Fixture Sans CJK", "Fixture Sans Mono", "Fixture Sans Unknown"]:
-      check findSystemTypefaceFile([name], [path]).path.len == 0
+      check findSystemTypefaceFile([name], [path]).isNone
 
   test "unstyled family skips bold italic and oblique faces for the next fallback":
     let
@@ -129,7 +131,7 @@ suite "installed font metadata resolution":
     writeFile(fallback, fontMetadata("Other Sans"))
     check findSystemTypefaceFile(
       ["Fixture Sans", "Other Sans"], [bold, italic, oblique, fallback]
-    ).path == fallback
+    ) == some(SystemTypefaceFile(path: fallback, faceIndex: 0))
 
   test "missing bold and italic styles preserve explicit fallback order":
     let
@@ -138,8 +140,8 @@ suite "installed font metadata resolution":
     writeFile(regular, fontMetadata("Fixture Sans"))
     writeFile(fallback, fontMetadata("Other Sans"))
     for name in ["Fixture Sans Bold", "Fixture Sans Italic"]:
-      check findSystemTypefaceFile([name, "Other Sans"], [regular, fallback]).path ==
-        fallback
+      check findSystemTypefaceFile([name, "Other Sans"], [regular, fallback]) ==
+        some(SystemTypefaceFile(path: fallback, faceIndex: 0))
 
   test "explicit styles use the matching face even with opaque filenames":
     let
@@ -149,10 +151,10 @@ suite "installed font metadata resolution":
     writeFile(regular, fontMetadata("Fixture Sans"))
     writeFile(bold, fontMetadata("Fixture Sans", "Bold", 700, 32))
     writeFile(italic, fontMetadata("Fixture Sans", "Italic", 400, 1))
-    check findSystemTypefaceFile(["Fixture Sans Bold"], [regular, italic, bold]).path ==
-      bold
-    check findSystemTypefaceFile(["Fixture Sans Italic"], [regular, bold, italic]).path ==
-      italic
+    check findSystemTypefaceFile(["Fixture Sans Bold"], [regular, italic, bold]) ==
+      some(SystemTypefaceFile(path: bold, faceIndex: 0))
+    check findSystemTypefaceFile(["Fixture Sans Italic"], [regular, bold, italic]) ==
+      some(SystemTypefaceFile(path: italic, faceIndex: 0))
 
   test "typographic family and subfamily retain semibold style":
     let path = fixtureDir / "font.ttf"
@@ -167,8 +169,9 @@ suite "installed font metadata resolution":
         typographicStyle = "SemiBold",
       ),
     )
-    check findSystemTypefaceFile(["Fixture Sans SemiBold"], [path]).path == path
-    check findSystemTypefaceFile(["Fixture Sans"], [path]).path.len == 0
+    check findSystemTypefaceFile(["Fixture Sans SemiBold"], [path]) ==
+      some(SystemTypefaceFile(path: path, faceIndex: 0))
+    check findSystemTypefaceFile(["Fixture Sans"], [path]).isNone
 
   test "style words are matched exactly and combined styles require both traits":
     let path = fixtureDir / "bold.ttf"
@@ -176,20 +179,22 @@ suite "installed font metadata resolution":
     for name in [
       "Fixture Sans SemiBold", "Fixture Sans NotBold", "Fixture Sans Bold Italic"
     ]:
-      check findSystemTypefaceFile([name], [path]).path.len == 0
+      check findSystemTypefaceFile([name], [path]).isNone
 
   test "regional collection family names remain distinct":
     let path = fixtureDir / "regional.ttf"
     writeFile(path, fontMetadata("Fixture Sans CJK JP"))
-    check findSystemTypefaceFile(["Fixture Sans CJK JP"], [path]).path == path
-    check findSystemTypefaceFile(["Fixture Sans CJK SC"], [path]).path.len == 0
-    check findSystemTypefaceFile(["Fixture Sans"], [path]).path.len == 0
+    check findSystemTypefaceFile(["Fixture Sans CJK JP"], [path]) ==
+      some(SystemTypefaceFile(path: path, faceIndex: 0))
+    check findSystemTypefaceFile(["Fixture Sans CJK SC"], [path]).isNone
+    check findSystemTypefaceFile(["Fixture Sans"], [path]).isNone
 
   test "Unicode family names remain distinct":
     let path = fixtureDir / "unicode.ttf"
     writeFile(path, fontMetadata("明朝"))
-    check findSystemTypefaceFile(["明朝"], [path]).path == path
-    check findSystemTypefaceFile(["黑体"], [path]).path.len == 0
+    check findSystemTypefaceFile(["明朝"], [path]) ==
+      some(SystemTypefaceFile(path: path, faceIndex: 0))
+    check findSystemTypefaceFile(["黑体"], [path]).isNone
 
   test "matches in one directory do not depend on enumeration order":
     let
@@ -197,19 +202,22 @@ suite "installed font metadata resolution":
       second = fixtureDir / "z.ttf"
     writeFile(first, fontMetadata("Fixture Sans"))
     writeFile(second, fontMetadata("Fixture Sans"))
-    check findSystemTypefaceFile(["Fixture Sans"], [first, second]).path == first
-    check findSystemTypefaceFile(["Fixture Sans"], [second, first]).path == first
+    let expected = some(SystemTypefaceFile(path: first, faceIndex: 0))
+    check findSystemTypefaceFile(["Fixture Sans"], [first, second]) == expected
+    check findSystemTypefaceFile(["Fixture Sans"], [second, first]) == expected
 
   test "metadata is cached until explicit refresh":
     let path = fixtureDir / "font.ttf"
     writeFile(path, fontMetadata("First Family"))
-    check findSystemTypefaceFile(["First Family"], [path]).path == path
+    check findSystemTypefaceFile(["First Family"], [path]) ==
+      some(SystemTypefaceFile(path: path, faceIndex: 0))
     writeFile(path, fontMetadata("Second Family"))
-    check findSystemTypefaceFile(["First Family"], [path]).path == path
-    check findSystemTypefaceFile(["Second Family"], [path]).path.len == 0
+    check findSystemTypefaceFile(["First Family"], [path]).isSome
+    check findSystemTypefaceFile(["Second Family"], [path]).isNone
     refreshSystemFontMetadata()
-    check findSystemTypefaceFile(["Second Family"], [path]).path == path
-    check findSystemTypefaceFile(["First Family"], [path]).path.len == 0
+    check findSystemTypefaceFile(["Second Family"], [path]) ==
+      some(SystemTypefaceFile(path: path, faceIndex: 0))
+    check findSystemTypefaceFile(["First Family"], [path]).isNone
 
   test "caller directory precedence wins over alphabetical file order":
     let
@@ -223,9 +231,19 @@ suite "installed font metadata resolution":
     writeFile(systemFont, fontMetadata("Fixture Sans"))
     check findSystemTypefaceFile(
       ["Fixture Sans"], [userFont, systemFont], preserveInputOrder = true
-    ).path == userFont
+    ) == some(SystemTypefaceFile(path: userFont, faceIndex: 0))
 
   test "malformed metadata cannot fall back to the filename":
     let path = fixtureDir / "FixtureSans-Regular.ttf"
     writeFile(path, "invalid font data")
-    check findSystemTypefaceFile(["Fixture Sans"], [path]).path.len == 0
+    check findSystemTypefaceFile(["Fixture Sans"], [path]).isNone
+
+  test "lightweight name metadata has a distinct result type":
+    let info = readTypefaceNameInfo(fontMetadata("Fixture Sans"))
+    check info.family == "Fixture Sans"
+    check info.faceIndex == 0
+    check info.regular
+
+  test "lightweight name metadata rejects a standalone nonzero face":
+    expect ValueError:
+      discard readTypefaceNameInfo(fontMetadata("Fixture Sans"), faceIndex = 1)

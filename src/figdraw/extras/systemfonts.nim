@@ -1,4 +1,4 @@
-import std/[algorithm, locks, os, sets, strutils, tables, unicode]
+import std/[algorithm, locks, options, os, sets, strutils, tables, unicode]
 
 import ../common/fonttypes
 import ../common/typefaceinfos
@@ -16,14 +16,15 @@ type
   SystemTypefaceFile* = object
     ## An installed font file and the selected face within it.
     path*: string
-    faceIndex*: int
+    faceIndex*: int ## Zero-based face index, including for standalone fonts.
 
   CachedFontMetadata = object
     valid: bool
-    faces: seq[TypefaceInfo]
+    faces: seq[TypefaceNameInfo]
 
 var
   fontMetadataCache: Table[string, CachedFontMetadata]
+  fontMetadataGeneration: uint64
   fontMetadataLock: Lock
 
 fontMetadataLock.initLock()
@@ -101,26 +102,33 @@ proc readFontMetadata(path: string): CachedFontMetadata =
     if count == 0:
       return
     for faceIndex in 0 ..< count:
-      result.faces.add readTypefaceNameInfo(path, data, faceIndex)
+      result.faces.add readTypefaceNameInfo(data, faceIndex)
     result.valid = result.faces.len > 0
   except CatchableError:
     discard
 
 proc fontMetadata(path: string): CachedFontMetadata =
   let key = fontMetadataKey(path)
+  var generation: uint64
   withLock(fontMetadataLock):
     if key in fontMetadataCache:
       return fontMetadataCache[key]
+    generation = fontMetadataGeneration
   result = readFontMetadata(path)
   withLock(fontMetadataLock):
-    fontMetadataCache[key] = result
+    if generation == fontMetadataGeneration:
+      if key in fontMetadataCache:
+        result = fontMetadataCache[key]
+      else:
+        fontMetadataCache[key] = result
 
 proc refreshSystemFontMetadata*() =
   ## Clears cached installed-font metadata after font directories change.
   withLock(fontMetadataLock):
+    inc fontMetadataGeneration
     fontMetadataCache.clear()
 
-proc metadataMatchScore(requestedName: string, info: TypefaceInfo): int =
+proc metadataMatchScore(requestedName: string, info: TypefaceNameInfo): int =
   let
     requested = requestedName.normalizeMetadataName()
     family = info.family.normalizeMetadataName()
@@ -145,13 +153,14 @@ proc metadataMatchScore(requestedName: string, info: TypefaceInfo): int =
 
 proc findSystemTypefaceFile*(
     names, fontFiles: openArray[string], preserveInputOrder = false
-): SystemTypefaceFile =
+): Option[SystemTypefaceFile] =
   ## Finds an installed face by OpenType family/style metadata.
   ##
   ## Directories are ranked by their first appearance in `fontFiles`, with
   ## paths sorted within each directory for deterministic ties. Set
   ## `preserveInputOrder` to use the supplied path order without sorting.
   ## Platform discovery supplies user directories before system directories.
+  ## Returns `none` when no requested name matches.
   var paths: seq[string]
   if preserveInputOrder:
     paths = @fontFiles
@@ -178,7 +187,7 @@ proc findSystemTypefaceFile*(
         if metadata.valid:
           for info in metadata.faces:
             if metadataMatchScore(name, info) == score:
-              return SystemTypefaceFile(path: path, faceIndex: info.faceIndex)
+              return some(SystemTypefaceFile(path: path, faceIndex: info.faceIndex))
 
 proc detectDisplayServer*(): DisplayServer =
   ## Detects the display server on non-macOS POSIX platforms.
@@ -284,7 +293,7 @@ proc systemFontFiles*(displayServer = detectDisplayServer()): seq[string] =
 
 proc findSystemTypefaceFile*(
     names: openArray[string], displayServer = detectDisplayServer()
-): SystemTypefaceFile =
+): Option[SystemTypefaceFile] =
   ## Finds an installed face by OpenType metadata using platform font folders.
   findSystemTypefaceFile(
     names, systemFontFiles(displayServer), preserveInputOrder = true
@@ -321,8 +330,8 @@ proc findSystemFontFile*(
       if path.len > 0:
         return path
     let typeface = findSystemTypefaceFile([name], fontFiles, preserveInputOrder = true)
-    if typeface.path.len > 0:
-      return typeface.path
+    if typeface.isSome:
+      return typeface.get().path
     let alias = splitFile(name).name.toLowerAscii().replace("-", "")
     if alias in ["sfns", "ubuntur"]:
       let path = findSystemFontFile([name], fontFiles)
