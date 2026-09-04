@@ -39,6 +39,49 @@ suite "system fonts":
     for font in fonts:
       check font.splitFile.ext.toLowerAscii() in supportedFontFileExtensions()
 
+  test "family lookup rejects related and styled font filenames":
+    let font = findSystemFontFile(
+      ["Noto Sans", "DejaVu Sans"],
+      [
+        "/fonts/NotoSansCJK-Bold.ttc", "/fonts/NotoSansMono-Regular.ttf",
+        "/fonts/NotoSans-Italic.ttf", "/fonts/DejaVuSans.ttf",
+      ],
+    )
+    check font == "/fonts/DejaVuSans.ttf"
+
+  test "family lookup prefers a regular face over later fallbacks":
+    let font = findSystemFontFile(
+      ["Noto Sans", "DejaVu Sans"],
+      [
+        "/fonts/NotoSansCJK-Bold.ttc", "/fonts/NotoSans-Regular.ttf",
+        "/fonts/DejaVuSans.ttf",
+      ],
+    )
+    check font == "/fonts/NotoSans-Regular.ttf"
+
+  test "family lookup supports conventional regular filename aliases":
+    check findSystemFontFile(["Ubuntu"], ["/fonts/Ubuntu-R.ttf"]) ==
+      "/fonts/Ubuntu-R.ttf"
+
+  test "filename requests retain exact matching":
+    check findSystemFontFile(
+      ["Noto Sans.ttf"], ["/fonts/NotoSans.otf", "/fonts/NotoSans.ttf"]
+    ) == "/fonts/NotoSans.ttf"
+
+  test "explicit style requests match only that style":
+    check findSystemFontFile(
+      ["Noto Sans Bold"], ["/fonts/NotoSans-Regular.ttf", "/fonts/NotoSans-Bold.ttf"]
+    ) == "/fonts/NotoSans-Bold.ttf"
+
+  test "collection face scoring excludes bold before a regular face":
+    check fontNameMatchScore("PT Sans", "PT Sans Bold") == -1
+    check fontNameMatchScore("PT Sans", "PT Sans Regular") == 1
+
+  test "regional family aliases resolve their base collection":
+    check findSystemFontFile(["PingFang SC"], ["/fonts/PingFang.ttc"]) ==
+      "/fonts/PingFang.ttc"
+    check findSystemFontFile(["Noto Sans"], ["/fonts/NotoSansCJK-Bold.ttc"]).len == 0
+
   when defined(windows):
     test "find common windows system font":
       let font =

@@ -217,6 +217,16 @@ suite "fontutils":
     check info.supportsCodepoint(0x0627'u32)
     check not info.supportsCodepoint(0x05d0'u32)
 
+  test "typeface collection selects the regular face for a family request":
+    let typefaceId = loadTypeface(getCurrentDir() / "deps/pixie/tests/fonts/PTSans.ttc")
+    let info = getTypefaceInfo(typefaceId)
+
+    check getTypefaceSource(typefaceId).faceIndex == 0
+    check info.family == "PT Sans"
+    check info.regular
+    check not info.bold
+    check not info.italic
+
   test "unknown typeface metadata lookup raises ValueError":
     expect ValueError:
       discard getTypefaceInfo(TypefaceId(Hash(9_999_999)))
