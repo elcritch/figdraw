@@ -24,6 +24,13 @@ proc drainImageMessages() =
   while tryRecvImageMsg(msg):
     discard
 
+proc swapTtcFaceOffsets(data: var string, first, second: int) =
+  let
+    firstOffset = 12 + first * 4
+    secondOffset = 12 + second * 4
+  for index in 0 .. 3:
+    swap(data[firstOffset + index], data[secondOffset + index])
+
 type FontCacheThreadArgs = object
   typefaceId: TypefaceId
   fontId: FontId
@@ -217,11 +224,25 @@ suite "fontutils":
     check info.supportsCodepoint(0x0627'u32)
     check not info.supportsCodepoint(0x05d0'u32)
 
-  test "typeface collection selects the regular face for a family request":
-    let typefaceId = loadTypeface(getCurrentDir() / "deps/pixie/tests/fonts/PTSans.ttc")
+  test "typeface collection selects regular after a bold first face":
+    let
+      tempDir = getTempDir() / "figdraw-regular-collection-test"
+      sourcePath = getCurrentDir() / "deps/pixie/tests/fonts/PTSans.ttc"
+      collectionPath = tempDir / "PTSans.ttc"
+    if not dirExists(tempDir):
+      createDir(tempDir)
+    defer:
+      if dirExists(tempDir):
+        removeDir(tempDir)
+
+    var collectionData = readFile(sourcePath)
+    collectionData.swapTtcFaceOffsets(0, 1)
+    writeFile(collectionPath, collectionData)
+
+    let typefaceId = loadTypeface(collectionPath)
     let info = getTypefaceInfo(typefaceId)
 
-    check getTypefaceSource(typefaceId).faceIndex == 0
+    check getTypefaceSource(typefaceId).faceIndex == 1
     check info.family == "PT Sans"
     check info.regular
     check not info.bold

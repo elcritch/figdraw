@@ -47,7 +47,8 @@ proc systemFontFileMatchScore(requestedName, path: string): int =
   let
     requested = splitFile(requestedName).name.normalizeName()
     stem = splitFile(path).name.normalizeName()
-  if requested.startsWith(stem):
+    extension = splitFile(path).ext.toLowerAscii()
+  if extension in [".ttc", ".otc"] and requested.startsWith(stem):
     let suffix = requested[stem.len .. ^1]
     if suffix in ["sc", "tc", "hk", "jp", "kr"]:
       return 2
