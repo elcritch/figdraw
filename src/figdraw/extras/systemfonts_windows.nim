@@ -1,7 +1,7 @@
 import ./systemfonttypes
 
 when defined(windows):
-  import std/[dynlib, options, os, unicode]
+  import std/[dynlib, options, os, sets, strutils, unicode]
 
   type
     HResult = int32
@@ -499,6 +499,7 @@ when defined(windows):
 
   iterator nativeSystemTypefaces*(available: var bool): SystemTypefaceInfo =
     ## Enumerates locally readable, nonsimulated DirectWrite faces.
+    var seen = initHashSet[(string, int)]()
     block provider:
       let dwriteLibrary = loadLib("dwrite.dll")
       if dwriteLibrary == nil:
@@ -542,7 +543,11 @@ when defined(windows):
       for familyIndex in 0'u32 ..<
           collection.lpVtbl.getFontFamilyCount(cast[pointer](collection)):
         for info in collection.familyTypefaces(familyIndex):
-          yield info
+          let identity =
+            (info.file.path.toLowerAscii().replace('\\', '/'), info.file.faceIndex)
+          if identity notin seen:
+            seen.incl(identity)
+            yield info
 
   proc regularFamilyTypeface(
       collection: ptr IDWriteFontCollection, familyIndex: UInt32
