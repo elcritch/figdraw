@@ -34,13 +34,20 @@ when defined(macosx):
       var
         available = false
         identities = initHashSet[(string, int)]()
+        checkedCollectionFace = false
       for info in nativeSystemTypefaces(available):
         let identity = (info.file.path, info.file.faceIndex)
         check info.file.path.fileExists()
         check identity notin identities
         identities.incl(identity)
+        if not checkedCollectionFace and info.file.faceIndex > 0:
+          let parsed =
+            readTypefaceNameInfo(readFile(info.file.path), Natural(info.file.faceIndex))
+          check parsed.postScriptName == info.postScriptName
+          checkedCollectionFace = true
       check available
       check identities.len > 0
+      check checkedCollectionFace
 else:
   suite "Core Text system-font provider":
     test "is only exercised on macOS":

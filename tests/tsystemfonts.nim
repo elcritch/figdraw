@@ -56,10 +56,15 @@ suite "system fonts":
     check count > 0
 
   test "system typeface queries are strict filters":
-    var family: string
+    var
+      family: string
+      subfamily: string
     for info in systemTypefaces():
-      if info.family.len > 0 and info.subfamily.len > 0:
+      if info.family.len > 0 and info.subfamily.len > 0 and
+          info.family.allCharsInSet({'\x20' .. '\x7e'}) and
+          info.subfamily.allCharsInSet({'\x20' .. '\x7e'}):
         family = info.family
+        subfamily = info.subfamily
         break
     require family.len > 0
 
@@ -68,6 +73,18 @@ suite "system fonts":
       check info.family.toLowerAscii() == family.toLowerAscii()
       inc matchingCount
     check matchingCount > 0
+
+    var styleMatchingCount = 0
+    for info in systemTypefaces(
+      SystemTypefaceQuery(
+        family: "-" & family.replace(" ", "_") & ".",
+        subfamily: "-" & subfamily.replace(" ", "_") & ".",
+      )
+    ):
+      check info.family.toLowerAscii() == family.toLowerAscii()
+      check info.subfamily.toLowerAscii() == subfamily.toLowerAscii()
+      inc styleMatchingCount
+    check styleMatchingCount > 0
 
     for info in systemTypefaces(
       SystemTypefaceQuery(family: "FigDraw Missing Font 2D601F0A")
