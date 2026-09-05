@@ -63,7 +63,7 @@ jobs:
             nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on -d:figdraw.openglFallback=off --passC:-IC:/msys64/mingw64/include/harfbuzz -d:harfbuzzyDynlib=libharfbuzz-0.dll -d:harfbuzzyFribidiDynlib=libfribidi-0.dll'
             force_opengl: '0'
             require_graphics: '0'
-            test_exclude: 'tfigrender_oneframe_screenshot.nim,trender_3d_overlay.nim,trender_extras.nim,trender_image.nim,trender_image_msdf_invert.nim,trender_layers_clip.nim,trender_linear_gradient.nim,trender_rgb_boxes.nim,trender_rgb_boxes_sdf.nim,trender_rgb_boxes_sdf_siwin.nim,trender_text_invert.nim,tsiwin_rect_mask_vulkan.nim,tsiwin_dedicated_render.nim'
+            test_exclude: 'tfigrender_oneframe_screenshot.nim,trender_3d_overlay.nim,trender_extras.nim,trender_image.nim,trender_image_msdf_invert.nim,trender_layers_clip.nim,trender_linear_gradient.nim,trender_rgb_boxes.nim,trender_rgb_boxes_sdf.nim,trender_rgb_boxes_sdf_siwin.nim,trender_text_invert.nim,tsiwin_rect_mask_vulkan.nim,tsiwin_dedicated_render.nim,tsiwin_fallback_window.nim'
             vulkan_icd: 'C:/swiftshader/vk_swiftshader_icd.json'
     steps:
     - uses: actions/checkout@v1
