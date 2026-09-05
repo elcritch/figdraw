@@ -39,7 +39,7 @@ feature "surfer":
   requires "xkb#b4d50f4cccad1cd9e39d2f5a5e1fef2710edcc31"
   # TODO: Put this in surfer's manifest.
 feature "siwin":
-  requires "https://github.com/levovix0/siwin#a70c4666915169867fde3b65cf9d664c58e2cb0b"
+  requires "https://github.com/levovix0/siwin#69b1f6144c9be6331e01471183ace5b3ec13fae5"
 feature "vulkan":
   requires "https://github.com/planetis-m/vulkan#b223dc9"
 feature "metal":
