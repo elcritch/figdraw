@@ -14,6 +14,11 @@ type
   FcMatchKind = cint
   FcPattern {.incompleteStruct.} = object
   FcConfig {.incompleteStruct.} = object
+  FcObjectSet {.incompleteStruct.} = object
+  FcFontSet = object
+    nfont: cint
+    sfont: cint
+    fonts: ptr UncheckedArray[ptr FcPattern]
 
   FcInitLoadConfigAndFontsProc = proc(): ptr FcConfig {.cdecl.}
   FcConfigDestroyProc = proc(config: ptr FcConfig) {.cdecl.}
@@ -31,6 +36,14 @@ type
   FcFontMatchProc = proc(
     config: ptr FcConfig, pattern: ptr FcPattern, matchResult: ptr FcResult
   ): ptr FcPattern {.cdecl.}
+  FcObjectSetCreateProc = proc(): ptr FcObjectSet {.cdecl.}
+  FcObjectSetAddProc =
+    proc(objectSet: ptr FcObjectSet, objectName: cstring): FcBool {.cdecl.}
+  FcObjectSetDestroyProc = proc(objectSet: ptr FcObjectSet) {.cdecl.}
+  FcFontListProc = proc(
+    config: ptr FcConfig, pattern: ptr FcPattern, objectSet: ptr FcObjectSet
+  ): ptr FcFontSet {.cdecl.}
+  FcFontSetDestroyProc = proc(fontSet: ptr FcFontSet) {.cdecl.}
   FcPatternGetStringProc = proc(
     pattern: ptr FcPattern, objectName: cstring, index: cint, value: ptr ptr FcChar8
   ): FcResult {.cdecl.}
@@ -49,6 +62,11 @@ type
     configSubstitute: FcConfigSubstituteProc
     defaultSubstitute: FcDefaultSubstituteProc
     fontMatch: FcFontMatchProc
+    objectSetCreate: FcObjectSetCreateProc
+    objectSetAdd: FcObjectSetAddProc
+    objectSetDestroy: FcObjectSetDestroyProc
+    fontList: FcFontListProc
+    fontSetDestroy: FcFontSetDestroyProc
     patternGetString: FcPatternGetStringProc
     patternGetInteger: FcPatternGetIntegerProc
 
@@ -106,6 +124,14 @@ proc loadFontconfigApi(): bool =
     api.defaultSubstitute =
       loadSymbol[FcDefaultSubstituteProc](api.library, "FcDefaultSubstitute")
     api.fontMatch = loadSymbol[FcFontMatchProc](api.library, "FcFontMatch")
+    api.objectSetCreate =
+      loadSymbol[FcObjectSetCreateProc](api.library, "FcObjectSetCreate")
+    api.objectSetAdd = loadSymbol[FcObjectSetAddProc](api.library, "FcObjectSetAdd")
+    api.objectSetDestroy =
+      loadSymbol[FcObjectSetDestroyProc](api.library, "FcObjectSetDestroy")
+    api.fontList = loadSymbol[FcFontListProc](api.library, "FcFontList")
+    api.fontSetDestroy =
+      loadSymbol[FcFontSetDestroyProc](api.library, "FcFontSetDestroy")
     api.patternGetString =
       loadSymbol[FcPatternGetStringProc](api.library, "FcPatternGetString")
     api.patternGetInteger =
@@ -116,8 +142,9 @@ proc loadFontconfigApi(): bool =
       api.patternCreate != nil and api.patternDestroy != nil and
       api.patternAddString != nil and api.patternAddInteger != nil and
       api.configSubstitute != nil and api.defaultSubstitute != nil and
-      api.fontMatch != nil and api.patternGetString != nil and
-      api.patternGetInteger != nil
+      api.fontMatch != nil and api.objectSetCreate != nil and api.objectSetAdd != nil and
+      api.objectSetDestroy != nil and api.fontList != nil and api.fontSetDestroy != nil and
+      api.patternGetString != nil and api.patternGetInteger != nil
     if not apiLoaded:
       unloadLib(api.library)
       api.library = nil
@@ -143,6 +170,109 @@ proc patternInteger(
     pattern: ptr FcPattern, objectName: cstring, value: var cint
 ): bool =
   api.patternGetInteger(pattern, objectName, 0, addr value) == fcResultMatch
+
+proc readableFontPath(pattern: ptr FcPattern): tuple[path: string, faceIndex: int] =
+  var
+    fileValue: ptr FcChar8
+    faceIndex: cint
+  if api.patternGetString(pattern, fcFile, 0, addr fileValue) != fcResultMatch or
+      fileValue == nil or
+      api.patternGetInteger(pattern, fcIndex, 0, addr faceIndex) != fcResultMatch or
+      faceIndex < 0:
+    return
+  let
+    path = $cast[cstring](fileValue)
+    packedIndex = cast[uint32](faceIndex)
+  if packedIndex > 0xFFFF'u32 or not path.isAbsolute() or not path.fileExists():
+    return
+  try:
+    var file: File
+    if not open(file, path, fmRead):
+      return
+    close(file)
+  except IOError, OSError:
+    return
+  result = (path, int(packedIndex))
+
+proc patternTypefaceInfo(pattern: ptr FcPattern): Option[SystemTypefaceInfo] =
+  let localFile = pattern.readableFontPath()
+  if localFile.path.len == 0:
+    return
+  let
+    families = pattern.patternStrings(fcFamily)
+    subfamilies = pattern.patternStrings(fcStyle)
+    fullNames = pattern.patternStrings(fcFullName)
+    postScriptNames = pattern.patternStrings(fcPostscriptName)
+  result = some(
+    SystemTypefaceInfo(
+      file: SystemTypefaceFile(path: localFile.path, faceIndex: localFile.faceIndex),
+      family:
+        if families.len > 0:
+          families[0]
+        else:
+          "",
+      subfamily:
+        if subfamilies.len > 0:
+          subfamilies[0]
+        else:
+          "",
+      fullName:
+        if fullNames.len > 0:
+          fullNames[0]
+        else:
+          "",
+      postScriptName:
+        if postScriptNames.len > 0:
+          postScriptNames[0]
+        else:
+          "",
+    )
+  )
+
+iterator nativeSystemTypefaces*(available: var bool): SystemTypefaceInfo =
+  ## Enumerates locally readable Fontconfig faces in native order.
+  block provider:
+    if not loadFontconfigApi():
+      available = false
+      break provider
+
+    let config = api.initLoadConfigAndFonts()
+    if config == nil:
+      available = false
+      break provider
+    defer:
+      api.configDestroy(config)
+
+    let pattern = api.patternCreate()
+    if pattern == nil:
+      available = false
+      break provider
+    defer:
+      api.patternDestroy(pattern)
+
+    let objectSet = api.objectSetCreate()
+    if objectSet == nil:
+      available = false
+      break provider
+    defer:
+      api.objectSetDestroy(objectSet)
+    for objectName in [fcFamily, fcStyle, fcFullName, fcPostscriptName, fcFile, fcIndex]:
+      if api.objectSetAdd(objectSet, objectName) == 0:
+        available = false
+        break provider
+
+    let fontSet = api.fontList(config, pattern, objectSet)
+    if fontSet == nil:
+      available = false
+      break provider
+    defer:
+      api.fontSetDestroy(fontSet)
+    available = true
+
+    for index in 0 ..< fontSet.nfont.int:
+      let info = fontSet.fonts[index].patternTypefaceInfo()
+      if info.isSome:
+        yield info.get()
 
 proc isRegularFace(pattern: ptr FcPattern): bool =
   let styles = pattern.patternStrings(fcStyle)

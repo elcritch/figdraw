@@ -169,7 +169,9 @@ when defined(windows):
     dwriteFontStretchNormal = 5.cint
     dwriteFontStyleNormal = 0.cint
     dwriteInformationalStringWin32FamilyNames = 11.cint
+    dwriteInformationalStringWin32SubfamilyNames = 12.cint
     dwriteInformationalStringTypographicFamilyNames = 13.cint
+    dwriteInformationalStringTypographicSubfamilyNames = 14.cint
     dwriteInformationalStringFullName = 16.cint
     dwriteInformationalStringPostscriptName = 17.cint
 
@@ -238,6 +240,32 @@ when defined(windows):
         )
       ) and buffer.utf8().normalizedName() == requested:
         return true
+
+  proc firstString(strings: ptr IDWriteLocalizedStrings): string =
+    if strings == nil or strings.lpVtbl.getCount(cast[pointer](strings)) == 0:
+      return
+    var length: UInt32
+    if not succeeded(
+      strings.lpVtbl.getStringLength(cast[pointer](strings), 0, addr length)
+    ):
+      return
+    var buffer = newSeq[WideChar](length.int + 1)
+    if succeeded(
+      strings.lpVtbl.getString(cast[pointer](strings), 0, addr buffer[0], length + 1)
+    ):
+      result = buffer.utf8()
+
+  proc informationalName(font: ptr IDWriteFont, stringId: cint): string =
+    var
+      strings: ptr IDWriteLocalizedStrings
+      exists: WinBool
+    if succeeded(
+      font.lpVtbl.getInformationalStrings(
+        cast[pointer](font), stringId, addr strings, addr exists
+      )
+    ) and exists != 0:
+      result = strings.firstString()
+    release(strings)
 
   proc fontHasInformationalName(
       font: ptr IDWriteFont, requested: string, stringIds: openArray[cint]
@@ -378,12 +406,143 @@ when defined(windows):
       return
 
     let decodedPath = path.utf8()
-    if decodedPath.len > 0 and decodedPath.isAbsolute() and decodedPath.fileExists():
-      result = some(
-        SystemTypefaceFile(
-          path: decodedPath, faceIndex: face.lpVtbl.getIndex(cast[pointer](face)).int
-        )
+    if decodedPath.len == 0 or not decodedPath.isAbsolute() or
+        not decodedPath.fileExists():
+      return
+    try:
+      var file: File
+      if not open(file, decodedPath, fmRead):
+        return
+      close(file)
+    except IOError, OSError:
+      return
+    result = some(
+      SystemTypefaceFile(
+        path: decodedPath, faceIndex: face.lpVtbl.getIndex(cast[pointer](face)).int
       )
+    )
+
+  proc typefaceInfo(
+      font: ptr IDWriteFont, fallbackFamily: string
+  ): Option[SystemTypefaceInfo] =
+    if font.lpVtbl.getSimulations(cast[pointer](font)) != 0:
+      return
+    let file = font.localTypefaceFile()
+    if file.isNone:
+      return
+
+    var faceNames: ptr IDWriteLocalizedStrings
+    discard font.lpVtbl.getFaceNames(cast[pointer](font), addr faceNames)
+    let fallbackSubfamily = faceNames.firstString()
+    release(faceNames)
+
+    let
+      typographicFamily =
+        font.informationalName(dwriteInformationalStringTypographicFamilyNames)
+      win32Family = font.informationalName(dwriteInformationalStringWin32FamilyNames)
+      typographicSubfamily =
+        font.informationalName(dwriteInformationalStringTypographicSubfamilyNames)
+      win32Subfamily =
+        font.informationalName(dwriteInformationalStringWin32SubfamilyNames)
+    result = some(
+      SystemTypefaceInfo(
+        file: file.get(),
+        family:
+          if typographicFamily.len > 0:
+            typographicFamily
+          elif win32Family.len > 0:
+            win32Family
+          else:
+            fallbackFamily,
+        subfamily:
+          if typographicSubfamily.len > 0:
+            typographicSubfamily
+          elif win32Subfamily.len > 0:
+            win32Subfamily
+          else:
+            fallbackSubfamily,
+        fullName: font.informationalName(dwriteInformationalStringFullName),
+        postScriptName: font.informationalName(dwriteInformationalStringPostscriptName),
+      )
+    )
+
+  proc familyTypefaces(
+      collection: ptr IDWriteFontCollection, familyIndex: UInt32
+  ): seq[SystemTypefaceInfo] =
+    var family: ptr IDWriteFontFamily
+    if not succeeded(
+      collection.lpVtbl.getFontFamily(
+        cast[pointer](collection), familyIndex, addr family
+      )
+    ) or family == nil:
+      release(family)
+      return
+    defer:
+      release(family)
+
+    var familyNames: ptr IDWriteLocalizedStrings
+    discard family.lpVtbl.getFamilyNames(cast[pointer](family), addr familyNames)
+    let fallbackFamily = familyNames.firstString()
+    release(familyNames)
+
+    for fontIndex in 0'u32 ..< family.lpVtbl.getFontCount(cast[pointer](family)):
+      var font: ptr IDWriteFont
+      if not succeeded(
+        family.lpVtbl.getFont(cast[pointer](family), fontIndex, addr font)
+      ) or font == nil:
+        release(font)
+        continue
+      let info = font.typefaceInfo(fallbackFamily)
+      release(font)
+      if info.isSome:
+        result.add info.get()
+
+  iterator nativeSystemTypefaces*(available: var bool): SystemTypefaceInfo =
+    ## Enumerates locally readable, nonsimulated DirectWrite faces.
+    block provider:
+      let dwriteLibrary = loadLib("dwrite.dll")
+      if dwriteLibrary == nil:
+        available = false
+        break provider
+      defer:
+        unloadLib(dwriteLibrary)
+      let dWriteCreateFactory =
+        cast[DWriteCreateFactoryProc](dwriteLibrary.symAddr("DWriteCreateFactory"))
+      if dWriteCreateFactory == nil:
+        available = false
+        break provider
+
+      var factory: ptr IDWriteFactory
+      if not succeeded(
+        dWriteCreateFactory(
+          dwriteFactoryTypeShared,
+          unsafeAddr iidIDWriteFactory,
+          cast[ptr pointer](addr factory),
+        )
+      ) or factory == nil:
+        release(factory)
+        available = false
+        break provider
+      defer:
+        release(factory)
+
+      var collection: ptr IDWriteFontCollection
+      if not succeeded(
+        factory.lpVtbl.getSystemFontCollection(
+          cast[pointer](factory), addr collection, 0
+        )
+      ) or collection == nil:
+        release(collection)
+        available = false
+        break provider
+      defer:
+        release(collection)
+      available = true
+
+      for familyIndex in 0'u32 ..<
+          collection.lpVtbl.getFontFamilyCount(cast[pointer](collection)):
+        for info in collection.familyTypefaces(familyIndex):
+          yield info
 
   proc regularFamilyTypeface(
       collection: ptr IDWriteFontCollection, familyIndex: UInt32
@@ -537,6 +696,10 @@ when defined(windows):
     systemFontProviderMatch(none(SystemTypefaceFile))
 
 else:
+  iterator nativeSystemTypefaces*(available: var bool): SystemTypefaceInfo =
+    ## DirectWrite enumeration is unavailable off Windows.
+    available = false
+
   proc findNativeSystemTypefaceFile*(
       names: openArray[string]
   ): SystemFontProviderResult =

@@ -5,7 +5,7 @@ import ../common/typefaceinfos
 import ./systemfonts_native
 import ./systemfonttypes
 
-export SystemTypefaceFile
+export SystemTypefaceFile, SystemTypefaceInfo, SystemTypefaceQuery
 
 type
   DisplayServer* = enum
@@ -41,6 +41,13 @@ proc normalizeMetadataName(name: string): string =
   for rune in name.runes:
     if $rune notin [" ", "-", "_", "."]:
       result.add($rune.toLower)
+
+func matches(query: SystemTypefaceQuery, info: SystemTypefaceInfo): bool =
+  let
+    family = query.family.normalizeMetadataName()
+    subfamily = query.subfamily.normalizeMetadataName()
+  (family.len == 0 or family == info.family.normalizeMetadataName()) and
+    (subfamily.len == 0 or subfamily == info.subfamily.normalizeMetadataName())
 
 proc fontNameMatchScore*(requestedName, fontName: string): int =
   ## Ranks a filename or face name for a family request.
@@ -289,6 +296,42 @@ proc systemFontFiles*(displayServer = detectDisplayServer()): seq[string] =
           result.add(file)
     except OSError:
       discard
+
+iterator systemTypefaces*(query = SystemTypefaceQuery()): SystemTypefaceInfo =
+  ## Enumerates installed, locally readable typeface files and collection faces.
+  ##
+  ## `family` and `subfamily` are exact, separator-insensitive filters. Empty
+  ## fields are wildcards and populated fields are combined with AND. A family
+  ## query returns every matching style; it does not perform font substitution.
+  ## Each `(path, faceIndex)` identity is yielded at most once. Order is native
+  ## and unspecified. Simulated, remote, multi-file, and variable named-instance
+  ## faces that cannot be represented by `SystemTypefaceFile` are omitted.
+  var
+    nativeAvailable = false
+    seen = initHashSet[(string, int)]()
+  for info in nativeSystemTypefaces(nativeAvailable):
+    let key = (info.file.path.normalizePathKey(), info.file.faceIndex)
+    if key notin seen and query.matches(info):
+      seen.incl(key)
+      yield info
+  if not nativeAvailable:
+    for path in systemFontFiles():
+      let metadata = path.fontMetadata()
+      if not metadata.valid:
+        continue
+      for face in metadata.faces:
+        let
+          info = SystemTypefaceInfo(
+            file: SystemTypefaceFile(path: path, faceIndex: face.faceIndex),
+            family: face.family,
+            subfamily: face.subfamily,
+            fullName: face.fullName,
+            postScriptName: face.postScriptName,
+          )
+          key = (path.normalizePathKey(), face.faceIndex)
+        if key notin seen and query.matches(info):
+          seen.incl(key)
+          yield info
 
 proc findSystemTypefaceFile*(
     names: openArray[string], displayServer = detectDisplayServer()

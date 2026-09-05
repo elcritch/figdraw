@@ -791,6 +791,16 @@ exact face. Native matches must resolve to one readable local font file and a
 concrete collection face. Synthetic or remote faces, multi-file faces, and
 variable named instances that require implicit axis coordinates are skipped.
 
+Use the `systemTypefaces()` iterator to enumerate those installed local faces
+without first building a sequence. Each yielded `SystemTypefaceInfo` owns its
+provider-selected family, subfamily, full, and PostScript names and identifies
+the file by both path and collection face index. An optional
+`SystemTypefaceQuery` applies exact, case- and separator-insensitive `family`
+and `subfamily` filters; empty fields are wildcards, populated fields are ANDed,
+and a family query returns every style without closest-font substitution.
+Enumeration order is platform-native and unspecified, and each `(path,
+faceIndex)` identity is emitted at most once.
+
 The OpenType metadata reader remains the portable source of metadata for loaded,
 embedded, in-memory, and caller-supplied font files. The
 `findSystemTypefaceFile(names, fontFiles)` overload uses it for deterministic

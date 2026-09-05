@@ -1,4 +1,4 @@
-import std/[options, os, strutils, unittest]
+import std/[options, os, sets, strutils, unittest]
 
 import figdraw/common/fonttypes
 
@@ -6,7 +6,8 @@ when defined(useNativeDynlib):
   import figdraw/dynlib
   from figdraw/extras/systemfonts import
     systemDefaultFontNames, findSystemFontFile, findSystemTypefaceFile,
-    refreshSystemFontMetadata, fontNameMatchScore, sfrMono
+    refreshSystemFontMetadata, fontNameMatchScore, systemTypefaces, SystemTypefaceQuery,
+    sfrMono
 else:
   import figdraw
 
@@ -39,6 +40,46 @@ suite "system fonts":
     check fonts.len > 0
     for font in fonts:
       check font.splitFile.ext.toLowerAscii() in fonttypes.supportedFontFileExtensions()
+
+  test "system typeface iterator returns unique readable face identities":
+    var
+      identities = initHashSet[(string, int)]()
+      count = 0
+    for info in systemTypefaces():
+      let identity = (info.file.path, info.file.faceIndex)
+      check info.file.path.isAbsolute()
+      check info.file.path.fileExists()
+      check info.file.faceIndex >= 0
+      check identity notin identities
+      identities.incl(identity)
+      inc count
+    check count > 0
+
+  test "system typeface queries are strict filters":
+    var family: string
+    for info in systemTypefaces():
+      if info.family.len > 0 and info.subfamily.len > 0:
+        family = info.family
+        break
+    require family.len > 0
+
+    var matchingCount = 0
+    for info in systemTypefaces(SystemTypefaceQuery(family: family.toUpperAscii())):
+      check info.family.toLowerAscii() == family.toLowerAscii()
+      inc matchingCount
+    check matchingCount > 0
+
+    for info in systemTypefaces(
+      SystemTypefaceQuery(family: "FigDraw Missing Font 2D601F0A")
+    ):
+      discard info
+      check false
+
+  test "system typeface iterator does not swallow consumer exceptions":
+    expect ValueError:
+      for info in systemTypefaces():
+        discard info
+        raise newException(ValueError, "consumer exception")
 
   test "family lookup rejects related and styled font filenames":
     let font = findSystemFontFile(

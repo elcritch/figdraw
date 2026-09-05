@@ -1,4 +1,4 @@
-import std/[options, os, unittest]
+import std/[options, os, sets, unittest]
 
 when defined(linux) or defined(freebsd):
   from figdraw/common/typefaceinfos import readTypefaceNameInfo
@@ -41,6 +41,19 @@ when defined(linux) or defined(freebsd):
       )
       check result.available
       check result.match.isNone
+
+    test "enumerates unique locally readable faces":
+      var
+        available = false
+        identities = initHashSet[(string, int)]()
+      for info in nativeSystemTypefaces(available):
+        let identity = (info.file.path, info.file.faceIndex)
+        check info.file.path.isAbsolute()
+        check info.file.path.fileExists()
+        check identity notin identities
+        identities.incl(identity)
+      check available
+      check identities.len > 0
 else:
   suite "Fontconfig system-font provider":
     test "is only exercised on Fontconfig platforms":

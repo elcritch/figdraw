@@ -13,3 +13,11 @@ proc findNativeSystemTypefaceFile*(names: openArray[string]): SystemFontProvider
     platformSystemFonts.findNativeSystemTypefaceFile(names)
   else:
     unavailableSystemFontProvider()
+
+iterator nativeSystemTypefaces*(available: var bool): SystemTypefaceInfo =
+  ## Enumerates local faces from the host platform font service.
+  when declared(platformSystemFonts):
+    for info in platformSystemFonts.nativeSystemTypefaces(available):
+      yield info
+  else:
+    available = false

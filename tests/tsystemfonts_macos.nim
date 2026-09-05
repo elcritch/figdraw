@@ -1,4 +1,4 @@
-import std/[options, os, unittest]
+import std/[options, os, sets, unittest]
 
 when defined(macosx):
   from figdraw/common/typefaceinfos import readTypefaceNameInfo
@@ -29,6 +29,18 @@ when defined(macosx):
       let result = findNativeSystemTypefaceFile(["FigDraw Missing Font 8E5269A4"])
       check result.available
       check result.match.isNone
+
+    test "enumerates owned local faces with unique identities":
+      var
+        available = false
+        identities = initHashSet[(string, int)]()
+      for info in nativeSystemTypefaces(available):
+        let identity = (info.file.path, info.file.faceIndex)
+        check info.file.path.fileExists()
+        check identity notin identities
+        identities.incl(identity)
+      check available
+      check identities.len > 0
 else:
   suite "Core Text system-font provider":
     test "is only exercised on macOS":

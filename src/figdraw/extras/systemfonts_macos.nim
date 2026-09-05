@@ -197,6 +197,64 @@ proc resolvedTypeface(font: CTFontRef): Option[SystemTypefaceFile] =
   if path.len > 0 and index >= 0:
     result = some(SystemTypefaceFile(path: path, faceIndex: index))
 
+proc typefaceInfo(font: CTFontRef): Option[SystemTypefaceInfo] =
+  let file = font.resolvedTypeface()
+  if file.isNone:
+    return
+
+  let
+    family = CTFontCopyFamilyName(font)
+    subfamily = CTFontCopyName(font, kCTFontStyleNameKey)
+    fullName = CTFontCopyFullName(font)
+    postScriptName = CTFontCopyPostScriptName(font)
+  defer:
+    if family != nil:
+      CFRelease(family)
+    if subfamily != nil:
+      CFRelease(subfamily)
+    if fullName != nil:
+      CFRelease(fullName)
+    if postScriptName != nil:
+      CFRelease(postScriptName)
+  result = some(
+    SystemTypefaceInfo(
+      file: file.get(),
+      family: family.nimString(),
+      subfamily: subfamily.nimString(),
+      fullName: fullName.nimString(),
+      postScriptName: postScriptName.nimString(),
+    )
+  )
+
+iterator nativeSystemTypefaces*(available: var bool): SystemTypefaceInfo =
+  ## Enumerates locally readable Core Text faces in native order.
+  block provider:
+    let names = CTFontManagerCopyAvailablePostScriptNames()
+    if names == nil:
+      available = false
+      break provider
+    available = true
+    defer:
+      CFRelease(names)
+
+    for index in 0 ..< CFArrayGetCount(names).int:
+      let postScriptName =
+        cast[CFStringRef](CFArrayGetValueAtIndex(names, index.CFIndex))
+      if postScriptName == nil:
+        continue
+      let font = CTFontCreateWithNameAndOptions(
+        postScriptName,
+        0.0,
+        nil,
+        kCTFontOptionsPreventAutoActivation or kCTFontOptionsPreventAutoDownload,
+      )
+      if font == nil:
+        continue
+      let info = font.typefaceInfo()
+      CFRelease(font)
+      if info.isSome:
+        yield info.get()
+
 proc findNativeSystemTypefaceFile*(names: openArray[string]): SystemFontProviderResult =
   ## Finds the first exact installed face requested in `names` using Core Text.
   ## A bare family name resolves only to its regular face.

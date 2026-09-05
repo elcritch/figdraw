@@ -1,4 +1,4 @@
-import std/[options, os, unittest]
+import std/[options, os, sets, unittest]
 
 from figdraw/common/typefaceinfos import readTypefaceNameInfo
 import figdraw/extras/systemfonts_windows
@@ -34,8 +34,28 @@ suite "DirectWrite system-font provider":
       let result = findNativeSystemTypefaceFile(["FigDraw Missing Font 8E5269A4"])
       check result.available
       check result.match.isNone
+
+    test "enumerates locally readable nonsimulated faces":
+      var
+        available = false
+        identities = initHashSet[(string, int)]()
+      for info in nativeSystemTypefaces(available):
+        let identity = (info.file.path, info.file.faceIndex)
+        check info.file.path.isAbsolute()
+        check info.file.path.fileExists()
+        check identity notin identities
+        identities.incl(identity)
+      check available
+      check identities.len > 0
   else:
     test "is unavailable off Windows":
       let result = findNativeSystemTypefaceFile(["Arial"])
       check not result.available
       check result.match.isNone
+
+    test "enumeration is unavailable off Windows":
+      var available = true
+      for info in nativeSystemTypefaces(available):
+        discard info
+        check false
+      check not available
