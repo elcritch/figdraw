@@ -776,17 +776,26 @@ Use the source-aware helpers for selection, hit testing, and carets:
 - `caretPositionsFor(sourceRune)`: visual caret rectangles for a source
   insertion index, including split positions at bidi boundaries.
 
-Installed named fonts are resolved from their OpenType family and style metadata,
-including typographic family names, rather than their filenames. User font
-directories take precedence over system directories. Font metadata is cached;
-call `refreshSystemFontMetadata()` after installing, replacing, or removing fonts
-in a long-running process. Style matching is strict: a missing style advances to
-the caller's ordered fallback names, then platform defaults. To prefer the same
-family's regular face, list that family explicitly as a fallback. Existing
-`loadTypeface` signatures remain unchanged. The additive
+Installed named fonts are discovered and matched by the host font service:
+DirectWrite on Windows, Core Text on macOS, and Fontconfig on Linux and FreeBSD.
+FigDraw validates the selected family, full, or PostScript name so a platform's
+closest-font substitution cannot satisfy an unrelated request. If a native
+provider is unavailable at runtime, installed-font lookup falls back to scanning
+the conventional font directories. Style matching is strict: a missing style
+advances to the caller's ordered fallback names, then platform defaults. To
+prefer the same family's regular face, list that family explicitly as a fallback.
+Existing `loadTypeface` signatures remain unchanged. The additive
 `findSystemTypefaceFile` lookup returns an `Option[SystemTypefaceFile]` containing
 both `path` and `faceIndex`; pass the matched value to `loadTypeface` to load that
-exact face. The existing `findSystemFontFile(names, fontFiles)` overload retains
+exact face. Native matches must resolve to one readable local font file and a
+concrete collection face. Synthetic or remote faces, multi-file faces, and
+variable named instances that require implicit axis coordinates are skipped.
+
+The OpenType metadata reader remains the portable source of metadata for loaded,
+embedded, in-memory, and caller-supplied font files. The
+`findSystemTypefaceFile(names, fontFiles)` overload uses it for deterministic
+matching within an explicit file list; `refreshSystemFontMetadata()` clears that
+scan cache. The existing `findSystemFontFile(names, fontFiles)` overload retains
 filename-only matching.
 Explicit `.ttc` and `.otc` paths retain their
 documented filename-based selection, with face zero as the default only when no

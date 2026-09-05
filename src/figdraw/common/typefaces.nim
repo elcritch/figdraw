@@ -255,7 +255,7 @@ proc loadTypeface*(
     let systemTypeface = findSystemTypefaceFile([name])
     if systemTypeface.isSome:
       let matchedTypeface = systemTypeface.get()
-      info "resolved typeface from system font metadata",
+      info "resolved typeface from system font service",
         requested = name,
         path = matchedTypeface.path,
         faceIndex = matchedTypeface.faceIndex

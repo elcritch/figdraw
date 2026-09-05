@@ -2,6 +2,10 @@ import std/[algorithm, locks, options, os, sets, strutils, tables, unicode]
 
 import ../common/fonttypes
 import ../common/typefaceinfos
+import ./systemfonts_native
+import ./systemfonttypes
+
+export SystemTypefaceFile
 
 type
   DisplayServer* = enum
@@ -12,11 +16,6 @@ type
   SystemFontRole* = enum
     sfrSans
     sfrMono
-
-  SystemTypefaceFile* = object
-    ## An installed font file and the selected face within it.
-    path*: string
-    faceIndex*: int ## Zero-based face index, including for standalone fonts.
 
   CachedFontMetadata = object
     valid: bool
@@ -123,7 +122,7 @@ proc fontMetadata(path: string): CachedFontMetadata =
         fontMetadataCache[key] = result
 
 proc refreshSystemFontMetadata*() =
-  ## Clears cached installed-font metadata after font directories change.
+  ## Clears metadata cached by explicit-file and native-provider fallback scans.
   withLock(fontMetadataLock):
     inc fontMetadataGeneration
     fontMetadataCache.clear()
@@ -154,7 +153,7 @@ proc metadataMatchScore(requestedName: string, info: TypefaceNameInfo): int =
 proc findSystemTypefaceFile*(
     names, fontFiles: openArray[string], preserveInputOrder = false
 ): Option[SystemTypefaceFile] =
-  ## Finds an installed face by OpenType family/style metadata.
+  ## Finds a face in caller-supplied files by OpenType family/style metadata.
   ##
   ## Directories are ranked by their first appearance in `fontFiles`, with
   ## paths sorted within each directory for deterministic ties. Set
@@ -294,7 +293,13 @@ proc systemFontFiles*(displayServer = detectDisplayServer()): seq[string] =
 proc findSystemTypefaceFile*(
     names: openArray[string], displayServer = detectDisplayServer()
 ): Option[SystemTypefaceFile] =
-  ## Finds an installed face by OpenType metadata using platform font folders.
+  ## Finds an installed face with the host platform's font service.
+  ##
+  ## The metadata scanner is retained for hosts where the native provider is
+  ## unavailable at runtime.
+  let nativeResult = findNativeSystemTypefaceFile(names)
+  if nativeResult.available:
+    return nativeResult.match
   findSystemTypefaceFile(
     names, systemFontFiles(displayServer), preserveInputOrder = true
   )
@@ -321,19 +326,18 @@ proc findSystemFontFile*(
 ): string =
   ## Finds the preferred installed system font path matching one of `names`.
   ##
-  ## Named requests use OpenType metadata. The two-array overload remains a
-  ## filename-only helper for callers that supply synthetic paths.
-  let fontFiles = systemFontFiles(displayServer)
+  ## Named requests use the host platform's font service. The two-array
+  ## overload remains a filename-only helper for caller-supplied paths.
   for name in names:
     if splitFile(name).ext.len > 0:
-      let path = findSystemFontFile([name], fontFiles)
+      let path = findSystemFontFile([name], systemFontFiles(displayServer))
       if path.len > 0:
         return path
-    let typeface = findSystemTypefaceFile([name], fontFiles, preserveInputOrder = true)
+    let typeface = findSystemTypefaceFile([name], displayServer)
     if typeface.isSome:
       return typeface.get().path
     let alias = splitFile(name).name.toLowerAscii().replace("-", "")
     if alias in ["sfns", "ubuntur"]:
-      let path = findSystemFontFile([name], fontFiles)
+      let path = findSystemFontFile([name], systemFontFiles(displayServer))
       if path.len > 0:
         return path
