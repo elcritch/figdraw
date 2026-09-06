@@ -321,7 +321,7 @@ proc loadTypeface*(
 proc loadTypeface*(name: string): TypefaceId {.nativeAbi.} =
   loadTypeface(name, [])
 
-proc loadTypeface*(file: SystemTypefaceFile): TypefaceId =
+proc loadTypeface*(file: SystemTypefaceFile): TypefaceId {.nativeAbi.} =
   ## Loads the exact face returned by `findSystemTypefaceFile`.
   if file.path.len == 0:
     raise newException(PixieError, "typeface path is empty")

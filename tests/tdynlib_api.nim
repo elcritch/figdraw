@@ -3,6 +3,9 @@ import std/unittest
 when defined(useNativeDynlib):
   import figdraw/dynlib
 
+  proc loadExactTypefaceForCompileCheck(file: SystemTypefaceFile): TypefaceId {.used.} =
+    loadTypeface(file)
+
 suite "native dynlib API":
   when defined(useNativeDynlib):
     test "supports elliptical corners and drawable ellipses":
