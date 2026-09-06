@@ -340,7 +340,7 @@ when defined(windows):
         ) and (familyName & " " & faceBuffer.utf8()).normalizedName() == requested:
           return true
 
-  proc localTypefaceFile(font: ptr IDWriteFont): Option[SystemTypefaceFile] =
+  proc localTypeface(font: ptr IDWriteFont): Option[SystemTypeface] =
     var face: ptr IDWriteFontFace
     if not succeeded(font.lpVtbl.createFontFace(cast[pointer](font), addr face)) or
         face == nil:
@@ -417,9 +417,7 @@ when defined(windows):
     except IOError, OSError:
       return
     result = some(
-      SystemTypefaceFile(
-        path: decodedPath, faceIndex: face.lpVtbl.getIndex(cast[pointer](face)).int
-      )
+      initSystemTypeface(decodedPath, face.lpVtbl.getIndex(cast[pointer](face)).int)
     )
 
   proc typefaceInfo(
@@ -427,8 +425,8 @@ when defined(windows):
   ): Option[SystemTypefaceInfo] =
     if font.lpVtbl.getSimulations(cast[pointer](font)) != 0:
       return
-    let file = font.localTypefaceFile()
-    if file.isNone:
+    let typeface = font.localTypeface()
+    if typeface.isNone:
       return
 
     var faceNames: ptr IDWriteLocalizedStrings
@@ -446,7 +444,7 @@ when defined(windows):
         font.informationalName(dwriteInformationalStringWin32SubfamilyNames)
     result = some(
       SystemTypefaceInfo(
-        file: file.get(),
+        typeface: typeface.get(),
         family:
           if typographicFamily.len > 0:
             typographicFamily
@@ -543,15 +541,17 @@ when defined(windows):
       for familyIndex in 0'u32 ..<
           collection.lpVtbl.getFontFamilyCount(cast[pointer](collection)):
         for info in collection.familyTypefaces(familyIndex):
-          let identity =
-            (info.file.path.toLowerAscii().replace('\\', '/'), info.file.faceIndex)
+          let identity = (
+            info.typeface.file.path.toLowerAscii().replace('\\', '/'),
+            info.typeface.file.faceIndex,
+          )
           if identity notin seen:
             seen.incl(identity)
             yield info
 
   proc regularFamilyTypeface(
       collection: ptr IDWriteFontCollection, familyIndex: UInt32
-  ): Option[SystemTypefaceFile] =
+  ): Option[SystemTypeface] =
     var family: ptr IDWriteFontFamily
     if not succeeded(
       collection.lpVtbl.getFontFamily(
@@ -574,15 +574,15 @@ when defined(windows):
           continue
         if font.isRegularFont() and
             font.lpVtbl.getWeight(cast[pointer](font)) == desiredWeight:
-          result = font.localTypefaceFile()
+          result = font.localTypeface()
         release(font)
         if result.isSome:
           return
 
   proc explicitTypeface(
       collection: ptr IDWriteFontCollection, requested: string
-  ): Option[SystemTypefaceFile] =
-    var bookFallback: Option[SystemTypefaceFile]
+  ): Option[SystemTypeface] =
+    var bookFallback: Option[SystemTypeface]
     for familyIndex in 0'u32 ..<
         collection.lpVtbl.getFontFamilyCount(cast[pointer](collection)):
       var family: ptr IDWriteFontFamily
@@ -626,9 +626,9 @@ when defined(windows):
           )
         release(faceNames)
         if explicitNameMatches:
-          result = font.localTypefaceFile()
+          result = font.localTypeface()
         elif familyNameMatches:
-          let candidate = font.localTypefaceFile()
+          let candidate = font.localTypeface()
           if font.lpVtbl.getWeight(cast[pointer](font)) == dwriteFontWeightRegular:
             result = candidate
           elif bookFallback.isNone:
@@ -642,9 +642,7 @@ when defined(windows):
         return
     result = bookFallback
 
-  proc findNativeSystemTypefaceFile*(
-      names: openArray[string]
-  ): SystemFontProviderResult =
+  proc findNativeSystemTypeface*(names: openArray[string]): SystemFontProviderResult =
     ## Resolves an installed DirectWrite face to its local file and face index.
     let dwriteLibrary = loadLib("dwrite.dll")
     if dwriteLibrary == nil:
@@ -698,16 +696,14 @@ when defined(windows):
       if match.isSome:
         return systemFontProviderMatch(match)
 
-    systemFontProviderMatch(none(SystemTypefaceFile))
+    systemFontProviderMatch(none(SystemTypeface))
 
 else:
   iterator nativeSystemTypefaces*(available: var bool): SystemTypefaceInfo =
     ## DirectWrite enumeration is unavailable off Windows.
     available = false
 
-  proc findNativeSystemTypefaceFile*(
-      names: openArray[string]
-  ): SystemFontProviderResult =
+  proc findNativeSystemTypeface*(names: openArray[string]): SystemFontProviderResult =
     ## The DirectWrite system font provider is unavailable off Windows.
     discard names
     unavailableSystemFontProvider()

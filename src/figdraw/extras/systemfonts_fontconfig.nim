@@ -205,7 +205,7 @@ proc patternTypefaceInfo(pattern: ptr FcPattern): Option[SystemTypefaceInfo] =
     postScriptNames = pattern.patternStrings(fcPostscriptName)
   result = some(
     SystemTypefaceInfo(
-      file: SystemTypefaceFile(path: localFile.path, faceIndex: localFile.faceIndex),
+      typeface: initSystemTypeface(localFile.path, localFile.faceIndex),
       family:
         if families.len > 0:
           families[0]
@@ -314,7 +314,7 @@ proc queryFontconfig(
     requestedName: string,
     queryObject: cstring,
     regularFamily: bool,
-): Option[SystemTypefaceFile] =
+): Option[SystemTypeface] =
   let query = api.patternCreate()
   if query == nil:
     return
@@ -354,12 +354,13 @@ proc queryFontconfig(
     packedIndex = cast[uint32](faceIndex)
   # Fontconfig packs a variable-font named-instance number above the low
   # 16-bit collection index. FigDraw cannot represent those coordinates in a
-  # SystemTypefaceFile, so accepting one would load a different design.
+  # SystemTypeface without its variation coordinates, so accepting one would
+  # load a different design.
   if packedIndex > 0xFFFF'u32 or not path.isAbsolute() or not path.fileExists():
     return
-  some(SystemTypefaceFile(path: path, faceIndex: int(packedIndex)))
+  some(initSystemTypeface(path, int(packedIndex)))
 
-proc findNativeSystemTypefaceFile*(names: openArray[string]): SystemFontProviderResult =
+proc findNativeSystemTypeface*(names: openArray[string]): SystemFontProviderResult =
   ## Finds the first exact installed face requested through Fontconfig.
   ##
   ## Fontconfig deliberately returns a closest match. This provider validates
@@ -383,4 +384,4 @@ proc findNativeSystemTypefaceFile*(names: openArray[string]): SystemFontProvider
     let matched = queryFontconfig(config, name, fcFamily, true)
     if matched.isSome:
       return systemFontProviderMatch(matched)
-  systemFontProviderMatch(none(SystemTypefaceFile))
+  systemFontProviderMatch(none(SystemTypeface))

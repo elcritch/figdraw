@@ -264,9 +264,9 @@ suite "fontutils":
     writeFile(collectionPath, collectionData)
     refreshSystemFontMetadata()
 
-    let systemTypeface = findSystemTypefaceFile(["PT Sans"], [collectionPath])
+    let systemTypeface = findSystemTypeface(["PT Sans"], [collectionPath])
     require systemTypeface.isSome
-    let resolvedTypefaceId = loadTypeface(systemTypeface.get())
+    let resolvedTypefaceId = loadTypeface(systemTypeface.get().file)
     let resolvedInfo = getTypefaceInfo(resolvedTypefaceId)
     check getTypefaceSource(resolvedTypefaceId).faceIndex == 1
     check resolvedInfo.family == "PT Sans"
@@ -287,6 +287,18 @@ suite "fontutils":
       require image != nil
       check image.opaqueBounds().w > 0
       check image.opaqueBounds().h > 0
+
+  test "exact system typeface applies variable coordinates to its font":
+    let
+      path = getCurrentDir() / "examples/fonts/NotoNaskhArabic-wght.ttf"
+      typeface =
+        initSystemTypeface(path, variations = [fontVariation("wght", 650.0'f32)])
+      font = typeface.fontWithSize(18.0'f32)
+      source = getTypefaceSource(font.typefaceId)
+    check source.name == path
+    check source.faceIndex == 0
+    check font.size == 18.0'f32
+    check font.variations == typeface.variations
 
   test "unknown typeface metadata lookup raises ValueError":
     expect ValueError:

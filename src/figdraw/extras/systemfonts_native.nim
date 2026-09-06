@@ -7,10 +7,10 @@ elif defined(macosx):
 elif defined(linux) or defined(freebsd):
   import ./systemfonts_fontconfig as platformSystemFonts
 
-proc findNativeSystemTypefaceFile*(names: openArray[string]): SystemFontProviderResult =
+proc findNativeSystemTypeface*(names: openArray[string]): SystemFontProviderResult =
   ## Dispatches installed-font matching to the host platform font service.
   when declared(platformSystemFonts):
-    platformSystemFonts.findNativeSystemTypefaceFile(names)
+    platformSystemFonts.findNativeSystemTypeface(names)
   else:
     unavailableSystemFontProvider()
 

@@ -6,6 +6,11 @@ when defined(useNativeDynlib):
   proc loadExactTypefaceForCompileCheck(file: SystemTypefaceFile): TypefaceId {.used.} =
     loadTypeface(file)
 
+  proc exactFontForCompileCheck(
+      typeface: SystemTypeface, size: float32
+  ): FigFont {.used.} =
+    typeface.fontWithSize(size)
+
 suite "native dynlib API":
   when defined(useNativeDynlib):
     test "supports elliptical corners and drawable ellipses":

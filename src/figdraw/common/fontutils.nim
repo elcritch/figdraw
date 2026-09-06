@@ -22,9 +22,9 @@ else:
   {.pragma: nativeAbi.}
 
 export
-  FontRef, SystemTypefaceFile, TypefaceInfo, TypefaceLocalizedName,
+  FontRef, SystemTypefaceFile, SystemTypeface, TypefaceInfo, TypefaceLocalizedName,
   TypefaceVariationAxis
-export font, fontId, fontRef, loadTypeface, getTypefaceInfo, convertFont
+export font, fontId, fontRef, loadTypeface, getTypefaceInfo, convertFont, fontWithSize
 export registerStaticTypeface
 
 when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":

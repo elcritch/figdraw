@@ -5,11 +5,13 @@ import pkg/bumpy as bumpy
 import pkg/chroma as chroma
 import pkg/vmath as vmath
 import figdraw_native_abi
+from figdraw/extras/systemfonttypes import SystemTypeface
 
 export tables, bumpy, chroma, vmath
 export figdraw_native_abi except
   Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, figDashedRoundedRectBorder,
   figDottedRoundedRectBorder, figRoundedRectBorder, placeGlyphs, typeset
+export SystemTypeface
 
 const
   UseVulkanBackend* = false
@@ -484,6 +486,16 @@ proc span*(font: FigFont, color: Fill, text: string): (FontStyle, string) {.inli
 
 proc fontWithSize*(fontId: TypefaceId, size: float32): FigFont {.inline.} =
   FigFont(typefaceId: fontId, size: size)
+
+proc fontWithSize*(typeface: SystemTypeface, size: float32): FigFont =
+  ## Loads an exact installed typeface through the native ABI.
+  let file = figdraw_native_abi.SystemTypefaceFile(
+    path: typeface.file.path, faceIndex: typeface.file.faceIndex
+  )
+  result = loadTypeface(file).fontWithSize(size)
+  result.variations = newSeqOfCap[FontVariation](typeface.variations.len)
+  for variation in typeface.variations:
+    result.variations.add FontVariation(tag: variation.tag, value: variation.value)
 
 func fontFeature*(
     tag: string, value = 1'u32, start = 0'u32, ending = uint32.high

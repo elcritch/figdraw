@@ -1,17 +1,40 @@
-import std/[options, os, sets, strutils, unittest]
+import std/[math, options, os, sets, strutils, unittest]
 
 import figdraw/common/fonttypes
 
 when defined(useNativeDynlib):
   import figdraw/dynlib
   from figdraw/extras/systemfonts import
-    systemDefaultFontNames, findSystemFontFile, findSystemTypefaceFile,
+    systemDefaultFontNames, findSystemFontFile, findSystemTypeface,
     refreshSystemFontMetadata, fontNameMatchScore, systemTypefaces, SystemTypefaceQuery,
-    sfrMono
+    SystemTypeface, sfrMono
 else:
   import figdraw
 
 suite "system fonts":
+  test "exact typeface identities canonicalize and validate variation axes":
+    let
+      file = initSystemTypefaceFile("/fonts/Variable.ttf", 2)
+      first = initSystemTypeface(
+        file, [fontVariation("wght", 700.0'f32), fontVariation("ital", 1.0'f32)]
+      )
+      second = initSystemTypeface(
+        file, [fontVariation("ital", 1.0'f32), fontVariation("wght", 700.0'f32)]
+      )
+    check first == second
+    check first.file == file
+    check first.variations[0].tag == "ital"
+    check first.variations[1].tag == "wght"
+
+    expect ValueError:
+      discard initSystemTypeface(file, [fontVariation("weight", 700.0'f32)])
+    expect ValueError:
+      discard initSystemTypeface(
+        file, [fontVariation("wght", 600.0'f32), fontVariation("wght", 700.0'f32)]
+      )
+    expect ValueError:
+      discard initSystemTypeface(file, [fontVariation("wght", NaN.float32)])
+
   test "platform default font names are listed by role":
     let
       sans = systemDefaultFontNames()
@@ -43,15 +66,14 @@ suite "system fonts":
 
   test "system typeface iterator returns unique readable face identities":
     var
-      identities = initHashSet[(string, int)]()
+      identities = initHashSet[SystemTypeface]()
       count = 0
     for info in systemTypefaces():
-      let identity = (info.file.path, info.file.faceIndex)
-      check info.file.path.isAbsolute()
-      check info.file.path.fileExists()
-      check info.file.faceIndex >= 0
-      check identity notin identities
-      identities.incl(identity)
+      check info.typeface.file.path.isAbsolute()
+      check info.typeface.file.path.fileExists()
+      check info.typeface.file.faceIndex >= 0
+      check info.typeface notin identities
+      identities.incl(info.typeface)
       inc count
     check count > 0
 
@@ -156,10 +178,10 @@ suite "system fonts":
     writeFile(collectionPath, data)
     refreshSystemFontMetadata()
 
-    let match = findSystemTypefaceFile(["PT Sans"], [collectionPath])
+    let match = findSystemTypeface(["PT Sans"], [collectionPath])
     require match.isSome
-    check match.get().path == collectionPath
-    check match.get().faceIndex == 1
+    check match.get().file.path == collectionPath
+    check match.get().file.faceIndex == 1
 
   test "regional family aliases resolve their base collection":
     check findSystemFontFile(["PingFang SC"], ["/fonts/PingFang.ttc"]) ==

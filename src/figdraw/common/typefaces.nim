@@ -16,7 +16,9 @@ import ./shared
 import ./typefaceinfos
 import ../extras/systemfonts
 
-export SystemTypefaceFile, TypefaceInfo, TypefaceLocalizedName, TypefaceVariationAxis
+export
+  SystemTypefaceFile, SystemTypeface, TypefaceInfo, TypefaceLocalizedName,
+  TypefaceVariationAxis
 
 when defined(figdrawNativeDynlib):
   {.pragma: nativeAbi, exportabi.}
@@ -252,15 +254,15 @@ proc loadTypeface*(
           requested = name, path = filePath
         return ResolvedTypefacePath(path: filePath, faceIndex: -1)
 
-    let systemTypeface = findSystemTypefaceFile([name])
+    let systemTypeface = findSystemTypeface([name])
     if systemTypeface.isSome:
       let matchedTypeface = systemTypeface.get()
       info "resolved typeface from system font service",
         requested = name,
-        path = matchedTypeface.path,
-        faceIndex = matchedTypeface.faceIndex
+        path = matchedTypeface.file.path,
+        faceIndex = matchedTypeface.file.faceIndex
       return ResolvedTypefacePath(
-        path: matchedTypeface.path, faceIndex: matchedTypeface.faceIndex
+        path: matchedTypeface.file.path, faceIndex: matchedTypeface.file.faceIndex
       )
 
     let alias = splitFile(name).name.toLowerAscii().replace("-", "")
@@ -322,13 +324,18 @@ proc loadTypeface*(name: string): TypefaceId {.nativeAbi.} =
   loadTypeface(name, [])
 
 proc loadTypeface*(file: SystemTypefaceFile): TypefaceId {.nativeAbi.} =
-  ## Loads the exact face returned by `findSystemTypefaceFile`.
+  ## Loads the physical face in `file`.
   if file.path.len == 0:
     raise newException(PixieError, "typeface path is empty")
   if file.faceIndex < 0:
     raise newException(PixieError, "typeface face index must not be negative")
   let (typeface, source) = readTypefacePath(file.path, file.path, file.faceIndex)
   registerTypeface(typeface, source)
+
+proc fontWithSize*(typeface: SystemTypeface, size: float32): FigFont =
+  ## Loads an exact installed typeface and applies its variable-axis coordinates.
+  result = loadTypeface(typeface.file).fontWithSize(size)
+  result.variations = typeface.variations
 
 proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId {.nativeAbi.} =
   ## loads a font from buffer and adds it to the font index
