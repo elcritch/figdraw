@@ -24,6 +24,22 @@ type
     maxValue*: float32
     hidden*: bool
 
+  ## Lightweight OpenType names and style metadata for one typeface face.
+  TypefaceNameInfo* = object
+    family*: string
+    subfamily*: string
+    fullName*: string
+    postScriptName*: string
+    faceIndex*: int
+    weightClass*: uint16
+    widthClass*: uint16
+    bold*: bool
+    italic*: bool
+    oblique*: bool
+    regular*: bool
+    monospace*: bool
+    localizedNames*: seq[TypefaceLocalizedName]
+
   ## Backend-neutral metadata for one registered typeface face.
   ##
   ## `layoutScripts` and `layoutLanguages` contain OpenType shaping tags from
@@ -487,6 +503,37 @@ proc applyStyleInfo(
 proc fallbackFamily(sourceName: string): string =
   let fileName = sourceName.extractFilename()
   result = (if fileName.len > 0: fileName else: sourceName).splitFile().name
+
+proc readTypefaceNameInfo*(data: string, faceIndex: Natural = 0): TypefaceNameInfo =
+  ## Reads the names and style flags needed to identify one OpenType face.
+  ##
+  ## It raises for malformed data, an unavailable collection face, or a nonzero
+  ## face index for a standalone font.
+  if data.len >= 4 and data[0 ..< 4] != "ttcf" and faceIndex != 0:
+    raise newException(ValueError, "standalone font face index must be zero")
+  let tables = data.readTypefaceTables(faceIndex)
+  result.faceIndex = faceIndex
+  result.localizedNames = data.readLocalizedNames(tables)
+  let
+    family = result.localizedNames.preferredName([16'u16, 1'u16])
+    subfamily = result.localizedNames.preferredName([17'u16, 2'u16])
+    fullName = result.localizedNames.preferredName([4'u16])
+    postScriptName = result.localizedNames.preferredName([6'u16])
+  if family.len == 0:
+    raise newException(ValueError, "font has no usable family name")
+  result.family = family
+  result.subfamily = subfamily
+  result.fullName = if fullName.len > 0: fullName else: family
+  result.postScriptName = postScriptName
+  var styleInfo: TypefaceInfo
+  styleInfo.applyStyleInfo(data, tables)
+  result.weightClass = styleInfo.weightClass
+  result.widthClass = styleInfo.widthClass
+  result.bold = styleInfo.bold
+  result.italic = styleInfo.italic
+  result.oblique = styleInfo.oblique
+  result.regular = styleInfo.regular
+  result.monospace = styleInfo.monospace
 
 proc parseTypefaceInfo*(
     sourceName, data: string, faceIndex = 0, fallbackFullName = ""

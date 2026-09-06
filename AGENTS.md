@@ -7,9 +7,12 @@
 
 ## Build, Test, and Development
 - Install deps (atlas workspace): `atlas install` (ensure `atlas` is installed and configured for your environment). *Never* use Nimble - it's horrible. *Always* use Atlas and it's `deps/` folder and `nim.cfg` file to see paths.
-- Run all tests: `nim test` (uses the `test` task in `config.nims` to compile and run every `tests/*.nim`).
-- Run a single test locally:
+- Run multiple or all tests with `atlas-run tests [test-selections]`. Omit selections to run the full suite, or pass one or more test selectors to run focused tests. Selectors match as `foo` -> `tests/tfoo*.nim`, `foo.nim` -> `tests/tfoo.nim`, and `examples/foo*.nim` -> `examples/foo*.nim`. Do not adjust the `--jobs` count or the `--nimcache`.
+- Compile the example bundle with `atlas-run tests --compile-only examples/all_compile.nim`; do not run `examples/all_compile.nim` as a test.
+- Execute a single test locally using Nim:
   - `nim r tests/ttransfer.nim`
+  - `nim r tests/ttransfer.nim -d:debug`
+
 
 ## Coding Style & Naming
 - Indentation: 2 spaces; no tabs.

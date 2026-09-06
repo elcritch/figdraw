@@ -776,9 +776,45 @@ Use the source-aware helpers for selection, hit testing, and carets:
 - `caretPositionsFor(sourceRune)`: visual caret rectangles for a source
   insertion index, including split positions at bidi boundaries.
 
-Font collection paths (`.ttc` and `.otc`) are supported; FigDraw selects the
-face whose name best matches the requested font and carries that face index
-through shaping and rasterization. The current Harfbuzzy raster path renders
+Installed named fonts are discovered and matched by the host font service:
+DirectWrite on Windows, Core Text on macOS, and Fontconfig on Linux and FreeBSD.
+FigDraw validates the selected family, full, or PostScript name so a platform's
+closest-font substitution cannot satisfy an unrelated request. If a native
+provider is unavailable at runtime, installed-font lookup falls back to scanning
+the conventional font directories. Style matching is strict: a missing style
+advances to the caller's ordered fallback names, then platform defaults. To
+prefer the same family's regular face, list that family explicitly as a fallback.
+The `findSystemTypeface` lookup returns an `Option[SystemTypeface]`. Its `file`
+contains the local `path` and physical `faceIndex`, while `variations` contains
+the canonical variable-axis coordinates needed to distinguish named instances.
+Call `fontWithSize` on the matched value to load the physical face and retain
+those coordinates. `loadTypeface(SystemTypefaceFile)` remains available when a
+caller intentionally needs only a physical `TypefaceId`. Native matches must
+resolve to one readable local font file and a concrete collection face.
+Synthetic or remote faces and multi-file faces are skipped. Core Text provides
+named-instance coordinates on macOS; providers that cannot report them omit
+those instances instead of returning a different design.
+
+Use the `systemTypefaces()` iterator to enumerate those installed local faces
+without first building a sequence. Each yielded `SystemTypefaceInfo` owns its
+provider-selected family, subfamily, full, and PostScript names and identifies
+the exact typeface by file, collection face index, and variation coordinates. An optional
+`SystemTypefaceQuery` applies exact, case- and separator-insensitive `family`
+and `subfamily` filters; empty fields are wildcards, populated fields are ANDed,
+and a family query returns every style without closest-font substitution.
+Enumeration order is platform-native and unspecified, and each `(path,
+faceIndex, variations)` identity is emitted at most once.
+
+The OpenType metadata reader remains the portable source of metadata for loaded,
+embedded, in-memory, and caller-supplied font files. The
+`findSystemTypeface(names, fontFiles)` overload uses it for deterministic
+matching within an explicit file list; `refreshSystemFontMetadata()` clears that
+scan cache. The existing `findSystemFontFile(names, fontFiles)` overload retains
+filename-only matching.
+Explicit `.ttc` and `.otc` paths retain their
+documented filename-based selection, with face zero as the default only when no
+face name matches. FigDraw carries the selected face index through shaping and
+rasterization. The current Harfbuzzy raster path renders
 monochrome outlines, not color bitmap, SVG, or COLR glyph paint data.
 
 See [docs/font_shaping.md](docs/font_shaping.md) for the data model details and

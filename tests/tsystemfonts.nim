@@ -1,15 +1,40 @@
-import std/[os, strutils, unittest]
+import std/[math, options, os, sets, strutils, unittest]
 
 import figdraw/common/fonttypes
 
 when defined(useNativeDynlib):
   import figdraw/dynlib
   from figdraw/extras/systemfonts import
-    systemDefaultFontNames, findSystemFontFile, sfrMono
+    systemDefaultFontNames, findSystemFontFile, findSystemTypeface,
+    refreshSystemFontMetadata, fontNameMatchScore, systemTypefaces, SystemTypefaceQuery,
+    SystemTypeface, sfrMono
 else:
   import figdraw
 
 suite "system fonts":
+  test "exact typeface identities canonicalize and validate variation axes":
+    let
+      file = initSystemTypefaceFile("/fonts/Variable.ttf", 2)
+      first = initSystemTypeface(
+        file, [fontVariation("wght", 700.0'f32), fontVariation("ital", 1.0'f32)]
+      )
+      second = initSystemTypeface(
+        file, [fontVariation("ital", 1.0'f32), fontVariation("wght", 700.0'f32)]
+      )
+    check first == second
+    check first.file == file
+    check first.variations[0].tag == "ital"
+    check first.variations[1].tag == "wght"
+
+    expect ValueError:
+      discard initSystemTypeface(file, [fontVariation("weight", 700.0'f32)])
+    expect ValueError:
+      discard initSystemTypeface(
+        file, [fontVariation("wght", 600.0'f32), fontVariation("wght", 700.0'f32)]
+      )
+    expect ValueError:
+      discard initSystemTypeface(file, [fontVariation("wght", NaN.float32)])
+
   test "platform default font names are listed by role":
     let
       sans = systemDefaultFontNames()
@@ -37,7 +62,63 @@ suite "system fonts":
     let fonts = systemFontFiles()
     check fonts.len > 0
     for font in fonts:
-      check font.splitFile.ext.toLowerAscii() in supportedFontFileExtensions()
+      check font.splitFile.ext.toLowerAscii() in fonttypes.supportedFontFileExtensions()
+
+  test "system typeface iterator returns unique readable face identities":
+    var
+      identities = initHashSet[SystemTypeface]()
+      count = 0
+    for info in systemTypefaces():
+      check info.typeface.file.path.isAbsolute()
+      check info.typeface.file.path.fileExists()
+      check info.typeface.file.faceIndex >= 0
+      check info.typeface notin identities
+      identities.incl(info.typeface)
+      inc count
+    check count > 0
+
+  test "system typeface queries are strict filters":
+    var
+      family: string
+      subfamily: string
+    for info in systemTypefaces():
+      if info.family.len > 0 and info.subfamily.len > 0 and
+          info.family.allCharsInSet({'\x20' .. '\x7e'}) and
+          info.subfamily.allCharsInSet({'\x20' .. '\x7e'}):
+        family = info.family
+        subfamily = info.subfamily
+        break
+    require family.len > 0
+
+    var matchingCount = 0
+    for info in systemTypefaces(SystemTypefaceQuery(family: family.toUpperAscii())):
+      check info.family.toLowerAscii() == family.toLowerAscii()
+      inc matchingCount
+    check matchingCount > 0
+
+    var styleMatchingCount = 0
+    for info in systemTypefaces(
+      SystemTypefaceQuery(
+        family: "-" & family.replace(" ", "_") & ".",
+        subfamily: "-" & subfamily.replace(" ", "_") & ".",
+      )
+    ):
+      check info.family.toLowerAscii() == family.toLowerAscii()
+      check info.subfamily.toLowerAscii() == subfamily.toLowerAscii()
+      inc styleMatchingCount
+    check styleMatchingCount > 0
+
+    for info in systemTypefaces(
+      SystemTypefaceQuery(family: "FigDraw Missing Font 2D601F0A")
+    ):
+      discard info
+      check false
+
+  test "system typeface iterator does not swallow consumer exceptions":
+    expect ValueError:
+      for info in systemTypefaces():
+        discard info
+        raise newException(ValueError, "consumer exception")
 
   test "family lookup rejects related and styled font filenames":
     let font = findSystemFontFile(
@@ -76,6 +157,31 @@ suite "system fonts":
   test "collection face scoring excludes bold before a regular face":
     check fontNameMatchScore("PT Sans", "PT Sans Bold") == -1
     check fontNameMatchScore("PT Sans", "PT Sans Regular") == 1
+
+  test "OpenType metadata selects a regular collection face independent of filename":
+    let
+      tempDir = getTempDir() / "figdraw-system-font-metadata-test"
+      sourcePath = getCurrentDir() / "deps/pixie/tests/fonts/PTSans.ttc"
+      collectionPath = tempDir / "unrelated-name.ttc"
+    if not dirExists(tempDir):
+      createDir(tempDir)
+    defer:
+      refreshSystemFontMetadata()
+      if dirExists(tempDir):
+        removeDir(tempDir)
+
+    var data = readFile(sourcePath)
+    swap(data[12], data[16])
+    swap(data[13], data[17])
+    swap(data[14], data[18])
+    swap(data[15], data[19])
+    writeFile(collectionPath, data)
+    refreshSystemFontMetadata()
+
+    let match = findSystemTypeface(["PT Sans"], [collectionPath])
+    require match.isSome
+    check match.get().file.path == collectionPath
+    check match.get().file.faceIndex == 1
 
   test "regional family aliases resolve their base collection":
     check findSystemFontFile(["PingFang SC"], ["/fonts/PingFang.ttc"]) ==

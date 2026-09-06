@@ -1,4 +1,4 @@
-import std/[hashes, os, tables, unicode, unittest]
+import std/[hashes, options, os, tables, tempfiles, unicode, unittest]
 
 import pkg/pixie
 import pkg/pixie/fonts
@@ -245,8 +245,60 @@ suite "fontutils":
     check getTypefaceSource(typefaceId).faceIndex == 1
     check info.family == "PT Sans"
     check info.regular
+
     check not info.bold
     check not info.italic
+
+  test "system typeface result loads the selected collection face":
+    let
+      tempDir = createTempDir("figdraw-system-font-test-", "")
+      sourcePath = getCurrentDir() / "deps/pixie/tests/fonts/PTSans.ttc"
+      collectionPath = tempDir / "unrelated-name.otc"
+    defer:
+      refreshSystemFontMetadata()
+      if dirExists(tempDir):
+        removeDir(tempDir)
+
+    var collectionData = readFile(sourcePath)
+    collectionData.swapTtcFaceOffsets(0, 1)
+    writeFile(collectionPath, collectionData)
+    refreshSystemFontMetadata()
+
+    let systemTypeface = findSystemTypeface(["PT Sans"], [collectionPath])
+    require systemTypeface.isSome
+    let resolvedTypefaceId = loadTypeface(systemTypeface.get().file)
+    let resolvedInfo = getTypefaceInfo(resolvedTypefaceId)
+    check getTypefaceSource(resolvedTypefaceId).faceIndex == 1
+    check resolvedInfo.family == "PT Sans"
+    check resolvedInfo.regular
+
+    let arrangement = typeset(
+      rect(0, 0, 120, 50),
+      FigFont(typefaceId: resolvedTypefaceId, size: 24.0'f32),
+      "A",
+      minContent = false,
+      wrap = false,
+    )
+    require arrangement.arrangedGlyphs.len == 1
+    for glyph in arrangement.glyphs():
+      check getFigFont(glyph.fontId).typefaceId == resolvedTypefaceId
+      check glyph.glyphId != FontGlyphId(0)
+      let image = glyph.generateGlyph(force = true, upload = false)
+      require image != nil
+      check image.opaqueBounds().w > 0
+      check image.opaqueBounds().h > 0
+
+  test "exact system typeface applies variable coordinates to its font":
+    let
+      path = getCurrentDir() / "examples/fonts/NotoNaskhArabic-wght.ttf"
+      typeface =
+        initSystemTypeface(path, variations = [fontVariation("wght", 650.0'f32)])
+      font = typeface.fontWithSize(18.0'f32)
+      source = getTypefaceSource(font.typefaceId)
+    check source.name == path
+    check source.faceIndex == 0
+    check font.size == 18.0'f32
+    check font.variations == typeface.variations
 
   test "unknown typeface metadata lookup raises ValueError":
     expect ValueError:

@@ -21,8 +21,10 @@ when defined(figdrawNativeDynlib):
 else:
   {.pragma: nativeAbi.}
 
-export FontRef, TypefaceInfo, TypefaceLocalizedName, TypefaceVariationAxis
-export font, fontId, fontRef, loadTypeface, getTypefaceInfo, convertFont
+export
+  FontRef, SystemTypefaceFile, SystemTypeface, TypefaceInfo, TypefaceLocalizedName,
+  TypefaceVariationAxis
+export font, fontId, fontRef, loadTypeface, getTypefaceInfo, convertFont, fontWithSize
 export registerStaticTypeface
 
 when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
