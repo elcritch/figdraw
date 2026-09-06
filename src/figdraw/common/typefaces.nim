@@ -330,7 +330,8 @@ proc loadTypeface*(file: SystemTypefaceFile): TypefaceId {.nativeAbi.} =
   if file.faceIndex < 0:
     raise newException(PixieError, "typeface face index must not be negative")
   let (typeface, source) = readTypefacePath(file.path, file.path, file.faceIndex)
-  registerTypeface(typeface, source)
+  result = registerTypeface(typeface, source)
+  info "loaded typeface from exact file", path = file.path, faceIndex = file.faceIndex
 
 proc fontWithSize*(typeface: SystemTypeface, size: float32): FigFont =
   ## Loads an exact installed typeface and applies its variable-axis coordinates.
