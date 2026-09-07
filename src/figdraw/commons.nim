@@ -10,7 +10,10 @@ const WantVulkanBackend {.booldefine: "figdraw.vulkan".} =
 const UseVulkanReadback* {.booldefine: "figdraw.vulkanReadback".} = false
 const WantMetalBackend {.booldefine: "figdraw.metal".} = defined(macosx)
 const UseOpenGlBackend* {.booldefine: "figdraw.opengl".} =
-  not (WantMetalBackend or WantVulkanBackend)
+  when defined(linux) or defined(cpu32):
+    true
+  else:
+    not (WantMetalBackend or WantVulkanBackend)
 const UseVulkanBackend* = WantVulkanBackend and not UseOpenGlBackend
 const UseMetalBackend* =
   WantMetalBackend and not UseOpenGlBackend and not UseVulkanBackend
