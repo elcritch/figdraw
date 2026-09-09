@@ -3528,6 +3528,25 @@ proc intersectRects(a, b: Rect): Rect =
     return rect(0, 0, 0, 0)
   rect(x0, y0, x1 - x0, y1 - y0)
 
+proc transformedBounds(ctx: VulkanContext, source: Rect): Rect =
+  let corners = [
+    ctx.mat * source.xy,
+    ctx.mat * vec2(source.x + source.w, source.y),
+    ctx.mat * vec2(source.x, source.y + source.h),
+    ctx.mat * (source.xy + source.wh),
+  ]
+  var
+    minX = corners[0].x
+    minY = corners[0].y
+    maxX = corners[0].x
+    maxY = corners[0].y
+  for i in 1 ..< corners.len:
+    minX = min(minX, corners[i].x)
+    minY = min(minY, corners[i].y)
+    maxX = max(maxX, corners[i].x)
+    maxY = max(maxY, corners[i].y)
+  rect(minX, minY, maxX - minX, maxY - minY)
+
 proc clearMask*(ctx: VulkanContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   ctx.flush()
@@ -3540,7 +3559,7 @@ method beginMask*(ctx: VulkanContext, clipRect: Rect, radii: CornerRadii2D[float
   ctx.maskBegun = true
   inc ctx.maskDepth
 
-  ctx.pendingMaskRect = clipRect
+  ctx.pendingMaskRect = ctx.transformedBounds(clipRect)
   ctx.pendingMaskValid = true
 
 method endMask*(ctx: VulkanContext) =
