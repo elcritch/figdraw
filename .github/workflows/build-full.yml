@@ -28,7 +28,7 @@ jobs:
             nimversion: '2.2.10'
             display: x11
             renderer: vulkan
-            nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on'
+            nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on -d:figdraw.vulkanValidation'
             force_opengl: '0'
           - os: ubuntu-24.04
             nimversion: '2.2.10'
@@ -40,7 +40,7 @@ jobs:
             nimversion: '2.2.10'
             display: wayland
             renderer: vulkan
-            nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on'
+            nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on -d:figdraw.vulkanValidation'
             force_opengl: '0'
           - os: macos-14
             nimversion: '2.2.10'
@@ -121,6 +121,7 @@ jobs:
           libegl1-mesa-dev \
           mesa-utils \
           vulkan-tools \
+          vulkan-validationlayers \
           mesa-vulkan-drivers \
           libvulkan1 \
           libgl1-mesa-dri \
@@ -134,6 +135,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          xvfb \
           weston \
           wayland-protocols \
           libwayland-dev \
@@ -148,6 +150,7 @@ jobs:
           libegl1-mesa-dev \
           mesa-utils \
           vulkan-tools \
+          vulkan-validationlayers \
           mesa-vulkan-drivers \
           libvulkan1 \
           libgl1-mesa-dri \
@@ -228,6 +231,7 @@ jobs:
       if: runner.os == 'Linux' && matrix.display == 'x11'
       env:
         XDG_SESSION_TYPE: "x11"
+        FIGDRAW_REQUIRE_GRAPHICS: ${{ matrix.renderer == 'vulkan' && '1' || '0' }}
         FIGDRAW_TEST_RENDERER: ${{ matrix.renderer }}
         FIGDRAW_TEST_EXCLUDE: ${{ matrix.test_exclude }}
         FIGDRAW_FORCE_OPENGL: ${{ matrix.force_opengl }}
@@ -244,6 +248,7 @@ jobs:
       if: runner.os == 'Linux' && matrix.display == 'wayland'
       env:
         XDG_SESSION_TYPE: "wayland"
+        FIGDRAW_REQUIRE_GRAPHICS: ${{ matrix.renderer == 'vulkan' && '1' || '0' }}
         WAYLAND_DISPLAY: "wayland-1"
         FIGDRAW_TEST_RENDERER: ${{ matrix.renderer }}
         FIGDRAW_FORCE_OPENGL: ${{ matrix.force_opengl }}
@@ -278,7 +283,7 @@ jobs:
         if [[ "${{ matrix.renderer }}" == "vulkan" ]]; then
           vulkaninfo --summary || true
         fi
-        nim test
+        xvfb-run -a nim test
         nim r -d:figdrawTextBackend=harfbuzzy tests/tfontutils.nim
 
     - name: Build Tests
