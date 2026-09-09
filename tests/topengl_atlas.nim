@@ -21,13 +21,15 @@ when UseOpenGlBackend:
     if not testWindow.window.isNil and testWindow.window.opened:
       testWindow.window.close()
 
-  proc openTestWindow(): TestWindow =
-    result.window = newSiwinWindow(size = ivec2(256, 200), vsync = false)
+  proc openTestWindow(atlasSize = 64): TestWindow =
+    # Match native popup surfaces and require an alpha channel for blur checks.
+    result.window =
+      newSiwinWindow(size = ivec2(256, 200), vsync = false, transparent = true)
     try:
       result.window.firstStep()
       result.window.makeCurrent()
       result.renderer =
-        newFigRenderer(atlasSize = 64, backendState = SiwinRenderBackend())
+        newFigRenderer(atlasSize = atlasSize, backendState = SiwinRenderBackend())
       result.renderer.setupBackend(result.window)
       result.ctx = OpenGlContext(result.renderer.ctx)
     except CatchableError:
@@ -66,11 +68,11 @@ when UseOpenGlBackend:
     check abs(px.g.int - expectedG) <= 2
     check abs(px.b.int - expectedB) <= 2
 
-  template withWindow(body: untyped) =
+  template withWindowSize(atlasSize: int, body: untyped) =
     block runWindow:
       var testWindow {.inject.}: TestWindow
       try:
-        testWindow = openTestWindow()
+        testWindow = openTestWindow(atlasSize)
       except CatchableError:
         if getEnv("FIGDRAW_REQUIRE_GRAPHICS") == "1":
           raise
@@ -80,7 +82,17 @@ when UseOpenGlBackend:
         testWindow.close()
       body
 
+  template withWindow(body: untyped) =
+    withWindowSize(64):
+      body
+
   suite "OpenGL atlas isolation":
+    test "updates recover pixel coordinates in a non-power-of-two atlas":
+      withWindowSize(93):
+        testWindow.ctx.putImage(1.Hash, solid(255, 0, 0))
+        testWindow.ctx.updateImage(1.Hash, solid(0, 0, 255))
+        testWindow.draw(1.Hash).assertPixel(0, 0, 255)
+
     test "resource preparation selects its window before beginFrame":
       withWindow:
         let parent = testWindow

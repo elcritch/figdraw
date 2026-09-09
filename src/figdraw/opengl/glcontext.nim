@@ -667,12 +667,14 @@ method updateImage*(ctx: OpenGlContext, path: Hash, image: Image) =
   ## * Must be the same size.
   ## * This does not set mipmaps.
   let rect = ctx.entries[path]
-  if image.isNil or rect.w != image.width.float / float(ctx.atlasSize) or
-      rect.h != image.height.float / float(ctx.atlasSize):
+  if image.isNil or round(rect.w * ctx.atlasSize.float32).int != image.width or
+      round(rect.h * ctx.atlasSize.float32).int != image.height:
     raise newException(ValueError, "Atlas updates must keep the original image size")
   ctx.flush()
   ctx.uploadAtlasImage(
-    int(rect.x * ctx.atlasSize.float), int(rect.y * ctx.atlasSize.float), image
+    round(rect.x * ctx.atlasSize.float32).int,
+    round(rect.y * ctx.atlasSize.float32).int,
+    image,
   )
 
 proc logFlippy(flippy: Flippy, file: string) =
