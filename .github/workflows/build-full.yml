@@ -135,6 +135,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          xvfb \
           weston \
           wayland-protocols \
           libwayland-dev \
@@ -282,7 +283,7 @@ jobs:
         if [[ "${{ matrix.renderer }}" == "vulkan" ]]; then
           vulkaninfo --summary || true
         fi
-        nim test
+        xvfb-run -a nim test
         nim r -d:figdrawTextBackend=harfbuzzy tests/tfontutils.nim
 
     - name: Build Tests

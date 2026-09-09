@@ -3718,7 +3718,7 @@ proc beginFrame*(
   ctx.transitionSwapchain(
     VK_IMAGE_LAYOUT_UNDEFINED,
     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-    VkPipelineStageFlags{TopOfPipeBit},
+    VkPipelineStageFlags{ColorAttachmentOutputBit},
     VkPipelineStageFlags{ColorAttachmentOutputBit},
     0.VkAccessFlags,
     VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit},
