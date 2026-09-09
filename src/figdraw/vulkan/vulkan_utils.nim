@@ -2,7 +2,7 @@ import std/[hashes, math, strformat, strutils]
 
 import pkg/chronicles
 import pkg/vulkan
-import pkg/vulkan/wrapper
+import ./vulkan_dispatch
 
 import ../commons
 
@@ -80,54 +80,47 @@ when defined(linux) or defined(bsd):
     pSurface: ptr VkSurfaceKHR,
   ): VkResult {.cdecl.}
 
-  const VulkanDynLib* =
-    when defined(windows):
-      "vulkan-1.dll"
-    elif defined(macosx):
-      "libMoltenVK.dylib"
-    else:
-      "libvulkan.so.1"
-
-  proc vkGetInstanceProcAddrNative*(
-    instance: VkInstance, pName: cstring
-  ): pointer {.cdecl, dynlib: VulkanDynLib, importc: "vkGetInstanceProcAddr".}
-
   proc XGetXCBConnection*(
     display: pointer
   ): pointer {.cdecl, dynlib: "libX11-xcb.so.1", importc.}
 
-proc findGraphicsQueueFamily*(device: VkPhysicalDevice): int =
-  let families = getQueueFamilyProperties(device)
+proc findGraphicsQueueFamily*(vk: VulkanDispatch, device: VkPhysicalDevice): int =
+  let families = vk.getQueueFamilyProperties(device)
   for i, family in families:
     if family.queueCount > 0 and VkQueueFlagBits.GraphicsBit in family.queueFlags:
       return i
   result = -1
 
-proc findPresentQueueFamily*(device: VkPhysicalDevice, surface: VkSurfaceKHR): int =
-  let families = getQueueFamilyProperties(device)
+proc findPresentQueueFamily*(
+    vk: VulkanDispatch, device: VkPhysicalDevice, surface: VkSurfaceKHR
+): int =
+  let families = vk.getQueueFamilyProperties(device)
   for i, family in families:
     if family.queueCount == 0:
       continue
     var supported: VkBool32
     discard
-      vkGetPhysicalDeviceSurfaceSupportKHR(device, i.uint32, surface, supported.addr)
+      vk.vkGetPhysicalDeviceSurfaceSupportKHR(device, i.uint32, surface, supported.addr)
     if supported.ord == VkTrue:
       return i
   result = -1
 
 proc checkDeviceExtensionSupport*(
-    physicalDevice: VkPhysicalDevice, requiredExtensions: seq[string]
+    vk: VulkanDispatch,
+    physicalDevice: VkPhysicalDevice,
+    requiredExtensions: seq[string],
 ): bool =
   if requiredExtensions.len == 0:
     return true
 
   var extCount: uint32
-  discard vkEnumerateDeviceExtensionProperties(physicalDevice, nil, extCount.addr, nil)
+  discard
+    vk.vkEnumerateDeviceExtensionProperties(physicalDevice, nil, extCount.addr, nil)
   if extCount == 0:
     return false
 
   var availableExts = newSeq[VkExtensionProperties](extCount)
-  discard vkEnumerateDeviceExtensionProperties(
+  discard vk.vkEnumerateDeviceExtensionProperties(
     physicalDevice, nil, extCount.addr, availableExts[0].addr
   )
 
@@ -143,28 +136,29 @@ proc checkDeviceExtensionSupport*(
   result = true
 
 proc querySwapChainSupport*(
-    physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR
+    vk: VulkanDispatch, physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR
 ): SwapChainSupportDetails =
-  discard vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+  discard vk.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
     physicalDevice, surface, result.capabilities.addr
   )
 
   var formatCount: uint32
-  discard
-    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, formatCount.addr, nil)
+  discard vk.vkGetPhysicalDeviceSurfaceFormatsKHR(
+    physicalDevice, surface, formatCount.addr, nil
+  )
   if formatCount != 0:
     result.formats.setLen(formatCount)
-    discard vkGetPhysicalDeviceSurfaceFormatsKHR(
+    discard vk.vkGetPhysicalDeviceSurfaceFormatsKHR(
       physicalDevice, surface, formatCount.addr, result.formats[0].addr
     )
 
   var presentModeCount: uint32
-  discard vkGetPhysicalDeviceSurfacePresentModesKHR(
+  discard vk.vkGetPhysicalDeviceSurfacePresentModesKHR(
     physicalDevice, surface, presentModeCount.addr, nil
   )
   if presentModeCount != 0:
     result.presentModes.setLen(presentModeCount)
-    discard vkGetPhysicalDeviceSurfacePresentModesKHR(
+    discard vk.vkGetPhysicalDeviceSurfacePresentModesKHR(
       physicalDevice, surface, presentModeCount.addr, result.presentModes[0].addr
     )
 
@@ -223,18 +217,20 @@ proc chooseSwapExtent*(
 proc swapchainPreferences*(
     profile: VulkanSwapchainProfile
 ): VulkanSwapchainPreferences =
-  result.preferredFormats = @[
-    VkSurfaceFormatKHR(
-      format: VK_FORMAT_B8G8R8A8_UNORM, colorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
-    ),
-    VkSurfaceFormatKHR(
-      format: VK_FORMAT_R8G8B8A8_UNORM, colorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
-    ),
-  ]
-  result.preferredCompositeAlpha = @[
-    VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
-    VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
-  ]
+  result.preferredFormats =
+    @[
+      VkSurfaceFormatKHR(
+        format: VK_FORMAT_B8G8R8A8_UNORM, colorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+      ),
+      VkSurfaceFormatKHR(
+        format: VK_FORMAT_R8G8B8A8_UNORM, colorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+      ),
+    ]
+  result.preferredCompositeAlpha =
+    @[
+      VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+      VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+    ]
   result.enableTransferSrc = true
 
   case profile
@@ -349,16 +345,19 @@ proc chooseSwapchainConfig*(
   chooseSwapchainConfig(support, width, height, swapchainPreferences(profile), profile)
 
 proc findQueueFamilies*(
-    physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR, requirePresent: bool
+    vk: VulkanDispatch,
+    physicalDevice: VkPhysicalDevice,
+    surface: VkSurfaceKHR,
+    requirePresent: bool,
 ): QueueFamilyIndices =
-  let graphics = findGraphicsQueueFamily(physicalDevice)
+  let graphics = findGraphicsQueueFamily(vk, physicalDevice)
   if graphics < 0:
     return
   result.graphicsFamily = graphics.uint32
   result.graphicsFound = true
 
   if requirePresent:
-    let present = findPresentQueueFamily(physicalDevice, surface)
+    let present = findPresentQueueFamily(vk, physicalDevice, surface)
     if present < 0:
       return
     result.presentFamily = present.uint32
@@ -367,12 +366,14 @@ proc findQueueFamilies*(
     result.presentFamily = result.graphicsFamily
     result.presentFound = true
 
-proc physicalDeviceName*(physicalDevice: VkPhysicalDevice): string =
-  let props = getPhysicalDeviceProperties(physicalDevice)
+proc physicalDeviceName*(vk: VulkanDispatch, physicalDevice: VkPhysicalDevice): string =
+  let props = vk.getPhysicalDeviceProperties(physicalDevice)
   $cast[cstring](props.deviceName.addr)
 
-proc queryVulkanDriverInfo*(physicalDevice: VkPhysicalDevice): VulkanDriverInfo =
-  let props = getPhysicalDeviceProperties(physicalDevice)
+proc queryVulkanDriverInfo*(
+    vk: VulkanDispatch, physicalDevice: VkPhysicalDevice
+): VulkanDriverInfo =
+  let props = vk.getPhysicalDeviceProperties(physicalDevice)
   VulkanDriverInfo(
     deviceName: $cast[cstring](props.deviceName.addr),
     vendorId: props.vendorID,
@@ -384,14 +385,14 @@ proc queryVulkanDriverInfo*(physicalDevice: VkPhysicalDevice): VulkanDriverInfo 
 proc vulkanApiVersion*(version: uint32): string =
   &"{vkVersionMajor(version)}.{vkVersionMinor(version)}.{vkVersionPatch(version)}"
 
-proc detectLoaderApiVersion*(): uint32 =
+proc detectLoaderApiVersion*(vk: VulkanDispatch): uint32 =
   result = vkApiVersion1_0.uint32
-  if vkEnumerateInstanceVersion.isNil:
+  if vk.vkEnumerateInstanceVersion.isNil:
     debug "vkEnumerateInstanceVersion unavailable; assuming Vulkan 1.0 loader"
     return
 
   var loaderApi = vkApiVersion1_0.uint32
-  let res = vkEnumerateInstanceVersion(loaderApi.addr)
+  let res = vk.vkEnumerateInstanceVersion(loaderApi.addr)
   if res == VkSuccess:
     result = loaderApi
     debug "Detected Vulkan loader API version",
@@ -400,13 +401,13 @@ proc detectLoaderApiVersion*(): uint32 =
     debug "Failed to query Vulkan loader API version",
       result = $res, fallbackApiVersion = vulkanApiVersion(result)
 
-proc queryInstanceExtensionNames*(): seq[string] =
-  if vkEnumerateInstanceExtensionProperties.isNil:
+proc queryInstanceExtensionNames*(vk: VulkanDispatch): seq[string] =
+  if vk.vkEnumerateInstanceExtensionProperties.isNil:
     debug "vkEnumerateInstanceExtensionProperties unavailable"
     return @[]
 
   var count: uint32
-  let firstRes = vkEnumerateInstanceExtensionProperties(nil, count.addr, nil)
+  let firstRes = vk.vkEnumerateInstanceExtensionProperties(nil, count.addr, nil)
   if firstRes != VkSuccess:
     debug "Failed to enumerate Vulkan instance extensions (count)", result = $firstRes
     return @[]
@@ -415,7 +416,8 @@ proc queryInstanceExtensionNames*(): seq[string] =
     return @[]
 
   var props = newSeq[VkExtensionProperties](count.int)
-  let secondRes = vkEnumerateInstanceExtensionProperties(nil, count.addr, props[0].addr)
+  let secondRes =
+    vk.vkEnumerateInstanceExtensionProperties(nil, count.addr, props[0].addr)
   if secondRes != VkSuccess:
     debug "Failed to enumerate Vulkan instance extensions (values)", result = $secondRes
     return @[]
@@ -423,9 +425,9 @@ proc queryInstanceExtensionNames*(): seq[string] =
   for ext in props:
     result.add($cast[cstring](ext.extensionName.addr))
 
-proc queryInstanceLayerNames*(): seq[string] =
+proc queryInstanceLayerNames*(vk: VulkanDispatch): seq[string] =
   try:
-    for layer in enumerateInstanceLayerProperties():
+    for layer in vk.enumerateInstanceLayerProperties():
       result.add($cast[cstring](layer.layerName.addr))
   except VulkanError as exc:
     debug "Failed to enumerate Vulkan instance layers", error = exc.msg
@@ -438,11 +440,12 @@ proc toKey*(h: Hash): Hash =
   h
 
 proc findMemoryType*(
+    vk: VulkanDispatch,
     physicalDevice: VkPhysicalDevice,
     typeFilter: uint32,
     properties: VkMemoryPropertyFlags,
 ): uint32 =
-  let memoryProperties = getPhysicalDeviceMemoryProperties(physicalDevice)
+  let memoryProperties = vk.getPhysicalDeviceMemoryProperties(physicalDevice)
   for i in 0 ..< memoryProperties.memoryTypeCount.int:
     let memoryType = memoryProperties.memoryTypes[i]
     if (typeFilter and (1'u32 shl i.uint32)) != 0'u32 and

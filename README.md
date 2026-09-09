@@ -128,6 +128,25 @@ FIGDRAW_REQUIRE_GRAPHICS=1 atlas-run tests opengl_atlas -- -d:figdraw.opengl=on
 Use an X11 or Wayland session on Linux (`xvfb-run -a` provides X11 in CI).
 The graphics requirement makes setup failures fail the tests instead of skipping.
 
+### Vulkan diagnostics
+
+Build with `-d:figdraw.vulkan=on -d:figdraw.opengl=off` to exercise Vulkan
+without the OpenGL backend. Add `-d:figdraw.vulkanValidation` to enable the
+Khronos validation layer, including synchronization checks. This diagnostic
+build requires `VK_LAYER_KHRONOS_validation` and `VK_EXT_debug_utils` and logs
+validation messages; `VulkanContext.validationErrorCount()` reports errors.
+
+With Atlas dependencies installed, run the atlas and popup regressions on Linux:
+
+```sh
+FIGDRAW_REQUIRE_GRAPHICS=1 atlas-run tests vulkan_frame_resources siwin_vulkan_atlas -- \
+  -d:figdraw.vulkan=on -d:figdraw.opengl=off -d:figdraw.vulkanValidation
+```
+
+Run under an X11 or Wayland session (or `xvfb-run -a` for X11 in CI).
+`FIGDRAW_REQUIRE_GRAPHICS=1` makes unavailable graphics fail these tests instead
+of skipping them. Linux CI runs both display paths with validation enabled.
+
 ### Software OpenGL
 
 Set `FIGDRAW_SOFTWARE_GL=1` before starting an application to request Mesa
