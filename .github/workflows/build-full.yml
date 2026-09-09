@@ -231,7 +231,7 @@ jobs:
       if: runner.os == 'Linux' && matrix.display == 'x11'
       env:
         XDG_SESSION_TYPE: "x11"
-        FIGDRAW_REQUIRE_GRAPHICS: ${{ matrix.renderer == 'vulkan' && '1' || '0' }}
+        FIGDRAW_REQUIRE_GRAPHICS: "1"
         FIGDRAW_TEST_RENDERER: ${{ matrix.renderer }}
         FIGDRAW_TEST_EXCLUDE: ${{ matrix.test_exclude }}
         FIGDRAW_FORCE_OPENGL: ${{ matrix.force_opengl }}
@@ -248,7 +248,7 @@ jobs:
       if: runner.os == 'Linux' && matrix.display == 'wayland'
       env:
         XDG_SESSION_TYPE: "wayland"
-        FIGDRAW_REQUIRE_GRAPHICS: ${{ matrix.renderer == 'vulkan' && '1' || '0' }}
+        FIGDRAW_REQUIRE_GRAPHICS: "1"
         WAYLAND_DISPLAY: "wayland-1"
         FIGDRAW_TEST_RENDERER: ${{ matrix.renderer }}
         FIGDRAW_FORCE_OPENGL: ${{ matrix.force_opengl }}

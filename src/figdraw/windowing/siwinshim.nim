@@ -773,9 +773,17 @@ when UseVulkanBackend:
         ValueError, "Vulkan attachment failure injected by -d:vulkanCrashTest"
       )
 
+proc activateRendererContext(renderer: FigRenderer[SiwinRenderBackend]) =
+  when NeedSiwinOpenGLContext:
+    when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd)):
+      renderer.activateOpenGlFallback()
+    else:
+      renderer.backendState.window.makeCurrent()
+
 proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a siwin window and FigDraw renderer.
   renderer.backendState.window = window
+  renderer.contextActivation = activateRendererContext
   renderer.backendState.dedicatedRender = false
   renderer.backendState.presentationReady = false
   renderer.backendState.resizeClearColorSet = false

@@ -390,7 +390,7 @@ void main() {
       alpha = 1.0 - cl;
       vec2 normalizedPos = vec2(pos.x / windowFrame.x, 1.0 - pos.y / windowFrame.y);
       vec4 blur = texture2D(backdropTex, normalizedPos);
-      fragColor = vec4(blur.rgb, blur.a * alpha);
+      fragColor = vec4(blur.a > 0.0 ? blur.rgb / blur.a : vec3(0.0), blur.a * alpha);
     } else {
       float cl = clamp(aaFactor * dist + 0.5, 0.0, 1.0);
       alpha = 1.0 - cl;

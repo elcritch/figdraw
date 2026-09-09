@@ -1,5 +1,22 @@
 # Changes
 
+## 0.37.3
+
+- Select the owning OpenGL context before image preparation, atlas rebuilds,
+  rendering, and screenshots so native popups cannot redirect another window's
+  atlas uploads.
+- Preserve atlas pixels during growth, accept exact-width images, upload
+  single-pixel images, and validate update sizes in all build modes.
+- Flush pending draws before image updates and recover pixel coordinates
+  correctly for non-power-of-two atlas sizes.
+- Initialize atlas padding and extrude image edges; use base-level filtering to
+  prevent shared mipmaps from mixing entries. Flippy atlas uploads use their base
+  image; standalone textures retain mipmap support.
+- Isolate pixel transfer strides and PBO bindings, establish popup draw state,
+  correct transparent backdrop blur, and release replaced textures on resize.
+- Add OpenGL atlas/context regressions and require graphics in Linux X11/Wayland
+  CI for both GPU backends.
+
 ## 0.37.2
 
 - Keep Vulkan atlas images and descriptor sets alive until submitted work completes.
