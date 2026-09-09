@@ -1,11 +1,11 @@
-import std/[hashes, math, strformat, tables]
+import std/[atomics, hashes, math, strformat, tables]
 
 import pkg/pixie
 import pkg/pixie/simd
 import pkg/chroma
 import pkg/chronicles
 import pkg/vulkan
-import pkg/vulkan/wrapper
+import ./vulkan_dispatch
 
 import ../commons
 import ../figbackend as figbackend
@@ -23,6 +23,7 @@ logScope:
   scope = "vulkan"
 
 const
+  UseVulkanValidation* {.booldefine: "figdraw.vulkanValidation".} = false
   quadLimit = 10_921
   sdfVertSpv = staticRead("shaders/sdf.vert.spv")
   sdfFragSpv = staticRead("shaders/sdf.frag.spv")
@@ -93,6 +94,10 @@ type
     swapchain: VkSwapchainKHR
     views: seq[VkImageView]
     framebuffers: seq[VkFramebuffer]
+    semaphores: seq[VkSemaphore]
+    replacementSwapchain: VkSwapchainKHR
+    replacementImage: int
+    awaitingFrameFence: bool
 
   VulkanContext* = ref object of figbackend.BackendContext
     atlasSize: int
@@ -143,7 +148,10 @@ type
     atlasDirty: bool
     atlasLayoutReady: bool
 
+    vk: VulkanDispatch
     instance: VkInstance
+    debugMessenger: VkDebugUtilsMessengerEXT
+    validationErrors: Atomic[int]
     physicalDevice: VkPhysicalDevice
     device: VkDevice
     queue: VkQueue
@@ -183,7 +191,6 @@ type
 
     renderPass: VkRenderPass
     descriptorSetLayout: VkDescriptorSetLayout
-    descriptorPool: VkDescriptorPool
     descriptorSet: VkDescriptorSet
     pipelineLayout: VkPipelineLayout
     pipeline: VkPipeline
@@ -193,7 +200,7 @@ type
     commandPool: VkCommandPool
     commandBuffer: VkCommandBuffer
     imageAvailableSemaphore: VkSemaphore
-    renderFinishedSemaphore: VkSemaphore
+    renderFinishedSemaphores: seq[VkSemaphore]
     inFlightFence: VkFence
     acquiredImageIndex: uint32
     commandRecording: bool
@@ -218,24 +225,22 @@ type
     backdropBlurTempFramebuffer: VkFramebuffer
     blurRenderPass: VkRenderPass
     blurDescriptorSetLayout: VkDescriptorSetLayout
-    blurDescriptorPool: VkDescriptorPool
     blurDescriptorSets: array[2, VkDescriptorSet]
     blurPipelineLayout: VkPipelineLayout
     blurPipeline: VkPipeline
     blurVertShader: VkShaderModule
     blurFragShader: VkShaderModule
-    blurUniformBuffers: array[2, VulkanBuffer]
     atlasSampler: VkSampler
-    atlasUploadBuffer: VulkanBuffer
-    atlasUploadBytes: VkDeviceSize
 
-    vertexBuffer: VulkanBuffer
-    vertexBufferBytes: VkDeviceSize
-    frameVertexBuffers: seq[VulkanBuffer]
+    uploadBlocks: seq[VulkanUploadBlock]
+    uploadBlockIndex: int
+    uniformAlignment: VkDeviceSize
+    frameImages: seq[VulkanImage]
+    frameDescriptorPools: seq[VkDescriptorPool]
+    descriptorPoolIndex: int
+    descriptorSetsUsed: int
     indexBuffer: VulkanBuffer
     indexBufferBytes: VkDeviceSize
-    vsUniformBuffer: VulkanBuffer
-    fsUniformBuffer: VulkanBuffer
 
     gpuReady: bool
 
@@ -263,6 +268,28 @@ const
   vkNullSemaphore = VkSemaphore(0)
   vkNullFence = VkFence(0)
 
+when UseVulkanValidation:
+  proc printValidation(message: cstring): cint {.importc: "puts", header: "<stdio.h>".}
+
+  proc validationCallback(
+      severity: VkDebugUtilsMessageSeverityFlagBitsEXT,
+      messageTypes: VkDebugUtilsMessageTypeFlagsEXT,
+      data: ptr VkDebugUtilsMessengerCallbackDataEXT,
+      userData: pointer,
+  ): VkBool32 {.cdecl.} =
+    # The layer can call from a driver thread; avoid Nim allocation in the callback.
+    if severity == VkDebugUtilsMessageSeverityFlagBitsEXT.ErrorBit:
+      discard cast[ptr Atomic[int]](userData)[].fetchAdd(1)
+    if data != nil and data.pMessage != nil:
+      discard printValidation(data.pMessage)
+    VkBool32(VkFalse)
+
+proc validationErrorCount*(ctx: VulkanContext): int =
+  ## Number of validation errors reported for this context, including teardown.
+  ctx.validationErrors.load()
+
+proc ensureInstance*(ctx: VulkanContext)
+
 proc hasPresentTarget(ctx: VulkanContext): bool =
   ctx.presentTargetKind != presentTargetNone
 
@@ -270,15 +297,14 @@ method hasImage*(ctx: VulkanContext, key: Hash): bool =
   key in ctx.entries
 
 proc tryGetImageRect(ctx: VulkanContext, imageId: Hash, rect: var Rect): bool
-proc updateDescriptorSet(ctx: VulkanContext)
+proc updateDescriptorSet(ctx: VulkanContext, vsUpload, fsUpload: VulkanUpload)
 proc updateBlurDescriptorSet(
   ctx: VulkanContext,
   descriptorSet: VkDescriptorSet,
   srcView: VkImageView,
-  uniformBuffer: VkBuffer,
+  uniformUpload: VulkanUpload,
 )
 
-proc updateBlurDescriptorSets(ctx: VulkanContext)
 proc recreateBlurFramebuffers(ctx: VulkanContext)
 proc createImageView(
   ctx: VulkanContext, image: VkImage, format: VkFormat, aspectMask: VkImageAspectFlags
@@ -290,22 +316,96 @@ proc createBuffer(
     usage: VkBufferUsageFlags,
     properties: VkMemoryPropertyFlags,
 ): VulkanBuffer =
-  result = newVulkanBuffer(ctx.device, size)
+  result = newVulkanBuffer(ctx.vk, ctx.device, size)
   let bufferInfo = newVkBufferCreateInfo(
     size = size,
     usage = usage,
     sharingMode = VkSharingMode.Exclusive,
     queueFamilyIndices = [],
   )
-  result.handle = createBuffer(ctx.device, bufferInfo)
+  result.handle = ctx.vk.createBuffer(ctx.device, bufferInfo)
 
-  let req = getBufferMemoryRequirements(ctx.device, result.handle)
+  let req = ctx.vk.getBufferMemoryRequirements(ctx.device, result.handle)
   let alloc = newVkMemoryAllocateInfo(
     allocationSize = req.size,
-    memoryTypeIndex = findMemoryType(ctx.physicalDevice, req.memoryTypeBits, properties),
+    memoryTypeIndex =
+      findMemoryType(ctx.vk, ctx.physicalDevice, req.memoryTypeBits, properties),
   )
-  result.allocation = allocateMemory(ctx.device, alloc)
-  bindBufferMemory(ctx.device, result.handle, result.allocation, 0.VkDeviceSize)
+  result.allocation = ctx.vk.allocateMemory(ctx.device, alloc)
+  ctx.vk.bindBufferMemory(ctx.device, result.handle, result.allocation, 0.VkDeviceSize)
+
+proc allocateFrameUpload(
+    ctx: VulkanContext, bytes: VkDeviceSize, alignment = 4.VkDeviceSize
+): VulkanUpload =
+  # All slices remain immutable until the frame fence has completed.
+  while ctx.uploadBlockIndex < ctx.uploadBlocks.len:
+    let blockIndex = ctx.uploadBlockIndex
+    let offset = (
+      (
+        (ctx.uploadBlocks[blockIndex].used.uint64 + alignment.uint64 - 1) div
+        alignment.uint64
+      ) * alignment.uint64
+    ).VkDeviceSize
+    let buffer = ctx.uploadBlocks[blockIndex].buffer
+    if offset + bytes <= buffer.size:
+      ctx.uploadBlocks[blockIndex].used = offset + bytes
+      return VulkanUpload(
+        buffer: buffer,
+        offset: offset,
+        size: bytes,
+        data: cast[pointer](cast[uint](buffer.mapped) + offset.uint),
+      )
+    inc ctx.uploadBlockIndex
+  let buffer = ctx.createBuffer(
+    max(bytes, (4 * 1024 * 1024).VkDeviceSize),
+    VkBufferUsageFlags{TransferSrcBit, VertexBufferBit, UniformBufferBit},
+    VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
+  )
+  buffer.mapped = ctx.vk.mapMemory(
+    ctx.device, buffer.allocation, 0.VkDeviceSize, buffer.size, 0.VkMemoryMapFlags
+  )
+  ctx.uploadBlocks.add(VulkanUploadBlock(buffer: buffer, used: bytes))
+  VulkanUpload(buffer: buffer, size: bytes, data: buffer.mapped)
+
+proc allocateFrameDescriptorSet(
+    ctx: VulkanContext, layout: VkDescriptorSetLayout
+): VkDescriptorSet =
+  const setsPerPool = 128
+  if ctx.descriptorSetsUsed == setsPerPool:
+    inc ctx.descriptorPoolIndex
+    ctx.descriptorSetsUsed = 0
+  if ctx.descriptorPoolIndex == ctx.frameDescriptorPools.len:
+    let sizes = [
+      newVkDescriptorPoolSize(
+        `type` = VkDescriptorType.UniformBuffer, descriptorCount = setsPerPool * 2
+      ),
+      newVkDescriptorPoolSize(
+        `type` = VkDescriptorType.CombinedImageSampler,
+        descriptorCount = setsPerPool * 3,
+      ),
+    ]
+    ctx.frameDescriptorPools.add(
+      ctx.vk.createDescriptorPool(
+        ctx.device,
+        newVkDescriptorPoolCreateInfo(maxSets = setsPerPool, poolSizes = sizes),
+      )
+    )
+  result = ctx.vk.allocateDescriptorSets(
+    ctx.device,
+    newVkDescriptorSetAllocateInfo(
+      descriptorPool = ctx.frameDescriptorPools[ctx.descriptorPoolIndex],
+      setLayouts = [layout],
+    ),
+  )
+  inc ctx.descriptorSetsUsed
+
+proc writeBlurUniforms(
+    ctx: VulkanContext, texelStep: Vec2, blurRadius: float32
+): VulkanUpload =
+  result =
+    ctx.allocateFrameUpload(sizeof(BlurUniforms).VkDeviceSize, ctx.uniformAlignment)
+  var uniforms = BlurUniforms(texelStep: texelStep, blurRadius: blurRadius)
+  copyMem(result.data, uniforms.addr, sizeof(uniforms))
 
 proc createPresentSurface(ctx: VulkanContext) =
   if not ctx.hasPresentTarget() or ctx.instance == vkNullInstance:
@@ -363,12 +463,11 @@ proc createPresentSurface(ctx: VulkanContext) =
       raise newException(ValueError, "Xlib Vulkan surface unsupported on this OS")
   of presentTargetWayland:
     when defined(linux) or defined(bsd):
-      loadVK_KHR_wayland_surface()
       let createInfo = newVkWaylandSurfaceCreateInfoKHR(
         display = cast[ptr wl_display](ctx.presentWaylandDisplay),
         surface = cast[ptr wl_surface](ctx.presentWaylandSurface),
       )
-      checkVkResult vkCreateWaylandSurfaceKHR(
+      checkVkResult ctx.vk.vkCreateWaylandSurfaceKHR(
         ctx.instance, createInfo.unsafeAddr, nil, ctx.surface.addr
       )
       ctx.surfaceOwnedByContext = true
@@ -376,12 +475,11 @@ proc createPresentSurface(ctx: VulkanContext) =
       raise newException(ValueError, "Wayland Vulkan surface unsupported on this OS")
   of presentTargetWin32:
     when defined(windows):
-      loadVK_KHR_win32_surface()
       let createInfo = newVkWin32SurfaceCreateInfoKHR(
         hinstance = cast[HINSTANCE](cast[uint](ctx.presentWin32Hinstance)),
         hwnd = cast[HWND](cast[uint](ctx.presentWin32Hwnd)),
       )
-      checkVkResult vkCreateWin32SurfaceKHR(
+      checkVkResult ctx.vk.vkCreateWin32SurfaceKHR(
         ctx.instance, createInfo.addr, nil, ctx.surface.addr
       )
       ctx.surfaceOwnedByContext = true
@@ -389,11 +487,10 @@ proc createPresentSurface(ctx: VulkanContext) =
       raise newException(ValueError, "Win32 Vulkan surface unsupported on this OS")
   of presentTargetMetal:
     when defined(macosx):
-      loadVK_EXT_metal_surface()
       let createInfo = newVkMetalSurfaceCreateInfoEXT(
         pLayer = cast[ptr CAMetalLayer](ctx.presentMetalLayer)
       )
-      checkVkResult vkCreateMetalSurfaceEXT(
+      checkVkResult ctx.vk.vkCreateMetalSurfaceEXT(
         ctx.instance, createInfo.addr, nil, ctx.surface.addr
       )
       ctx.surfaceOwnedByContext = true
@@ -410,7 +507,7 @@ proc createImage(
     usage: VkImageUsageFlags,
     properties: VkMemoryPropertyFlags,
 ): VulkanImage =
-  result = newVulkanImage(ctx.device)
+  result = newVulkanImage(ctx.vk, ctx.device)
   let info = newVkImageCreateInfo(
     imageType = VK_IMAGE_TYPE_2D,
     format = format,
@@ -424,16 +521,19 @@ proc createImage(
     queueFamilyIndices = [],
     initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
   )
-  checkVkResult vkCreateImage(ctx.device, info.addr, nil, result.handle.addr)
+  checkVkResult ctx.vk.vkCreateImage(ctx.device, info.addr, nil, result.handle.addr)
 
   var req: VkMemoryRequirements
-  vkGetImageMemoryRequirements(ctx.device, result.handle, req.addr)
+  ctx.vk.vkGetImageMemoryRequirements(ctx.device, result.handle, req.addr)
   let alloc = newVkMemoryAllocateInfo(
     allocationSize = req.size,
-    memoryTypeIndex = findMemoryType(ctx.physicalDevice, req.memoryTypeBits, properties),
+    memoryTypeIndex =
+      findMemoryType(ctx.vk, ctx.physicalDevice, req.memoryTypeBits, properties),
   )
-  checkVkResult vkAllocateMemory(ctx.device, alloc.addr, nil, result.allocation.addr)
-  checkVkResult vkBindImageMemory(
+  checkVkResult ctx.vk.vkAllocateMemory(
+    ctx.device, alloc.addr, nil, result.allocation.addr
+  )
+  checkVkResult ctx.vk.vkBindImageMemory(
     ctx.device, result.handle, result.allocation, 0.VkDeviceSize
   )
   result.view = ctx.createImageView(result.handle, format, VkImageAspectFlags{ColorBit})
@@ -457,7 +557,7 @@ proc createImageView(
       layerCount = 1,
     ),
   )
-  checkVkResult vkCreateImageView(ctx.device, info.addr, nil, result.addr)
+  checkVkResult ctx.vk.vkCreateImageView(ctx.device, info.addr, nil, result.addr)
 
 proc recreateBlurFramebuffers(ctx: VulkanContext) =
   vulkanBlurRecreateFramebuffers(ctx)
@@ -477,10 +577,10 @@ proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
     return
 
   if ctx.backdropBlurFramebuffer != vkNullFramebuffer:
-    vkDestroyFramebuffer(ctx.device, ctx.backdropBlurFramebuffer, nil)
+    ctx.vk.vkDestroyFramebuffer(ctx.device, ctx.backdropBlurFramebuffer, nil)
     ctx.backdropBlurFramebuffer = vkNullFramebuffer
   if ctx.backdropBlurTempFramebuffer != vkNullFramebuffer:
-    vkDestroyFramebuffer(ctx.device, ctx.backdropBlurTempFramebuffer, nil)
+    ctx.vk.vkDestroyFramebuffer(ctx.device, ctx.backdropBlurTempFramebuffer, nil)
     ctx.backdropBlurTempFramebuffer = vkNullFramebuffer
 
   ctx.backdropBlurTempImage = nil
@@ -510,9 +610,6 @@ proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
   ctx.backdropHeight = h
   ctx.backdropFormat = backdropFormat
   ctx.recreateBlurFramebuffers()
-  if ctx.descriptorSet != vkNullDescriptorSet:
-    ctx.updateDescriptorSet()
-  ctx.updateBlurDescriptorSets()
 
 proc fullFrameRect(ctx: VulkanContext): Rect =
   rect(0.0'f32, 0.0'f32, ctx.frameSize.x, ctx.frameSize.y)
@@ -520,21 +617,30 @@ proc fullFrameRect(ctx: VulkanContext): Rect =
 proc destroyRetiredSwapchain(ctx: VulkanContext, retired: RetiredSwapchain) =
   for fb in retired.framebuffers:
     if fb != vkNullFramebuffer:
-      vkDestroyFramebuffer(ctx.device, fb, nil)
+      ctx.vk.vkDestroyFramebuffer(ctx.device, fb, nil)
 
   for view in retired.views:
     if view != vkNullImageView:
-      vkDestroyImageView(ctx.device, view, nil)
+      ctx.vk.vkDestroyImageView(ctx.device, view, nil)
+
+  for semaphore in retired.semaphores:
+    ctx.vk.vkDestroySemaphore(ctx.device, semaphore, nil)
 
   if retired.swapchain != vkNullSwapchain:
-    vkDestroySwapchainKHR(ctx.device, retired.swapchain, nil)
+    ctx.vk.vkDestroySwapchainKHR(ctx.device, retired.swapchain, nil)
 
-proc destroyRetiredSwapchains(ctx: VulkanContext) =
+proc destroyRetiredSwapchains(ctx: VulkanContext, onlyCompleted = false) =
+  var remaining: seq[RetiredSwapchain]
   for retired in ctx.retiredSwapchains:
-    ctx.destroyRetiredSwapchain(retired)
-  ctx.retiredSwapchains.setLen(0)
+    if not onlyCompleted or retired.awaitingFrameFence:
+      ctx.destroyRetiredSwapchain(retired)
+    else:
+      remaining.add(retired)
+  ctx.retiredSwapchains = move(remaining)
 
 proc retireSwapchain(ctx: VulkanContext) =
+  # Reacquiring the first replacement presentation proves retirement, following
+  # https://docs.vulkan.org/samples/latest/samples/api/swapchain_recreation/README.html
   if ctx.swapchain == vkNullSwapchain:
     return
 
@@ -543,9 +649,12 @@ proc retireSwapchain(ctx: VulkanContext) =
       swapchain: ctx.swapchain,
       views: ctx.swapchainViews,
       framebuffers: ctx.swapchainFramebuffers,
+      semaphores: ctx.renderFinishedSemaphores,
+      replacementImage: -1,
     )
   )
   ctx.swapchain = vkNullSwapchain
+  ctx.renderFinishedSemaphores.setLen(0)
   ctx.swapchainFramebuffers.setLen(0)
   ctx.swapchainViews.setLen(0)
   ctx.swapchainImages.setLen(0)
@@ -553,56 +662,60 @@ proc retireSwapchain(ctx: VulkanContext) =
 proc destroySwapchain(ctx: VulkanContext) =
   for fb in ctx.swapchainFramebuffers:
     if fb != vkNullFramebuffer:
-      vkDestroyFramebuffer(ctx.device, fb, nil)
+      ctx.vk.vkDestroyFramebuffer(ctx.device, fb, nil)
   ctx.swapchainFramebuffers.setLen(0)
 
   for view in ctx.swapchainViews:
     if view != vkNullImageView:
-      vkDestroyImageView(ctx.device, view, nil)
+      ctx.vk.vkDestroyImageView(ctx.device, view, nil)
   ctx.swapchainViews.setLen(0)
   ctx.swapchainImages.setLen(0)
 
+  for semaphore in ctx.renderFinishedSemaphores:
+    ctx.vk.vkDestroySemaphore(ctx.device, semaphore, nil)
+  ctx.renderFinishedSemaphores.setLen(0)
+
   if ctx.swapchain != vkNullSwapchain:
-    vkDestroySwapchainKHR(ctx.device, ctx.swapchain, nil)
+    ctx.vk.vkDestroySwapchainKHR(ctx.device, ctx.swapchain, nil)
     ctx.swapchain = vkNullSwapchain
 
 proc destroyPipelineObjects(ctx: VulkanContext) =
   if ctx.backdropBlurFramebuffer != vkNullFramebuffer:
-    vkDestroyFramebuffer(ctx.device, ctx.backdropBlurFramebuffer, nil)
+    ctx.vk.vkDestroyFramebuffer(ctx.device, ctx.backdropBlurFramebuffer, nil)
     ctx.backdropBlurFramebuffer = vkNullFramebuffer
   if ctx.backdropBlurTempFramebuffer != vkNullFramebuffer:
-    vkDestroyFramebuffer(ctx.device, ctx.backdropBlurTempFramebuffer, nil)
+    ctx.vk.vkDestroyFramebuffer(ctx.device, ctx.backdropBlurTempFramebuffer, nil)
     ctx.backdropBlurTempFramebuffer = vkNullFramebuffer
 
   if ctx.blurPipeline != vkNullPipeline:
-    vkDestroyPipeline(ctx.device, ctx.blurPipeline, nil)
+    ctx.vk.vkDestroyPipeline(ctx.device, ctx.blurPipeline, nil)
     ctx.blurPipeline = vkNullPipeline
   if ctx.blurPipelineLayout != vkNullPipelineLayout:
-    vkDestroyPipelineLayout(ctx.device, ctx.blurPipelineLayout, nil)
+    ctx.vk.vkDestroyPipelineLayout(ctx.device, ctx.blurPipelineLayout, nil)
     ctx.blurPipelineLayout = vkNullPipelineLayout
   if ctx.blurRenderPass != vkNullRenderPass:
-    vkDestroyRenderPass(ctx.device, ctx.blurRenderPass, nil)
+    ctx.vk.vkDestroyRenderPass(ctx.device, ctx.blurRenderPass, nil)
     ctx.blurRenderPass = vkNullRenderPass
 
   if ctx.pipeline != vkNullPipeline:
-    vkDestroyPipeline(ctx.device, ctx.pipeline, nil)
+    ctx.vk.vkDestroyPipeline(ctx.device, ctx.pipeline, nil)
     ctx.pipeline = vkNullPipeline
   if ctx.pipelineLayout != vkNullPipelineLayout:
-    vkDestroyPipelineLayout(ctx.device, ctx.pipelineLayout, nil)
+    ctx.vk.vkDestroyPipelineLayout(ctx.device, ctx.pipelineLayout, nil)
     ctx.pipelineLayout = vkNullPipelineLayout
   if ctx.renderPass != vkNullRenderPass:
-    vkDestroyRenderPass(ctx.device, ctx.renderPass, nil)
+    ctx.vk.vkDestroyRenderPass(ctx.device, ctx.renderPass, nil)
     ctx.renderPass = vkNullRenderPass
 
-proc updateDescriptorSet(ctx: VulkanContext) =
+proc updateDescriptorSet(ctx: VulkanContext, vsUpload, fsUpload: VulkanUpload) =
   var vsInfo = newVkDescriptorBufferInfo(
-    buffer = ctx.vsUniformBuffer.handle,
-    offset = 0.VkDeviceSize,
+    buffer = vsUpload.buffer.handle,
+    offset = vsUpload.offset,
     range = VkDeviceSize(sizeof(VSUniforms)),
   )
   var fsInfo = newVkDescriptorBufferInfo(
-    buffer = ctx.fsUniformBuffer.handle,
-    offset = 0.VkDeviceSize,
+    buffer = fsUpload.buffer.handle,
+    offset = fsUpload.offset,
     range = VkDeviceSize(sizeof(FSUniforms)),
   )
   var atlasImageInfo = newVkDescriptorImageInfo(
@@ -672,33 +785,23 @@ proc updateDescriptorSet(ctx: VulkanContext) =
       pTexelBufferView = nil,
     ),
   ]
-  updateDescriptorSets(ctx.device, writes, [])
+  ctx.vk.updateDescriptorSets(ctx.device, writes, [])
 
 proc updateBlurDescriptorSet(
     ctx: VulkanContext,
     descriptorSet: VkDescriptorSet,
     srcView: VkImageView,
-    uniformBuffer: VkBuffer,
+    uniformUpload: VulkanUpload,
 ) =
-  vulkanBlurUpdateDescriptorSet(ctx, descriptorSet, srcView, uniformBuffer)
-
-proc updateBlurDescriptorSets(ctx: VulkanContext) =
-  vulkanBlurUpdateDescriptorSets(ctx)
-
-proc writeBlurUniforms(
-    ctx: VulkanContext,
-    uniformMemory: VkDeviceMemory,
-    texelStep: Vec2,
-    blurRadius: float32,
-) =
-  vulkanBlurWriteUniforms(ctx, uniformMemory, texelStep, blurRadius)
+  vulkanBlurUpdateDescriptorSet(ctx, descriptorSet, srcView, uniformUpload)
 
 proc createBlurPipeline(ctx: VulkanContext) =
   vulkanBlurCreatePipeline(ctx)
 
 proc recreateAtlasGpu(ctx: VulkanContext) =
-  ctx.atlasImage = nil
-
+  if ctx.atlasSize >
+      ctx.vk.getPhysicalDeviceProperties(ctx.physicalDevice).limits.maxImageDimension2D.int:
+    raise newException(ValueError, "Vulkan atlas exceeds the device image limit")
   let atlasAlloc = ctx.createImage(
     width = ctx.atlasSize.uint32,
     height = ctx.atlasSize.uint32,
@@ -707,11 +810,11 @@ proc recreateAtlasGpu(ctx: VulkanContext) =
     usage = VkImageUsageFlags{SampledBit, TransferDstBit},
     properties = VkMemoryPropertyFlags{DeviceLocalBit},
   )
+  if not ctx.atlasImage.isNil:
+    ctx.frameImages.add(ctx.atlasImage)
   ctx.atlasImage = atlasAlloc
   ctx.atlasDirty = true
   ctx.atlasLayoutReady = false
-  if ctx.descriptorSet != vkNullDescriptorSet:
-    ctx.updateDescriptorSet()
 
 proc createPipeline(ctx: VulkanContext) =
   ctx.destroyPipelineObjects()
@@ -724,8 +827,8 @@ proc createPipeline(ctx: VulkanContext) =
     storeOp: VK_ATTACHMENT_STORE_OP_STORE,
     stencilLoadOp: VK_ATTACHMENT_LOAD_OP_DONT_CARE,
     stencilStoreOp: VK_ATTACHMENT_STORE_OP_DONT_CARE,
-    initialLayout: VkImageLayout.PresentSrcKhr,
-    finalLayout: VkImageLayout.PresentSrcKhr,
+    initialLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    finalLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
   )
   var colorAttachmentRef = VkAttachmentReference(
     attachment: 0, layout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
@@ -747,7 +850,7 @@ proc createPipeline(ctx: VulkanContext) =
     dstSubpass: 0,
     srcStageMask: VkPipelineStageFlags{ColorAttachmentOutputBit},
     dstStageMask: VkPipelineStageFlags{ColorAttachmentOutputBit},
-    srcAccessMask: 0.VkAccessFlags,
+    srcAccessMask: VkAccessFlags{ColorAttachmentWriteBit},
     dstAccessMask: VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit},
     dependencyFlags: 0.VkDependencyFlags,
   )
@@ -755,16 +858,16 @@ proc createPipeline(ctx: VulkanContext) =
   let renderPassInfo = newVkRenderPassCreateInfo(
     attachments = [colorAttachment], subpasses = [subpass], dependencies = [dependency]
   )
-  checkVkResult vkCreateRenderPass(
+  checkVkResult ctx.vk.vkCreateRenderPass(
     ctx.device, renderPassInfo.addr, nil, ctx.renderPass.addr
   )
 
   if ctx.vertShader == vkNullShaderModule:
     let vertInfo = newVkShaderModuleCreateInfo(code = sdfVertSpv)
-    ctx.vertShader = createShaderModule(ctx.device, vertInfo)
+    ctx.vertShader = ctx.vk.createShaderModule(ctx.device, vertInfo)
   if ctx.fragShader == vkNullShaderModule:
     let fragInfo = newVkShaderModuleCreateInfo(code = sdfFragSpv)
-    ctx.fragShader = createShaderModule(ctx.device, fragInfo)
+    ctx.fragShader = ctx.vk.createShaderModule(ctx.device, fragInfo)
 
   let vertStage = newVkPipelineShaderStageCreateInfo(
     stage = VkShaderStageFlagBits.VertexBit,
@@ -948,7 +1051,7 @@ proc createPipeline(ctx: VulkanContext) =
   let pipelineLayoutInfo = newVkPipelineLayoutCreateInfo(
     setLayouts = [ctx.descriptorSetLayout], pushConstantRanges = []
   )
-  ctx.pipelineLayout = createPipelineLayout(ctx.device, pipelineLayoutInfo)
+  ctx.pipelineLayout = ctx.vk.createPipelineLayout(ctx.device, pipelineLayoutInfo)
 
   let pipelineInfo = newVkGraphicsPipelineCreateInfo(
     stages = [vertStage, fragStage],
@@ -967,7 +1070,7 @@ proc createPipeline(ctx: VulkanContext) =
     basePipelineHandle = 0.VkPipeline,
     basePipelineIndex = -1,
   )
-  checkVkResult vkCreateGraphicsPipelines(
+  checkVkResult ctx.vk.vkCreateGraphicsPipelines(
     ctx.device, 0.VkPipelineCache, 1, pipelineInfo.addr, nil, ctx.pipeline.addr
   )
 
@@ -975,7 +1078,7 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
   if ctx.surface == vkNullSurface:
     return
 
-  let support = querySwapChainSupport(ctx.physicalDevice, ctx.surface)
+  let support = querySwapChainSupport(ctx.vk, ctx.physicalDevice, ctx.surface)
   let config = chooseSwapchainConfig(
     support, width, height, ctx.requestedSwapchainProfile, ctx.driverInfo
   )
@@ -989,7 +1092,6 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
       ctx.pipelineLayout == vkNullPipelineLayout or
       ctx.blurRenderPass == vkNullRenderPass or ctx.blurPipeline == vkNullPipeline or
       ctx.blurPipelineLayout == vkNullPipelineLayout
-    deferOldSwapchainDestroy = replacingSwapchain and not pipelineNeedsRecreate
 
   let queueFamilyIndices =
     if ctx.queueFamily != ctx.presentQueueFamily:
@@ -1023,25 +1125,33 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
   )
 
   var newSwapchain: VkSwapchainKHR
-  checkVkResult vkCreateSwapchainKHR(
+  checkVkResult ctx.vk.vkCreateSwapchainKHR(
     ctx.device, createInfo.addr, nil, newSwapchain.addr
   )
 
-  if deferOldSwapchainDestroy:
-    ctx.retireSwapchain()
-  else:
-    ctx.destroySwapchain()
-    if pipelineNeedsRecreate:
-      ctx.destroyRetiredSwapchains()
+  ctx.retireSwapchain()
+  # If the replacement is itself resized before reacquisition, use a later
+  # presentation on the new swapchain as the retirement witness.
+  for retired in ctx.retiredSwapchains.mitems:
+    if not retired.awaitingFrameFence:
+      retired.replacementImage = -1
   ctx.swapchain = newSwapchain
   ctx.activeSwapchainProfile = config.profile
 
   var actualCount = config.imageCount
-  discard vkGetSwapchainImagesKHR(ctx.device, ctx.swapchain, actualCount.addr, nil)
+  discard
+    ctx.vk.vkGetSwapchainImagesKHR(ctx.device, ctx.swapchain, actualCount.addr, nil)
   ctx.swapchainImages.setLen(actualCount)
   if actualCount > 0:
-    discard vkGetSwapchainImagesKHR(
+    discard ctx.vk.vkGetSwapchainImagesKHR(
       ctx.device, ctx.swapchain, actualCount.addr, ctx.swapchainImages[0].addr
+    )
+
+  ctx.renderFinishedSemaphores.setLen(actualCount)
+  let semaphoreInfo = newVkSemaphoreCreateInfo()
+  for semaphore in ctx.renderFinishedSemaphores.mitems:
+    checkVkResult ctx.vk.vkCreateSemaphore(
+      ctx.device, semaphoreInfo.addr, nil, semaphore.addr
     )
 
   ctx.swapchainViews.setLen(actualCount)
@@ -1069,7 +1179,7 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
       height = ctx.swapchainExtent.height,
       layers = 1,
     )
-    checkVkResult vkCreateFramebuffer(
+    checkVkResult ctx.vk.vkCreateFramebuffer(
       ctx.device, info.addr, nil, ctx.swapchainFramebuffers[i].addr
     )
 
@@ -1090,8 +1200,20 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
       presentMode = $config.presentMode,
       profile = $config.profile
 
-proc clearFrameVertexUploads(ctx: VulkanContext) =
-  ctx.frameVertexBuffers.setLen(0)
+proc recycleFrameResources(ctx: VulkanContext) =
+  ## Called only after the preceding graphics submission has finished.
+  ctx.frameImages.setLen(0)
+  for uploadBlock in ctx.uploadBlocks.mitems:
+    uploadBlock.used = 0.VkDeviceSize
+  ctx.uploadBlockIndex = 0
+  for pool in ctx.frameDescriptorPools:
+    checkVkResult ctx.vk.vkResetDescriptorPool(
+      ctx.device, pool, 0.VkDescriptorPoolResetFlags
+    )
+  ctx.descriptorPoolIndex = 0
+  ctx.descriptorSetsUsed = 0
+  ctx.descriptorSet = vkNullDescriptorSet
+  ctx.blurDescriptorSets = [vkNullDescriptorSet, vkNullDescriptorSet]
 
 proc ensureSwapchain(ctx: VulkanContext, width, height: int32) =
   if not ctx.presentReady or width <= 0 or height <= 0:
@@ -1105,23 +1227,10 @@ proc ensureSwapchain(ctx: VulkanContext, width, height: int32) =
     return
 
   if ctx.device != vkNullDevice:
-    discard vkDeviceWaitIdle(ctx.device)
-    ctx.clearFrameVertexUploads()
+    discard ctx.vk.vkDeviceWaitIdle(ctx.device)
+    ctx.recycleFrameResources()
+    ctx.destroyRetiredSwapchains(onlyCompleted = true)
   ctx.createSwapchain(width, height)
-
-proc ensureAtlasUploadBuffer(ctx: VulkanContext, bytes: VkDeviceSize) =
-  if not ctx.atlasUploadBuffer.isNilOrEmpty and ctx.atlasUploadBytes >= bytes:
-    return
-
-  ctx.atlasUploadBuffer = nil
-
-  let alloc = ctx.createBuffer(
-    size = bytes,
-    usage = VkBufferUsageFlags{TransferSrcBit},
-    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
-  )
-  ctx.atlasUploadBuffer = alloc
-  ctx.atlasUploadBytes = bytes
 
 proc ensureReadbackBuffer(ctx: VulkanContext, bytes: VkDeviceSize) =
   if not ctx.readbackBuffer.isNilOrEmpty and ctx.readbackBytes >= bytes:
@@ -1139,14 +1248,8 @@ proc ensureReadbackBuffer(ctx: VulkanContext, bytes: VkDeviceSize) =
 
 proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
   let bytes = VkDeviceSize(ctx.atlasSize * ctx.atlasSize * 4)
-  ctx.ensureAtlasUploadBuffer(bytes)
-
-  let mapped = cast[ptr uint8](mapMemory(
-    ctx.device, ctx.atlasUploadBuffer.allocation, 0.VkDeviceSize, bytes,
-    0.VkMemoryMapFlags,
-  ))
-  copyMem(mapped, ctx.atlasPixels.data[0].addr, int(bytes))
-  unmapMemory(ctx.device, ctx.atlasUploadBuffer.allocation)
+  let upload = ctx.allocateFrameUpload(bytes)
+  copyMem(upload.data, ctx.atlasPixels.data[0].addr, int(bytes))
 
   let atlasOldLayout =
     if ctx.atlasLayoutReady:
@@ -1182,7 +1285,7 @@ proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
       layerCount = 1,
     ),
   )
-  vkCmdPipelineBarrier(
+  ctx.vk.vkCmdPipelineBarrier(
     cmd,
     atlasSrcStage,
     VkPipelineStageFlags{TransferBit},
@@ -1196,7 +1299,7 @@ proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
   )
 
   var region = VkBufferImageCopy(
-    bufferOffset: 0.VkDeviceSize,
+    bufferOffset: upload.offset,
     bufferRowLength: 0,
     bufferImageHeight: 0,
     imageSubresource: newVkImageSubresourceLayers(
@@ -1210,8 +1313,8 @@ proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
       width = ctx.atlasSize.uint32, height = ctx.atlasSize.uint32, depth = 1
     ),
   )
-  vkCmdCopyBufferToImage(
-    cmd, ctx.atlasUploadBuffer.handle, ctx.atlasImage.handle,
+  ctx.vk.vkCmdCopyBufferToImage(
+    cmd, upload.buffer.handle, ctx.atlasImage.handle,
     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, region.addr,
   )
 
@@ -1233,7 +1336,7 @@ proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
       layerCount = 1,
     ),
   )
-  vkCmdPipelineBarrier(
+  ctx.vk.vkCmdPipelineBarrier(
     cmd,
     VkPipelineStageFlags{TransferBit},
     VkPipelineStageFlags{FragmentShaderBit},
@@ -1269,7 +1372,7 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
     pNext: nil,
     srcAccessMask: VkAccessFlags{ColorAttachmentWriteBit},
     dstAccessMask: VkAccessFlags{TransferReadBit},
-    oldLayout: VkImageLayout.PresentSrcKhr,
+    oldLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     newLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
@@ -1282,7 +1385,7 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
       layerCount = 1,
     ),
   )
-  vkCmdPipelineBarrier(
+  ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
     VkPipelineStageFlags{ColorAttachmentOutputBit},
     VkPipelineStageFlags{TransferBit},
@@ -1310,7 +1413,7 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
       width = ctx.swapchainExtent.width, height = ctx.swapchainExtent.height, depth = 1
     ),
   )
-  vkCmdCopyImageToBuffer(
+  ctx.vk.vkCmdCopyImageToBuffer(
     ctx.commandBuffer, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
     ctx.readbackBuffer.handle, 1, copyRegion.addr,
   )
@@ -1326,7 +1429,7 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
     offset: 0.VkDeviceSize,
     size: readbackBytes,
   )
-  vkCmdPipelineBarrier(
+  ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
     VkPipelineStageFlags{TransferBit},
     VkPipelineStageFlags{HostBit},
@@ -1343,9 +1446,9 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
     srcAccessMask: VkAccessFlags{TransferReadBit},
-    dstAccessMask: 0.VkAccessFlags,
+    dstAccessMask: VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit},
     oldLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-    newLayout: VkImageLayout.PresentSrcKhr,
+    newLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: swapchainImage,
@@ -1357,10 +1460,10 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
       layerCount = 1,
     ),
   )
-  vkCmdPipelineBarrier(
+  ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
     VkPipelineStageFlags{TransferBit},
-    VkPipelineStageFlags{BottomOfPipeBit},
+    VkPipelineStageFlags{ColorAttachmentOutputBit},
     0.VkDependencyFlags,
     0,
     nil,
@@ -1375,11 +1478,23 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
   ctx.readbackReady = true
 
 proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
-  let loaderApiVersion = detectLoaderApiVersion()
-  let availableExts = queryInstanceExtensionNames()
-  let availableLayers = queryInstanceLayerNames()
+  if ctx.vk.isNil:
+    ctx.vk = newVulkanDispatch()
+  let loaderApiVersion = detectLoaderApiVersion(ctx.vk)
+  let availableExts = queryInstanceExtensionNames(ctx.vk)
+  let availableLayers = queryInstanceLayerNames(ctx.vk)
 
   var enabledExtNames: seq[string] = @[]
+  var enabledLayers: seq[cstring]
+  when UseVulkanValidation:
+    if "VK_LAYER_KHRONOS_validation" notin availableLayers or
+        VkExtDebugUtilsExtensionName notin availableExts:
+      raise newException(
+        ValueError,
+        "Vulkan validation requested but the layer/debug-utils extension is unavailable",
+      )
+    enabledLayers.add("VK_LAYER_KHRONOS_validation")
+    enabledExtNames.add(VkExtDebugUtilsExtensionName)
   let surfaceTargetKind =
     if ctx.presentTargetKind != presentTargetNone:
       ctx.presentTargetKind
@@ -1452,16 +1567,23 @@ proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
       engineVersion = vkMakeVersion(0, 0, 1, 0),
       apiVersion = apiVersion,
     )
-    let instanceInfo = newVkInstanceCreateInfo(
+    var instanceInfo = newVkInstanceCreateInfo(
       pApplicationInfo = appInfo.addr,
-      pEnabledLayerNames = [],
+      pEnabledLayerNames = enabledLayers,
       pEnabledExtensionNames = enabledExts,
     )
+    when UseVulkanValidation:
+      let validationFeatures = newVkValidationFeaturesEXT(
+        enabledValidationFeatures =
+          [VkValidationFeatureEnableEXT.SynchronizationValidation],
+        disabledValidationFeatures = [],
+      )
+      instanceInfo.pNext = validationFeatures.unsafeAddr
     try:
       debug "Creating Vulkan instance",
         requestedApiVersion = vulkanApiVersion(apiVersion),
         requestedExtensions = enabledExtNames
-      return createInstance(instanceInfo)
+      return ctx.vk.createInstance(instanceInfo)
     except VulkanError as exc:
       if exc.res == VkErrorIncompatibleDriver and apiVersion != vkApiVersion1_0:
         warn "Vulkan instance creation failed; retrying with older API version",
@@ -1500,7 +1622,35 @@ proc applyClipScissor(ctx: VulkanContext) =
     offset = newVkOffset2D(x = x0, y = y0),
     extent = newVkExtent2D(width = uint32(x1 - x0), height = uint32(y1 - y0)),
   )
-  vkCmdSetScissor(ctx.commandBuffer, 0, 1, scissor.addr)
+  ctx.vk.vkCmdSetScissor(ctx.commandBuffer, 0, 1, scissor.addr)
+
+proc transitionSwapchain(
+    ctx: VulkanContext,
+    oldLayout, newLayout: VkImageLayout,
+    srcStage, dstStage: VkPipelineStageFlags,
+    srcAccess, dstAccess: VkAccessFlags,
+) =
+  var barrier = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    srcAccessMask: srcAccess,
+    dstAccessMask: dstAccess,
+    oldLayout: oldLayout,
+    newLayout: newLayout,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: ctx.swapchainImages[ctx.acquiredImageIndex.int],
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  ctx.vk.vkCmdPipelineBarrier(
+    ctx.commandBuffer, srcStage, dstStage, 0.VkDependencyFlags, 0, nil, 0, nil, 1,
+    barrier.addr,
+  )
 
 proc beginRenderPassIfNeeded(ctx: VulkanContext) =
   if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain or ctx.renderPassBegun:
@@ -1516,7 +1666,7 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
     clearValueCount: 0,
     pClearValues: nil,
   )
-  vkCmdBeginRenderPass(
+  ctx.vk.vkCmdBeginRenderPass(
     ctx.commandBuffer, renderPassInfo.addr, VK_SUBPASS_CONTENTS_INLINE
   )
   ctx.renderPassBegun = true
@@ -1529,11 +1679,11 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
     minDepth = 0,
     maxDepth = 1,
   )
-  vkCmdSetViewport(ctx.commandBuffer, 0, 1, viewport.addr)
+  ctx.vk.vkCmdSetViewport(ctx.commandBuffer, 0, 1, viewport.addr)
 
   var fullScissor =
     newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent)
-  vkCmdSetScissor(ctx.commandBuffer, 0, 1, fullScissor.addr)
+  ctx.vk.vkCmdSetScissor(ctx.commandBuffer, 0, 1, fullScissor.addr)
 
   if ctx.frameNeedsClear:
     let clearValue = VkClearValue(
@@ -1555,7 +1705,9 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
       baseArrayLayer: 0,
       layerCount: 1,
     )
-    vkCmdClearAttachments(ctx.commandBuffer, 1, clearAttachment.addr, 1, clearRect.addr)
+    ctx.vk.vkCmdClearAttachments(
+      ctx.commandBuffer, 1, clearAttachment.addr, 1, clearRect.addr
+    )
     ctx.frameNeedsClear = false
 
   if ctx.clipRects.len > 0:
@@ -1565,7 +1717,6 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   if ctx.gpuReady:
     return
 
-  vkPreload()
   debug "Starting Vulkan runtime initialization",
     hasPresentTarget = ctx.hasPresentTarget(),
     presentTarget = $ctx.presentTargetKind,
@@ -1574,15 +1725,12 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     win32Hinstance = cast[uint64](ctx.presentWin32Hinstance),
     win32Hwnd = cast[uint64](ctx.presentWin32Hwnd)
 
-  if ctx.instance == vkNullInstance:
-    ctx.instance = ctx.createInstanceWithFallback()
-    vkInit(ctx.instance, load1_2 = false, load1_3 = false)
+  ctx.ensureInstance()
 
   if ctx.hasPresentTarget():
-    loadVK_KHR_surface()
     ctx.createPresentSurface()
 
-  let devices = enumeratePhysicalDevices(ctx.instance)
+  let devices = ctx.vk.enumeratePhysicalDevices(ctx.instance)
   debug "Enumerated Vulkan physical devices", deviceCount = devices.len
   if devices.len == 0:
     raise newException(ValueError, "No Vulkan physical devices found")
@@ -1590,8 +1738,9 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   var wantPresent = ctx.hasPresentTarget()
   var selectedQueues: QueueFamilyIndices
   for device in devices:
-    let devName = physicalDeviceName(device)
-    let queues = findQueueFamilies(device, ctx.surface, requirePresent = wantPresent)
+    let devName = physicalDeviceName(ctx.vk, device)
+    let queues =
+      findQueueFamilies(ctx.vk, device, ctx.surface, requirePresent = wantPresent)
     if not queues.graphicsFound or not queues.presentFound:
       debug "Skipping Vulkan physical device (queue requirements)",
         device = devName,
@@ -1602,7 +1751,7 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
 
     if wantPresent:
       let hasSwapchain =
-        checkDeviceExtensionSupport(device, @[VkKhrSwapchainExtensionName])
+        checkDeviceExtensionSupport(ctx.vk, device, @[VkKhrSwapchainExtensionName])
       debug "Vulkan physical device present support",
         device = devName,
         hasSwapchainExt = hasSwapchain,
@@ -1610,7 +1759,7 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
         presentQueue = queues.presentFamily
       if not hasSwapchain:
         continue
-      let support = querySwapChainSupport(device, ctx.surface)
+      let support = querySwapChainSupport(ctx.vk, device, ctx.surface)
       debug "Vulkan physical device swapchain support",
         device = devName,
         formatCount = support.formats.len,
@@ -1631,21 +1780,27 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     debug "No Vulkan device met present requirements; retrying without present queue"
     wantPresent = false
     for device in devices:
-      let queues = findQueueFamilies(device, ctx.surface, requirePresent = false)
+      let queues =
+        findQueueFamilies(ctx.vk, device, ctx.surface, requirePresent = false)
       if not queues.graphicsFound:
         debug "Skipping Vulkan physical device (no graphics queue)",
-          device = physicalDeviceName(device)
+          device = physicalDeviceName(ctx.vk, device)
         continue
       ctx.physicalDevice = device
       selectedQueues = queues
       debug "Selected Vulkan physical device without present requirements",
-        device = physicalDeviceName(device), graphicsQueue = queues.graphicsFamily
+        device = physicalDeviceName(ctx.vk, device),
+        graphicsQueue = queues.graphicsFamily
       break
 
   if ctx.physicalDevice == vkNullPhysicalDevice:
     raise newException(ValueError, "No suitable Vulkan physical device found")
 
-  ctx.driverInfo = queryVulkanDriverInfo(ctx.physicalDevice)
+  ctx.uniformAlignment = max(
+    1.VkDeviceSize,
+    ctx.vk.getPhysicalDeviceProperties(ctx.physicalDevice).limits.minUniformBufferOffsetAlignment,
+  )
+  ctx.driverInfo = queryVulkanDriverInfo(ctx.vk, ctx.physicalDevice)
   ctx.activeSwapchainProfile =
     chooseSwapchainProfile(ctx.requestedSwapchainProfile, ctx.driverInfo)
   ctx.queueFamily = selectedQueues.graphicsFamily
@@ -1684,70 +1839,35 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     pEnabledExtensionNames = deviceExtensions,
     enabledFeatures = [],
   )
-  ctx.device = createDevice(ctx.physicalDevice, deviceInfo)
-  ctx.queue = getDeviceQueue(ctx.device, ctx.queueFamily, 0)
+  ctx.device = ctx.vk.createDevice(ctx.physicalDevice, deviceInfo)
+  ctx.queue = ctx.vk.getDeviceQueue(ctx.device, ctx.queueFamily, 0)
   ctx.presentQueue =
     if wantPresent:
-      getDeviceQueue(ctx.device, ctx.presentQueueFamily, 0)
+      ctx.vk.getDeviceQueue(ctx.device, ctx.presentQueueFamily, 0)
     else:
       ctx.queue
-
-  if wantPresent:
-    let loadSwapchainProc = proc(name: cstring): pointer =
-      result = cast[pointer](vkGetDeviceProcAddr(ctx.device, name))
-      if result.isNil:
-        raise
-          newException(LibraryError, "could not load Vulkan swapchain symbol: " & $name)
-
-    vkCreateSwapchainKHR = cast[proc(
-      device: VkDevice,
-      pCreateInfo: ptr VkSwapchainCreateInfoKHR,
-      pAllocator: ptr VkAllocationCallbacks,
-      pSwapchain: ptr VkSwapchainKHR,
-    ): VkResult {.stdcall.}](loadSwapchainProc("vkCreateSwapchainKHR"))
-    vkDestroySwapchainKHR = cast[proc(
-      device: VkDevice, swapchain: VkSwapchainKHR, pAllocator: ptr VkAllocationCallbacks
-    ) {.stdcall.}](loadSwapchainProc("vkDestroySwapchainKHR"))
-    vkGetSwapchainImagesKHR = cast[proc(
-      device: VkDevice,
-      swapchain: VkSwapchainKHR,
-      pSwapchainImageCount: ptr uint32,
-      pSwapchainImages: ptr VkImage,
-    ): VkResult {.stdcall.}](loadSwapchainProc("vkGetSwapchainImagesKHR"))
-    vkAcquireNextImageKHR = cast[proc(
-      device: VkDevice,
-      swapchain: VkSwapchainKHR,
-      timeout: uint64,
-      semaphore: VkSemaphore,
-      fence: VkFence,
-      pImageIndex: ptr uint32,
-    ): VkResult {.stdcall.}](loadSwapchainProc("vkAcquireNextImageKHR"))
-    vkQueuePresentKHR = cast[proc(
-      queue: VkQueue, pPresentInfo: ptr VkPresentInfoKHR
-    ): VkResult {.stdcall.}](loadSwapchainProc("vkQueuePresentKHR"))
 
   let poolInfo = newVkCommandPoolCreateInfo(
     queueFamilyIndex = ctx.queueFamily,
     flags = VkCommandPoolCreateFlags{ResetCommandBufferBit},
   )
-  ctx.commandPool = createCommandPool(ctx.device, poolInfo)
+  ctx.commandPool = ctx.vk.createCommandPool(ctx.device, poolInfo)
 
   let cmdAlloc = newVkCommandBufferAllocateInfo(
     commandPool = ctx.commandPool,
     level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
     commandBufferCount = 1,
   )
-  ctx.commandBuffer = allocateCommandBuffers(ctx.device, cmdAlloc)
+  ctx.commandBuffer = ctx.vk.allocateCommandBuffers(ctx.device, cmdAlloc)
 
   let semaphoreInfo = newVkSemaphoreCreateInfo()
-  checkVkResult vkCreateSemaphore(
+  checkVkResult ctx.vk.vkCreateSemaphore(
     ctx.device, semaphoreInfo.addr, nil, ctx.imageAvailableSemaphore.addr
   )
-  checkVkResult vkCreateSemaphore(
-    ctx.device, semaphoreInfo.addr, nil, ctx.renderFinishedSemaphore.addr
-  )
   let fenceInfo = newVkFenceCreateInfo(flags = VkFenceCreateFlags{SignaledBit})
-  checkVkResult vkCreateFence(ctx.device, fenceInfo.addr, nil, ctx.inFlightFence.addr)
+  checkVkResult ctx.vk.vkCreateFence(
+    ctx.device, fenceInfo.addr, nil, ctx.inFlightFence.addr
+  )
 
   let setBindings = [
     newVkDescriptorSetLayoutBinding(
@@ -1786,26 +1906,8 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
       pImmutableSamplers = nil,
     ),
   ]
-  ctx.descriptorSetLayout = createDescriptorSetLayout(
+  ctx.descriptorSetLayout = ctx.vk.createDescriptorSetLayout(
     ctx.device, newVkDescriptorSetLayoutCreateInfo(bindings = setBindings)
-  )
-
-  let poolSizes = [
-    newVkDescriptorPoolSize(
-      `type` = VkDescriptorType.UniformBuffer, descriptorCount = 2
-    ),
-    newVkDescriptorPoolSize(
-      `type` = VkDescriptorType.CombinedImageSampler, descriptorCount = 3
-    ),
-  ]
-  ctx.descriptorPool = createDescriptorPool(
-    ctx.device, newVkDescriptorPoolCreateInfo(maxSets = 1, poolSizes = poolSizes)
-  )
-  ctx.descriptorSet = allocateDescriptorSets(
-    ctx.device,
-    newVkDescriptorSetAllocateInfo(
-      descriptorPool = ctx.descriptorPool, setLayouts = [ctx.descriptorSetLayout]
-    ),
   )
 
   let blurSetBindings = [
@@ -1824,44 +1926,9 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
       pImmutableSamplers = nil,
     ),
   ]
-  ctx.blurDescriptorSetLayout = createDescriptorSetLayout(
+  ctx.blurDescriptorSetLayout = ctx.vk.createDescriptorSetLayout(
     ctx.device, newVkDescriptorSetLayoutCreateInfo(bindings = blurSetBindings)
   )
-
-  let blurPoolSizes = [
-    newVkDescriptorPoolSize(
-      `type` = VkDescriptorType.CombinedImageSampler, descriptorCount = 2
-    ),
-    newVkDescriptorPoolSize(
-      `type` = VkDescriptorType.UniformBuffer, descriptorCount = 2
-    ),
-  ]
-  ctx.blurDescriptorPool = createDescriptorPool(
-    ctx.device, newVkDescriptorPoolCreateInfo(maxSets = 2, poolSizes = blurPoolSizes)
-  )
-  ctx.blurDescriptorSets[0] = allocateDescriptorSets(
-    ctx.device,
-    newVkDescriptorSetAllocateInfo(
-      descriptorPool = ctx.blurDescriptorPool,
-      setLayouts = [ctx.blurDescriptorSetLayout],
-    ),
-  )
-  ctx.blurDescriptorSets[1] = allocateDescriptorSets(
-    ctx.device,
-    newVkDescriptorSetAllocateInfo(
-      descriptorPool = ctx.blurDescriptorPool,
-      setLayouts = [ctx.blurDescriptorSetLayout],
-    ),
-  )
-
-  let vertexBytes = VkDeviceSize(sizeof(Vertex) * ctx.maxQuads * 4)
-  let vertexAlloc = ctx.createBuffer(
-    size = vertexBytes,
-    usage = VkBufferUsageFlags{VertexBufferBit},
-    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
-  )
-  ctx.vertexBuffer = vertexAlloc
-  ctx.vertexBufferBytes = vertexBytes
 
   let indexBytes = VkDeviceSize(sizeof(uint16) * ctx.indices.len)
   let indexAlloc = ctx.createBuffer(
@@ -1872,43 +1939,16 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   ctx.indexBuffer = indexAlloc
   ctx.indexBufferBytes = indexBytes
 
-  let mappedIdx = cast[ptr uint8](mapMemory(
+  let mappedIdx = cast[ptr uint8](ctx.vk.mapMemory(
     ctx.device, ctx.indexBuffer.allocation, 0.VkDeviceSize, indexBytes,
     0.VkMemoryMapFlags,
   ))
   copyMem(mappedIdx, ctx.indices[0].addr, int(indexBytes))
-  unmapMemory(ctx.device, ctx.indexBuffer.allocation)
-
-  let vsAlloc = ctx.createBuffer(
-    size = VkDeviceSize(sizeof(VSUniforms)),
-    usage = VkBufferUsageFlags{UniformBufferBit},
-    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
-  )
-  ctx.vsUniformBuffer = vsAlloc
-
-  let fsAlloc = ctx.createBuffer(
-    size = VkDeviceSize(sizeof(FSUniforms)),
-    usage = VkBufferUsageFlags{UniformBufferBit},
-    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
-  )
-  ctx.fsUniformBuffer = fsAlloc
-
-  let blurAlloc0 = ctx.createBuffer(
-    size = VkDeviceSize(sizeof(BlurUniforms)),
-    usage = VkBufferUsageFlags{UniformBufferBit},
-    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
-  )
-  ctx.blurUniformBuffers[0] = blurAlloc0
-  let blurAlloc1 = ctx.createBuffer(
-    size = VkDeviceSize(sizeof(BlurUniforms)),
-    usage = VkBufferUsageFlags{UniformBufferBit},
-    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
-  )
-  ctx.blurUniformBuffers[1] = blurAlloc1
+  ctx.vk.unmapMemory(ctx.device, ctx.indexBuffer.allocation)
 
   let samplerInfo = newVkSamplerCreateInfo(
-    magFilter = VK_FILTER_LINEAR,
-    minFilter = VK_FILTER_LINEAR,
+    magFilter = (if ctx.pixelate: VK_FILTER_NEAREST else: VK_FILTER_LINEAR),
+    minFilter = (if ctx.pixelate: VK_FILTER_NEAREST else: VK_FILTER_LINEAR),
     mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
     addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
     addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
@@ -1923,13 +1963,11 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
     unnormalizedCoordinates = VkBool32(VkFalse),
   )
-  checkVkResult vkCreateSampler(
+  checkVkResult ctx.vk.vkCreateSampler(
     ctx.device, samplerInfo.addr, nil, ctx.atlasSampler.addr
   )
 
   ctx.recreateAtlasGpu()
-  ctx.updateDescriptorSet()
-  ctx.updateBlurDescriptorSets()
 
   let initialW = max(1, ctx.frameSize.x.int32)
   let initialH = max(1, ctx.frameSize.y.int32)
@@ -1950,7 +1988,7 @@ proc flush(ctx: VulkanContext) =
     return
   if ctx.atlasDirty:
     if ctx.renderPassBegun:
-      vkCmdEndRenderPass(ctx.commandBuffer)
+      ctx.vk.vkCmdEndRenderPass(ctx.commandBuffer)
       ctx.renderPassBegun = false
     ctx.recordAtlasUpload(ctx.commandBuffer)
   ctx.beginRenderPassIfNeeded()
@@ -2025,59 +2063,42 @@ proc flush(ctx: VulkanContext) =
       v.rectMaskMatY[3] = 0.0'f32
 
   let uploadBytes = VkDeviceSize(vertexCount * sizeof(Vertex))
-  let vertexAlloc = ctx.createBuffer(
-    size = uploadBytes,
-    usage = VkBufferUsageFlags{VertexBufferBit},
-    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
-  )
-  ctx.frameVertexBuffers.add(vertexAlloc)
-
-  let mappedVertex = cast[ptr uint8](mapMemory(
-    ctx.device, vertexAlloc.allocation, 0.VkDeviceSize, uploadBytes, 0.VkMemoryMapFlags
-  ))
-  copyMem(mappedVertex, ctx.vertexScratch[0].addr, int(uploadBytes))
-  unmapMemory(ctx.device, vertexAlloc.allocation)
+  let vertexUpload = ctx.allocateFrameUpload(uploadBytes)
+  copyMem(vertexUpload.data, ctx.vertexScratch[0].addr, int(uploadBytes))
 
   var vsu = VSUniforms(proj: ctx.proj)
   var fsu = FSUniforms(
     windowFrame: ctx.frameSize, aaFactor: ctx.aaFactor, maskTexEnabled: 0'u32
   )
 
-  let mappedVs = cast[ptr uint8](mapMemory(
-    ctx.device,
-    ctx.vsUniformBuffer.allocation,
-    0.VkDeviceSize,
-    VkDeviceSize(sizeof(VSUniforms)),
-    0.VkMemoryMapFlags,
-  ))
-  copyMem(mappedVs, vsu.addr, sizeof(VSUniforms))
-  unmapMemory(ctx.device, ctx.vsUniformBuffer.allocation)
+  let vsUpload =
+    ctx.allocateFrameUpload(sizeof(VSUniforms).VkDeviceSize, ctx.uniformAlignment)
+  let fsUpload =
+    ctx.allocateFrameUpload(sizeof(FSUniforms).VkDeviceSize, ctx.uniformAlignment)
+  copyMem(vsUpload.data, vsu.addr, sizeof(vsu))
+  copyMem(fsUpload.data, fsu.addr, sizeof(fsu))
+  ctx.descriptorSet = ctx.allocateFrameDescriptorSet(ctx.descriptorSetLayout)
+  ctx.updateDescriptorSet(vsUpload, fsUpload)
 
-  let mappedFs = cast[ptr uint8](mapMemory(
-    ctx.device,
-    ctx.fsUniformBuffer.allocation,
-    0.VkDeviceSize,
-    VkDeviceSize(sizeof(FSUniforms)),
-    0.VkMemoryMapFlags,
-  ))
-  copyMem(mappedFs, fsu.addr, sizeof(FSUniforms))
-  unmapMemory(ctx.device, ctx.fsUniformBuffer.allocation)
+  ctx.vk.vkCmdBindPipeline(
+    ctx.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.pipeline
+  )
 
-  vkCmdBindPipeline(ctx.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.pipeline)
-
-  let vbs = [vertexAlloc.handle]
-  let offs = [0.VkDeviceSize]
-  vkCmdBindVertexBuffers(ctx.commandBuffer, 0, 1, vbs[0].unsafeAddr, offs[0].unsafeAddr)
-  vkCmdBindIndexBuffer(
+  let vbs = [vertexUpload.buffer.handle]
+  let offs = [vertexUpload.offset]
+  ctx.vk.vkCmdBindVertexBuffers(
+    ctx.commandBuffer, 0, 1, vbs[0].unsafeAddr, offs[0].unsafeAddr
+  )
+  ctx.vk.vkCmdBindIndexBuffer(
     ctx.commandBuffer, ctx.indexBuffer.handle, 0.VkDeviceSize, VK_INDEX_TYPE_UINT16
   )
-  vkCmdBindDescriptorSets(
+  ctx.vk.vkCmdBindDescriptorSets(
     ctx.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.pipelineLayout, 0, 1,
     ctx.descriptorSet.addr, 0, nil,
   )
 
   let indexCount = uint32(ctx.quadCount * 6)
-  vkCmdDrawIndexed(ctx.commandBuffer, indexCount, 1, 0, 0, 0)
+  ctx.vk.vkCmdDrawIndexed(ctx.commandBuffer, indexCount, 1, 0, 0, 0)
   ctx.quadCount = 0
   ctx.batchHasRectMask = false
 
@@ -2328,12 +2349,47 @@ proc copyIntoAtlas(atlas: Image, atX, atY: int, image: Image) =
       image.width * sizeof(ColorRGBA),
     )
 
+proc atlasSizeLimit(ctx: VulkanContext): int =
+  # Bound CPU allocation before the device is initialized as well.
+  result = 16_384
+  if ctx.physicalDevice != vkNullPhysicalDevice:
+    result = min(
+      result,
+      ctx.vk.getPhysicalDeviceProperties(ctx.physicalDevice).limits.maxImageDimension2D.int,
+    )
+
+proc checkedAtlasSize(ctx: VulkanContext, minimumSize: int): int =
+  let limit = ctx.atlasSizeLimit()
+  if minimumSize > limit:
+    raise newException(ValueError, "Vulkan atlas exceeds maximum dimension " & $limit)
+  result = ctx.initialAtlasSize
+  while result < minimumSize:
+    if result > limit div 2:
+      raise newException(ValueError, "Vulkan atlas cannot grow beyond " & $limit)
+    result *= 2
+
 proc grow(ctx: VulkanContext) =
-  let nextSize = ctx.atlasSize * 2
-  ctx.resetImageAtlas(nextSize)
+  let nextSize = ctx.checkedAtlasSize(ctx.atlasSize + 1)
+  ctx.flush()
+  let previousSize = ctx.atlasSize
+  let pixels = newImage(nextSize, nextSize)
+  copyIntoAtlas(pixels, 0, 0, ctx.atlasPixels)
+  ctx.atlasPixels = pixels
+  ctx.atlasSize = nextSize
+  ctx.heights.setLen(nextSize)
+  for bounds in ctx.entries.mvalues:
+    bounds = bounds * (previousSize.float32 / nextSize.float32)
+  ctx.atlasDirty = true
+  ctx.atlasLayoutReady = false
+  if ctx.gpuReady:
+    ctx.recreateAtlasGpu()
+  ctx.noteAtlasRebuilt()
   info "grow atlasSize", atlasSize = ctx.atlasSize
 
 proc findEmptyRect(ctx: VulkanContext, width, height: int): Rect =
+  if width <= 0 or height <= 0 or width > ctx.atlasSizeLimit() - ctx.atlasMargin * 2 or
+      height > ctx.atlasSizeLimit() - ctx.atlasMargin * 2:
+    raise newException(ValueError, "Image does not fit within the Vulkan atlas limit")
   let imgWidth = width + ctx.atlasMargin * 2
   let imgHeight = height + ctx.atlasMargin * 2
 
@@ -2343,7 +2399,7 @@ proc findEmptyRect(ctx: VulkanContext, width, height: int): Rect =
     let v = int(ctx.heights[i])
     if v < lowest:
       var fit = true
-      for j in 0 .. imgWidth:
+      for j in 0 ..< imgWidth:
         if i + j >= ctx.atlasSize:
           fit = false
           break
@@ -2359,7 +2415,7 @@ proc findEmptyRect(ctx: VulkanContext, width, height: int): Rect =
     return ctx.findEmptyRect(width, height)
 
   for j in at .. at + imgWidth - 1:
-    ctx.heights[j] = uint16(lowest + imgHeight + ctx.atlasMargin * 2)
+    ctx.heights[j] = uint16(lowest + imgHeight)
 
   rect(
     float32(at + ctx.atlasMargin),
@@ -2381,6 +2437,7 @@ method putImage*(ctx: VulkanContext, path: Hash, image: Image) =
   ctx.atlasDirty = true
 
 method updateImage*(ctx: VulkanContext, path: Hash, image: Image) =
+  ctx.flush()
   let rect = ctx.entries[path]
   assert rect.w == image.width.float / float(ctx.atlasSize)
   assert rect.h == image.height.float / float(ctx.atlasSize)
@@ -2409,8 +2466,9 @@ method clearImageAtlas*(ctx: VulkanContext) =
   ctx.resetImageAtlas(ctx.initialAtlasSize)
 
 method resetImageAtlas*(ctx: VulkanContext, minimumSize: int) =
+  let nextSize = ctx.checkedAtlasSize(max(ctx.initialAtlasSize, minimumSize))
   ctx.flush()
-  ctx.atlasSize = plannedAtlasSize(ctx.initialAtlasSize, minimumSize)
+  ctx.atlasSize = nextSize
   ctx.entries.clear()
   ctx.atlasEntryMeta.clear()
   ctx.heights = newSeq[uint16](ctx.atlasSize)
@@ -3063,9 +3121,7 @@ method drawRoundedRectSdf*(
     shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
 ) =
   if fill.kind == figbackend.bfLinear3 and
-      mode in {
-        sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA,
-      }:
+      mode in {sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA}:
     ctx.drawRoundedRectSdfVulkan(
       rect = rect,
       colors = [fill.lin3Start, fill.lin3Start, fill.lin3Start, fill.lin3Start],
@@ -3220,6 +3276,8 @@ proc runBackdropSeparableBlur(
 method drawBackdropBlur*(
     ctx: VulkanContext, rect: Rect, radii: CornerRadii2D[float32], blurRadius: float32
 ) =
+  if not ctx.swapchainTransferSrcSupported:
+    return
   if blurRadius <= 0.0'f32 or rect.w <= 0.0'f32 or rect.h <= 0.0'f32:
     return
   if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain:
@@ -3230,7 +3288,7 @@ method drawBackdropBlur*(
   ctx.flush()
   ctx.beginRenderPassIfNeeded()
   if ctx.renderPassBegun:
-    vkCmdEndRenderPass(ctx.commandBuffer)
+    ctx.vk.vkCmdEndRenderPass(ctx.commandBuffer)
     ctx.renderPassBegun = false
 
   let width = max(1'i32, ctx.swapchainExtent.width.int32)
@@ -3289,7 +3347,7 @@ method drawBackdropBlur*(
       layerCount = 1,
     ),
   )
-  vkCmdPipelineBarrier(
+  ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
     backdropSrcStage,
     VkPipelineStageFlags{TransferBit},
@@ -3306,9 +3364,9 @@ method drawBackdropBlur*(
   var swapchainToTransfer = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
-    srcAccessMask: 0.VkAccessFlags,
+    srcAccessMask: VkAccessFlags{ColorAttachmentWriteBit},
     dstAccessMask: VkAccessFlags{TransferReadBit},
-    oldLayout: VkImageLayout.PresentSrcKhr,
+    oldLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     newLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
@@ -3321,9 +3379,9 @@ method drawBackdropBlur*(
       layerCount = 1,
     ),
   )
-  vkCmdPipelineBarrier(
+  ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
-    VkPipelineStageFlags{BottomOfPipeBit},
+    VkPipelineStageFlags{ColorAttachmentOutputBit},
     VkPipelineStageFlags{TransferBit},
     0.VkDependencyFlags,
     0,
@@ -3353,7 +3411,7 @@ method drawBackdropBlur*(
       width = blurRect.extent.width, height = blurRect.extent.height, depth = 1
     ),
   )
-  vkCmdCopyImage(
+  ctx.vk.vkCmdCopyImage(
     ctx.commandBuffer, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
     ctx.backdropImage.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, copyRegion.addr,
   )
@@ -3376,7 +3434,7 @@ method drawBackdropBlur*(
       layerCount = 1,
     ),
   )
-  vkCmdPipelineBarrier(
+  ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
     VkPipelineStageFlags{TransferBit},
     VkPipelineStageFlags{FragmentShaderBit},
@@ -3393,9 +3451,9 @@ method drawBackdropBlur*(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
     srcAccessMask: VkAccessFlags{TransferReadBit},
-    dstAccessMask: 0.VkAccessFlags,
+    dstAccessMask: VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit},
     oldLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-    newLayout: VkImageLayout.PresentSrcKhr,
+    newLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: swapchainImage,
@@ -3407,10 +3465,10 @@ method drawBackdropBlur*(
       layerCount = 1,
     ),
   )
-  vkCmdPipelineBarrier(
+  ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
     VkPipelineStageFlags{TransferBit},
-    VkPipelineStageFlags{BottomOfPipeBit},
+    VkPipelineStageFlags{ColorAttachmentOutputBit},
     0.VkDependencyFlags,
     0,
     nil,
@@ -3540,14 +3598,14 @@ when defined(macosx):
       commandBuffers: array[0, VkCommandBuffer] = []
       signalSemaphores: array[0, VkSemaphore] = []
 
-    checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
+    checkVkResult ctx.vk.vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
     let submitInfo = newVkSubmitInfo(
       waitSemaphores = waitSemaphores,
       waitDstStageMask = waitStages,
       commandBuffers = commandBuffers,
       signalSemaphores = signalSemaphores,
     )
-    checkVkResult vkQueueSubmit(ctx.queue, 1, submitInfo.addr, ctx.inFlightFence)
+    checkVkResult ctx.vk.vkQueueSubmit(ctx.queue, 1, submitInfo.addr, ctx.inFlightFence)
 
 proc beginFrame*(
     ctx: VulkanContext,
@@ -3582,14 +3640,16 @@ proc beginFrame*(
   ctx.ensureSwapchain(width, height)
   if ctx.swapchain == vkNullSwapchain:
     return
-  ctx.ensureBackdropImage(width, height)
-
-  checkVkResult vkWaitForFences(
+  checkVkResult ctx.vk.vkWaitForFences(
     ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
   )
-  ctx.clearFrameVertexUploads()
+  ctx.recycleFrameResources()
+  ctx.destroyRetiredSwapchains(onlyCompleted = true)
+  ctx.ensureBackdropImage(
+    ctx.swapchainExtent.width.int32, ctx.swapchainExtent.height.int32
+  )
 
-  let acquireResult = vkAcquireNextImageKHR(
+  let acquireResult = ctx.vk.vkAcquireNextImageKHR(
     ctx.device,
     ctx.swapchain,
     high(uint64),
@@ -3601,6 +3661,12 @@ proc beginFrame*(
     ctx.swapchainOutOfDate = true
     debug "Acquire returned out-of-date", result = $acquireResult
     return
+  for retired in ctx.retiredSwapchains.mitems:
+    if retired.replacementSwapchain == ctx.swapchain and
+        retired.replacementImage == ctx.acquiredImageIndex.int:
+      # Submission waits on this acquire. Its fence will prove that the
+      # presentation which followed all retired swapchains has finished.
+      retired.awaitingFrameFence = true
   if acquireResult == VkSuboptimalKhr:
     ctx.swapchainOutOfDate = true
     debug "Acquire returned suboptimal", result = $acquireResult
@@ -3609,15 +3675,54 @@ proc beginFrame*(
       return
   else:
     checkVkResult acquireResult
-  checkVkResult vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
+  checkVkResult ctx.vk.vkResetFences(ctx.device, 1, ctx.inFlightFence.addr)
 
-  checkVkResult vkResetCommandBuffer(ctx.commandBuffer, 0.VkCommandBufferResetFlags)
+  checkVkResult ctx.vk.vkResetCommandBuffer(
+    ctx.commandBuffer, 0.VkCommandBufferResetFlags
+  )
   let beginInfo = newVkCommandBufferBeginInfo(pInheritanceInfo = nil)
-  checkVkResult vkBeginCommandBuffer(ctx.commandBuffer, beginInfo.addr)
+  checkVkResult ctx.vk.vkBeginCommandBuffer(ctx.commandBuffer, beginInfo.addr)
   ctx.commandRecording = true
-
-  if ctx.atlasDirty:
-    ctx.recordAtlasUpload(ctx.commandBuffer)
+  if not ctx.backdropLayoutReady:
+    # The main shader statically references this descriptor even before the
+    # first blur. Keep its declared layout valid for ordinary draws as well.
+    var barrier = VkImageMemoryBarrier(
+      sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+      dstAccessMask: VkAccessFlags{ShaderReadBit},
+      oldLayout: VK_IMAGE_LAYOUT_UNDEFINED,
+      newLayout: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+      srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+      dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+      image: ctx.backdropImage.handle,
+      subresourceRange: newVkImageSubresourceRange(
+        aspectMask = VkImageAspectFlags{ColorBit},
+        baseMipLevel = 0,
+        levelCount = 1,
+        baseArrayLayer = 0,
+        layerCount = 1,
+      ),
+    )
+    ctx.vk.vkCmdPipelineBarrier(
+      ctx.commandBuffer,
+      VkPipelineStageFlags{TopOfPipeBit},
+      VkPipelineStageFlags{FragmentShaderBit},
+      0.VkDependencyFlags,
+      0,
+      nil,
+      0,
+      nil,
+      1,
+      barrier.addr,
+    )
+    ctx.backdropLayoutReady = true
+  ctx.transitionSwapchain(
+    VK_IMAGE_LAYOUT_UNDEFINED,
+    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    VkPipelineStageFlags{TopOfPipeBit},
+    VkPipelineStageFlags{ColorAttachmentOutputBit},
+    0.VkAccessFlags,
+    VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit},
+  )
 
 method beginFrame*(
     ctx: VulkanContext,
@@ -3645,25 +3750,33 @@ method endFrame*(ctx: VulkanContext) =
   ctx.flush()
   ctx.beginRenderPassIfNeeded()
   if ctx.renderPassBegun:
-    vkCmdEndRenderPass(ctx.commandBuffer)
+    ctx.vk.vkCmdEndRenderPass(ctx.commandBuffer)
     ctx.renderPassBegun = false
   when UseVulkanReadback:
     ctx.readbackReady = false
     ctx.recordSwapchainReadback()
   else:
     ctx.readbackReady = false
-  checkVkResult vkEndCommandBuffer(ctx.commandBuffer)
+  ctx.transitionSwapchain(
+    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    VkImageLayout.PresentSrcKhr,
+    VkPipelineStageFlags{ColorAttachmentOutputBit, TransferBit},
+    VkPipelineStageFlags{BottomOfPipeBit},
+    VkAccessFlags{ColorAttachmentWriteBit, TransferReadBit},
+    0.VkAccessFlags,
+  )
+  checkVkResult ctx.vk.vkEndCommandBuffer(ctx.commandBuffer)
 
   let waitSemaphores = [ctx.imageAvailableSemaphore]
   let waitStages = [VkPipelineStageFlags{ColorAttachmentOutputBit, TransferBit}]
-  let signalSemaphores = [ctx.renderFinishedSemaphore]
+  let signalSemaphores = [ctx.renderFinishedSemaphores[ctx.acquiredImageIndex.int]]
   let submitInfo = newVkSubmitInfo(
     waitSemaphores = waitSemaphores,
     waitDstStageMask = waitStages,
     commandBuffers = [ctx.commandBuffer],
     signalSemaphores = signalSemaphores,
   )
-  checkVkResult vkQueueSubmit(ctx.queue, 1, submitInfo.addr, ctx.inFlightFence)
+  checkVkResult ctx.vk.vkQueueSubmit(ctx.queue, 1, submitInfo.addr, ctx.inFlightFence)
 
   let presentInfo = newVkPresentInfoKHR(
     waitSemaphores = signalSemaphores,
@@ -3671,7 +3784,7 @@ method endFrame*(ctx: VulkanContext) =
     imageIndices = [ctx.acquiredImageIndex],
     results = @[],
   )
-  let presentResult = vkQueuePresentKHR(ctx.presentQueue, presentInfo.addr)
+  let presentResult = ctx.vk.vkQueuePresentKHR(ctx.presentQueue, presentInfo.addr)
   var presented = false
   if presentResult == VkErrorOutOfDateKhr:
     ctx.swapchainOutOfDate = true
@@ -3686,7 +3799,10 @@ method endFrame*(ctx: VulkanContext) =
     presented = true
 
   if presented:
-    ctx.destroyRetiredSwapchains()
+    for retired in ctx.retiredSwapchains.mitems:
+      if retired.replacementImage < 0:
+        retired.replacementSwapchain = ctx.swapchain
+        retired.replacementImage = ctx.acquiredImageIndex.int
 
   ctx.commandRecording = false
 
@@ -3695,20 +3811,17 @@ proc destroyGpu(ctx: VulkanContext) =
     return
 
   if ctx.device != vkNullDevice:
-    discard vkDeviceWaitIdle(ctx.device)
+    discard ctx.vk.vkDeviceWaitIdle(ctx.device)
 
   if ctx.imageAvailableSemaphore != vkNullSemaphore:
-    vkDestroySemaphore(ctx.device, ctx.imageAvailableSemaphore, nil)
+    ctx.vk.vkDestroySemaphore(ctx.device, ctx.imageAvailableSemaphore, nil)
     ctx.imageAvailableSemaphore = vkNullSemaphore
-  if ctx.renderFinishedSemaphore != vkNullSemaphore:
-    vkDestroySemaphore(ctx.device, ctx.renderFinishedSemaphore, nil)
-    ctx.renderFinishedSemaphore = vkNullSemaphore
   if ctx.inFlightFence != vkNullFence:
-    vkDestroyFence(ctx.device, ctx.inFlightFence, nil)
+    ctx.vk.vkDestroyFence(ctx.device, ctx.inFlightFence, nil)
     ctx.inFlightFence = vkNullFence
 
   if ctx.commandPool != vkNullCommandPool:
-    vkDestroyCommandPool(ctx.device, ctx.commandPool, nil)
+    ctx.vk.vkDestroyCommandPool(ctx.device, ctx.commandPool, nil)
     ctx.commandPool = vkNullCommandPool
     ctx.commandBuffer = vkNullCommandBuffer
 
@@ -3717,60 +3830,56 @@ proc destroyGpu(ctx: VulkanContext) =
   ctx.destroyPipelineObjects()
 
   if ctx.vertShader != vkNullShaderModule:
-    destroyShaderModule(ctx.device, ctx.vertShader)
+    ctx.vk.destroyShaderModule(ctx.device, ctx.vertShader)
     ctx.vertShader = vkNullShaderModule
   if ctx.fragShader != vkNullShaderModule:
-    destroyShaderModule(ctx.device, ctx.fragShader)
+    ctx.vk.destroyShaderModule(ctx.device, ctx.fragShader)
     ctx.fragShader = vkNullShaderModule
   if ctx.blurVertShader != vkNullShaderModule:
-    destroyShaderModule(ctx.device, ctx.blurVertShader)
+    ctx.vk.destroyShaderModule(ctx.device, ctx.blurVertShader)
     ctx.blurVertShader = vkNullShaderModule
   if ctx.blurFragShader != vkNullShaderModule:
-    destroyShaderModule(ctx.device, ctx.blurFragShader)
+    ctx.vk.destroyShaderModule(ctx.device, ctx.blurFragShader)
     ctx.blurFragShader = vkNullShaderModule
 
-  if ctx.descriptorPool != vkNullDescriptorPool:
-    destroyDescriptorPool(ctx.device, ctx.descriptorPool)
-    ctx.descriptorPool = vkNullDescriptorPool
+  for pool in ctx.frameDescriptorPools:
+    ctx.vk.destroyDescriptorPool(ctx.device, pool)
+  ctx.frameDescriptorPools.setLen(0)
   if ctx.descriptorSetLayout != vkNullDescriptorSetLayout:
-    destroyDescriptorSetLayout(ctx.device, ctx.descriptorSetLayout)
+    ctx.vk.destroyDescriptorSetLayout(ctx.device, ctx.descriptorSetLayout)
     ctx.descriptorSetLayout = vkNullDescriptorSetLayout
-  if ctx.blurDescriptorPool != vkNullDescriptorPool:
-    destroyDescriptorPool(ctx.device, ctx.blurDescriptorPool)
-    ctx.blurDescriptorPool = vkNullDescriptorPool
   if ctx.blurDescriptorSetLayout != vkNullDescriptorSetLayout:
-    destroyDescriptorSetLayout(ctx.device, ctx.blurDescriptorSetLayout)
+    ctx.vk.destroyDescriptorSetLayout(ctx.device, ctx.blurDescriptorSetLayout)
     ctx.blurDescriptorSetLayout = vkNullDescriptorSetLayout
 
   if ctx.atlasSampler != vkNullSampler:
-    vkDestroySampler(ctx.device, ctx.atlasSampler, nil)
+    ctx.vk.vkDestroySampler(ctx.device, ctx.atlasSampler, nil)
     ctx.atlasSampler = vkNullSampler
   ctx.atlasImage = nil
   ctx.backdropImage = nil
   ctx.backdropBlurTempImage = nil
-  ctx.atlasUploadBuffer = nil
-  ctx.vertexBuffer = nil
   ctx.indexBuffer = nil
-  ctx.vsUniformBuffer = nil
-  ctx.fsUniformBuffer = nil
-  for i in 0 ..< ctx.blurUniformBuffers.len:
-    ctx.blurUniformBuffers[i] = nil
   ctx.readbackBuffer = nil
-  ctx.clearFrameVertexUploads()
+  ctx.frameImages.setLen(0)
+  ctx.uploadBlocks.setLen(0)
 
   if ctx.device != vkNullDevice:
-    destroyDevice(ctx.device)
+    ctx.vk.destroyDevice(ctx.device)
     ctx.device = vkNullDevice
 
   if ctx.surface != vkNullSurface:
     if ctx.surfaceOwnedByContext:
-      vkDestroySurfaceKHR(ctx.instance, ctx.surface, nil)
+      ctx.vk.vkDestroySurfaceKHR(ctx.instance, ctx.surface, nil)
     ctx.surface = vkNullSurface
     ctx.surfaceOwnedByContext = false
 
+  if ctx.debugMessenger != VkDebugUtilsMessengerEXT(0):
+    ctx.vk.vkDestroyDebugUtilsMessengerEXT(ctx.instance, ctx.debugMessenger, nil)
+    ctx.debugMessenger = VkDebugUtilsMessengerEXT(0)
   if ctx.instance != vkNullInstance:
-    destroyInstance(ctx.instance)
+    ctx.vk.destroyInstance(ctx.instance)
     ctx.instance = vkNullInstance
+  ctx.vk = nil
 
   ctx.gpuReady = false
   ctx.presentReady = false
@@ -3803,7 +3912,10 @@ proc newContext*(
     quadLimit = quadLimit,
     pixelate = pixelate,
     pixelScale = pixelScale
-  if maxQuads > quadLimit:
+  if atlasSize <= 0 or atlasSize > 16_384 or atlasMargin < 0 or
+      atlasMargin > atlasSize div 2:
+    raise newException(ValueError, "Invalid Vulkan atlas size or margin")
+  if maxQuads <= 0 or maxQuads > quadLimit:
     raise newException(ValueError, &"Quads cannot exceed {quadLimit}")
 
   result = VulkanContext()
@@ -3900,29 +4012,19 @@ proc newContext*(
   result.backdropBlurTempFramebuffer = vkNullFramebuffer
   result.blurRenderPass = vkNullRenderPass
   result.blurDescriptorSetLayout = vkNullDescriptorSetLayout
-  result.blurDescriptorPool = vkNullDescriptorPool
   result.blurDescriptorSets = [vkNullDescriptorSet, vkNullDescriptorSet]
   result.blurPipelineLayout = vkNullPipelineLayout
   result.blurPipeline = vkNullPipeline
   result.blurVertShader = vkNullShaderModule
   result.blurFragShader = vkNullShaderModule
-  result.blurUniformBuffers = [VulkanBuffer(nil), VulkanBuffer(nil)]
   result.atlasSampler = vkNullSampler
-  result.atlasUploadBuffer = nil
-  result.atlasUploadBytes = 0.VkDeviceSize
-  result.vertexBuffer = nil
-  result.vertexBufferBytes = 0.VkDeviceSize
   result.indexBuffer = nil
   result.indexBufferBytes = 0.VkDeviceSize
-  result.vsUniformBuffer = nil
-  result.fsUniformBuffer = nil
   result.commandPool = vkNullCommandPool
   result.commandBuffer = vkNullCommandBuffer
   result.imageAvailableSemaphore = vkNullSemaphore
-  result.renderFinishedSemaphore = vkNullSemaphore
   result.inFlightFence = vkNullFence
   result.descriptorSetLayout = vkNullDescriptorSetLayout
-  result.descriptorPool = vkNullDescriptorPool
   result.descriptorSet = vkNullDescriptorSet
   result.pipelineLayout = vkNullPipelineLayout
   result.pipeline = vkNullPipeline
@@ -3937,7 +4039,6 @@ proc newContext*(
   result.renderPassBegun = false
   result.frameNeedsClear = false
   result.frameClearColor = rgba(0, 0, 0, 255).color
-  result.frameVertexBuffers = @[]
 
 method translate*(ctx: VulkanContext, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
@@ -3984,7 +4085,7 @@ proc clearPresentTarget*(ctx: VulkanContext) =
     ctx.destroyGpu()
   elif ctx.surface != vkNullSurface:
     if ctx.surfaceOwnedByContext and ctx.instance != vkNullInstance:
-      vkDestroySurfaceKHR(ctx.instance, ctx.surface, nil)
+      ctx.vk.vkDestroySurfaceKHR(ctx.instance, ctx.surface, nil)
     ctx.surface = vkNullSurface
     ctx.surfaceOwnedByContext = false
   ctx.presentTargetKind = presentTargetNone
@@ -4066,9 +4167,19 @@ proc setInstanceSurfaceHint*(ctx: VulkanContext, target: PresentTargetKind) =
 proc ensureInstance*(ctx: VulkanContext) =
   if ctx.instance != vkNullInstance:
     return
-  vkPreload()
   ctx.instance = ctx.createInstanceWithFallback()
-  vkInit(ctx.instance, load1_2 = false, load1_3 = false)
+  ctx.vk.loadInstance(ctx.instance)
+  when UseVulkanValidation:
+    let debugInfo = newVkDebugUtilsMessengerCreateInfoEXT(
+      messageSeverity = VkDebugUtilsMessageSeverityFlagsEXT{WarningBit, ErrorBit},
+      messageType =
+        VkDebugUtilsMessageTypeFlagsEXT{GeneralBit, ValidationBit, PerformanceBit},
+      pfnUserCallback = validationCallback,
+      pUserData = ctx.validationErrors.addr,
+    )
+    checkVkResult ctx.vk.vkCreateDebugUtilsMessengerEXT(
+      ctx.instance, debugInfo.addr, nil, ctx.debugMessenger.addr
+    )
 
 proc instanceHandle*(ctx: VulkanContext): pointer =
   cast[pointer](ctx.instance)
@@ -4105,7 +4216,7 @@ method readPixels*(
     if ctx.readbackWidth <= 0 or ctx.readbackHeight <= 0:
       raise newException(ValueError, "Vulkan readback dimensions are invalid")
 
-    checkVkResult vkWaitForFences(
+    checkVkResult ctx.vk.vkWaitForFences(
       ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
     )
 
@@ -4131,14 +4242,14 @@ method readPixels*(
       result = newImage(1, 1)
       return
 
-    let mapped = cast[ptr UncheckedArray[uint8]](mapMemory(
+    let mapped = cast[ptr UncheckedArray[uint8]](ctx.vk.mapMemory(
       ctx.device, ctx.readbackBuffer.allocation, 0.VkDeviceSize, ctx.readbackBytes,
       0.VkMemoryMapFlags,
     ))
     if mapped.isNil:
       raise newException(ValueError, "Failed to map Vulkan readback memory")
     defer:
-      unmapMemory(ctx.device, ctx.readbackBuffer.allocation)
+      ctx.vk.unmapMemory(ctx.device, ctx.readbackBuffer.allocation)
 
     result = newImage(w, h)
     let stride = texW * 4

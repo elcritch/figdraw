@@ -5,17 +5,21 @@
 ## destroys the device.
 
 import pkg/vulkan
+import ./vulkan_dispatch
 
 type
   VulkanBufferObj = object
+    vk: VulkanDispatch
     device: VkDevice
     handle*: VkBuffer
     allocation*: VkDeviceMemory
     size*: VkDeviceSize
+    mapped*: pointer
 
   VulkanBuffer* = ref VulkanBufferObj ## Owns a buffer and the device memory bound to it.
 
   VulkanImageObj = object
+    vk: VulkanDispatch
     device: VkDevice
     handle*: VkImage
     allocation*: VkDeviceMemory
@@ -23,6 +27,16 @@ type
 
   VulkanImage* = ref VulkanImageObj
     ## Owns an image, its bound memory, and its default image view.
+
+type
+  VulkanUpload* = object
+    buffer*: VulkanBuffer
+    offset*, size*: VkDeviceSize
+    data*: pointer
+
+  VulkanUploadBlock* = object
+    buffer*: VulkanBuffer
+    used*: VkDeviceSize
 
 const
   vkNullDevice = VkDevice(0)
@@ -36,10 +50,13 @@ proc close*(buffer: var VulkanBufferObj) {.raises: [].} =
   # destruction entry points cannot raise Nim exceptions.
   {.cast(raises: []).}:
     if buffer.device != vkNullDevice:
+      if buffer.mapped != nil:
+        buffer.vk.vkUnmapMemory(buffer.device, buffer.allocation)
+        buffer.mapped = nil
       if buffer.handle != vkNullBuffer:
-        vkDestroyBuffer(buffer.device, buffer.handle, nil)
+        buffer.vk.vkDestroyBuffer(buffer.device, buffer.handle, nil)
       if buffer.allocation != vkNullMemory:
-        vkFreeMemory(buffer.device, buffer.allocation, nil)
+        buffer.vk.vkFreeMemory(buffer.device, buffer.allocation, nil)
   buffer.handle = vkNullBuffer
   buffer.allocation = vkNullMemory
   buffer.size = 0.VkDeviceSize
@@ -51,11 +68,11 @@ proc close*(image: var VulkanImageObj) {.raises: [].} =
   {.cast(raises: []).}:
     if image.device != vkNullDevice:
       if image.view != vkNullImageView:
-        vkDestroyImageView(image.device, image.view, nil)
+        image.vk.vkDestroyImageView(image.device, image.view, nil)
       if image.handle != vkNullImage:
-        vkDestroyImage(image.device, image.handle, nil)
+        image.vk.vkDestroyImage(image.device, image.handle, nil)
       if image.allocation != vkNullMemory:
-        vkFreeMemory(image.device, image.allocation, nil)
+        image.vk.vkFreeMemory(image.device, image.allocation, nil)
   image.view = vkNullImageView
   image.handle = vkNullImage
   image.allocation = vkNullMemory
@@ -67,11 +84,13 @@ proc `=destroy`(buffer: var VulkanBufferObj) =
 proc `=destroy`(image: var VulkanImageObj) =
   image.close()
 
-proc newVulkanBuffer*(device: VkDevice, size: VkDeviceSize): VulkanBuffer =
-  VulkanBuffer(device: device, size: size)
+proc newVulkanBuffer*(
+    vk: VulkanDispatch, device: VkDevice, size: VkDeviceSize
+): VulkanBuffer =
+  VulkanBuffer(vk: vk, device: device, size: size)
 
-proc newVulkanImage*(device: VkDevice): VulkanImage =
-  VulkanImage(device: device)
+proc newVulkanImage*(vk: VulkanDispatch, device: VkDevice): VulkanImage =
+  VulkanImage(vk: vk, device: device)
 
 func isNilOrEmpty*(buffer: VulkanBuffer): bool =
   buffer.isNil or buffer.handle == vkNullBuffer

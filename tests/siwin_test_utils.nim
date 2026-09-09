@@ -37,6 +37,9 @@ proc renderAndScreenshotOnce*(
     except ValueError:
       raise newException(ValueError, "Metal device not available")
   elif UseVulkanBackend:
+    let previousScale = figUiScale()
+    defer:
+      setFigUiScale(previousScale)
     let renderer = glrenderer.newFigRenderer(
       atlasSize = atlasSize, backendState = SiwinRenderBackend()
     )
@@ -50,6 +53,7 @@ proc renderAndScreenshotOnce*(
       renderer.setupBackend(window)
 
       window.firstStep()
+      discard window.configureUiScale()
       let sz = window.logicalSize()
       var renders = makeRenders(sz.x, sz.y)
       renderer.beginFrame()
@@ -64,6 +68,9 @@ proc renderAndScreenshotOnce*(
         raise newException(
           ValueError, "Vulkan screenshot unavailable (no present target or empty frame)"
         )
+      # Test scenes and pixel assertions use logical coordinates on every OS.
+      if result.width != sz.x.int or result.height != sz.y.int:
+        result = result.resize(sz.x.int, sz.y.int)
       result.writeFile(outputPath)
     except VulkanError as exc:
       raise newException(ValueError, "Vulkan device not available: " & exc.msg)
@@ -116,6 +123,9 @@ proc renderAndScreenshotSequence*(
     except ValueError:
       raise newException(ValueError, "Metal device not available")
   elif UseVulkanBackend:
+    let previousScale = figUiScale()
+    defer:
+      setFigUiScale(previousScale)
     let renderer = glrenderer.newFigRenderer(
       atlasSize = atlasSize, backendState = SiwinRenderBackend()
     )
@@ -143,11 +153,14 @@ proc renderAndScreenshotSequence*(
         raise newException(
           ValueError, "Vulkan screenshot unavailable (no present target or empty frame)"
         )
+      if result.width != sz.x.int or result.height != sz.y.int:
+        result = result.resize(sz.x.int, sz.y.int)
       result.writeFile(outputPath)
 
     try:
       renderer.setupBackend(window)
       window.firstStep()
+      discard window.configureUiScale()
       result.initial = capture(makeInitialRenders, initialPath)
       result.updated = capture(makeUpdatedRenders, updatedPath)
     except VulkanError as exc:
