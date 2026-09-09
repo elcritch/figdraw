@@ -183,3 +183,7 @@ suite "figrender env overrides":
     check renderer.textLcdFiltering() == false
     check renderer.textSubpixelPositioning() == false
     check renderer.textSubpixelGlyphVariants() == false
+
+  test "context activation is optional for backend-free renderers":
+    let renderer = newFigRenderer(BackendContext())
+    renderer.activateContext()

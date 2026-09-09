@@ -72,7 +72,7 @@ proc backendName*[BackendState](renderer: FigRenderer[BackendState]): string =
 
 proc activateContext*[BackendState](renderer: FigRenderer[BackendState]) =
   ## Make the renderer's OpenGL context current before using its GPU resources.
-  if renderer.backendKind() == rbOpenGL and not renderer.contextActivation.isNil:
+  if not renderer.contextActivation.isNil and renderer.backendKind() == rbOpenGL:
     renderer.contextActivation(renderer)
 
 proc atlasUsage*[BackendState](renderer: FigRenderer[BackendState]): AtlasUsage =

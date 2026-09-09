@@ -1,5 +1,10 @@
 # Changes
 
+## 0.37.4
+
+- Transform Vulkan content-clip bounds into framebuffer coordinates so translated
+  views retain their text and decorations.
+
 ## 0.37.3
 
 - Select the owning OpenGL context before image preparation, atlas rebuilds,
