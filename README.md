@@ -104,6 +104,30 @@ The most stable entry points today are:
 - Scene graph nodes: `import figdraw/fignodes`
 - OpenGL backend: `import figdraw/figrender`
 
+### OpenGL windows and atlas updates
+
+Create the native window before its renderer, then call `setupBackend(window)`.
+Siwin and Windy renderers select their own OpenGL context when preparing images,
+rebuilding the atlas, rendering, or taking screenshots. Resource preparation can
+therefore run before `beginFrame()` even after another window or popup rendered.
+Direct `OpenGlContext` calls still require the caller to make its native context
+current on the owning thread.
+
+Atlas growth preserves existing entries. In-place updates must keep the original
+image dimensions and are ordered after previously batched draws. The shared atlas
+uses base-level filtering with padded edges to avoid mipmaps mixing unrelated
+entries; `Flippy` uploads use their base image, as in the other GPU backends.
+Standalone `Texture` objects can still use mipmaps.
+
+Run the OpenGL atlas and context regressions with Atlas:
+
+```sh
+FIGDRAW_REQUIRE_GRAPHICS=1 atlas-run tests opengl_atlas -- -d:figdraw.opengl=on
+```
+
+Use an X11 or Wayland session on Linux (`xvfb-run -a` provides X11 in CI).
+The graphics requirement makes setup failures fail the tests instead of skipping.
+
 ### Software OpenGL
 
 Set `FIGDRAW_SOFTWARE_GL=1` before starting an application to request Mesa

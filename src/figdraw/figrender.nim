@@ -47,6 +47,9 @@ type NoRendererBackendState* = object
 type FigRenderer*[BackendState = NoRendererBackendState] = ref object
   ctx*: BackendContext
   backendState*: BackendState
+  contextActivation*: proc(renderer: FigRenderer[BackendState]) {.nimcall.}
+    ## Window shims install a non-capturing context switch for GPU operations.
+    ## Receiving the renderer as an argument avoids an ownership cycle.
   textLcdFilteringDesired: bool
   textSubpixelPositioningDesired: bool
   textSubpixelGlyphVariantsDesired: bool
@@ -66,6 +69,11 @@ proc backendKind*[BackendState](
 
 proc backendName*[BackendState](renderer: FigRenderer[BackendState]): string =
   backendName(renderer.backendKind())
+
+proc activateContext*[BackendState](renderer: FigRenderer[BackendState]) =
+  ## Make the renderer's OpenGL context current before using its GPU resources.
+  if renderer.backendKind() == rbOpenGL and not renderer.contextActivation.isNil:
+    renderer.contextActivation(renderer)
 
 proc atlasUsage*[BackendState](renderer: FigRenderer[BackendState]): AtlasUsage =
   ## Returns current backend atlas usage.
@@ -90,6 +98,7 @@ proc ensureImage*[BackendState](
 ): bool {.discardable.} =
   if image.isNil or renderer.containsImage(id):
     return false
+  renderer.activateContext()
   var imgObj = ImgObj(id: id, kind: PixieImg, pimg: image)
   renderer.ctx.putImage(imgObj)
   renderer.ctx.markImageEntry(id)
@@ -98,6 +107,7 @@ proc ensureImage*[BackendState](
 proc rebuildImageAtlas*[BackendState](
     renderer: FigRenderer[BackendState], minimumSize = 0
 ) =
+  renderer.activateContext()
   renderer.ctx.resetImageAtlas(minimumSize)
 
 proc runtimeTextLcdFilteringRequested*(): bool =
@@ -223,6 +233,7 @@ proc takeScreenshot*[BackendState](
     frame: Rect = rect(0, 0, 0, 0),
     readFront: bool = true,
 ): Image =
+  renderer.activateContext()
   renderer.ctx.readPixels(frame, readFront = readFront)
 
 proc takeOneFrameScreenshot*[BackendState](
@@ -1960,6 +1971,7 @@ proc renderRoot*[Input: RenderInput](
   ctx.publishAtlasUsage()
 
 proc processImageMessages*[BackendState](renderer: FigRenderer[BackendState]) =
+  renderer.activateContext()
   renderer.ctx.processImageMessages()
 
 proc renderFrame*[BackendState; Input: RenderInput](
@@ -1974,6 +1986,7 @@ proc renderFrame*[BackendState; Input: RenderInput](
   let frameSize = frameSize.scaled()
   if frameSize.x <= 0 or frameSize.y <= 0:
     return
+  renderer.activateContext()
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     try:
       renderer.ctx.beginFrame(

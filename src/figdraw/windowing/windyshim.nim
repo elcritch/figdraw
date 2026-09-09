@@ -219,9 +219,14 @@ type WindyRenderBackend* = object
   when UseVulkanBackend and defined(macosx):
     vulkanMetalLayer*: MetalLayerHandle
 
+proc activateRendererContext(renderer: FigRenderer[WindyRenderBackend]) =
+  when NeedWindyOpenGLContext:
+    renderer.backendState.window.makeContextCurrent()
+
 proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a Windy window and FigDraw renderer.
   renderer.backendState.window = window
+  renderer.contextActivation = activateRendererContext
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     if renderer.forceOpenGlByEnv():
       renderer.backendState.window.makeContextCurrent()

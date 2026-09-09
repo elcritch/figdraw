@@ -100,7 +100,7 @@ type OpenGlContext* = ref object of figbackend.BackendContext
   blurPositions: Buffer
   blurUvs: Buffer
 
-proc flush(ctx: OpenGlContext, maskTextureRead: int = ctx.maskTextureWrite)
+proc flush(ctx: OpenGlContext, maskTextureRead: int = -1)
 
 proc toKey*(h: Hash): Hash =
   h
@@ -154,19 +154,35 @@ proc setUpMaskFramebuffer(ctx: OpenGlContext) =
     0,
   )
 
+proc atlasSizeLimit(): int =
+  var deviceLimit: GLint
+  glGetIntegerv(GL_MAX_TEXTURE_SIZE, deviceLimit.addr)
+  min(16_384, deviceLimit.int)
+
+proc checkedAtlasSize(ctx: OpenGlContext, minimumSize: int): int =
+  let limit = atlasSizeLimit()
+  if minimumSize < 0 or minimumSize > limit:
+    raise newException(ValueError, "OpenGL atlas exceeds maximum dimension " & $limit)
+  result = ctx.initialAtlasSize
+  while result < minimumSize:
+    if result > limit div 2:
+      raise newException(ValueError, "OpenGL atlas cannot grow beyond " & $limit)
+    result *= 2
+
 proc createAtlasTexture(ctx: OpenGlContext, size: int): Texture =
   result.width = size.GLint
   result.height = size.GLint
   result.componentType = GL_UNSIGNED_BYTE
   result.format = GL_RGBA
   result.internalFormat = GL_RGBA8
-  result.genMipmap = true
-  result.minFilter = minLinearMipmapLinear
-  if ctx.pixelate:
-    result.magFilter = magNearest
-  else:
-    result.magFilter = magLinear
-  bindTextureData(result.addr, nil)
+  # A shared mip chain eventually overlaps unrelated atlas entries. Like the
+  # other backends, sample the base level and keep padding transparent.
+  result.minFilter = if ctx.pixelate: minNearest else: minLinear
+  result.magFilter = if ctx.pixelate: magNearest else: magLinear
+  result.wrapS = wClampToEdge
+  result.wrapT = wClampToEdge
+  var empty = newSeq[ColorRGBA](size * size)
+  bindTextureData(result.addr, empty[0].addr)
 
 proc addMaskTexture(ctx: OpenGlContext, frameSize = vec2(1, 1)) =
   # Must be >0 for framebuffer creation below
@@ -222,7 +238,9 @@ proc ensureBackdropTexture(ctx: OpenGlContext, frameSize: Vec2) =
   if ctx.backdropTexture.textureId != 0 and ctx.backdropTexture.width.int == w and
       ctx.backdropTexture.height.int == h:
     return
-  ctx.backdropTexture = ctx.createBackdropTexture(w, h)
+  let replacement = ctx.createBackdropTexture(w, h)
+  glDeleteTextures(1, ctx.backdropTexture.textureId.addr)
+  ctx.backdropTexture = replacement
 
 proc ensureBackdropBlurTempTexture(ctx: OpenGlContext, frameSize: Vec2) =
   let
@@ -232,7 +250,9 @@ proc ensureBackdropBlurTempTexture(ctx: OpenGlContext, frameSize: Vec2) =
       ctx.backdropBlurTempTexture.width.int == w and
       ctx.backdropBlurTempTexture.height.int == h:
     return
-  ctx.backdropBlurTempTexture = ctx.createBackdropTexture(w, h)
+  let replacement = ctx.createBackdropTexture(w, h)
+  glDeleteTextures(1, ctx.backdropBlurTempTexture.textureId.addr)
+  ctx.backdropBlurTempTexture = replacement
 
 proc loadGlslEsShaders(ctx: OpenGlContext) =
   ctx.maskShader =
@@ -267,7 +287,10 @@ proc newContext*(
     quadLimit = quadLimit,
     pixelate = pixelate,
     pixelScale = pixelScale
-  if maxQuads > quadLimit:
+  if atlasSize <= 0 or atlasSize > atlasSizeLimit() or atlasMargin < 0 or
+      atlasMargin > atlasSize div 2:
+    raise newException(ValueError, "Invalid OpenGL atlas size or margin")
+  if maxQuads <= 0 or maxQuads > quadLimit:
     raise newException(ValueError, &"Quads cannot exceed {quadLimit}")
 
   result = OpenGlContext()
@@ -534,13 +557,50 @@ proc hash(radii: CornerRadii2D[float32]): Hash =
     result = result !& hash(r)
 
 proc grow(ctx: OpenGlContext) =
-  let nextSize = ctx.atlasSize * 2
-  ctx.resetImageAtlas(nextSize)
-  info "grow atlasSize ", atlasSize = ctx.atlasSize
+  let nextSize = ctx.checkedAtlasSize(ctx.atlasSize + 1)
+  ctx.flush()
+  var nextTexture = ctx.createAtlasTexture(nextSize)
+  let modern = hasModernTransferState()
+  let framebufferTarget = if modern: GL_READ_FRAMEBUFFER else: GL_FRAMEBUFFER
+  let framebufferBinding =
+    if modern: GL_READ_FRAMEBUFFER_BINDING else: GL_FRAMEBUFFER_BINDING
+  var oldFramebuffer: GLint
+  var copyFramebuffer: GLuint
+  glGetIntegerv(framebufferBinding, oldFramebuffer.addr)
+  glGenFramebuffers(1, copyFramebuffer.addr)
+  defer:
+    glBindFramebuffer(framebufferTarget, oldFramebuffer.GLuint)
+    glDeleteFramebuffers(1, copyFramebuffer.addr)
+  glBindFramebuffer(framebufferTarget, copyFramebuffer)
+  glFramebufferTexture2D(
+    framebufferTarget, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ctx.atlasTexture.textureId,
+    0,
+  )
+  if modern:
+    glReadBuffer(GL_COLOR_ATTACHMENT0)
+  if glCheckFramebufferStatus(framebufferTarget) != GL_FRAMEBUFFER_COMPLETE:
+    glDeleteTextures(1, nextTexture.textureId.addr)
+    raise newException(ValueError, "Cannot copy the OpenGL atlas during growth")
+  glBindTexture(GL_TEXTURE_2D, nextTexture.textureId)
+  glCopyTexSubImage2D(
+    GL_TEXTURE_2D, 0, 0, 0, 0, 0, ctx.atlasSize.GLsizei, ctx.atlasSize.GLsizei
+  )
+  glDeleteTextures(1, ctx.atlasTexture.textureId.addr)
+  let ratio = ctx.atlasSize.float32 / nextSize.float32
+  ctx.atlasTexture = nextTexture
+  ctx.atlasSize = nextSize
+  ctx.heights.setLen(nextSize)
+  for bounds in ctx.entries.mvalues:
+    bounds = bounds * ratio
+  ctx.noteAtlasRebuilt()
+  info "grow atlasSize", atlasSize = ctx.atlasSize
 
 proc findEmptyRect(ctx: OpenGlContext, width, height: int): Rect =
-  var imgWidth = width + ctx.atlasMargin * 2
-  var imgHeight = height + ctx.atlasMargin * 2
+  let limit = atlasSizeLimit() - ctx.atlasMargin * 2
+  if width <= 0 or height <= 0 or width > limit or height > limit:
+    raise newException(ValueError, "Image does not fit within the OpenGL atlas limit")
+  let imgWidth = width + ctx.atlasMargin * 2
+  let imgHeight = height + ctx.atlasMargin * 2
 
   var lowest = ctx.atlasSize
   var at = 0
@@ -549,7 +609,7 @@ proc findEmptyRect(ctx: OpenGlContext, width, height: int): Rect =
     if v < lowest:
       # found low point, is it consecutive?
       var fit = true
-      for j in 0 .. imgWidth:
+      for j in 0 ..< imgWidth:
         if i + j >= ctx.atlasSize:
           fit = false
           break
@@ -567,7 +627,7 @@ proc findEmptyRect(ctx: OpenGlContext, width, height: int): Rect =
     return ctx.findEmptyRect(width, height)
 
   for j in at .. at + imgWidth - 1:
-    ctx.heights[j] = uint16(lowest + imgHeight + ctx.atlasMargin * 2)
+    ctx.heights[j] = uint16(lowest + imgHeight)
 
   var rect = rect(
     float32(at + ctx.atlasMargin),
@@ -578,12 +638,25 @@ proc findEmptyRect(ctx: OpenGlContext, width, height: int): Rect =
 
   return rect
 
+proc uploadAtlasImage(ctx: OpenGlContext, x, y: int, image: Image) =
+  if ctx.atlasMargin == 0:
+    updateSubImage(ctx.atlasTexture, x, y, image)
+  else:
+    # Emulate clamp-to-edge for each atlas entry under bilinear filtering.
+    let padded = newImage(image.width + 2, image.height + 2)
+    for row in 0 ..< padded.height:
+      for col in 0 ..< padded.width:
+        padded[col, row] =
+          image[clamp(col - 1, 0, image.width - 1), clamp(row - 1, 0, image.height - 1)]
+    updateSubImage(ctx.atlasTexture, x - 1, y - 1, padded)
+
 method putImage*(ctx: OpenGlContext, path: Hash, image: Image) =
-  # Reminder: This does not set mipmaps (used for text, should it?)
+  if image.isNil:
+    raise newException(ValueError, "Cannot upload a nil image")
   let rect = ctx.findEmptyRect(image.width, image.height)
   ctx.entries[path] = rect / float(ctx.atlasSize)
   ctx.markGeneratedEntry(path)
-  updateSubImage(ctx.atlasTexture, int(rect.x), int(rect.y), image)
+  ctx.uploadAtlasImage(int(rect.x), int(rect.y), image)
 
 method addImage*(ctx: OpenGlContext, key: Hash, image: Image) =
   ctx.putImage(key, image)
@@ -594,13 +667,12 @@ method updateImage*(ctx: OpenGlContext, path: Hash, image: Image) =
   ## * Must be the same size.
   ## * This does not set mipmaps.
   let rect = ctx.entries[path]
-  assert rect.w == image.width.float / float(ctx.atlasSize)
-  assert rect.h == image.height.float / float(ctx.atlasSize)
-  updateSubImage(
-    ctx.atlasTexture,
-    int(rect.x * ctx.atlasSize.float),
-    int(rect.y * ctx.atlasSize.float),
-    image,
+  if image.isNil or rect.w != image.width.float / float(ctx.atlasSize) or
+      rect.h != image.height.float / float(ctx.atlasSize):
+    raise newException(ValueError, "Atlas updates must keep the original image size")
+  ctx.flush()
+  ctx.uploadAtlasImage(
+    int(rect.x * ctx.atlasSize.float), int(rect.y * ctx.atlasSize.float), image
   )
 
 proc logFlippy(flippy: Flippy, file: string) =
@@ -608,16 +680,10 @@ proc logFlippy(flippy: Flippy, file: string) =
     fwidth = $flippy.width, fheight = $flippy.height, flippyPath = file
 
 proc putFlippy*(ctx: OpenGlContext, path: Hash, flippy: Flippy) =
+  if flippy.mipmaps.len == 0:
+    raise newException(ValueError, "Cannot upload an empty Flippy image")
   logFlippy(flippy, $path)
-  let rect = ctx.findEmptyRect(flippy.width, flippy.height)
-  ctx.entries[path] = rect / float(ctx.atlasSize)
-  var
-    x = int(rect.x)
-    y = int(rect.y)
-  for level, mip in flippy.mipmaps:
-    updateSubImage(ctx.atlasTexture, x, y, mip, level)
-    x = x div 2
-    y = y div 2
+  ctx.putImage(path, flippy.mipmaps[0])
 
 method putImage*(ctx: OpenGlContext, imgObj: ImgObj) =
   ## puts an ImgObj wrapper with either a flippy or image format
@@ -632,19 +698,29 @@ method clearImageAtlas*(ctx: OpenGlContext) =
   ctx.resetImageAtlas(ctx.initialAtlasSize)
 
 method resetImageAtlas*(ctx: OpenGlContext, minimumSize: int) =
+  let nextSize = ctx.checkedAtlasSize(minimumSize)
   ctx.flush()
-  ctx.atlasSize = plannedAtlasSize(ctx.initialAtlasSize, minimumSize)
+  let nextTexture = ctx.createAtlasTexture(nextSize)
+  glDeleteTextures(1, ctx.atlasTexture.textureId.addr)
+  ctx.atlasSize = nextSize
   ctx.entries.clear()
   ctx.atlasEntryMeta.clear()
   ctx.heights = newSeq[uint16](ctx.atlasSize)
-  ctx.atlasTexture = ctx.createAtlasTexture(ctx.atlasSize)
+  ctx.atlasTexture = nextTexture
   ctx.noteAtlasRebuilt()
 
-proc flush(ctx: OpenGlContext, maskTextureRead: int = ctx.maskTextureWrite) =
+proc flush(ctx: OpenGlContext, maskTextureRead: int = -1) =
   ## Flips - draws current buffer and starts a new one.
   if ctx.quadCount == 0:
     return
 
+  let maskTextureRead =
+    if maskTextureRead >= 0:
+      maskTextureRead
+    elif ctx.maskBegun:
+      ctx.maskTextureWrite - 1
+    else:
+      ctx.maskTextureWrite
   let useRectMaskShader = not ctx.maskBegun and ctx.batchHasRectMask
   ctx.activeShader =
     if ctx.maskBegun:
@@ -1589,9 +1665,7 @@ method drawRoundedRectSdf*(
     shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
 ) =
   if fill.kind == figbackend.bfLinear3 and
-      mode in {
-        sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA,
-      }:
+      mode in {sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA}:
     ctx.drawRoundedRectSdfOpenGl(
       rect = rect,
       colors = [fill.lin3Start, fill.lin3Start, fill.lin3Start, fill.lin3Start],
@@ -2083,6 +2157,17 @@ method beginFrame*(
     clearMain = false,
     clearMainColor: Color = whiteColor,
 ) =
+  glBindFramebuffer(GL_FRAMEBUFFER, 0)
+  glDisable(GL_SCISSOR_TEST)
+  glDisable(GL_DEPTH_TEST)
+  glDisable(GL_CULL_FACE)
+  glDisable(GL_STENCIL_TEST)
+  glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
+  glEnable(GL_BLEND)
+  glBlendEquation(GL_FUNC_ADD)
+  glBlendFuncSeparate(
+    GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA
+  )
   if clearMain:
     glClearColor(
       clearMainColor.r.GLfloat, clearMainColor.g.GLfloat, clearMainColor.b.GLfloat,
@@ -2124,9 +2209,10 @@ method readPixels*(ctx: OpenGlContext, frame: Rect, readFront: bool): Image =
     # GLES/EGL paths can reject glReadBuffer; read from default color buffer.
     canSelectReadBuffer = false
   result = newImage(w, h)
-  glReadPixels(
-    x.GLint, y.GLint, w.GLint, h.GLint, GL_RGBA, GL_UNSIGNED_BYTE, result.data[0].addr
-  )
+  withClientPixels(false):
+    glReadPixels(
+      x.GLint, y.GLint, w.GLint, h.GLint, GL_RGBA, GL_UNSIGNED_BYTE, result.data[0].addr
+    )
   result.flipVertical()
   if canSelectReadBuffer:
     try:
