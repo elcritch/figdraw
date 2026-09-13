@@ -2,9 +2,12 @@
 
 ## 0.39.0
 
-- Store static `GlyphArrangement` source and display text as UTF-8 with sparse
-  rune indexes, reducing retained text-layout memory while preserving indexed
-  rune access plus compatibility with sequence literals and `seq[Rune]` APIs.
+- Store `GlyphArrangement` source and display text as UTF-8 with sparse rune
+  indexes in both static and native dynamic-library builds, reducing retained
+  text-layout memory while preserving indexed rune access plus compatibility
+  with sequence literals and `seq[Rune]` APIs.
+- Expose explicit generated native operations for indexing, slicing, iteration,
+  and compatibility conversions.
 
 ## 0.37.4
 

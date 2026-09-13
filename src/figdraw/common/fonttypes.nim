@@ -98,23 +98,20 @@ type
     imageOffset*: Vec2 ## Offset from baseline top-left to the raster image origin.
     rect*: Rect
 
-when defined(figdrawNativeDynlib):
-  type ArrangementRunes = seq[Rune]
-else:
-  type
-    Utf8Runes* = ref object
-      ## UTF-8 text with rune indexing backed by sparse byte checkpoints.
-      ##
-      ## Layout code keeps positions in runes, but storing a UTF-32-sized value
-      ## for every source or display rune wastes substantial memory for ordinary
-      ## document text. Checkpoints bound indexed reads without retaining a
-      ## decoded copy of the full string. The immutable buffer is reference
-      ## backed so a `GlyphArrangement` stays compact enough for a `Fig` node.
-      text: string
-      runeLength: uint32
-      runeByteOffsets: seq[uint32]
+type
+  Utf8Runes* = ref object
+    ## UTF-8 text with rune indexing backed by sparse byte checkpoints.
+    ##
+    ## Layout code keeps positions in runes, but storing a UTF-32-sized value
+    ## for every source or display rune wastes substantial memory for ordinary
+    ## document text. Checkpoints bound indexed reads without retaining a
+    ## decoded copy of the full string. The immutable buffer is reference
+    ## backed so a `GlyphArrangement` stays compact enough for a `Fig` node.
+    text: string
+    runeLength: uint32
+    runeByteOffsets: seq[uint32]
 
-    ArrangementRunes = Utf8Runes
+  ArrangementRunes = Utf8Runes
 
 type
   GlyphArrangement* = object
@@ -123,10 +120,9 @@ type
     spans*: seq[Slice[int]] ## The (start, stop) of the spans in the text.
     fonts*: seq[GlyphFont] ## The font for each span.
     spanColors*: seq[Fill] ## The fill for each span.
-    sourceRunes*: ArrangementRunes ## Source runes for glyph source ranges.
+    sourceRunes*: Utf8Runes ## Source runes for glyph source ranges.
     arrangedGlyphs*: seq[ArrangedGlyph] ## Glyph-id-first placement data.
-    runes*: ArrangementRunes
-      ## Display runes, one for each visual glyph where applicable.
+    runes*: Utf8Runes ## Display runes, one for each visual glyph where applicable.
     positions*: seq[Vec2] ## The positions of the glyphs for each rune.
     selectionRects*: seq[Rect] ## The selection rects for each glyph.
     maxSize*: Vec2
@@ -156,153 +152,146 @@ const figdrawTextBackend* {.strdefine.} =
 static:
   doAssert figdrawTextBackend in ["pixie", "harfbuzzy", "hybrid"]
 
-when not defined(figdrawNativeDynlib):
-  func utf8RuneWidth(text: string, byteOffset: int): int {.inline.} =
-    if byteOffset < 0 or byteOffset >= text.len:
-      return 0
-    min(max(runeLenAt(text, byteOffset), 1), text.len - byteOffset)
+func utf8RuneWidth(text: string, byteOffset: int): int {.inline.} =
+  if byteOffset < 0 or byteOffset >= text.len:
+    return 0
+  min(max(runeLenAt(text, byteOffset), 1), text.len - byteOffset)
 
-  proc rebuildRuneIndex(runes: Utf8Runes) =
-    if uint64(runes.text.len) > uint64(high(uint32)):
-      raise newException(ValueError, "UTF-8 rune storage exceeds 4 GiB")
-    runes.runeByteOffsets = @[0'u32]
-    var byteOffset = 0
-    while byteOffset < runes.text.len:
-      byteOffset += runes.text.utf8RuneWidth(byteOffset)
-      inc runes.runeLength
-      if runes.runeLength mod uint32(Utf8RuneIndexStride) == 0:
-        runes.runeByteOffsets.add uint32(byteOffset)
+proc rebuildRuneIndex(runes: Utf8Runes) =
+  if uint64(runes.text.len) > uint64(high(uint32)):
+    raise newException(ValueError, "UTF-8 rune storage exceeds 4 GiB")
+  runes.runeByteOffsets = @[0'u32]
+  var byteOffset = 0
+  while byteOffset < runes.text.len:
+    byteOffset += runes.text.utf8RuneWidth(byteOffset)
+    inc runes.runeLength
+    if runes.runeLength mod uint32(Utf8RuneIndexStride) == 0:
+      runes.runeByteOffsets.add uint32(byteOffset)
 
-  proc initUtf8Runes*(text: sink string): Utf8Runes =
-    ## Stores UTF-8 text while retaining efficient rune indexing.
-    new result
-    result.text = text
-    result.rebuildRuneIndex()
+proc initUtf8Runes*(text: sink string): Utf8Runes =
+  ## Stores UTF-8 text while retaining efficient rune indexing.
+  new result
+  result.text = text
+  result.rebuildRuneIndex()
 
-  proc initUtf8Runes*(runes: openArray[Rune]): Utf8Runes =
-    ## Converts decoded runes to compact UTF-8 storage.
-    new result
-    result.text = newStringOfCap(runes.len)
-    for rune in runes:
-      result.text.add rune
-    result.rebuildRuneIndex()
+proc initUtf8Runes*(runes: openArray[Rune]): Utf8Runes =
+  ## Converts decoded runes to compact UTF-8 storage.
+  new result
+  result.text = newStringOfCap(runes.len)
+  for rune in runes:
+    result.text.add rune
+  result.rebuildRuneIndex()
 
-  converter toUtf8Runes*(runes: seq[Rune]): Utf8Runes =
-    ## Allows existing `GlyphArrangement` literals to keep accepting rune sequences.
-    initUtf8Runes(runes)
+converter toUtf8Runes*(runes: seq[Rune]): Utf8Runes =
+  ## Allows existing `GlyphArrangement` literals to keep accepting rune sequences.
+  initUtf8Runes(runes)
 
-  func len*(runes: Utf8Runes): int {.inline.} =
-    if runes.isNil:
-      0
-    else:
-      int(runes.runeLength)
+func len*(runes: Utf8Runes): int {.inline.} =
+  if runes.isNil:
+    0
+  else:
+    int(runes.runeLength)
 
-  func isEmpty*(runes: Utf8Runes): bool {.inline.} =
-    runes.len == 0
+func isEmpty*(runes: Utf8Runes): bool {.inline.} =
+  runes.len == 0
 
-  func stringValue*(runes: Utf8Runes): string {.inline.} =
-    ## Returns the UTF-8 representation.
-    if runes.isNil: "" else: runes.text
+func stringValue*(runes: Utf8Runes): string {.inline.} =
+  ## Returns the UTF-8 representation.
+  if runes.isNil: "" else: runes.text
 
-  proc toRunes*(runes: Utf8Runes): seq[Rune] =
-    ## Materializes decoded runes for APIs that specifically require a sequence.
-    runes.stringValue().toRunes()
+proc toRunes*(runes: Utf8Runes): seq[Rune] =
+  ## Materializes decoded runes for APIs that specifically require a sequence.
+  runes.stringValue().toRunes()
 
-  converter toRuneSequence*(runes: Utf8Runes): seq[Rune] =
-    ## Preserves compatibility with APIs that require `seq[Rune]`.
-    runes.toRunes()
+converter toRuneSequence*(runes: Utf8Runes): seq[Rune] =
+  ## Preserves compatibility with APIs that require `seq[Rune]`.
+  runes.toRunes()
 
-  proc copyUtf8Runes*(runes: Utf8Runes): Utf8Runes =
-    ## Returns an independent copy suitable for cross-thread ownership transfer.
-    if runes.isNil:
-      return
-    new result
-    result.text = newStringOfCap(runes.text.len)
-    result.text.add runes.text
-    result.runeLength = runes.runeLength
-    result.runeByteOffsets = newSeq[uint32](runes.runeByteOffsets.len)
-    for index, byteOffset in runes.runeByteOffsets:
-      result.runeByteOffsets[index] = byteOffset
+proc copyUtf8Runes*(runes: Utf8Runes): Utf8Runes =
+  ## Returns an independent copy suitable for cross-thread ownership transfer.
+  if runes.isNil:
+    return
+  new result
+  result.text = newStringOfCap(runes.text.len)
+  result.text.add runes.text
+  result.runeLength = runes.runeLength
+  result.runeByteOffsets = newSeq[uint32](runes.runeByteOffsets.len)
+  for index, byteOffset in runes.runeByteOffsets:
+    result.runeByteOffsets[index] = byteOffset
 
-  proc byteOffsetForRune(runes: Utf8Runes, index: int): int =
-    if index < 0 or index > runes.len:
-      raise newException(IndexDefect, "UTF-8 rune index out of bounds")
-    if runes.len == 0:
-      return 0
+proc byteOffsetForRune(runes: Utf8Runes, index: int): int =
+  if index < 0 or index > runes.len:
+    raise newException(IndexDefect, "UTF-8 rune index out of bounds")
+  if runes.len == 0:
+    return 0
 
-    let checkpoint = index div Utf8RuneIndexStride
-    var
-      runeIndex = checkpoint * Utf8RuneIndexStride
-      byteOffset = int(runes.runeByteOffsets[checkpoint])
-    while runeIndex < index:
-      byteOffset += runes.text.utf8RuneWidth(byteOffset)
-      inc runeIndex
-    byteOffset
+  let checkpoint = index div Utf8RuneIndexStride
+  var
+    runeIndex = checkpoint * Utf8RuneIndexStride
+    byteOffset = int(runes.runeByteOffsets[checkpoint])
+  while runeIndex < index:
+    byteOffset += runes.text.utf8RuneWidth(byteOffset)
+    inc runeIndex
+  byteOffset
 
-  proc `[]`*(runes: Utf8Runes, index: int): Rune =
-    if index < 0 or index >= runes.len:
-      raise newException(IndexDefect, "UTF-8 rune index out of bounds")
-    let byteOffset = runes.byteOffsetForRune(index)
-    runes.text.runeAt(byteOffset)
+proc `[]`*(runes: Utf8Runes, index: int): Rune =
+  if index < 0 or index >= runes.len:
+    raise newException(IndexDefect, "UTF-8 rune index out of bounds")
+  let byteOffset = runes.byteOffsetForRune(index)
+  runes.text.runeAt(byteOffset)
 
-  proc `[]`*(runes: Utf8Runes, slice: Slice[int]): Utf8Runes =
-    let
-      start = max(0, min(slice.a, runes.len))
-      requestedStop =
-        if slice.b == high(int):
-          runes.len
-        else:
-          slice.b + 1
-      stop = max(start, min(requestedStop, runes.len))
-      startByte = runes.byteOffsetForRune(start)
-      stopByte = runes.byteOffsetForRune(stop)
-    if startByte == stopByte:
-      return initUtf8Runes("")
-    initUtf8Runes(runes.text[startByte ..< stopByte])
+proc `[]`*(runes: Utf8Runes, slice: Slice[int]): Utf8Runes =
+  let
+    start = max(0, min(slice.a, runes.len))
+    requestedStop =
+      if slice.b == high(int):
+        runes.len
+      else:
+        slice.b + 1
+    stop = max(start, min(requestedStop, runes.len))
+    startByte = runes.byteOffsetForRune(start)
+    stopByte = runes.byteOffsetForRune(stop)
+  if startByte == stopByte:
+    return initUtf8Runes("")
+  initUtf8Runes(runes.text[startByte ..< stopByte])
 
-  iterator items*(runes: Utf8Runes): Rune =
-    ## Iterates decoded runes without materializing a `seq[Rune]`.
-    if not runes.isNil:
-      for rune in runes.text.runes:
-        yield rune
+iterator items*(runes: Utf8Runes): Rune =
+  ## Iterates decoded runes without materializing a `seq[Rune]`.
+  if not runes.isNil:
+    for rune in runes.text.runes:
+      yield rune
 
-  iterator pairs*(runes: Utf8Runes): tuple[index: int, value: Rune] =
-    var index = 0
-    if not runes.isNil:
-      for rune in runes.text.runes:
-        yield (index, rune)
-        inc index
+iterator pairs*(runes: Utf8Runes): tuple[index: int, value: Rune] =
+  var index = 0
+  if not runes.isNil:
+    for rune in runes.text.runes:
+      yield (index, rune)
+      inc index
 
-  func `==`*(a, b: Utf8Runes): bool {.inline.} =
-    if a.isNil or b.isNil:
-      a.len == b.len
-    else:
-      a.text == b.text
+func `==`*(a, b: Utf8Runes): bool {.inline.} =
+  if a.isNil or b.isNil:
+    a.len == b.len
+  else:
+    a.text == b.text
 
-  func `==`*(a: Utf8Runes, b: openArray[Rune]): bool =
-    if a.len != b.len:
+func `==`*(a: Utf8Runes, b: openArray[Rune]): bool =
+  if a.len != b.len:
+    return false
+  for index, rune in b:
+    if a[index] != rune:
       return false
-    for index, rune in b:
-      if a[index] != rune:
-        return false
-    true
+  true
 
-  func `==`*(a: openArray[Rune], b: Utf8Runes): bool =
-    b == a
+func `==`*(a: openArray[Rune], b: Utf8Runes): bool =
+  b == a
 
 proc initArrangementRunes*(text: sink string): ArrangementRunes =
   ## Creates storage suitable for `GlyphArrangement` rune fields.
-  when defined(figdrawNativeDynlib):
-    text.toRunes()
-  else:
-    initUtf8Runes(text)
+  initUtf8Runes(text)
 
 proc initArrangementRunes*(runes: openArray[Rune]): ArrangementRunes =
   ## Creates storage suitable for `GlyphArrangement` rune fields.
-  when defined(figdrawNativeDynlib):
-    @runes
-  else:
-    initUtf8Runes(runes)
+  initUtf8Runes(runes)
 
 func textBackend*(): string =
   ## Text backend compiled into FigDraw.
