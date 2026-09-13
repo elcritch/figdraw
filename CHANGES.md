@@ -1,6 +1,6 @@
 # Changes
 
-## 0.38.0
+## 0.39.0
 
 - Store static `GlyphArrangement` source and display text as UTF-8 with sparse
   rune indexes, reducing retained text-layout memory while preserving indexed
