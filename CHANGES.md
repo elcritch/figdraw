@@ -1,5 +1,11 @@
 # Changes
 
+## 0.38.0
+
+- Store static `GlyphArrangement` source and display text as UTF-8 with sparse
+  rune indexes, reducing retained text-layout memory while preserving indexed
+  rune access plus compatibility with sequence literals and `seq[Rune]` APIs.
+
 ## 0.37.4
 
 - Transform Vulkan content-clip bounds into framebuffer coordinates so translated
