@@ -261,11 +261,11 @@ proc convertArrangement*(
     spans: spanSlices,
     fonts: gfonts,
     spanColors: uiSpans.mapIt(it[0].color),
-    sourceRunes: arrangement.runes,
+    sourceRunes: initArrangementRunes(arrangement.runes),
     arrangedGlyphs: buildArrangedGlyphs(
       arrangement.runes, arrangement.positions, selectionRects, spanSlices, gfonts
     ),
-    runes: arrangement.runes,
+    runes: initArrangementRunes(arrangement.runes),
     positions: arrangement.positions,
     selectionRects: selectionRects,
   )

@@ -160,6 +160,45 @@ suite "fontutils":
     resetFontState()
     setFigDataDir(getCurrentDir() / "data")
 
+  test "UTF-8 rune storage preserves sparse indexed access and iteration":
+    var source = newStringOfCap(900)
+    for index in 0 ..< 300:
+      source.add(
+        if index mod 3 == 0:
+          Rune(0x1f642)
+        else:
+          Rune(0x3b1)
+      )
+
+    let runes = initUtf8Runes(source)
+    check runes.len == 300
+    check runes.stringValue() == source
+    check runes[0] == Rune(0x1f642)
+    check runes[255] == Rune(0x1f642)
+    check runes[256] == Rune(0x3b1)
+    check runes[299] == Rune(0x3b1)
+    check runes[254 .. 257].stringValue() == "α🙂αα"
+
+    var iterated = 0
+    for index, rune in runes:
+      check rune == runes[index]
+      inc iterated
+    check iterated == runes.len
+    let sourceRunes = source.toRunes()
+    let converted: Utf8Runes = sourceRunes
+    let arrangement = GlyphArrangement(sourceRunes: sourceRunes, runes: sourceRunes)
+    let materialized: seq[Rune] = runes
+    proc legacyRuneCount(values: seq[Rune]): int =
+      values.len
+
+    check runes == sourceRunes
+    check sourceRunes == runes
+    check converted == sourceRunes
+    check arrangement.sourceRunes == sourceRunes
+    check arrangement.runes == sourceRunes
+    check materialized == sourceRunes
+    check legacyRuneCount(runes) == runes.len
+
   test "load typeface from buffer":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let id1 = loadTypeface("Ubuntu.ttf", fontData, TTF)

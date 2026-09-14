@@ -145,6 +145,8 @@ proc placeGlyphs*(
   var
     contentHash = Hash(0)
     byteOffset = 0
+    sourceText = newStringOfCap(glyphs.len)
+    glyphText = newStringOfCap(glyphs.len)
 
   for glyphIndex, (rune, pos) in glyphs:
     let resolved =
@@ -175,7 +177,7 @@ proc placeGlyphs*(
     else:
       result.spans[^1].b = glyphIndex
 
-    result.sourceRunes.add rune
+    sourceText.add rune
     result.arrangedGlyphs.add ArrangedGlyph(
       fontId: resolved.glyphFont.fontId,
       glyphId: resolved.glyphId,
@@ -194,7 +196,7 @@ proc placeGlyphs*(
       imageOffset: resolved.imageOffset,
       rect: selection,
     )
-    result.runes.add rune
+    glyphText.add rune
     result.positions.add baselinePos
     result.selectionRects.add selection
     byteOffset += runeByteLength
@@ -214,6 +216,8 @@ proc placeGlyphs*(
         )
       )
 
+  result.sourceRunes = initArrangementRunes(sourceText)
+  result.runes = initArrangementRunes(glyphText)
   result.lines = @[0 .. glyphs.len - 1]
   result.contentHash = !$contentHash
 

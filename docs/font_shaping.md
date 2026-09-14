@@ -60,7 +60,12 @@ Important fields:
 - `ArrangedGlyph.rune`: Cheap representative source rune. This is useful for
   compatibility and debugging, but callers must not treat it as a one-to-one
   source mapping.
-- `GlyphArrangement.sourceRunes`: Decoded source text for range-aware callers.
+- `GlyphArrangement.sourceRunes`: UTF-8-backed source text with indexed rune
+  access for range-aware callers. Static and native dynamic-library builds
+  expose `len`, indexing, slicing, and `items`/`pairs`; `seq[Rune]` literals
+  convert automatically, and legacy APIs typed exactly as `seq[Rune]` receive
+  an on-demand materialized sequence. Call `toRunes()` explicitly for
+  `openArray[Rune]` APIs or when the allocation should be visible.
 
 `FigFont` carries shaping controls in backend-neutral terms:
 

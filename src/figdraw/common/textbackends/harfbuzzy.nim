@@ -719,6 +719,7 @@ proc appendEmptyLineGlyph(
     glyphFont: GlyphFont,
     color: Fill,
     safeBreakAfter: var seq[bool],
+    glyphText: var string,
 ) =
   let source = decoded.sourceInsertionForDisplayByte(displayByteOffset)
   arrangement.addGlyphSpan(glyphFont, color)
@@ -730,7 +731,7 @@ proc appendEmptyLineGlyph(
     pos: vec2(0, glyphFont.descentAdj),
     rect: rect(0, 0, 0, glyphFont.lineHeight),
   )
-  arrangement.runes.add Rune(0)
+  glyphText.add Rune(0)
   arrangement.positions.add vec2(0, glyphFont.descentAdj)
   arrangement.selectionRects.add rect(0, 0, 0, glyphFont.lineHeight)
   safeBreakAfter.add true
@@ -741,6 +742,7 @@ proc appendShapedGroup(
     group: ShapedGroup,
     pen: var Vec2,
     safeBreakAfter: var seq[bool],
+    glyphText: var string,
 ) =
   let
     groupText = group.text()
@@ -795,7 +797,7 @@ proc appendShapedGroup(
         imageOffset: imageOffset,
         rect: selection,
       )
-      arrangement.runes.add rune
+      glyphText.add rune
       arrangement.positions.add pos
       arrangement.selectionRects.add selection
       let nextGlyphUnsafeToBreak =
@@ -831,11 +833,13 @@ proc typeset*(
       h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign, minContent, wrap)
       h = h !& hash(figUiScale())
       !$h,
-    sourceRunes: decoded.runes,
+    sourceRunes: initArrangementRunes(decoded.runes),
   )
 
   let paragraphs = splitParagraphs(shapedSpans)
-  var pen = vec2(0, 0)
+  var
+    pen = vec2(0, 0)
+    glyphText = newStringOfCap(decoded.runes.len)
   var safeBreakAfter: seq[bool]
   var resolvedFonts: seq[FigFont]
   for paragraph in paragraphs:
@@ -850,19 +854,20 @@ proc typeset*(
         let baseline = groupGlyphFont.descentAdj
         if result.arrangedGlyphs.len == 0:
           pen.y = baseline
-        result.appendShapedGroup(decoded, group, pen, safeBreakAfter)
+        result.appendShapedGroup(decoded, group, pen, safeBreakAfter, glyphText)
 
     if result.arrangedGlyphs.len == glyphStart and paragraphs.len > 1 and
         paragraph.hasLineStyle:
       let emptyLineFont = glyphFontFor(paragraph.lineStyle.font).glyph
       result.appendEmptyLineGlyph(
         decoded, paragraph.byteStart, emptyLineFont, paragraph.lineStyle.color,
-        safeBreakAfter,
+        safeBreakAfter, glyphText,
       )
 
     let glyphStop = result.arrangedGlyphs.len - 1
     result.addParagraphLines(glyphStart .. glyphStop, box.w, safeBreakAfter, wrap)
 
+  result.runes = initArrangementRunes(glyphText)
   if wrap or paragraphs.len > 1 or result.arrangedGlyphs.len == 0:
     result.reflowLines()
 

@@ -346,6 +346,65 @@ converter toNativeRune*(value: unicode.Rune): figdraw_native_abi.Rune {.inline.}
 converter toRune*(value: figdraw_native_abi.Rune): unicode.Rune {.inline.} =
   cast[unicode.Rune](value)
 
+func len*(runes: figdraw_native_abi.Utf8Runes): int {.inline.} =
+  figdraw_native_abi.utf8RunesLength(runes)
+
+func isEmpty*(runes: figdraw_native_abi.Utf8Runes): bool {.inline.} =
+  runes.len == 0
+
+func stringValue*(runes: figdraw_native_abi.Utf8Runes): string {.inline.} =
+  figdraw_native_abi.utf8RunesText(runes)
+
+proc toRunes*(runes: figdraw_native_abi.Utf8Runes): seq[unicode.Rune] =
+  let nativeRunes = figdraw_native_abi.utf8RunesToRunes(runes)
+  result = newSeqOfCap[unicode.Rune](nativeRunes.len)
+  for rune in nativeRunes:
+    result.add rune.toRune()
+
+converter toRuneSequence*(runes: figdraw_native_abi.Utf8Runes): seq[unicode.Rune] =
+  runes.toRunes()
+
+converter toUtf8Runes*(runes: seq[unicode.Rune]): figdraw_native_abi.Utf8Runes =
+  var nativeRunes = newSeqOfCap[figdraw_native_abi.Rune](runes.len)
+  for rune in runes:
+    nativeRunes.add rune.toNativeRune()
+  figdraw_native_abi.utf8RunesFromRunes(nativeRunes)
+
+proc copyUtf8Runes*(runes: figdraw_native_abi.Utf8Runes): figdraw_native_abi.Utf8Runes =
+  figdraw_native_abi.copyUtf8RuneStorage(runes)
+
+proc `[]`*(runes: figdraw_native_abi.Utf8Runes, index: int): unicode.Rune =
+  figdraw_native_abi.utf8RuneAt(runes, index).toRune()
+
+proc `[]`*(
+    runes: figdraw_native_abi.Utf8Runes, slice: Slice[int]
+): figdraw_native_abi.Utf8Runes =
+  figdraw_native_abi.utf8RunesSlice(runes, slice)
+
+iterator items*(runes: figdraw_native_abi.Utf8Runes): unicode.Rune =
+  for rune in figdraw_native_abi.utf8RunesText(runes).runes:
+    yield rune
+
+iterator pairs*(
+    runes: figdraw_native_abi.Utf8Runes
+): tuple[index: int, value: unicode.Rune] =
+  var index = 0
+  for rune in figdraw_native_abi.utf8RunesText(runes).runes:
+    yield (index, rune)
+    inc index
+
+func `==`*(a, b: figdraw_native_abi.Utf8Runes): bool {.inline.} =
+  figdraw_native_abi.utf8RunesEqual(a, b)
+
+func `==`*(a: figdraw_native_abi.Utf8Runes, b: openArray[unicode.Rune]): bool =
+  var nativeRunes = newSeqOfCap[figdraw_native_abi.Rune](b.len)
+  for rune in b:
+    nativeRunes.add rune.toNativeRune()
+  figdraw_native_abi.utf8RunesEqualRunes(a, nativeRunes)
+
+func `==`*(a: openArray[unicode.Rune], b: figdraw_native_abi.Utf8Runes): bool =
+  b == a
+
 converter toNativeSelectionRange*(
     value: Slice[int16]
 ): figdraw_native_abi.FigSelectionRange {.inline.} =

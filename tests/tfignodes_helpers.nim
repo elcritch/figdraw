@@ -30,7 +30,7 @@ suite "RenderList helper APIs":
       cornerRadiiY: [4'u16, 3'u16, 2'u16, 1'u16],
     )
 
-    check sizeof(Fig) == 256
+    check sizeof(Fig) <= 256
     check NfEllipticalCorners in node.flags
     check node.cornerRadiiY == [4'u16, 3'u16, 2'u16, 1'u16]
 

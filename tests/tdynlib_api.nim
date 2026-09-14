@@ -1,4 +1,4 @@
-import std/unittest
+import std/[unittest, unicode]
 
 when defined(useNativeDynlib):
   import figdraw/dynlib
@@ -45,6 +45,23 @@ suite "native dynlib API":
       check blur.regions == @[region]
       check material.kind == wbkMaterial
       check material.material == wbmSidebar
+
+    test "keeps UTF-8 rune storage through the native facade":
+      let
+        source = "A λ 😀"
+        sourceRunes = source.toRunes()
+        storage: Utf8Runes = sourceRunes
+
+      check storage.len == sourceRunes.len
+      check storage[1] == sourceRunes[1]
+      check storage[2 .. 4].stringValue() == "λ 😀"
+      check storage.stringValue() == source
+      check storage.toRunes() == sourceRunes
+      check storage == sourceRunes
+
+      let arrangement = GlyphArrangement(sourceRunes: sourceRunes, runes: sourceRunes)
+      check arrangement.sourceRunes.len == sourceRunes.len
+      check arrangement.runes.stringValue() == source
 
     test "exposes the NimKit Siwin window surface":
       doAssert compiles(
