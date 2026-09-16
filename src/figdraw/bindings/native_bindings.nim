@@ -124,15 +124,22 @@ proc utf8RunesSlice*(
   ## Returns a UTF-8-backed slice by logical rune range.
   runes[slice]
 
+proc utf8RunesFromText*(text: string): fonttypes.Utf8Runes =
+  ## Creates UTF-8-backed storage without passing a managed rune sequence.
+  var ownedText = newString(text.len)
+  if text.len > 0:
+    copyMem(ownedText[0].addr, text[0].unsafeAddr, text.len)
+  fonttypes.initUtf8Runes(ownedText)
+
 proc utf8RunesText*(runes: fonttypes.Utf8Runes): string =
   ## Returns the underlying UTF-8 text.
   runes.stringValue()
 
-proc utf8RunesToRunes*(runes: fonttypes.Utf8Runes): seq[Rune] =
+proc utf8RunesToRunes*(runes: fonttypes.Utf8Runes): Runes =
   ## Materializes runes for APIs that require a sequence.
   runes.toRunes()
 
-proc utf8RunesFromRunes*(runes: seq[Rune]): fonttypes.Utf8Runes =
+proc utf8RunesFromRunes*(runes: Runes): fonttypes.Utf8Runes =
   ## Creates UTF-8-backed storage from a compatibility rune sequence.
   fonttypes.initUtf8Runes(runes)
 
@@ -143,8 +150,45 @@ proc copyUtf8RuneStorage*(runes: fonttypes.Utf8Runes): fonttypes.Utf8Runes =
 proc utf8RunesEqual*(a, b: fonttypes.Utf8Runes): bool =
   a == b
 
-proc utf8RunesEqualRunes*(a: fonttypes.Utf8Runes, b: seq[Rune]): bool =
+proc utf8RunesEqualRunes*(a: fonttypes.Utf8Runes, b: Runes): bool =
   a == b
+
+proc lineGlyphRanges*(arrangement: fonttypes.GlyphArrangement): IntSlices =
+  fonttypes.lineGlyphRanges(arrangement)
+
+proc selectionRectsFor*(
+    arrangement: fonttypes.GlyphArrangement, sourceRange: IntSlice
+): Rects =
+  fonttypes.selectionRectsFor(arrangement, sourceRange)
+
+proc caretPositionsFor*(
+    arrangement: fonttypes.GlyphArrangement, sourceRune: int
+): TextCaretPositions =
+  fonttypes.caretPositionsFor(arrangement, sourceRune)
+
+proc insertChildren*(
+    list: var RenderList, parentIdx: FigIdx, children: RenderList, childPos: Natural
+): FigIdxs =
+  fignodes.insertChildren(list, parentIdx, children, childPos)
+
+proc addChildren*(
+    list: var RenderList, parentIdx: FigIdx, children: RenderList
+): FigIdxs =
+  fignodes.addChildren(list, parentIdx, children)
+
+proc insertChildren*(
+    renders: Renders,
+    lvl: ZLevel,
+    parentIdx: FigIdx,
+    children: RenderList,
+    childPos: Natural,
+): FigIdxs =
+  fignodes.insertChildren(renders, lvl, parentIdx, children, childPos)
+
+proc addChildren*(
+    renders: Renders, lvl: ZLevel, parentIdx: FigIdx, children: RenderList
+): FigIdxs =
+  fignodes.addChildren(renders, lvl, parentIdx, children)
 
 proc retainRaw[T](raw: pointer) =
   if raw != nil:
@@ -277,6 +321,16 @@ proc typeset*(
     wrap = true,
 ): GlyphArrangement =
   fontutils.typeset(box, spans, hAlign, vAlign, minContent, wrap)
+
+proc typesetForMeasurement*(
+    box: Rect,
+    spans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent = false,
+    wrap = true,
+): GlyphArrangement =
+  fontutils.typesetForMeasurement(box, spans, hAlign, vAlign, minContent, wrap)
 
 proc placeStyledGlyphs*(
     style: FontStyle,

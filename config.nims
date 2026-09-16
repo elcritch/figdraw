@@ -14,6 +14,9 @@ when defined(feature.figdraw.sharedlib):
 
 when defined(useNativeDynlib):
   switch("path", "bin")
+  # The staged library is built with ARC; managed values crossing this ABI
+  # must use the same memory manager in the consumer.
+  switch("mm", "arc")
 
 when defined(macosx) and defined(figdraw.moltenvkBrew):
   let moltenVkPrefix = gorgeEx("brew --prefix molten-vk").output.strip()
@@ -184,7 +187,10 @@ when defined(feature.figdraw.sharedlib):
     backend = nativeBackend,
   )
   nativeBuild.nimArgs =
-    @["--mm:arc", "-d:useMalloc", "-d:release", "--path:src", "--path:deps/siwin/src"]
+    @[
+      "--mm:arc", "-d:useMalloc", "-d:release", "-d:vmathObjBased", "--path:src",
+      "--path:deps/siwin/src",
+    ]
   nativeBuild.libraryNameStrdefine = true
   when defined(macosx):
     nativeBuild.linkerArgs =

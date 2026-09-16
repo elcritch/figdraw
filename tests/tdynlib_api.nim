@@ -1,5 +1,7 @@
 import std/[unittest, unicode]
 
+import pkg/bumpy as bumpy
+
 when defined(useNativeDynlib):
   import figdraw/dynlib
 
@@ -63,10 +65,102 @@ suite "native dynlib API":
       check arrangement.sourceRunes.len == sourceRunes.len
       check arrangement.runes.stringValue() == source
 
+    test "exports render tree and text layout helpers":
+      doAssert compiles(
+        block:
+          var list = RenderList()
+          let root = list.addRoot(Fig(kind: nkRectangle))
+          discard list.insertRoot(Fig(kind: nkRectangle), 0)
+          discard list.addChild(root, Fig(kind: nkRectangle))
+          discard list.insertChild(root, Fig(kind: nkRectangle), 0)
+          let added: seq[FigIdx] = list.addChildren(root, list)
+          let inserted: seq[FigIdx] = list.insertChildren(root, list, 0)
+          discard list.len()
+          discard added
+          discard inserted
+
+          var renders = newRenders()
+          let renderRoot = renders.addRoot(0.ZLevel, Fig(kind: nkRectangle))
+          discard renders.addRoot(Fig(kind: nkRectangle))
+          discard renders.addChild(0.ZLevel, renderRoot, Fig(kind: nkRectangle))
+          let renderAdded: seq[FigIdx] = renders.addChildren(0.ZLevel, renderRoot, list)
+          let renderInserted: seq[FigIdx] =
+            renders.insertChildren(0.ZLevel, renderRoot, list, 0)
+          renders.setLayer(1.ZLevel, list)
+          discard renders.contains(0.ZLevel)
+          discard figDataDir()
+          registerStaticTypefaceData("compile-check", "", TTF)
+          discard renderAdded
+          discard renderInserted
+
+          discard drawableLine(vec2(0, 0), vec2(1, 1))
+          discard drawableCircle(vec2(0, 0), 1)
+          discard drawableRect(bumpy.rect(0, 0, 10, 10), [0'u16, 0, 0, 0])
+          discard drawableArc(vec2(0, 0), 1, 0, 1)
+          discard typesetForMeasurement(
+            bumpy.rect(0, 0, 10, 10), [(fs(FigFont()), "text")], wrap = false
+          )
+
+          let arrangement = GlyphArrangement()
+          let glyphRange: Slice[int] = arrangement.glyphRangeFor(0 .. 1)
+          let sourceRange: Slice[int] = arrangement.sourceRuneRangeAt(vec2(0, 0))
+          let lines: seq[Slice[int]] = arrangement.lineGlyphRanges()
+          let selectionRects: seq[bumpy.Rect] = arrangement.selectionRectsFor(0 .. 1)
+          let carets: seq[TextCaretPosition] = arrangement.caretPositionsFor(0)
+          discard glyphRange
+          discard sourceRange
+          discard lines
+          discard selectionRects
+          discard carets
+          discard arrangement.glyphCount()
+          discard arrangement.glyphSourceRange(0)
+          discard arrangement.glyphRect(0)
+          discard arrangement.glyphFont(0)
+          discard arrangement.layoutContentSize()
+          discard arrangement.glyphIndexAt(vec2(0, 0))
+          discard arrangement.sourceRuneCount()
+          discard arrangement.nearestSourceRuneForCaretPoint(vec2(0, 0))
+      )
+
+    test "uses the native render and layout routines":
+      var list = RenderList()
+      let root = list.addRoot(Fig(kind: nkRectangle))
+      check list.len == 1
+
+      let emptyList = RenderList()
+      check list.addChildren(root, emptyList).len == 0
+      check list.insertChildren(root, emptyList, 0).len == 0
+
+      var renders = newRenders()
+      let renderRoot = renders.addRoot(0.ZLevel, Fig(kind: nkRectangle))
+      check renders.len(0.ZLevel) == 1
+      check renders.addChildren(0.ZLevel, renderRoot, emptyList).len == 0
+      check renders.insertChildren(0.ZLevel, renderRoot, emptyList, 0).len == 0
+
+      check drawableLine(vec2(0, 0), vec2(1, 1)).kind == dkLine
+      check drawableCircle(vec2(0, 0), 1).kind == dkCircle
+      check drawableRect(bumpy.rect(0, 0, 10, 10), [0'u16, 0, 0, 0]).kind == dkRectangle
+      check drawableArc(vec2(0, 0), 1, 0, 1).kind == dkArc
+
+      let arrangement = GlyphArrangement()
+      check arrangement.glyphCount() == 0
+      check arrangement.glyphRangeFor(0 .. -1).a > arrangement.glyphRangeFor(0 .. -1).b
+      check arrangement.lineGlyphRanges().len == 0
+      check arrangement.selectionRectsFor(0 .. -1).len == 0
+      check arrangement.caretPositionsFor(0).len == 1
+      check arrangement.glyphRect(0).w == 0
+      check arrangement.glyphIndexAt(vec2(0, 0)) == -1
+      check arrangement.sourceRuneRangeAt(vec2(0, 0)).a == 0
+      check arrangement.sourceRuneRangeAt(vec2(0, 0)).b == -1
+      check arrangement.sourceRuneCount() == 0
+      check arrangement.nearestSourceRuneForCaretPoint(vec2(0, 0)) == 0
+
     test "exposes the NimKit Siwin window surface":
       doAssert compiles(
         block:
           var window: Window
+          discard window.inputDeviceScale()
+          discard siwinBackendName()
           discard window.nativeWindowKey()
           discard window.title()
           window.minSize = ivec2(100, 80)
