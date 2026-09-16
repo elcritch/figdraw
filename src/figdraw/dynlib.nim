@@ -5,13 +5,25 @@ import pkg/bumpy as bumpy
 import pkg/chroma as chroma
 import pkg/vmath as vmath
 import figdraw_native_abi
-from figdraw/extras/systemfonttypes import SystemTypeface
+from figdraw/common/fonttypes import fontVariation
+import figdraw/extras/systemfonttypes as systemfonttypes
+from figdraw/extras/systemfonttypes import
+  SystemTypeface, initSystemTypefaceFile, initSystemTypeface
+
+when not defined(gcArc):
+  {.error: "figdraw/dynlib requires --mm:arc to match the native library".}
 
 export tables, bumpy, chroma, vmath
 export figdraw_native_abi except
-  Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, figDashedRoundedRectBorder,
-  figDottedRoundedRectBorder, figRoundedRectBorder, placeGlyphs, typeset
-export SystemTypeface
+  Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile,
+  loadTypeface, glyphRangeFor, glyphSourceRange, glyphRect, glyphFont, lineGlyphRanges,
+  layoutContentSize, selectionRectsFor, glyphIndexAt, sourceRuneRangeAt,
+  sourceRuneCount, caretPositionsFor, nearestSourceRuneForCaretPoint,
+  typesetForMeasurement, figDashedRoundedRectBorder, figDottedRoundedRectBorder,
+  figRoundedRectBorder, placeGlyphs, typeset
+export
+  SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
+  initSystemTypeface
 
 const
   UseVulkanBackend* = false
@@ -379,7 +391,7 @@ proc `[]`*(runes: figdraw_native_abi.Utf8Runes, index: int): unicode.Rune =
 proc `[]`*(
     runes: figdraw_native_abi.Utf8Runes, slice: Slice[int]
 ): figdraw_native_abi.Utf8Runes =
-  figdraw_native_abi.utf8RunesSlice(runes, slice)
+  figdraw_native_abi.utf8RunesSlice(runes, cast[figdraw_native_abi.IntSlice](slice))
 
 iterator items*(runes: figdraw_native_abi.Utf8Runes): unicode.Rune =
   for rune in figdraw_native_abi.utf8RunesText(runes).runes:
@@ -420,6 +432,75 @@ converter toNativeIntSlice*(value: Slice[int]): figdraw_native_abi.IntSlice {.in
 
 converter toIntSlice*(value: figdraw_native_abi.IntSlice): Slice[int] {.inline.} =
   cast[Slice[int]](value)
+
+proc glyphRangeFor*(
+    arrangement: figdraw_native_abi.GlyphArrangement, sourceRange: Slice[int]
+): Slice[int] {.inline.} =
+  cast[Slice[int]](figdraw_native_abi.glyphRangeFor(
+    arrangement, cast[figdraw_native_abi.IntSlice](sourceRange)
+  ))
+
+proc glyphSourceRange*(
+    arrangement: figdraw_native_abi.GlyphArrangement, glyphIndex: int
+): figdraw_native_abi.GlyphSourceRange {.inline.} =
+  figdraw_native_abi.glyphSourceRange(arrangement, glyphIndex)
+
+proc glyphRect*(
+    arrangement: figdraw_native_abi.GlyphArrangement, glyphIndex: int
+): bumpy.Rect {.inline.} =
+  figdraw_native_abi.glyphRect(arrangement, glyphIndex).toRect()
+
+proc glyphFont*(
+    arrangement: figdraw_native_abi.GlyphArrangement, glyphIndex: int
+): figdraw_native_abi.GlyphFont {.inline.} =
+  figdraw_native_abi.glyphFont(arrangement, glyphIndex)
+
+proc lineGlyphRanges*(
+    arrangement: figdraw_native_abi.GlyphArrangement
+): seq[Slice[int]] {.inline.} =
+  for nativeRange in figdraw_native_abi.lineGlyphRanges(arrangement):
+    result.add cast[Slice[int]](nativeRange)
+
+proc layoutContentSize*(
+    arrangement: figdraw_native_abi.GlyphArrangement
+): vmath.Vec2 {.inline.} =
+  figdraw_native_abi.layoutContentSize(arrangement).toVec2()
+
+proc selectionRectsFor*(
+    arrangement: figdraw_native_abi.GlyphArrangement, sourceRange: Slice[int]
+): seq[bumpy.Rect] {.inline.} =
+  for nativeRect in figdraw_native_abi.selectionRectsFor(
+    arrangement, cast[figdraw_native_abi.IntSlice](sourceRange)
+  ):
+    result.add nativeRect.toRect()
+
+proc glyphIndexAt*(
+    arrangement: figdraw_native_abi.GlyphArrangement, point: vmath.Vec2
+): int {.inline.} =
+  figdraw_native_abi.glyphIndexAt(arrangement, point.toNativeVec2())
+
+proc sourceRuneRangeAt*(
+    arrangement: figdraw_native_abi.GlyphArrangement, point: vmath.Vec2
+): Slice[int] {.inline.} =
+  cast[Slice[int]](figdraw_native_abi.sourceRuneRangeAt(
+    arrangement, point.toNativeVec2()
+  ))
+
+proc sourceRuneCount*(
+    arrangement: figdraw_native_abi.GlyphArrangement
+): int {.inline.} =
+  figdraw_native_abi.sourceRuneCount(arrangement)
+
+proc caretPositionsFor*(
+    arrangement: figdraw_native_abi.GlyphArrangement, sourceRune: int
+): seq[figdraw_native_abi.TextCaretPosition] {.inline.} =
+  for caret in figdraw_native_abi.caretPositionsFor(arrangement, sourceRune):
+    result.add caret
+
+proc nearestSourceRuneForCaretPoint*(
+    arrangement: figdraw_native_abi.GlyphArrangement, point: vmath.Vec2
+): int {.inline.} =
+  figdraw_native_abi.nearestSourceRuneForCaretPoint(arrangement, point.toNativeVec2())
 
 converter toFill*(value: chroma.ColorRGBA): Fill {.inline.} =
   fill(value.toNativeColor())
@@ -546,12 +627,23 @@ proc span*(font: FigFont, color: Fill, text: string): (FontStyle, string) {.inli
 proc fontWithSize*(fontId: TypefaceId, size: float32): FigFont {.inline.} =
   FigFont(typefaceId: fontId, size: size)
 
+proc loadTypeface*(name: string, fallbackNames: openArray[string]): TypefaceId =
+  figdraw_native_abi.loadTypeface(name, fallbackNames)
+
+proc loadTypeface*(name: string): TypefaceId =
+  figdraw_native_abi.loadTypeface(name)
+
+proc loadTypeface*(file: systemfonttypes.SystemTypefaceFile): TypefaceId =
+  figdraw_native_abi.loadTypeface(
+    figdraw_native_abi.SystemTypefaceFile(path: file.path, faceIndex: file.faceIndex)
+  )
+
+proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId =
+  figdraw_native_abi.loadTypeface(name, data, kind)
+
 proc fontWithSize*(typeface: SystemTypeface, size: float32): FigFont =
   ## Loads an exact installed typeface through the native ABI.
-  let file = figdraw_native_abi.SystemTypefaceFile(
-    path: typeface.file.path, faceIndex: typeface.file.faceIndex
-  )
-  result = loadTypeface(file).fontWithSize(size)
+  result = loadTypeface(typeface.file).fontWithSize(size)
   result.variations = newSeqOfCap[FontVariation](typeface.variations.len)
   for variation in typeface.variations:
     result.variations.add FontVariation(tag: variation.tag, value: variation.value)
@@ -560,9 +652,6 @@ func fontFeature*(
     tag: string, value = 1'u32, start = 0'u32, ending = uint32.high
 ): FontFeature {.inline.} =
   FontFeature(tag: tag, value: value, start: start, ending: ending)
-
-func fontVariation*(tag: string, value: float32): FontVariation {.inline.} =
-  FontVariation(tag: tag, value: value)
 
 proc placeGlyphs*(
     style: FontStyle,
@@ -635,6 +724,18 @@ proc typeset*(
     wrap = true,
 ): GlyphArrangement =
   figdraw_native_abi.typeset(
+    box.toNativeRect(), spans, hAlign, vAlign, minContent, wrap
+  )
+
+proc typesetForMeasurement*(
+    box: bumpy.Rect,
+    spans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent = false,
+    wrap = true,
+): GlyphArrangement =
+  figdraw_native_abi.typesetForMeasurement(
     box.toNativeRect(), spans, hAlign, vAlign, minContent, wrap
   )
 
@@ -826,6 +927,15 @@ proc newSiwinWindow*(
 
 proc contentScale*(window: Window): float32 =
   siwinUiScale(window.handle)
+
+proc inputDeviceScale*(window: Window): float32 =
+  if window.isNil:
+    return 1.0'f32
+  let scale = window.contentScale()
+  if scale > 0.0'f32: scale else: 1.0'f32
+
+proc siwinBackendName*(): string =
+  "OpenGL"
 
 proc mouse*(window: Window): Mouse =
   let pos = siwinMousePos(window.handle)
@@ -1123,7 +1233,7 @@ proc textSubpixelGlyphVariants*(renderer: FigRenderer[SiwinRenderBackend]): bool
   textSubpixelGlyphVariants(renderer.window.handle)
 
 proc siwinWindowTitle*(suffix = "Siwin RenderList"): string =
-  "figdraw: native dynlib + " & suffix
+  "figdraw: " & siwinBackendName() & " + " & suffix
 
 proc siwinDisplayServerName*(window: Window): string =
   figdraw_native_abi.siwinDisplayServerName(window.handle)

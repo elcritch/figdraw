@@ -45,6 +45,8 @@ type
     nodes*: seq[Fig]
     rootIds*: seq[FigIdx]
 
+  RenderShadows* = array[ShadowCount, RenderShadow]
+
   Renders* = ref object
     layers*: OrderedTable[ZLevel, RenderList]
 
@@ -62,13 +64,14 @@ type
     rotation*: float32
     fill*: Fill
     corners*: CornerRadii
-    cornerRadiiY*: CornerRadii ##\
+    cornerRadiiY*: CornerRadii
+      ##\
       ## Vertical radii used when `NfEllipticalCorners` is set.
       ## The `corners` field supplies the horizontal radii.
 
     case kind*: FigKind
     of nkRectangle:
-      shadows*: array[ShadowCount, RenderShadow]
+      shadows*: RenderShadows
       stroke*: RenderStroke
     of nkText:
       textLayout*: GlyphArrangement
