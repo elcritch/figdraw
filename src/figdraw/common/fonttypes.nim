@@ -285,6 +285,12 @@ func `==`*(a: Utf8Runes, b: openArray[Rune]): bool =
 func `==`*(a: openArray[Rune], b: Utf8Runes): bool =
   b == a
 
+func utf8RunesEqual*(a, b: Utf8Runes): bool {.nativeAbi.} =
+  a == b
+
+func utf8RunesEqualRunes*(a: Utf8Runes, b: openArray[Rune]): bool {.nativeAbi.} =
+  a == b
+
 proc initArrangementRunes*(text: sink string): ArrangementRunes =
   ## Creates storage suitable for `GlyphArrangement` rune fields.
   initUtf8Runes(text)

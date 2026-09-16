@@ -86,12 +86,6 @@ proc utf8RunesFromRunes*(runes: seq[Rune]): fonttypes.Utf8Runes =
   ## Creates UTF-8-backed storage from a compatibility rune sequence.
   fonttypes.initUtf8Runes(runes)
 
-proc utf8RunesEqual*(a, b: fonttypes.Utf8Runes): bool =
-  a == b
-
-proc utf8RunesEqualRunes*(a: fonttypes.Utf8Runes, b: seq[Rune]): bool =
-  a == b
-
 proc retainRaw[T](raw: pointer) =
   if raw != nil:
     let value {.cursor.} = cast[T](raw)
