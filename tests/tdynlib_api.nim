@@ -91,6 +91,9 @@ suite "native dynlib API":
           discard renders.contains(0.ZLevel)
           discard figDataDir()
           registerStaticTypefaceData("compile-check", "", TTF)
+          discard loadTypeface("compile-check")
+          discard loadTypeface("compile-check", ["compile-check"])
+          discard loadTypeface("compile-check", "", TTF)
           discard renderAdded
           discard renderInserted
 

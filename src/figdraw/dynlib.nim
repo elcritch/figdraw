@@ -15,8 +15,7 @@ when not defined(gcArc):
 
 export tables, bumpy, chroma, vmath
 export figdraw_native_abi except
-  Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile,
-  loadTypeface, placeGlyphs
+  Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile, placeGlyphs
 export
   SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
   initSystemTypeface
@@ -554,19 +553,10 @@ proc span*(font: FigFont, color: Fill, text: string): (FontStyle, string) {.inli
 proc fontWithSize*(fontId: TypefaceId, size: float32): FigFont {.inline.} =
   FigFont(typefaceId: fontId, size: size)
 
-proc loadTypeface*(name: string, fallbackNames: openArray[string]): TypefaceId =
-  figdraw_native_abi.loadTypeface(name, fallbackNames)
-
-proc loadTypeface*(name: string): TypefaceId =
-  figdraw_native_abi.loadTypeface(name)
-
 proc loadTypeface*(file: systemfonttypes.SystemTypefaceFile): TypefaceId =
   figdraw_native_abi.loadTypeface(
     figdraw_native_abi.SystemTypefaceFile(path: file.path, faceIndex: file.faceIndex)
   )
-
-proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId =
-  figdraw_native_abi.loadTypeface(name, data, kind)
 
 proc fontWithSize*(typeface: SystemTypeface, size: float32): FigFont =
   ## Loads an exact installed typeface through the native ABI.
