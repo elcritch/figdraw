@@ -45,7 +45,7 @@ feature "vulkan":
 feature "metal":
   requires "https://github.com/elcritch/metalx#head"
 feature "sharedlib":
-  requires "gh:elcritch/binny#feat/native-dynlib-compiler-types"
+  requires "gh:elcritch/binny >= 0.5.0"
 
 import std/os
 
