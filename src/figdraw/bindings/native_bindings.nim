@@ -254,9 +254,6 @@ proc newFigSiwinPopup*(
 proc firstStep*(appHandle: NativeSiwinApp, makeVisible: bool) =
   siwinApp(appHandle).window.firstStep(makeVisible)
 
-proc firstStep*(appHandle: NativeSiwinApp) =
-  firstStep(appHandle, true)
-
 func nativeModifierMask(modifiers: set[ModifierKey]): uint8 =
   for modifier in modifiers:
     result = result or (1'u8 shl modifier.ord)
@@ -646,12 +643,3 @@ proc renderFrame*(
     clearColor = color(clearR, clearG, clearB, clearA),
   )
   app.renderer.endFrame()
-
-proc renderFrame*(
-    appHandle: NativeSiwinApp, renders: var Renders, width, height: float32
-) =
-  renderFrame(appHandle, renders, width, height, true, 1, 1, 1, 1)
-
-proc renderFrame*(appHandle: NativeSiwinApp, renders: var Renders) =
-  let size = siwinApp(appHandle).window.logicalSize()
-  renderFrame(appHandle, renders, size.x, size.y)

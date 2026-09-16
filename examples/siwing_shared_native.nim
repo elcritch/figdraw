@@ -138,7 +138,7 @@ when isMainModule:
   if app.raw == nil or renders.isNil:
     quit("Failed to initialize native FigDraw objects", 1)
 
-  firstStep(app)
+  firstStep(app, true)
   var
     appRunning = true
     frames = 0
@@ -189,7 +189,7 @@ when isMainModule:
       discard renders.addRoot(0, text)
 
       let renderStart = getMonoTime()
-      renderFrame(app, renders, width, height)
+      renderFrame(app, renders, width, height, true, 1, 1, 1, 1)
       renderMicros += float((getMonoTime() - renderStart).inMicroseconds)
       redraw(app)
       step(app)
