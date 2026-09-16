@@ -16,11 +16,8 @@ when not defined(gcArc):
 export tables, bumpy, chroma, vmath
 export figdraw_native_abi except
   Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile,
-  loadTypeface, glyphRangeFor, glyphSourceRange, glyphRect, glyphFont, lineGlyphRanges,
-  layoutContentSize, selectionRectsFor, glyphIndexAt, sourceRuneRangeAt,
-  sourceRuneCount, caretPositionsFor, nearestSourceRuneForCaretPoint,
-  typesetForMeasurement, figDashedRoundedRectBorder, figDottedRoundedRectBorder,
-  figRoundedRectBorder, placeGlyphs, typeset
+  loadTypeface, typesetForMeasurement, figDashedRoundedRectBorder,
+  figDottedRoundedRectBorder, figRoundedRectBorder, placeGlyphs, typeset
 export
   SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
   initSystemTypeface
@@ -432,75 +429,6 @@ converter toNativeIntSlice*(value: Slice[int]): figdraw_native_abi.IntSlice {.in
 
 converter toIntSlice*(value: figdraw_native_abi.IntSlice): Slice[int] {.inline.} =
   cast[Slice[int]](value)
-
-proc glyphRangeFor*(
-    arrangement: figdraw_native_abi.GlyphArrangement, sourceRange: Slice[int]
-): Slice[int] {.inline.} =
-  cast[Slice[int]](figdraw_native_abi.glyphRangeFor(
-    arrangement, cast[figdraw_native_abi.IntSlice](sourceRange)
-  ))
-
-proc glyphSourceRange*(
-    arrangement: figdraw_native_abi.GlyphArrangement, glyphIndex: int
-): figdraw_native_abi.GlyphSourceRange {.inline.} =
-  figdraw_native_abi.glyphSourceRange(arrangement, glyphIndex)
-
-proc glyphRect*(
-    arrangement: figdraw_native_abi.GlyphArrangement, glyphIndex: int
-): bumpy.Rect {.inline.} =
-  figdraw_native_abi.glyphRect(arrangement, glyphIndex).toRect()
-
-proc glyphFont*(
-    arrangement: figdraw_native_abi.GlyphArrangement, glyphIndex: int
-): figdraw_native_abi.GlyphFont {.inline.} =
-  figdraw_native_abi.glyphFont(arrangement, glyphIndex)
-
-proc lineGlyphRanges*(
-    arrangement: figdraw_native_abi.GlyphArrangement
-): seq[Slice[int]] {.inline.} =
-  for nativeRange in figdraw_native_abi.lineGlyphRanges(arrangement):
-    result.add cast[Slice[int]](nativeRange)
-
-proc layoutContentSize*(
-    arrangement: figdraw_native_abi.GlyphArrangement
-): vmath.Vec2 {.inline.} =
-  figdraw_native_abi.layoutContentSize(arrangement).toVec2()
-
-proc selectionRectsFor*(
-    arrangement: figdraw_native_abi.GlyphArrangement, sourceRange: Slice[int]
-): seq[bumpy.Rect] {.inline.} =
-  for nativeRect in figdraw_native_abi.selectionRectsFor(
-    arrangement, cast[figdraw_native_abi.IntSlice](sourceRange)
-  ):
-    result.add nativeRect.toRect()
-
-proc glyphIndexAt*(
-    arrangement: figdraw_native_abi.GlyphArrangement, point: vmath.Vec2
-): int {.inline.} =
-  figdraw_native_abi.glyphIndexAt(arrangement, point.toNativeVec2())
-
-proc sourceRuneRangeAt*(
-    arrangement: figdraw_native_abi.GlyphArrangement, point: vmath.Vec2
-): Slice[int] {.inline.} =
-  cast[Slice[int]](figdraw_native_abi.sourceRuneRangeAt(
-    arrangement, point.toNativeVec2()
-  ))
-
-proc sourceRuneCount*(
-    arrangement: figdraw_native_abi.GlyphArrangement
-): int {.inline.} =
-  figdraw_native_abi.sourceRuneCount(arrangement)
-
-proc caretPositionsFor*(
-    arrangement: figdraw_native_abi.GlyphArrangement, sourceRune: int
-): seq[figdraw_native_abi.TextCaretPosition] {.inline.} =
-  for caret in figdraw_native_abi.caretPositionsFor(arrangement, sourceRune):
-    result.add caret
-
-proc nearestSourceRuneForCaretPoint*(
-    arrangement: figdraw_native_abi.GlyphArrangement, point: vmath.Vec2
-): int {.inline.} =
-  figdraw_native_abi.nearestSourceRuneForCaretPoint(arrangement, point.toNativeVec2())
 
 converter toFill*(value: chroma.ColorRGBA): Fill {.inline.} =
   fill(value.toNativeColor())

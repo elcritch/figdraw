@@ -137,19 +137,6 @@ proc utf8RunesEqual*(a, b: fonttypes.Utf8Runes): bool =
 proc utf8RunesEqualRunes*(a: fonttypes.Utf8Runes, b: seq[Rune]): bool =
   a == b
 
-proc lineGlyphRanges*(arrangement: fonttypes.GlyphArrangement): seq[IntSlice] =
-  fonttypes.lineGlyphRanges(arrangement)
-
-proc selectionRectsFor*(
-    arrangement: fonttypes.GlyphArrangement, sourceRange: IntSlice
-): seq[Rect] =
-  fonttypes.selectionRectsFor(arrangement, sourceRange)
-
-proc caretPositionsFor*(
-    arrangement: fonttypes.GlyphArrangement, sourceRune: int
-): seq[TextCaretPosition] =
-  fonttypes.caretPositionsFor(arrangement, sourceRune)
-
 proc insertChildren*(
     list: var RenderList, parentIdx: FigIdx, children: RenderList, childPos: Natural
 ): seq[FigIdx] =

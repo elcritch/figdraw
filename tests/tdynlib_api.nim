@@ -4,6 +4,7 @@ import pkg/bumpy as bumpy
 
 when defined(useNativeDynlib):
   import figdraw/dynlib
+  import figdraw_native_abi except SystemTypefaceFile
 
   proc loadExactTypefaceForCompileCheck(file: SystemTypefaceFile): TypefaceId {.used.} =
     loadTypeface(file)
@@ -104,8 +105,9 @@ suite "native dynlib API":
           let arrangement = GlyphArrangement()
           let glyphRange: Slice[int] = arrangement.glyphRangeFor(0 .. 1)
           let sourceRange: Slice[int] = arrangement.sourceRuneRangeAt(vec2(0, 0))
-          let lines: seq[Slice[int]] = arrangement.lineGlyphRanges()
-          let selectionRects: seq[bumpy.Rect] = arrangement.selectionRectsFor(0 .. 1)
+          let lines: seq[IntSlice] = arrangement.lineGlyphRanges()
+          let selectionRects: seq[figdraw_native_abi.Rect] =
+            arrangement.selectionRectsFor(0 .. 1)
           let carets: seq[TextCaretPosition] = arrangement.caretPositionsFor(0)
           discard glyphRange
           discard sourceRange
