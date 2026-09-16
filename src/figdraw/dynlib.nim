@@ -16,8 +16,7 @@ when not defined(gcArc):
 export tables, bumpy, chroma, vmath
 export figdraw_native_abi except
   Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile,
-  loadTypeface, typesetForMeasurement, figDashedRoundedRectBorder,
-  figDottedRoundedRectBorder, figRoundedRectBorder, placeGlyphs, typeset
+  loadTypeface, typesetForMeasurement, placeGlyphs, typeset
 export
   SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
   initSystemTypeface
@@ -597,51 +596,6 @@ template registerStaticTypeface*(
 ) =
   const fontData {.gensym.} = staticRead(path)
   registerStaticTypefaceData(name, fontData, kind)
-
-proc figDashedRoundedRectBorder*(
-    box: bumpy.Rect,
-    corners: CornerRadii,
-    color: Fill,
-    weight, dashLength, gapLength: float32,
-    offset = 0.0'f32,
-    cap = scButt,
-    zlevel = 0.ZLevel,
-): Fig {.inline.} =
-  figdraw_native_abi.figDashedRoundedRectBorder(
-    box.toNativeRect(),
-    corners,
-    color,
-    weight,
-    dashLength,
-    gapLength,
-    offset,
-    cap,
-    zlevel,
-  )
-
-proc figRoundedRectBorder*(
-    box: bumpy.Rect,
-    corners: CornerRadii,
-    color: Fill,
-    weight: float32,
-    cap = scButt,
-    zlevel = 0.ZLevel,
-): Fig {.inline.} =
-  figdraw_native_abi.figRoundedRectBorder(
-    box.toNativeRect(), corners, color, weight, cap, zlevel
-  )
-
-proc figDottedRoundedRectBorder*(
-    box: bumpy.Rect,
-    corners: CornerRadii,
-    color: Fill,
-    weight, gapLength: float32,
-    offset = 0.0'f32,
-    zlevel = 0.ZLevel,
-): Fig {.inline.} =
-  figdraw_native_abi.figDottedRoundedRectBorder(
-    box.toNativeRect(), corners, color, weight, gapLength, offset, zlevel
-  )
 
 proc typeset*(
     box: bumpy.Rect,

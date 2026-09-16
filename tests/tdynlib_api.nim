@@ -101,6 +101,34 @@ suite "native dynlib API":
           discard typesetForMeasurement(
             bumpy.rect(0, 0, 10, 10), [(fs(FigFont()), "text")], wrap = false
           )
+          discard figDashedRoundedRectBorder(
+            bumpy.rect(0, 0, 10, 10),
+            [0'u16, 0, 0, 0],
+            fill(rgba(0, 0, 0, 255)),
+            1,
+            2,
+            3,
+            0,
+            scButt,
+            0,
+          )
+          discard figRoundedRectBorder(
+            bumpy.rect(0, 0, 10, 10),
+            [0'u16, 0, 0, 0],
+            fill(rgba(0, 0, 0, 255)),
+            1,
+            scButt,
+            0,
+          )
+          discard figDottedRoundedRectBorder(
+            bumpy.rect(0, 0, 10, 10),
+            [0'u16, 0, 0, 0],
+            fill(rgba(0, 0, 0, 255)),
+            1,
+            2,
+            0,
+            0,
+          )
 
           let arrangement = GlyphArrangement()
           let glyphRange: Slice[int] = arrangement.glyphRangeFor(0 .. 1)
@@ -143,6 +171,16 @@ suite "native dynlib API":
       check drawableCircle(vec2(0, 0), 1).kind == dkCircle
       check drawableRect(bumpy.rect(0, 0, 10, 10), [0'u16, 0, 0, 0]).kind == dkRectangle
       check drawableArc(vec2(0, 0), 1, 0, 1).kind == dkArc
+      let borderFill = fill(rgba(0, 0, 0, 255))
+      check figRoundedRectBorder(
+        bumpy.rect(0, 0, 10, 10), [0'u16, 0, 0, 0], borderFill, 1, scButt, 0
+      ).kind == nkDrawable
+      check figDashedRoundedRectBorder(
+        bumpy.rect(0, 0, 10, 10), [0'u16, 0, 0, 0], borderFill, 1, 2, 3, 0, scButt, 0
+      ).kind == nkDrawable
+      check figDottedRoundedRectBorder(
+        bumpy.rect(0, 0, 10, 10), [0'u16, 0, 0, 0], borderFill, 1, 2, 0, 0
+      ).kind == nkDrawable
 
       let arrangement = GlyphArrangement()
       check arrangement.glyphCount() == 0
