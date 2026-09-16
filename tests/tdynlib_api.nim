@@ -62,8 +62,10 @@ suite "native dynlib API":
       let
         source = "A λ 😀"
         sourceRunes = source.toRunes()
+        textStorage = utf8RunesFromText(source)
         storage: Utf8Runes = sourceRunes
 
+      check textStorage.stringValue() == source
       check storage.len == sourceRunes.len
       check not storage.isEmpty
       check dynlib.`[]`(storage, 1) == sourceRunes[1]

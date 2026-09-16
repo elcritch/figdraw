@@ -29,6 +29,7 @@
     {"source": "../common/fonttypes.nim", "name": "len"},
     {"source": "../common/fonttypes.nim", "name": "isEmpty"},
     {"source": "../common/fonttypes.nim", "name": "stringValue"},
+    {"source": "../common/fonttypes.nim", "name": "utf8RunesFromText"},
     {"source": "../common/fonttypes.nim", "name": "copyUtf8Runes"},
     {"source": "../common/fonttypes.nim", "name": "toRunes"},
     {"source": "../common/fonttypes.nim", "name": "[]"},

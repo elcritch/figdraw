@@ -182,6 +182,13 @@ proc initUtf8Runes*(runes: openArray[Rune]): Utf8Runes =
     result.text.add rune
   result.rebuildRuneIndex()
 
+proc utf8RunesFromText*(text: string): Utf8Runes {.nativeAbi.} =
+  ## Creates UTF-8-backed storage without retaining the caller's string.
+  var ownedText = newString(text.len)
+  if text.len > 0:
+    copyMem(ownedText[0].addr, text[0].unsafeAddr, text.len)
+  initUtf8Runes(ownedText)
+
 converter toUtf8Runes*(runes: seq[Rune]): Utf8Runes =
   ## Allows existing `GlyphArrangement` literals to keep accepting rune sequences.
   initUtf8Runes(runes)

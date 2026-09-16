@@ -75,13 +75,6 @@ type
     autoScale: bool
     title: string
 
-proc utf8RunesFromText*(text: string): fonttypes.Utf8Runes =
-  ## Creates UTF-8-backed storage without passing a managed rune sequence.
-  var ownedText = newString(text.len)
-  if text.len > 0:
-    copyMem(ownedText[0].addr, text[0].unsafeAddr, text.len)
-  fonttypes.initUtf8Runes(ownedText)
-
 proc utf8RunesFromRunes*(runes: seq[Rune]): fonttypes.Utf8Runes =
   ## Creates UTF-8-backed storage from a compatibility rune sequence.
   fonttypes.initUtf8Runes(runes)
