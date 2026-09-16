@@ -16,7 +16,7 @@ when not defined(gcArc):
 export tables, bumpy, chroma, vmath
 export figdraw_native_abi except
   Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile, placeGlyphs,
-  toRunes
+  toRunes, `[]`
 export
   SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
   initSystemTypeface
@@ -376,12 +376,12 @@ converter toUtf8Runes*(runes: seq[unicode.Rune]): figdraw_native_abi.Utf8Runes =
   figdraw_native_abi.utf8RunesFromRunes(nativeRunes)
 
 proc `[]`*(runes: figdraw_native_abi.Utf8Runes, index: int): unicode.Rune =
-  figdraw_native_abi.utf8RuneAt(runes, index).toRune()
+  figdraw_native_abi.`[]`(runes, index).toRune()
 
 proc `[]`*(
     runes: figdraw_native_abi.Utf8Runes, slice: Slice[int]
 ): figdraw_native_abi.Utf8Runes =
-  figdraw_native_abi.utf8RunesSlice(runes, cast[figdraw_native_abi.IntSlice](slice))
+  figdraw_native_abi.`[]`(runes, cast[figdraw_native_abi.IntSlice](slice))
 
 iterator items*(runes: figdraw_native_abi.Utf8Runes): unicode.Rune =
   for rune in figdraw_native_abi.stringValue(runes).runes:

@@ -61,8 +61,8 @@ suite "native dynlib API":
 
       check storage.len == sourceRunes.len
       check not storage.isEmpty
-      check storage[1] == sourceRunes[1]
-      check storage[2 .. 4].stringValue() == "λ 😀"
+      check dynlib.`[]`(storage, 1) == sourceRunes[1]
+      check dynlib.`[]`(storage, 2 .. 4).stringValue() == "λ 😀"
       check storage.stringValue() == source
       check dynlib.toRunes(storage) == sourceRunes
       check storage == sourceRunes

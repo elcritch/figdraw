@@ -75,16 +75,6 @@ type
     autoScale: bool
     title: string
 
-proc utf8RuneAt*(runes: fonttypes.Utf8Runes, index: int): Rune =
-  ## Returns one rune by logical index.
-  runes[index]
-
-proc utf8RunesSlice*(
-    runes: fonttypes.Utf8Runes, slice: Slice[int]
-): fonttypes.Utf8Runes =
-  ## Returns a UTF-8-backed slice by logical rune range.
-  runes[slice]
-
 proc utf8RunesFromText*(text: string): fonttypes.Utf8Runes =
   ## Creates UTF-8-backed storage without passing a managed rune sequence.
   var ownedText = newString(text.len)

@@ -31,6 +31,7 @@
     {"source": "../common/fonttypes.nim", "name": "stringValue"},
     {"source": "../common/fonttypes.nim", "name": "copyUtf8Runes"},
     {"source": "../common/fonttypes.nim", "name": "toRunes"},
+    {"source": "../common/fonttypes.nim", "name": "[]"},
     {"source": "../common/fonttypes.nim", "name": "glyphSourceRange"},
     {"source": "../common/fonttypes.nim", "name": "glyphRect"},
     {"source": "../common/fonttypes.nim", "name": "glyphFont"},
