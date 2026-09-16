@@ -447,16 +447,6 @@ proc drawableBezier*(
   for control in controls:
     result.controls.add control.toNativeVec2()
 
-proc drawableEllipse*(center, radii: vmath.Vec2): DrawableOp {.inline.} =
-  DrawableOp(
-    kind: dkEllipse,
-    ellipseCenter: center.toNativeVec2(),
-    ellipseRadii: radii.toNativeVec2(),
-  )
-
-proc drawableEllipse*(x, y, radiusX, radiusY: float32): DrawableOp {.inline.} =
-  drawableEllipse(vmath.vec2(x, y), vmath.vec2(radiusX, radiusY))
-
 proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
   when v is SomeFloat:
     if v <= 0:

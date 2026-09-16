@@ -28,6 +28,10 @@ suite "native dynlib API":
       check ellipse.kind == dkEllipse
       check ellipse.ellipseCenter.toVec2() == vec2(12.0'f32, 18.0'f32)
       check ellipse.ellipseRadii.toVec2() == vec2(24.0'f32, 10.0'f32)
+      let bezier = drawableBezier([vec2(0, 0), vec2(1, 2), vec2(3, 4)], steps = 8'u16)
+      check bezier.kind == dkBezier
+      check bezier.controls.len == 3
+      check bezier.controls[1].toVec2() == vec2(1.0'f32, 2.0'f32)
 
       var node = Fig(kind: nkRectangle)
       node.corners = horizontal

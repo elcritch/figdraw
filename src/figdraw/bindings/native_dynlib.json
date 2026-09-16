@@ -5,6 +5,7 @@
     {"source": "../fignodes.nim", "name": "len"},
     {"source": "../fignodes.nim", "name": "drawableLine"},
     {"source": "../fignodes.nim", "name": "drawableCircle"},
+    {"source": "../fignodes.nim", "name": "drawableEllipse"},
     {"source": "../fignodes.nim", "name": "drawableRect"},
     {"source": "../fignodes.nim", "name": "drawableArc"},
     {"source": "../fignodes.nim", "name": "addRoot"},
