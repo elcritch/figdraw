@@ -632,9 +632,6 @@ proc replaceImage*(id: ImageId, image: Image) {.inline.} =
 proc replaceImage*[T](id: ImageId, image: T) {.inline.} =
   replaceFigImage(id, image.toImage())
 
-proc imgId*(name: string): ImageId {.inline.} =
-  figImageId(name)
-
 proc imageStyle*(image: ImageRef): ImageStyle =
   ImageStyle(id: image, fill: fill(rgba(255, 255, 255, 255)))
 

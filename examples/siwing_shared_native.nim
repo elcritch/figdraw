@@ -127,7 +127,7 @@ when isMainModule:
     typeface = loadTypeface("Ubuntu.ttf")
     fpsFont = FigFont(typefaceId: typeface, size: 18)
     previewImage = readPixieImage(getCurrentDir() / "data" / "img1.png")
-    previewImageId = figImageId("native-shared-preview")
+    previewImageId = imgId("native-shared-preview")
     app = newFigSiwinApp(
       800, 600, "Siwin RenderList (Native Nim Dynlib)", 512, 1.0, false, true, 0, true,
       false, false,
