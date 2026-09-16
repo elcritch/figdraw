@@ -39,13 +39,13 @@ feature "surfer":
   requires "xkb#b4d50f4cccad1cd9e39d2f5a5e1fef2710edcc31"
   # TODO: Put this in surfer's manifest.
 feature "siwin":
-  requires "siwin >= 1.1.2"
+  requires "siwin >= 1.1.1"
 feature "vulkan":
   requires "https://github.com/planetis-m/vulkan#b223dc9"
 feature "metal":
   requires "https://github.com/elcritch/metalx#head"
 feature "sharedlib":
-  requires "gh:elcritch/binny#c3aa05f214a3074d902a0fc89202508ea81bbd75"
+  requires "gh:elcritch/binny >= 0.5.0"
 
 import std/os
 
