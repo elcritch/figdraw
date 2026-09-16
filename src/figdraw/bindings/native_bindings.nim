@@ -99,10 +99,6 @@ proc utf8RunesFromText*(text: string): fonttypes.Utf8Runes =
     copyMem(ownedText[0].addr, text[0].unsafeAddr, text.len)
   fonttypes.initUtf8Runes(ownedText)
 
-proc utf8RunesToRunes*(runes: fonttypes.Utf8Runes): seq[Rune] =
-  ## Materializes runes for APIs that require a sequence.
-  runes.toRunes()
-
 proc utf8RunesFromRunes*(runes: seq[Rune]): fonttypes.Utf8Runes =
   ## Creates UTF-8-backed storage from a compatibility rune sequence.
   fonttypes.initUtf8Runes(runes)

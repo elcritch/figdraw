@@ -64,7 +64,7 @@ suite "native dynlib API":
       check storage[1] == sourceRunes[1]
       check storage[2 .. 4].stringValue() == "λ 😀"
       check storage.stringValue() == source
-      check storage.toRunes() == sourceRunes
+      check dynlib.toRunes(storage) == sourceRunes
       check storage == sourceRunes
 
       let arrangement = GlyphArrangement(sourceRunes: sourceRunes, runes: sourceRunes)

@@ -15,7 +15,8 @@ when not defined(gcArc):
 
 export tables, bumpy, chroma, vmath
 export figdraw_native_abi except
-  Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile, placeGlyphs
+  Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile, placeGlyphs,
+  toRunes
 export
   SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
   initSystemTypeface
@@ -354,7 +355,7 @@ converter toRune*(value: figdraw_native_abi.Rune): unicode.Rune {.inline.} =
   cast[unicode.Rune](value)
 
 proc toRunes*(runes: figdraw_native_abi.Utf8Runes): seq[unicode.Rune] =
-  let nativeRunes = figdraw_native_abi.utf8RunesToRunes(runes)
+  let nativeRunes = figdraw_native_abi.toRunes(runes)
   result = newSeqOfCap[unicode.Rune](nativeRunes.len)
   for rune in nativeRunes:
     result.add rune.toRune()
