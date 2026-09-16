@@ -729,7 +729,7 @@ proc availableMimeTypes*(clipboard: Clipboard): seq[string] =
       result.add mimeType
 
 proc setupBackend*(renderer: FigRenderer[SiwinRenderBackend], window: Window) =
-  if window.handle.isNil:
+  if window.handle.raw == nil:
     window.handle = newFigSiwinApp(
       window.width, window.height, window.titleText, renderer.atlasSize,
       renderer.pixelScale, window.fullscreen, window.vsync, 0, window.resizable,
@@ -786,7 +786,7 @@ proc configureUiScale*(window: Window, envVar = "HDI"): bool =
   let configuredScale = getEnv(envVar)
   if configuredScale.len == 0:
     window.autoScale = true
-    if not window.handle.isNil:
+    if window.handle.raw != nil:
       setFigUiScale(window.contentScale())
     true
   else:
@@ -981,7 +981,7 @@ proc `icon=`*(window: Window, image: Image) {.inline.} =
   figdraw_native_abi.siwinSetIcon(window.handle, image)
 
 proc opened*(window: Window): bool =
-  not window.handle.isNil and opened(window.handle)
+  window.handle.raw != nil and opened(window.handle)
 
 proc closed*(window: Window): bool =
   not window.opened()
@@ -990,7 +990,7 @@ proc presentNow*(window: Window) =
   redraw(window.handle)
 
 proc close*(window: Window) =
-  if not window.handle.isNil:
+  if window.handle.raw != nil:
     close(window.handle)
 
 proc firstStep*(window: Window, makeVisible = true) =

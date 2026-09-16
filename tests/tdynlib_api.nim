@@ -44,6 +44,11 @@ suite "native dynlib API":
       imageRef = nil
       check imageRef == default(ImageRef)
 
+      var appHandle: NativeSiwinApp
+      var imageHandle: Image
+      check appHandle.raw == nil
+      check imageHandle.raw == nil
+
       let
         region = WindowVisualRegion(pos: ivec2(8, 12), size: ivec2(160, 90))
         blur = initWindowBackdrop([region])

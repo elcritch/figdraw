@@ -157,12 +157,6 @@ func nativePlacement(value: PopupPlacement): NativePopupPlacement =
     reactive: value.reactive,
   )
 
-proc isNil*(value: NativeSiwinApp): bool =
-  value.raw == nil
-
-proc isNil*(value: Image): bool =
-  value.raw == nil
-
 proc newPixieImage*(width, height: int): Image =
   wrap(pixie.newImage(width, height))
 

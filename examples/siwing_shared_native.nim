@@ -135,7 +135,7 @@ when isMainModule:
   var renders = newRenders()
   putFigImage(previewImageId, previewImage)
 
-  if app.isNil or renders.isNil:
+  if app.raw == nil or renders.isNil:
     quit("Failed to initialize native FigDraw objects", 1)
 
   firstStep(app)
