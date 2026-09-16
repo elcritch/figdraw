@@ -69,6 +69,9 @@ suite "native dynlib API":
       let arrangement = GlyphArrangement(sourceRunes: sourceRunes, runes: sourceRunes)
       check arrangement.sourceRunes.len == sourceRunes.len
       check arrangement.runes.stringValue() == source
+      check textBackend() == figdrawTextBackend
+      check textBackendFeatures().len > 0
+      check supportedFontFileExtensions().len > 0
 
     test "exports render tree and text layout helpers":
       doAssert compiles(

@@ -82,18 +82,6 @@ proc systemFontDirs*(): seq[string] =
 proc systemFontFiles*(): seq[string] =
   systemfonts.systemFontFiles()
 
-proc textBackend*(): string =
-  ## Text backend compiled into this native library.
-  fonttypes.textBackend()
-
-proc textBackendFeatures*(): seq[string] =
-  ## Backend capabilities compiled into this native library.
-  fonttypes.textBackendFeatures()
-
-proc supportedFontFileExtensions*(): seq[string] =
-  ## Typeface file extensions accepted by FigDraw's font loader.
-  fonttypes.supportedFontFileExtensions()
-
 proc utf8RunesLength*(runes: fonttypes.Utf8Runes): int =
   ## Returns the rune count without materializing UTF-32 storage.
   runes.len
