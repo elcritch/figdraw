@@ -82,10 +82,6 @@ proc systemFontDirs*(): seq[string] =
 proc systemFontFiles*(): seq[string] =
   systemfonts.systemFontFiles()
 
-proc utf8RunesLength*(runes: fonttypes.Utf8Runes): int =
-  ## Returns the rune count without materializing UTF-32 storage.
-  runes.len
-
 proc utf8RuneAt*(runes: fonttypes.Utf8Runes, index: int): Rune =
   ## Returns one rune by logical index.
   runes[index]
@@ -103,10 +99,6 @@ proc utf8RunesFromText*(text: string): fonttypes.Utf8Runes =
     copyMem(ownedText[0].addr, text[0].unsafeAddr, text.len)
   fonttypes.initUtf8Runes(ownedText)
 
-proc utf8RunesText*(runes: fonttypes.Utf8Runes): string =
-  ## Returns the underlying UTF-8 text.
-  runes.stringValue()
-
 proc utf8RunesToRunes*(runes: fonttypes.Utf8Runes): seq[Rune] =
   ## Materializes runes for APIs that require a sequence.
   runes.toRunes()
@@ -114,10 +106,6 @@ proc utf8RunesToRunes*(runes: fonttypes.Utf8Runes): seq[Rune] =
 proc utf8RunesFromRunes*(runes: seq[Rune]): fonttypes.Utf8Runes =
   ## Creates UTF-8-backed storage from a compatibility rune sequence.
   fonttypes.initUtf8Runes(runes)
-
-proc copyUtf8RuneStorage*(runes: fonttypes.Utf8Runes): fonttypes.Utf8Runes =
-  ## Copies UTF-8 storage for an independent ownership boundary.
-  fonttypes.copyUtf8Runes(runes)
 
 proc utf8RunesEqual*(a, b: fonttypes.Utf8Runes): bool =
   a == b

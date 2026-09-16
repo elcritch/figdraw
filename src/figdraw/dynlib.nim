@@ -353,15 +353,6 @@ converter toNativeRune*(value: unicode.Rune): figdraw_native_abi.Rune {.inline.}
 converter toRune*(value: figdraw_native_abi.Rune): unicode.Rune {.inline.} =
   cast[unicode.Rune](value)
 
-func len*(runes: figdraw_native_abi.Utf8Runes): int {.inline.} =
-  figdraw_native_abi.utf8RunesLength(runes)
-
-func isEmpty*(runes: figdraw_native_abi.Utf8Runes): bool {.inline.} =
-  runes.len == 0
-
-func stringValue*(runes: figdraw_native_abi.Utf8Runes): string {.inline.} =
-  figdraw_native_abi.utf8RunesText(runes)
-
 proc toRunes*(runes: figdraw_native_abi.Utf8Runes): seq[unicode.Rune] =
   let nativeRunes = figdraw_native_abi.utf8RunesToRunes(runes)
   result = newSeqOfCap[unicode.Rune](nativeRunes.len)
@@ -377,9 +368,6 @@ converter toUtf8Runes*(runes: seq[unicode.Rune]): figdraw_native_abi.Utf8Runes =
     nativeRunes.add rune.toNativeRune()
   figdraw_native_abi.utf8RunesFromRunes(nativeRunes)
 
-proc copyUtf8Runes*(runes: figdraw_native_abi.Utf8Runes): figdraw_native_abi.Utf8Runes =
-  figdraw_native_abi.copyUtf8RuneStorage(runes)
-
 proc `[]`*(runes: figdraw_native_abi.Utf8Runes, index: int): unicode.Rune =
   figdraw_native_abi.utf8RuneAt(runes, index).toRune()
 
@@ -389,14 +377,14 @@ proc `[]`*(
   figdraw_native_abi.utf8RunesSlice(runes, cast[figdraw_native_abi.IntSlice](slice))
 
 iterator items*(runes: figdraw_native_abi.Utf8Runes): unicode.Rune =
-  for rune in figdraw_native_abi.utf8RunesText(runes).runes:
+  for rune in figdraw_native_abi.stringValue(runes).runes:
     yield rune
 
 iterator pairs*(
     runes: figdraw_native_abi.Utf8Runes
 ): tuple[index: int, value: unicode.Rune] =
   var index = 0
-  for rune in figdraw_native_abi.utf8RunesText(runes).runes:
+  for rune in figdraw_native_abi.stringValue(runes).runes:
     yield (index, rune)
     inc index
 

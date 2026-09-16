@@ -60,6 +60,7 @@ suite "native dynlib API":
         storage: Utf8Runes = sourceRunes
 
       check storage.len == sourceRunes.len
+      check not storage.isEmpty
       check storage[1] == sourceRunes[1]
       check storage[2 .. 4].stringValue() == "λ 😀"
       check storage.stringValue() == source
@@ -72,6 +73,7 @@ suite "native dynlib API":
       check textBackend() == figdrawTextBackend
       check textBackendFeatures().len > 0
       check supportedFontFileExtensions().len > 0
+      check storage.copyUtf8Runes().stringValue() == source
 
     test "exports render tree and text layout helpers":
       doAssert compiles(
