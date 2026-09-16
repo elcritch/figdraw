@@ -21,6 +21,12 @@ export
   SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
   initSystemTypeface
 
+proc systemFontDirs*(): seq[string] {.inline.} =
+  figdraw_native_abi.systemFontDirs(figdraw_native_abi.detectDisplayServer())
+
+proc systemFontFiles*(): seq[string] {.inline.} =
+  figdraw_native_abi.systemFontFiles(figdraw_native_abi.detectDisplayServer())
+
 const
   UseVulkanBackend* = false
   UseMetalBackend* = false

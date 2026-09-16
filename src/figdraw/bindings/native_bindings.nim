@@ -9,7 +9,6 @@ import siwin/[clipboards, colorutils]
 import figdraw/commons
 import figdraw/common/fonttypes as fonttypes
 import figdraw/common/fontutils as fontutils
-import figdraw/extras/systemfonts as systemfonts
 import figdraw/fignodes
 import figdraw/figrender
 import figdraw/utils/drawutils
@@ -75,12 +74,6 @@ type
     renderer: FigRenderer[SiwinRenderBackend]
     autoScale: bool
     title: string
-
-proc systemFontDirs*(): seq[string] =
-  systemfonts.systemFontDirs()
-
-proc systemFontFiles*(): seq[string] =
-  systemfonts.systemFontFiles()
 
 proc utf8RuneAt*(runes: fonttypes.Utf8Runes, index: int): Rune =
   ## Returns one rune by logical index.
