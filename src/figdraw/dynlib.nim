@@ -16,7 +16,7 @@ when not defined(gcArc):
 export tables, bumpy, chroma, vmath
 export figdraw_native_abi except
   Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile,
-  loadTypeface, typesetForMeasurement, placeGlyphs, typeset
+  loadTypeface, placeGlyphs
 export
   SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
   initSystemTypeface
@@ -596,30 +596,6 @@ template registerStaticTypeface*(
 ) =
   const fontData {.gensym.} = staticRead(path)
   registerStaticTypefaceData(name, fontData, kind)
-
-proc typeset*(
-    box: bumpy.Rect,
-    spans: openArray[(FontStyle, string)],
-    hAlign = FontHorizontal.Left,
-    vAlign = FontVertical.Top,
-    minContent = false,
-    wrap = true,
-): GlyphArrangement =
-  figdraw_native_abi.typeset(
-    box.toNativeRect(), spans, hAlign, vAlign, minContent, wrap
-  )
-
-proc typesetForMeasurement*(
-    box: bumpy.Rect,
-    spans: openArray[(FontStyle, string)],
-    hAlign = FontHorizontal.Left,
-    vAlign = FontVertical.Top,
-    minContent = false,
-    wrap = true,
-): GlyphArrangement =
-  figdraw_native_abi.typesetForMeasurement(
-    box.toNativeRect(), spans, hAlign, vAlign, minContent, wrap
-  )
 
 proc toImage*(image: Image): Image {.inline.} =
   image

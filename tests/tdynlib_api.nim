@@ -99,7 +99,20 @@ suite "native dynlib API":
           discard drawableRect(bumpy.rect(0, 0, 10, 10), [0'u16, 0, 0, 0])
           discard drawableArc(vec2(0, 0), 1, 0, 1)
           discard typesetForMeasurement(
-            bumpy.rect(0, 0, 10, 10), [(fs(FigFont()), "text")], wrap = false
+            bumpy.rect(0, 0, 10, 10),
+            [(fs(FigFont()), "text")],
+            FontHorizontal.Left,
+            FontVertical.Top,
+            false,
+            false,
+          )
+          discard typeset(
+            bumpy.rect(0, 0, 10, 10),
+            [(fs(FigFont()), "text")],
+            FontHorizontal.Left,
+            FontVertical.Top,
+            false,
+            false,
           )
           discard figDashedRoundedRectBorder(
             bumpy.rect(0, 0, 10, 10),
