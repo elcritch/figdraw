@@ -170,7 +170,7 @@ when isMainModule:
           fill: fill(rgba(0, 0, 0, 155)),
           corners: [8'u16, 8'u16, 8'u16, 8'u16],
         )
-        layout = typeset(
+        layout = typesetStyled(
           Rect(x: 0, y: 0, w: 160, h: 22),
           [(FontStyle(font: fpsFont, color: fill(rgba(0, 0, 0, 255))), fpsText)],
           hAlign = Right,

@@ -65,6 +65,26 @@ proc typesetForMeasurement*(
   ## Typesets without generating or publishing glyph images.
   textBackend.typeset(box, uiSpans, hAlign, vAlign, minContent, wrap, false)
 
+proc typesetStyled*(
+    box: Rect,
+    uiSpans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+): GlyphArrangement {.nativeAbi.} =
+  textBackend.typeset(box, uiSpans, hAlign, vAlign, minContent, wrap, true)
+
+proc typesetStyledForMeasurement*(
+    box: Rect,
+    uiSpans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+): GlyphArrangement {.nativeAbi.} =
+  textBackend.typeset(box, uiSpans, hAlign, vAlign, minContent, wrap, false)
+
 proc typeset*(
     box: Rect,
     uiSpans: openArray[(FigFont, string)],

@@ -8,7 +8,6 @@ import siwin/[clipboards, colorutils]
 
 import figdraw/commons
 import figdraw/common/fonttypes as fonttypes
-import figdraw/common/fontutils as fontutils
 import figdraw/fignodes
 import figdraw/figrender
 import figdraw/utils/drawutils
@@ -182,26 +181,6 @@ proc putFigImage*(id: ImageId, value: Image) =
 
 proc replaceFigImage*(id: ImageId, value: Image) =
   replaceImage(id, value.image)
-
-proc typeset*(
-    box: Rect,
-    spans: openArray[(FontStyle, string)],
-    hAlign = FontHorizontal.Left,
-    vAlign = FontVertical.Top,
-    minContent = false,
-    wrap = true,
-): GlyphArrangement =
-  fontutils.typeset(box, spans, hAlign, vAlign, minContent, wrap)
-
-proc typesetForMeasurement*(
-    box: Rect,
-    spans: openArray[(FontStyle, string)],
-    hAlign = FontHorizontal.Left,
-    vAlign = FontVertical.Top,
-    minContent = false,
-    wrap = true,
-): GlyphArrangement =
-  fontutils.typesetForMeasurement(box, spans, hAlign, vAlign, minContent, wrap)
 
 proc newFigSiwinApp*(
     width, height: int32,

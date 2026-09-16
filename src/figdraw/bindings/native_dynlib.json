@@ -47,6 +47,8 @@
     {"source": "../common/fonttypes.nim", "name": "caretPositionsFor"},
     {"source": "../common/fonttypes.nim", "name": "nearestSourceRuneForCaretPoint"},
     {"source": "../common/fontutils.nim", "name": "placeStyledGlyphs"},
+    {"source": "../common/fontutils.nim", "name": "typesetStyled"},
+    {"source": "../common/fontutils.nim", "name": "typesetStyledForMeasurement"},
     {"source": "../common/imgutils.nim", "name": "imgId"},
     {"source": "../common/imgutils.nim", "name": "hasImage"},
     {"source": "../common/imgutils.nim", "name": "loadFigImage"},

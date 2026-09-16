@@ -429,6 +429,30 @@ converter toFill*(value: chroma.ColorRGBA): Fill {.inline.} =
 converter toFill*(value: chroma.Color): Fill {.inline.} =
   fill(value.rgba().toNativeColor())
 
+proc typeset*(
+    box: bumpy.Rect,
+    spans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent = false,
+    wrap = true,
+): GlyphArrangement {.inline.} =
+  figdraw_native_abi.typesetStyled(
+    box.toNativeRect(), spans, hAlign, vAlign, minContent, wrap
+  )
+
+proc typesetForMeasurement*(
+    box: bumpy.Rect,
+    spans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent = false,
+    wrap = true,
+): GlyphArrangement {.inline.} =
+  figdraw_native_abi.typesetStyledForMeasurement(
+    box.toNativeRect(), spans, hAlign, vAlign, minContent, wrap
+  )
+
 func `==`*(a, b: FigIdx): bool {.inline.} =
   int16(a) == int16(b)
 
