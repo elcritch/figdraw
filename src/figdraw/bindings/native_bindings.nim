@@ -10,7 +10,6 @@ import figdraw/commons
 import figdraw/common/fonttypes as fonttypes
 import figdraw/fignodes
 import figdraw/figrender
-import figdraw/utils/drawutils
 import figdraw/windowing/siwinshim
 
 type
@@ -530,9 +529,6 @@ proc siwinSetIcon*(appHandle: NativeSiwinApp, value: Image) =
       size: ivec2(image.width.int32, image.height.int32),
       format: rgbx_32bit,
     )
-
-proc siwinClearIcon*(appHandle: NativeSiwinApp) =
-  siwinApp(appHandle).window.icon = nil
 
 proc siwinClipboardText*(appHandle: NativeSiwinApp): string =
   siwinApp(appHandle).window.clipboard.text
