@@ -46,6 +46,7 @@
     {"source": "../common/fonttypes.nim", "name": "selectionRectsFor"},
     {"source": "../common/fonttypes.nim", "name": "caretPositionsFor"},
     {"source": "../common/fonttypes.nim", "name": "nearestSourceRuneForCaretPoint"},
+    {"source": "../common/fontutils.nim", "name": "placeStyledGlyphs"},
     {"source": "../common/imgutils.nim", "name": "imgId"},
     {"source": "../common/imgutils.nim", "name": "hasImage"},
     {"source": "../extras/systemfonts.nim", "name": "detectDisplayServer"},

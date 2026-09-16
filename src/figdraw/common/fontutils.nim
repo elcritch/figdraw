@@ -248,3 +248,11 @@ proc placeGlyphs*(
     font: FontRef, glyphs: openArray[(Rune, Vec2)], origin: GlyphOrigin = GlyphTopLeft
 ): GlyphArrangement =
   result = placeGlyphs(fs(font), glyphs, origin)
+
+proc placeStyledGlyphs*(
+    style: FontStyle,
+    glyphs: openArray[(Rune, Vec2)],
+    origin: GlyphOrigin = GlyphTopLeft,
+): GlyphArrangement {.nativeAbi.} =
+  ## ABI-stable entry point for explicitly styled glyph placement.
+  placeGlyphs(style, glyphs, origin)

@@ -209,13 +209,6 @@ proc typesetForMeasurement*(
 ): GlyphArrangement =
   fontutils.typesetForMeasurement(box, spans, hAlign, vAlign, minContent, wrap)
 
-proc placeStyledGlyphs*(
-    style: FontStyle,
-    glyphs: openArray[(Rune, Vec2)],
-    origin: GlyphOrigin = GlyphTopLeft,
-): GlyphArrangement =
-  fontutils.placeGlyphs(style, glyphs, origin)
-
 proc newFigSiwinApp*(
     width, height: int32,
     title: string,
