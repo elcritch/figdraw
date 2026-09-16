@@ -199,6 +199,19 @@ when defined(feature.figdraw.sharedlib):
         "CoreGraphics", "-framework", "Foundation", "-framework", "Metal", "-framework",
         "QuartzCore", "-framework", "Security", "-lobjc",
       ]
+  elif defined(linux):
+    nativeBuild.linkerArgs = pkgConfigFlags(
+        "libs",
+        XorgDependencies.splitWhitespace() & WaylandDependencies.splitWhitespace() &
+          AuxDependencies.splitWhitespace(),
+      )
+      .splitWhitespace()
+    when defined(figdraw.vulkan):
+      nativeBuild.linkerArgs.add pkgConfigFlags("libs", ["vulkan"]).splitWhitespace()
+    when defined(figdraw.harfbuzz):
+      nativeBuild.linkerArgs.add(
+        pkgConfigFlags("libs", ["harfbuzz", "fribidi"]).splitWhitespace()
+      )
 
   proc nativeCommand(arguments: openArray[string]): string =
     for index, argument in arguments:

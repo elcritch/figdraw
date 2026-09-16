@@ -5,11 +5,14 @@ on:
   pull_request:
     branches:
     - "*"
+  release:
+    types: [published]
 
 
 jobs:
   tests:
-    name: ${{ matrix.os }}-${{ matrix.display }}-${{ matrix.renderer }}
+    if: github.event_name != 'release'
+    name: ${{ matrix.os }}-${{ matrix.display }}-${{ matrix.renderer }}-devel
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -19,36 +22,30 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            nimversion: '2.2.10'
             display: x11
             renderer: opengl
             nimflags: '-d:figdraw.opengl=on -d:figdraw.vulkan=off'
             force_opengl: '1'
           - os: ubuntu-24.04
-            nimversion: '2.2.10'
             display: x11
             renderer: vulkan
             nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on -d:figdraw.vulkanValidation'
             force_opengl: '0'
           - os: ubuntu-24.04
-            nimversion: '2.2.10'
             display: wayland
             renderer: opengl
             nimflags: '-d:figdraw.opengl=on -d:figdraw.vulkan=off'
             force_opengl: '1'
           - os: ubuntu-24.04
-            nimversion: '2.2.10'
             display: wayland
             renderer: vulkan
             nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on -d:figdraw.vulkanValidation'
             force_opengl: '0'
           - os: macos-14
-            nimversion: '2.2.10'
             display: none
             renderer: native
             nimflags: ''
           - os: windows-2022
-            nimversion: '2.2.10'
             display: none
             renderer: opengl
             nimflags: '-d:figdraw.opengl=on -d:figdraw.vulkan=off --passC:-IC:/msys64/mingw64/include/harfbuzz -d:harfbuzzyDynlib=libharfbuzz-0.dll -d:harfbuzzyFribidiDynlib=libfribidi-0.dll'
@@ -57,7 +54,6 @@ jobs:
             test_exclude: ''
             vulkan_icd: ''
           - os: windows-2022
-            nimversion: '2.2.10'
             display: none
             renderer: vulkan
             nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on -d:figdraw.openglFallback=off --passC:-IC:/msys64/mingw64/include/harfbuzz -d:harfbuzzyDynlib=libharfbuzz-0.dll -d:harfbuzzyFribidiDynlib=libfribidi-0.dll'
@@ -66,7 +62,7 @@ jobs:
             test_exclude: 'tfigrender_oneframe_screenshot.nim,trender_3d_overlay.nim,trender_extras.nim,trender_image.nim,trender_image_msdf_invert.nim,trender_layers_clip.nim,trender_linear_gradient.nim,trender_rgb_boxes.nim,trender_rgb_boxes_sdf.nim,trender_rgb_boxes_sdf_siwin.nim,trender_text_invert.nim,tsiwin_rect_mask_vulkan.nim'
             vulkan_icd: 'C:/swiftshader/vk_swiftshader_icd.json'
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v6
 
     - name: Setup software OpenGL (Mesa)
       if: runner.os == 'Windows'
@@ -180,12 +176,52 @@ jobs:
         ls -la /usr/share/vulkan/icd.d || true
         vulkaninfo --summary || true
 
-    # Atlas's Windows release currently needs the OpenSSL runtime bundled by Nim.
-    - name: Install Nim bootstrap (Windows)
+    - name: Install GrabNim
+      run: |
+        curl --fail --location --silent --show-error \
+          https://codeberg.org/janAkali/grabnim/raw/branch/master/misc/install.sh \
+          --output "$RUNNER_TEMP/grabnim-install.sh"
+        sh "$RUNNER_TEMP/grabnim-install.sh"
+        echo "$HOME/.nimble/bin" >> "$GITHUB_PATH"
+
+    - name: Install Nim devel nightly
+      if: runner.os != 'Windows'
+      env:
+        GRABNIM_GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        grabnim devel
+        nim_root="$(grabnim path devel | tr -d '\r\"')"
+        "$nim_root/bin/nim" c -d:release --out:"$nim_root/bin/nifler" \
+          "$nim_root/dist/nimony/src/nifler/nifler.nim"
+        echo "$nim_root/bin" >> "$GITHUB_PATH"
+
+    - name: Install Nim devel nightly (Windows)
       if: runner.os == 'Windows'
-      uses: jiro4989/setup-nim-action@v2
-      with:
-        nim-version: ${{ matrix.nimversion }}
+      env:
+        GRABNIM_GITHUB_TOKEN: ${{ github.token }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        archive="$RUNNER_TEMP/windows_x64.zip"
+        extracted="$RUNNER_TEMP/nim-devel-extracted"
+        curl --fail --location --silent --show-error \
+          https://github.com/nim-lang/nightlies/releases/download/latest-devel/windows_x64.zip \
+          --output "$archive"
+        digest="$(gh api repos/nim-lang/nightlies/releases/tags/latest-devel \
+          --jq '.assets[] | select(.name == "windows_x64.zip") | .digest')"
+        printf '%s  %s\n' "${digest#sha256:}" "$archive" | sha256sum --check -
+        mkdir -p "$extracted"
+        unzip -q "$archive" -d "$extracted"
+        grabnim_root="$(cygpath -u "$LOCALAPPDATA")/grabnim"
+        mkdir -p "$grabnim_root"
+        mv "$extracted"/nim-* "$grabnim_root/nim-devel"
+        grabnim devel
+        nim_root="$(grabnim path devel | tr -d '\r\"')"
+        nim_root="$(cygpath -u "$nim_root")"
+        export PATH="/c/msys64/mingw64/bin:$nim_root/bin:$PATH"
+        "$nim_root/bin/nim.exe" c -d:release --out:"$nim_root/bin/nifler.exe" \
+          "$nim_root/dist/nimony/src/nifler/nifler.nim"
+        cygpath -w "$nim_root/bin" >> "$GITHUB_PATH"
+        printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
 
     - name: Install Atlas
       run: |
@@ -197,21 +233,10 @@ jobs:
         atlas -v
 
     - name: Cache packages
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: deps/
-        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.display }}-${{ matrix.renderer }}-nim${{ matrix.nimversion }}-${{ hashFiles('figdraw.nimble') }}
-
-    - name: Setup Nim environment
-      if: runner.os != 'macOS'
-      run: atlas --binary --github-path env ${{ matrix.nimversion }}
-
-    - name: Setup native Nim environment (macOS)
-      if: runner.os == 'macOS'
-      # Atlas 0.15.2 resolves version tags from the wrong working directory in
-      # source mode. An explicit Git ref bypasses that path while retaining a
-      # native arm64 Nim build.
-      run: atlas --source --git-ref=v${{ matrix.nimversion }} --github-path env ${{ matrix.nimversion }}
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.display }}-${{ matrix.renderer }}-nim-devel-${{ hashFiles('figdraw.nimble') }}
 
     - name: Nim version
       run: |
@@ -304,8 +329,9 @@ jobs:
         VK_ICD_FILENAMES: ${{ matrix.vulkan_icd }}
         VK_DRIVER_FILES: ${{ matrix.vulkan_icd }}
       run: |
+        read -r -a nim_flags <<< "$NIMFLAGS"
         nim test
-        nim r $NIMFLAGS -d:figdrawTextBackend=harfbuzzy tests/tfontutils.nim
+        nim r "${nim_flags[@]}" -d:figdrawTextBackend=harfbuzzy tests/tfontutils.nim
 
     - name: Run Windows Vulkan graphics tests
       if: runner.os == 'Windows' && matrix.renderer == 'vulkan'
@@ -317,16 +343,133 @@ jobs:
         VK_ICD_FILENAMES: ${{ matrix.vulkan_icd }}
         VK_DRIVER_FILES: ${{ matrix.vulkan_icd }}
       run: |
-        nim r $NIMFLAGS tests/trender_image_msdf_invert.nim
+        read -r -a nim_flags <<< "$NIMFLAGS"
+        nim r "${nim_flags[@]}" tests/trender_image_msdf_invert.nim
 
     - name: Upload Test Output (on failure)
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: tests-output-${{ runner.os }}-${{ matrix.display }}-${{ matrix.renderer }}-nim${{ matrix.nimversion }}
+        name: tests-output-${{ runner.os }}-${{ matrix.display }}-${{ matrix.renderer }}-nim-devel
         path: |
           tests/output/
           ${{ runner.temp }}/weston.log
         if-no-files-found: ignore
 
-  # Native dynlib CI is temporarily disabled until Atlas can pin a historical devel build.
+  native-dynlib-release:
+    if: github.event_name == 'release'
+    name: native-dynlib-${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: macos-arm64
+            library: libfigdraw_native.dylib
+          - os: ubuntu-24.04
+            platform: linux-x64
+            library: libfigdraw_native.so
+          - os: windows-2022
+            platform: windows-x64
+            library: libfigdraw_native.dll
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install Linux native dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          pkg-config \
+          libx11-xcb-dev \
+          libxcb1-dev \
+          libxcursor-dev \
+          libxkbcommon-dev \
+          libxrender-dev \
+          libwayland-dev \
+          libwayland-egl-backend-dev \
+          libgl1-mesa-dev \
+          libgles2-mesa-dev \
+          libegl1-mesa-dev \
+          libvulkan-dev
+
+    - name: Install GrabNim
+      run: |
+        curl --fail --location --silent --show-error \
+          https://codeberg.org/janAkali/grabnim/raw/branch/master/misc/install.sh \
+          --output "$RUNNER_TEMP/grabnim-install.sh"
+        sh "$RUNNER_TEMP/grabnim-install.sh"
+        echo "$HOME/.nimble/bin" >> "$GITHUB_PATH"
+
+    - name: Install Nim devel nightly
+      if: runner.os != 'Windows'
+      env:
+        GRABNIM_GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        grabnim devel
+        nim_root="$(grabnim path devel | tr -d '\r\"')"
+        "$nim_root/bin/nim" c -d:release --out:"$nim_root/bin/nifler" \
+          "$nim_root/dist/nimony/src/nifler/nifler.nim"
+        echo "$nim_root/bin" >> "$GITHUB_PATH"
+
+    - name: Install Nim devel nightly (Windows)
+      if: runner.os == 'Windows'
+      env:
+        GRABNIM_GITHUB_TOKEN: ${{ github.token }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        archive="$RUNNER_TEMP/windows_x64.zip"
+        extracted="$RUNNER_TEMP/nim-devel-extracted"
+        curl --fail --location --silent --show-error \
+          https://github.com/nim-lang/nightlies/releases/download/latest-devel/windows_x64.zip \
+          --output "$archive"
+        digest="$(gh api repos/nim-lang/nightlies/releases/tags/latest-devel \
+          --jq '.assets[] | select(.name == "windows_x64.zip") | .digest')"
+        printf '%s  %s\n' "${digest#sha256:}" "$archive" | sha256sum --check -
+        mkdir -p "$extracted"
+        unzip -q "$archive" -d "$extracted"
+        grabnim_root="$(cygpath -u "$LOCALAPPDATA")/grabnim"
+        mkdir -p "$grabnim_root"
+        mv "$extracted"/nim-* "$grabnim_root/nim-devel"
+        grabnim devel
+        nim_root="$(grabnim path devel | tr -d '\r\"')"
+        nim_root="$(cygpath -u "$nim_root")"
+        export PATH="/c/msys64/mingw64/bin:$nim_root/bin:$PATH"
+        "$nim_root/bin/nim.exe" c -d:release --out:"$nim_root/bin/nifler.exe" \
+          "$nim_root/dist/nimony/src/nifler/nifler.nim"
+        cygpath -w "$nim_root/bin" >> "$GITHUB_PATH"
+        printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+
+    - name: Install Atlas
+      run: |
+        curl -fsSL https://raw.githubusercontent.com/nim-lang/atlas/HEAD/install.sh | bash -
+        echo "$HOME/.nimble/bin" >> "$GITHUB_PATH"
+
+    - name: Install native build dependencies
+      run: atlas install --features:siwin,sharedlib
+
+    - name: Build and stage native dynamic library
+      run: nim native_dynlib
+
+    - name: Package native dynamic library
+      run: |
+        package="figdraw-native-${{ matrix.platform }}"
+        mkdir -p "release/$package"
+        cp "bin/${{ matrix.library }}" "release/$package/"
+        cp bin/figdraw_native_abi.nim "release/$package/"
+        tar -czf "release/$package.tar.gz" -C release "$package"
+
+    - name: Upload native release assets
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release upload "$GITHUB_REF_NAME" \
+          "bin/${{ matrix.library }}" \
+          "release/figdraw-native-${{ matrix.platform }}.tar.gz" \
+          --clobber
