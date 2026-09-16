@@ -193,6 +193,8 @@ jobs:
         nim_root="$(grabnim path devel | tr -d '\r\"')"
         "$nim_root/bin/nim" c -d:release --out:"$nim_root/bin/nifler" \
           "$nim_root/dist/nimony/src/nifler/nifler.nim"
+        "$nim_root/bin/nim" c -d:release --out:"$nim_root/bin/nifmake" \
+          "$nim_root/dist/nimony/src/nifmake/nifmake.nim"
         echo "$nim_root/bin" >> "$GITHUB_PATH"
 
     - name: Install Nim devel nightly (Windows)
@@ -220,6 +222,8 @@ jobs:
         export PATH="/c/msys64/mingw64/bin:$nim_root/bin:$PATH"
         "$nim_root/bin/nim.exe" c -d:release --out:"$nim_root/bin/nifler.exe" \
           "$nim_root/dist/nimony/src/nifler/nifler.nim"
+        "$nim_root/bin/nim.exe" c -d:release --out:"$nim_root/bin/nifmake.exe" \
+          "$nim_root/dist/nimony/src/nifmake/nifmake.nim"
         cygpath -w "$nim_root/bin" >> "$GITHUB_PATH"
         printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
 
@@ -416,6 +420,8 @@ jobs:
         nim_root="$(grabnim path devel | tr -d '\r\"')"
         "$nim_root/bin/nim" c -d:release --out:"$nim_root/bin/nifler" \
           "$nim_root/dist/nimony/src/nifler/nifler.nim"
+        "$nim_root/bin/nim" c -d:release --out:"$nim_root/bin/nifmake" \
+          "$nim_root/dist/nimony/src/nifmake/nifmake.nim"
         echo "$nim_root/bin" >> "$GITHUB_PATH"
 
     - name: Install Nim devel nightly (Windows)
@@ -443,6 +449,8 @@ jobs:
         export PATH="/c/msys64/mingw64/bin:$nim_root/bin:$PATH"
         "$nim_root/bin/nim.exe" c -d:release --out:"$nim_root/bin/nifler.exe" \
           "$nim_root/dist/nimony/src/nifler/nifler.nim"
+        "$nim_root/bin/nim.exe" c -d:release --out:"$nim_root/bin/nifmake.exe" \
+          "$nim_root/dist/nimony/src/nifmake/nifmake.nim"
         cygpath -w "$nim_root/bin" >> "$GITHUB_PATH"
         printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
 
