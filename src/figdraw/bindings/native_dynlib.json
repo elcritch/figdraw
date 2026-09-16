@@ -49,6 +49,8 @@
     {"source": "../common/fontutils.nim", "name": "placeStyledGlyphs"},
     {"source": "../common/imgutils.nim", "name": "imgId"},
     {"source": "../common/imgutils.nim", "name": "hasImage"},
+    {"source": "../common/imgutils.nim", "name": "loadFigImage"},
+    {"source": "../common/imgutils.nim", "name": "clearFigImage"},
     {"source": "../extras/systemfonts.nim", "name": "detectDisplayServer"},
     {"source": "../extras/systemfonts.nim", "name": "systemFontDirs"},
     {"source": "../extras/systemfonts.nim", "name": "systemFontFiles"},

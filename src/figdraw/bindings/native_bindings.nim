@@ -177,17 +177,11 @@ proc setImagePixel*(value: Image, x, y: int, color: ColorRGBA) =
 proc fillImage*(value: Image, color: ColorRGBA) =
   value.image.fill(color)
 
-proc loadFigImage*(filePath: string): ImageId =
-  loadImage(filePath)
-
 proc putFigImage*(id: ImageId, value: Image) =
   loadImage(id, value.image)
 
 proc replaceFigImage*(id: ImageId, value: Image) =
   replaceImage(id, value.image)
-
-proc clearFigImage*(id: ImageId) =
-  clearImage(id)
 
 proc typeset*(
     box: Rect,
