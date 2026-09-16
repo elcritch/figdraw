@@ -38,23 +38,7 @@ type
   PopupConstraintAdjustments* = set[PopupConstraintAdjustment]
   WindowVisualCapabilities* = set[WindowVisualCapability]
   FigFlagSet* = set[FigFlags]
-  Vec2s* = seq[Vec2]
-  Figs* = seq[Fig]
-  FigIdxs* = seq[FigIdx]
-  TypefaceIds* = seq[TypefaceId]
-  FontFeatures* = seq[FontFeature]
-  FontVariations* = seq[FontVariation]
-  Strings* = seq[string]
-  ColorRGBXs* = seq[ColorRGBX]
-  GlyphFonts* = seq[GlyphFont]
-  Fills* = seq[Fill]
-  Runes* = seq[Rune]
-  DrawableOps* = seq[DrawableOp]
-  ArrangedGlyphs* = seq[ArrangedGlyph]
-  Rects* = seq[Rect]
   IntSlice* = Slice[int]
-  IntSlices* = seq[IntSlice]
-  TextCaretPositions* = seq[TextCaretPosition]
 
   NativeWindowSize* = object
     w*, h*: int32
@@ -92,21 +76,21 @@ type
     autoScale: bool
     title: string
 
-proc systemFontDirs*(): Strings =
+proc systemFontDirs*(): seq[string] =
   systemfonts.systemFontDirs()
 
-proc systemFontFiles*(): Strings =
+proc systemFontFiles*(): seq[string] =
   systemfonts.systemFontFiles()
 
 proc textBackend*(): string =
   ## Text backend compiled into this native library.
   fonttypes.textBackend()
 
-proc textBackendFeatures*(): Strings =
+proc textBackendFeatures*(): seq[string] =
   ## Backend capabilities compiled into this native library.
   fonttypes.textBackendFeatures()
 
-proc supportedFontFileExtensions*(): Strings =
+proc supportedFontFileExtensions*(): seq[string] =
   ## Typeface file extensions accepted by FigDraw's font loader.
   fonttypes.supportedFontFileExtensions()
 
@@ -135,11 +119,11 @@ proc utf8RunesText*(runes: fonttypes.Utf8Runes): string =
   ## Returns the underlying UTF-8 text.
   runes.stringValue()
 
-proc utf8RunesToRunes*(runes: fonttypes.Utf8Runes): Runes =
+proc utf8RunesToRunes*(runes: fonttypes.Utf8Runes): seq[Rune] =
   ## Materializes runes for APIs that require a sequence.
   runes.toRunes()
 
-proc utf8RunesFromRunes*(runes: Runes): fonttypes.Utf8Runes =
+proc utf8RunesFromRunes*(runes: seq[Rune]): fonttypes.Utf8Runes =
   ## Creates UTF-8-backed storage from a compatibility rune sequence.
   fonttypes.initUtf8Runes(runes)
 
@@ -150,30 +134,30 @@ proc copyUtf8RuneStorage*(runes: fonttypes.Utf8Runes): fonttypes.Utf8Runes =
 proc utf8RunesEqual*(a, b: fonttypes.Utf8Runes): bool =
   a == b
 
-proc utf8RunesEqualRunes*(a: fonttypes.Utf8Runes, b: Runes): bool =
+proc utf8RunesEqualRunes*(a: fonttypes.Utf8Runes, b: seq[Rune]): bool =
   a == b
 
-proc lineGlyphRanges*(arrangement: fonttypes.GlyphArrangement): IntSlices =
+proc lineGlyphRanges*(arrangement: fonttypes.GlyphArrangement): seq[IntSlice] =
   fonttypes.lineGlyphRanges(arrangement)
 
 proc selectionRectsFor*(
     arrangement: fonttypes.GlyphArrangement, sourceRange: IntSlice
-): Rects =
+): seq[Rect] =
   fonttypes.selectionRectsFor(arrangement, sourceRange)
 
 proc caretPositionsFor*(
     arrangement: fonttypes.GlyphArrangement, sourceRune: int
-): TextCaretPositions =
+): seq[TextCaretPosition] =
   fonttypes.caretPositionsFor(arrangement, sourceRune)
 
 proc insertChildren*(
     list: var RenderList, parentIdx: FigIdx, children: RenderList, childPos: Natural
-): FigIdxs =
+): seq[FigIdx] =
   fignodes.insertChildren(list, parentIdx, children, childPos)
 
 proc addChildren*(
     list: var RenderList, parentIdx: FigIdx, children: RenderList
-): FigIdxs =
+): seq[FigIdx] =
   fignodes.addChildren(list, parentIdx, children)
 
 proc insertChildren*(
@@ -182,12 +166,12 @@ proc insertChildren*(
     parentIdx: FigIdx,
     children: RenderList,
     childPos: Natural,
-): FigIdxs =
+): seq[FigIdx] =
   fignodes.insertChildren(renders, lvl, parentIdx, children, childPos)
 
 proc addChildren*(
     renders: Renders, lvl: ZLevel, parentIdx: FigIdx, children: RenderList
-): FigIdxs =
+): seq[FigIdx] =
   fignodes.addChildren(renders, lvl, parentIdx, children)
 
 proc retainRaw[T](raw: pointer) =
@@ -700,10 +684,10 @@ proc siwinClipboardText*(appHandle: NativeSiwinApp): string =
 proc siwinSetClipboardText*(appHandle: NativeSiwinApp, value: string) =
   siwinApp(appHandle).window.clipboard.text = value
 
-proc siwinClipboardFiles*(appHandle: NativeSiwinApp): Strings =
+proc siwinClipboardFiles*(appHandle: NativeSiwinApp): seq[string] =
   siwinApp(appHandle).window.clipboard.files
 
-proc siwinSetClipboardFiles*(appHandle: NativeSiwinApp, value: Strings) =
+proc siwinSetClipboardFiles*(appHandle: NativeSiwinApp, value: seq[string]) =
   siwinApp(appHandle).window.clipboard.files = value
 
 proc siwinClipboardData*(appHandle: NativeSiwinApp, mimeType: string): string =
@@ -712,7 +696,7 @@ proc siwinClipboardData*(appHandle: NativeSiwinApp, mimeType: string): string =
 proc siwinSetClipboardData*(appHandle: NativeSiwinApp, mimeType, value: string) =
   siwinApp(appHandle).window.clipboard[mimeType] = value
 
-proc siwinClipboardMimeTypes*(appHandle: NativeSiwinApp): Strings =
+proc siwinClipboardMimeTypes*(appHandle: NativeSiwinApp): seq[string] =
   siwinApp(appHandle).window.clipboard.availableMimeTypes
 
 proc siwinUiScale*(appHandle: NativeSiwinApp): float32 =
