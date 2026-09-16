@@ -137,30 +137,6 @@ proc utf8RunesEqual*(a, b: fonttypes.Utf8Runes): bool =
 proc utf8RunesEqualRunes*(a: fonttypes.Utf8Runes, b: seq[Rune]): bool =
   a == b
 
-proc insertChildren*(
-    list: var RenderList, parentIdx: FigIdx, children: RenderList, childPos: Natural
-): seq[FigIdx] =
-  fignodes.insertChildren(list, parentIdx, children, childPos)
-
-proc addChildren*(
-    list: var RenderList, parentIdx: FigIdx, children: RenderList
-): seq[FigIdx] =
-  fignodes.addChildren(list, parentIdx, children)
-
-proc insertChildren*(
-    renders: Renders,
-    lvl: ZLevel,
-    parentIdx: FigIdx,
-    children: RenderList,
-    childPos: Natural,
-): seq[FigIdx] =
-  fignodes.insertChildren(renders, lvl, parentIdx, children, childPos)
-
-proc addChildren*(
-    renders: Renders, lvl: ZLevel, parentIdx: FigIdx, children: RenderList
-): seq[FigIdx] =
-  fignodes.addChildren(renders, lvl, parentIdx, children)
-
 proc retainRaw[T](raw: pointer) =
   if raw != nil:
     let value {.cursor.} = cast[T](raw)

@@ -12,6 +12,8 @@
     {"source": "../fignodes.nim", "name": "insertRoot"},
     {"source": "../fignodes.nim", "name": "addChild"},
     {"source": "../fignodes.nim", "name": "insertChild"},
+    {"source": "../fignodes.nim", "name": "insertChildren"},
+    {"source": "../fignodes.nim", "name": "addChildren"},
     {"source": "../fignodes.nim", "name": "newRenders"},
     {"source": "../fignodes.nim", "name": "setLayer"},
     {"source": "../fignodes.nim", "name": "contains"},
