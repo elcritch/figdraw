@@ -15,7 +15,7 @@ Features:
 - SDF/MSDF (Multi-SDF) based glyph rendering.
 - Linear gradients with 2 and 3 stop points.
 - Fast Gaussian 2-pass node operation for fast background blurs.
-- Clipping and layering support. 
+- Clipping and layering support.
 
 ## Quick Start
 
