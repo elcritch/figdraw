@@ -47,7 +47,7 @@ suite "native dynlib API":
       var appHandle: NativeSiwinApp
       var imageHandle: Image
       check appHandle.raw == nil
-      check imageHandle.raw == nil
+      check imageHandle.isNil
 
       let
         region = WindowVisualRegion(pos: ivec2(8, 12), size: ivec2(160, 90))

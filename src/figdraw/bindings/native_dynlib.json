@@ -111,7 +111,8 @@
     {"source": "../utils/drawutils.nim", "name": "figRoundedRectBorder"}
   ],
   "typeImports": [
-    {"name": "Rect", "module": "bumpy"}
+    {"name": "Rect", "module": "bumpy"},
+    {"name": "Image", "module": "pixie"}
   ],
   "requireMatches": true
 }

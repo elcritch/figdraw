@@ -3,6 +3,7 @@
 import std/[os, strutils, tables, unicode]
 import pkg/bumpy as bumpy
 import pkg/chroma as chroma
+from pkg/pixie import Image
 import pkg/vmath as vmath
 import figdraw_native_abi
 from figdraw/common/fonttypes import fontVariation
@@ -14,6 +15,7 @@ when not defined(gcArc):
   {.error: "figdraw/dynlib requires --mm:arc to match the native library".}
 
 export tables, bumpy, chroma, vmath
+export Image
 export figdraw_native_abi except
   ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile, placeGlyphs,
   toRunes, `[]`

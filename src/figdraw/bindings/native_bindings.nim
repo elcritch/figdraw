@@ -64,9 +64,6 @@ type
   NativeSiwinApp* = object
     raw*: pointer
 
-  Image* = object
-    raw*: pointer
-
   SiwinApp = ref object
     window: Window
     renderer: FigRenderer[SiwinRenderBackend]
@@ -98,7 +95,6 @@ template defineHandleHooks(HandleType, RefType: typedesc) =
       dest.raw = source.raw
 
 defineHandleHooks(NativeSiwinApp, SiwinApp)
-defineHandleHooks(Image, pixie.Image)
 
 proc wrap(value: SiwinApp): NativeSiwinApp =
   retainRaw[SiwinApp](cast[pointer](value))
@@ -106,13 +102,6 @@ proc wrap(value: SiwinApp): NativeSiwinApp =
 
 template siwinApp(value: NativeSiwinApp): SiwinApp =
   cast[SiwinApp](value.raw)
-
-proc wrap(value: pixie.Image): Image =
-  retainRaw[pixie.Image](cast[pointer](value))
-  result.raw = cast[pointer](value)
-
-template image(value: Image): pixie.Image =
-  cast[pixie.Image](value.raw)
 
 func siwinPlacement(value: NativePopupPlacement): PopupPlacement =
   PopupPlacement(
@@ -142,44 +131,44 @@ func nativePlacement(value: PopupPlacement): NativePopupPlacement =
     reactive: value.reactive,
   )
 
-proc newPixieImage*(width, height: int): Image =
-  wrap(pixie.newImage(width, height))
+proc newPixieImage*(width, height: int): pixie.Image =
+  pixie.newImage(width, height)
 
-proc readPixieImage*(filePath: string): Image =
-  wrap(pixie.readImage(filePath))
+proc readPixieImage*(filePath: string): pixie.Image =
+  pixie.readImage(filePath)
 
-proc decodePixieImage*(data: string): Image =
-  wrap(pixie.decodeImage(data))
+proc decodePixieImage*(data: string): pixie.Image =
+  pixie.decodeImage(data)
 
-proc encodePng*(value: Image): string =
-  png.encodePng(value.image)
+proc encodePng*(value: pixie.Image): string =
+  png.encodePng(value)
 
-proc writePixieImage*(value: Image, filePath: string) =
-  value.image.writeFile(filePath)
+proc writePixieImage*(value: pixie.Image, filePath: string) =
+  value.writeFile(filePath)
 
-proc copyImage*(value: Image): Image =
-  wrap(value.image.copy())
+proc copyImage*(value: pixie.Image): pixie.Image =
+  value.copy()
 
-proc imageWidth*(value: Image): int =
-  value.image.width
+proc imageWidth*(value: pixie.Image): int =
+  value.width
 
-proc imageHeight*(value: Image): int =
-  value.image.height
+proc imageHeight*(value: pixie.Image): int =
+  value.height
 
-proc imagePixel*(value: Image, x, y: int): ColorRGBA =
-  value.image[x, y].rgba()
+proc imagePixel*(value: pixie.Image, x, y: int): ColorRGBA =
+  value[x, y].rgba()
 
-proc setImagePixel*(value: Image, x, y: int, color: ColorRGBA) =
-  value.image[x, y] = color
+proc setImagePixel*(value: pixie.Image, x, y: int, color: ColorRGBA) =
+  value[x, y] = color
 
-proc fillImage*(value: Image, color: ColorRGBA) =
-  value.image.fill(color)
+proc fillImage*(value: pixie.Image, color: ColorRGBA) =
+  value.fill(color)
 
-proc putFigImage*(id: ImageId, value: Image) =
-  loadImage(id, value.image)
+proc putFigImage*(id: ImageId, value: pixie.Image) =
+  loadImage(id, value)
 
-proc replaceFigImage*(id: ImageId, value: Image) =
-  replaceImage(id, value.image)
+proc replaceFigImage*(id: ImageId, value: pixie.Image) =
+  replaceImage(id, value)
 
 proc newFigSiwinApp*(
     width, height: int32,
@@ -412,8 +401,8 @@ proc siwinMousePos*(appHandle: NativeSiwinApp): NativePoint =
   let pos = siwinApp(appHandle).window.mouse.pos
   NativePoint(x: pos.x, y: pos.y)
 
-proc siwinSetIcon*(appHandle: NativeSiwinApp, value: Image) =
-  let image = value.image
+proc siwinSetIcon*(appHandle: NativeSiwinApp, value: pixie.Image) =
+  let image = value
   if image.isNil or image.data.len == 0:
     siwinApp(appHandle).window.icon = nil
   else:
