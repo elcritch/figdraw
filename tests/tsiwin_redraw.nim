@@ -4,6 +4,7 @@ when defined(linux) or defined(bsd):
 
 when defined(useNativeDynlib):
   import figdraw/dynlib
+  from figdraw_native_abi import nil
 else:
   import figdraw
   import figdraw/windowing/siwinshim
@@ -24,6 +25,81 @@ proc closeWindow(window: Window) =
     window.close()
 
 suite "siwin redraw":
+  when defined(useNativeDynlib):
+    test "direct opaque renderer exports retain ownership and text preferences":
+      block runWindow:
+        when defined(linux) or defined(bsd):
+          if getEnv("DISPLAY").len == 0 and getEnv("WAYLAND_DISPLAY").len == 0:
+            skip()
+            break runWindow
+
+        let window = newSiwinWindow(size = ivec2(160, 120), title = "direct renderer")
+        try:
+          var original = newFigSiwinApp(window, 192, 1.0)
+          require not original.isNil
+          let renderer = original
+          original = nil
+          # The copied renderer reference keeps the producer-owned state alive.
+          check window.opened
+          check renderer.backendName() == backendName(renderer.backendKind())
+
+          for enabled in [false, true, false]:
+            # Metal stores desired flags for fallback, but has no active text toggles.
+            let expected = enabled and renderer.backendKind() != rbMetal
+            figdraw_native_abi.setTextLcdFiltering(renderer, enabled)
+            figdraw_native_abi.setTextSubpixelPositioning(renderer, enabled)
+            figdraw_native_abi.setTextSubpixelGlyphVariants(renderer, enabled)
+            check figdraw_native_abi.textLcdFiltering(renderer) == expected
+            check figdraw_native_abi.textSubpixelPositioning(renderer) == expected
+            check figdraw_native_abi.textSubpixelGlyphVariants(renderer) == expected
+
+          let target = figdraw_native_abi.presentationTarget(renderer)
+          figdraw_native_abi.updatePresentationTarget(target, window)
+          # Realize the window's drawable before exercising direct frame calls.
+          window.firstStep(true)
+          let size = window.logicalSize()
+          var renders = renderTree(size)
+          figdraw_native_abi.beginFrame(renderer)
+          figdraw_native_abi.renderFrame(renderer, renders, size, true, whiteColor)
+          figdraw_native_abi.endFrame(renderer)
+
+          let supportsDedicated = figdraw_native_abi.backendSupportsDedicatedRenderThread(
+            renderer.backendKind()
+          )
+          check figdraw_native_abi.supportsDedicatedRenderThread(renderer) ==
+            supportsDedicated
+          if supportsDedicated:
+            figdraw_native_abi.useDedicatedRenderThread(renderer)
+        finally:
+          closeWindow(window)
+
+    test "direct icon overloads support borrowed pixels and clearing":
+      block runWindow:
+        when defined(linux) or defined(bsd):
+          if getEnv("DISPLAY").len == 0 and getEnv("WAYLAND_DISPLAY").len == 0:
+            skip()
+            break runWindow
+
+        let window = newSiwinWindow(size = ivec2(160, 120), title = "figdraw icon test")
+        try:
+          let
+            image = newImage(2, 2)
+            iconColor = rgba(64, 32, 16, 255)
+          image.fill(iconColor)
+          let buffer: PixelBuffer = image
+          figdraw_native_abi.`icon=`(window, buffer)
+          check image[0, 0] == iconColor
+          figdraw_native_abi.`icon=`(window, nil)
+
+          window.icon = image
+          check image[0, 0] == iconColor
+          window.icon = newImage(1, 1)
+          window.icon = Image()
+          window.icon = Image(nil)
+          window.icon = nil
+        finally:
+          closeWindow(window)
+
   test "resize dispatches a redraw using the new logical size":
     block runWindow:
       when defined(linux) or defined(bsd):
@@ -35,6 +111,22 @@ suite "siwin redraw":
         renderer = newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
         window = newSiwinWindow(size = ivec2(320, 220), title = "figdraw resize test")
       renderer.setupBackend(window)
+      check renderer.backendName() == backendName(renderer.backendKind())
+      when defined(useNativeDynlib):
+        let typedRenderer: SiwinRenderer = renderer
+        let target: SiwinPresentationTarget = renderer.presentationTarget()
+        target.updatePresentationTarget(window)
+        for enabled in [true, false]:
+          let expected = enabled and renderer.backendKind() != rbMetal
+          renderer.setTextLcdFiltering(enabled)
+          renderer.setTextSubpixelPositioning(enabled)
+          renderer.setTextSubpixelGlyphVariants(enabled)
+          check renderer.textLcdFiltering() == expected
+          check renderer.textSubpixelPositioning() == expected
+          check renderer.textSubpixelGlyphVariants() == expected
+          check typedRenderer.textLcdFiltering() == expected
+          check typedRenderer.textSubpixelPositioning() == expected
+          check typedRenderer.textSubpixelGlyphVariants() == expected
 
       var
         running = true
@@ -62,7 +154,7 @@ suite "siwin redraw":
       )
 
       try:
-        window.firstStep()
+        window.firstStep(true)
         window.redraw()
         for _ in 0 ..< 20:
           window.step()
@@ -93,4 +185,5 @@ suite "siwin redraw":
         check abs(renderedSize.x - actualSize.x) < 0.01'f32
         check abs(renderedSize.y - actualSize.y) < 0.01'f32
       finally:
+        window.eventsHandler = WindowEventsHandler()
         closeWindow(window)

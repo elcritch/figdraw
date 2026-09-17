@@ -65,6 +65,26 @@ proc typesetForMeasurement*(
   ## Typesets without generating or publishing glyph images.
   textBackend.typeset(box, uiSpans, hAlign, vAlign, minContent, wrap, false)
 
+proc typesetStyled*(
+    box: Rect,
+    uiSpans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+): GlyphArrangement {.nativeAbi.} =
+  textBackend.typeset(box, uiSpans, hAlign, vAlign, minContent, wrap, true)
+
+proc typesetStyledForMeasurement*(
+    box: Rect,
+    uiSpans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+): GlyphArrangement {.nativeAbi.} =
+  textBackend.typeset(box, uiSpans, hAlign, vAlign, minContent, wrap, false)
+
 proc typeset*(
     box: Rect,
     uiSpans: openArray[(FigFont, string)],
@@ -248,3 +268,11 @@ proc placeGlyphs*(
     font: FontRef, glyphs: openArray[(Rune, Vec2)], origin: GlyphOrigin = GlyphTopLeft
 ): GlyphArrangement =
   result = placeGlyphs(fs(font), glyphs, origin)
+
+proc placeStyledGlyphs*(
+    style: FontStyle,
+    glyphs: openArray[(Rune, Vec2)],
+    origin: GlyphOrigin = GlyphTopLeft,
+): GlyphArrangement {.nativeAbi.} =
+  ## ABI-stable entry point for explicitly styled glyph placement.
+  placeGlyphs(style, glyphs, origin)

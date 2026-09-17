@@ -2,6 +2,47 @@
 
 ## 0.39.0
 
+- Hide native renderer, backend-state, and presentation-target fields behind
+  Binny 0.5.12 opaque exports. Remove Cocoa/Metal type imports from the shared export
+  configuration while preserving direct calls and producer-owned destruction.
+  Keep the attached window in the facade for automatic UI-scale tracking.
+- Forward explicit Metal, Vulkan, OpenGL, and OpenGL-fallback defines into the
+  native producer build, preserving `=off` values and effective Vulkan linking.
+  Export the direct dedicated-render capability queries and render-thread
+  transition alongside the existing presentation-target APIs.
+- Export Pixie's RGBA setter/fill and Siwin renderer frame/presentation APIs
+  directly. Return `SiwinRenderer` from `newFigSiwinApp`; remove `NativeSiwinApp`
+  and the scalar fused-frame adapter. Keep facade lazy setup, defaults, and
+  automatic UI-scale tracking while replacing dummy presentation/frame APIs.
+- Share system typeface identities and font variations between producer and
+  consumers; use direct exact-file loading and sizing instead of copying
+  metadata in the facade.
+- Export the typed Siwin renderer's backend queries and text preferences
+  directly with Binny 0.5.11. Remove native and facade forwarding APIs plus
+  manual opaque-handle ownership hooks. Expose `app.renderer` from an
+  ARC-managed app while retaining automatic UI-scale and frame orchestration.
+- Export Pixie's pixel getter directly with shared Chroma `ColorRGBX`, keeping
+  straight-alpha conversion in the dynlib facade instead of a producer adapter.
+  Require Binny 0.5.10 for the imported-alias and nil-overload fixes.
+- Use the direct backend-kind naming API instead of an app-specific native
+  name forwarder.
+- Export Siwin interactive move/resize, window-menu, and raw icon methods
+  directly. Keep only facade conversions for optional positions and borrowed
+  image pixels, including the distinct clear-icon call.
+- Export Pixie's image factory, copy, file reader, and PNG overloads directly
+  with Binny 0.5.9. Remove duplicate image setter, fill, and icon facade
+  forwarders while keeping alpha and icon-format conversions.
+- Reuse Bumpy, Vmath, Chroma, Rune, and stdlib Slice types in native bindings
+  without boundary casts. Remove `IntSlice` and `FigSelectionRange` bridge
+  aliases; text selection ranges use `Slice[int16]` directly. Export UTF-8
+  constructors, scale/font helpers, Bezier overloads, Pixie codecs,
+  and sink-based image uploads directly instead of maintaining duplicates.
+- Export Siwin windows, events, clipboard operations, and platform methods
+  directly from the native dynamic library without compiling Siwin in clients.
+  Create windows with `newSiwinWindow`, then attach FigDraw rendering with
+  `newFigSiwinApp(window, atlasSize, pixelScale)`; remove the legacy window
+  records, pointer forwarders, and C-callback bridge while retaining semantic
+  converters, constructor defaults, and the renderer ownership handle.
 - Store `GlyphArrangement` source and display text as UTF-8 with sparse rune
   indexes in both static and native dynamic-library builds, reducing retained
   text-layout memory while preserving indexed rune access plus compatibility

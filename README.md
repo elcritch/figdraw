@@ -15,7 +15,7 @@ Features:
 - SDF/MSDF (Multi-SDF) based glyph rendering.
 - Linear gradients with 2 and 3 stop points.
 - Fast Gaussian 2-pass node operation for fast background blurs.
-- Clipping and layering support. 
+- Clipping and layering support.
 
 ## Quick Start
 
@@ -1038,8 +1038,90 @@ generated ABI module, then compile an example with `-d:useNativeDynlib`:
 ../Nim/bin/nim c -r -d:useNativeDynlib examples/siwin_renderlist.nim
 ```
 
-The equivalent Nimble task is
-`FIGDRAW_NATIVE_NIM=../Nim/bin/nim nimble nativeDynlib`.
+The native build task forwards explicit backend defines to the producer, so a
+platform-specific library can be selected with the same flags as a static
+build, for example `-d:figdraw.vulkan=on -d:figdraw.opengl=off`.
+
+The generated ABI is staged at `bin/figdraw_native_abi.nim`. It exposes Siwin's
+`Window`, event handlers, clipboard APIs, and window methods directly; consumers
+do not import or compile Siwin. Create a window with `newSiwinWindow`, then call
+`newFigSiwinApp(window, atlasSize, pixelScale)` to attach FigDraw rendering. See
+`examples/siwin_shared_native.nim` for a client using the generated ABI directly.
+
+`newFigSiwinApp` returns the generated ARC-managed `SiwinRenderer` directly;
+there is no separate app handle. Backend queries, text preferences, and frame
+operations call FigDraw's renderer routines directly:
+
+```nim
+let renderer = newFigSiwinApp(window, 512, 1.0)
+let autoScale = configureUiScale(window, "HDI")
+renderer.setTextLcdFiltering(true)
+echo renderer.backendName()
+
+# For each frame (renders and size are prepared by the client):
+refreshUiScale(window, autoScale)
+renderer.beginFrame()
+renderer.renderFrame(renders, size, true, Color(r: 1, g: 1, b: 1, a: 1))
+renderer.endFrame()
+```
+
+The constructor retains window attachment and initial UI-scale configuration;
+raw clients retain the returned auto-scale policy and refresh it before frames.
+Alternatively, create a renderer through the raw `newFigRenderer` export and
+attach it with `setupBackend`. Presentation targets are generated native types
+with direct creation/update APIs, not facade placeholders.
+
+`SiwinRenderer`, `SiwinRenderBackend`, and `SiwinPresentationTarget` are opaque
+generated types: use their native procedures rather than inspecting backend
+fields. Metal, Vulkan, and OpenGL implementation types stay in the producer;
+clients do not import Cocoa/Metal or compile graphics-backend modules. The same
+`native_dynlib.json` selects these types on every platform. Build and distribute
+the generated ABI alongside its matching platform/backend library; opacity does
+not make one binary ABI portable across operating systems. These exports require
+Binny 0.5.12's `opaqueTypes` support and ARC/atomicARC (the FigDraw facade uses ARC).
+
+The facade retains a small lazy renderer owner so OpenGL setup happens after
+window creation. It preserves constructor/frame defaults and refreshes automatic
+UI scaling in `beginFrame`, while a converter exposes the same typed renderer
+for direct backend, text-preference, presentation, and end-frame calls.
+It retains the attached window separately for UI-scale tracking, without reading
+the opaque renderer's internal state.
+
+Dedicated rendering is also available through the raw ABI. After `setupBackend`,
+check `supportsDedicatedRenderThread()`, obtain and update the
+`presentationTarget()` on the window thread, then call
+`useDedicatedRenderThread()` before moving frame work to the render thread.
+`backendSupportsDedicatedRenderThread()` provides the backend-level capability
+query; OpenGL remains window-thread-bound.
+
+The generated ABI reuses `bumpy.Rect`, Pixie's `Image`, Vmath's `Vec2`, `IVec2`,
+and `Mat4`, Chroma's `Color`, `ColorRGBA`, and `ColorRGBX`, and stdlib `Rune` and `Slice`
+types directly.
+It also shares `FontVariation`, `SystemTypefaceFile`, and `SystemTypeface`
+metadata, so exact typeface loading and sizing need no boundary copies.
+No boundary casts or separate `IntSlice` type are needed. Import shared-library
+constructors and accessors where needed (for example, `ivec2`, `x`, and `y` from
+Vmath); the producer uses Vmath's default layout, so clients must use the same
+layout. `initUtf8Runes` accepts `sink string` or `openArray[Rune]` directly, and
+`loadImage` and `replaceImage` accept `sink Image`.
+
+The raw ABI exports Pixie's pixel getter, RGBA setter, and RGBA fill directly.
+`image[x, y]` returns premultiplied `ColorRGBX`. The facade keeps straight-alpha
+`ColorRGBA` reads by converting that result with Chroma's `rgba()`.
+
+The `figdraw/dynlib` facade retains semantic conversions such as color-to-fill
+and rune-sequence-to-UTF-8 storage, plus constructor defaults omitted from the
+generated bindings. It uses the same shared types and generated window/event
+types. Event closures are ordinary Nim closures; avoid capturing their owning
+window (or clear its handlers before releasing it) to prevent ARC reference cycles.
+
+Interactive move/resize and window-menu methods accept `Option[Vec2]` directly;
+the facade also converts a plain `Vec2` to `some(position)`. Raw icon methods
+accept `PixelBuffer` or `nil`. The facade keeps `window.icon = image` through a
+borrowed-pixel conversion; keep the image alive when using `toPixelBuffer`
+separately. Native exports require Binny 0.5.12 or newer for opaque types,
+concrete generic exports, dependency aliases, source-qualified type imports,
+and `typeof(nil)` support.
 
 The same switch is supported by `siwin_cell_grid.nim`,
 `siwin_image_renderlist.nim`, and `siwin_two_windows.nim`.

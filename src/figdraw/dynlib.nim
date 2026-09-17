@@ -1,29 +1,37 @@
-## Source-compatible FigDraw/Siwin facade backed by the native Nim dynamic library.
+## FigDraw conveniences over the generated native ABI and shared Nim types.
 
-import std/[os, strutils, tables, unicode]
+import std/[macros, options, tables, unicode]
 import pkg/bumpy as bumpy
 import pkg/chroma as chroma
+from pkg/pixie import Image
 import pkg/vmath as vmath
 import figdraw_native_abi
-from figdraw/common/fonttypes import fontVariation
-import figdraw/extras/systemfonttypes as systemfonttypes
-from figdraw/extras/systemfonttypes import
-  SystemTypeface, initSystemTypefaceFile, initSystemTypeface
+from figdraw/extras/systemfonttypes import initSystemTypefaceFile, initSystemTypeface
 
 when not defined(gcArc):
   {.error: "figdraw/dynlib requires --mm:arc to match the native library".}
 
-export tables, bumpy, chroma, vmath
-export figdraw_native_abi except
-  Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile,
-  loadTypeface, glyphRangeFor, glyphSourceRange, glyphRect, glyphFont, lineGlyphRanges,
-  layoutContentSize, selectionRectsFor, glyphIndexAt, sourceRuneRangeAt,
-  sourceRuneCount, caretPositionsFor, nearestSourceRuneForCaretPoint,
-  typesetForMeasurement, figDashedRoundedRectBorder, figDottedRoundedRectBorder,
-  figRoundedRectBorder, placeGlyphs, typeset
-export
-  SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
-  initSystemTypeface
+export options, tables, bumpy, chroma, vmath
+export Image
+export figdraw_native_abi except placeGlyphs, newSiwinWindow, newFigRenderer, `[]`
+
+macro exportNativeIndexers(indexers: typed): untyped =
+  ## Re-export ABI symbols directly, except the image getter converted below.
+  result = newNimNode(nnkExportStmt)
+  for indexer in indexers:
+    let firstParamType = indexer.getTypeImpl()[0][1][^2]
+    if not firstParamType.sameType(bindSym("Image")):
+      result.add indexer
+
+exportNativeIndexers(figdraw_native_abi.`[]`)
+
+export initSystemTypefaceFile, initSystemTypeface
+
+proc systemFontDirs*(): seq[string] {.inline.} =
+  figdraw_native_abi.systemFontDirs(figdraw_native_abi.detectDisplayServer())
+
+proc systemFontFiles*(): seq[string] {.inline.} =
+  figdraw_native_abi.systemFontFiles(figdraw_native_abi.detectDisplayServer())
 
 const
   UseVulkanBackend* = false
@@ -43,365 +51,56 @@ const figdrawTextBackend* {.strdefine.} =
 type
   ImageRef* = ImageId
 
-  DirectionCorners* = enum
-    dcTopLeft
-    dcTopRight
-    dcBottomLeft
-    dcBottomRight
-
   CornerRadii2D*[T] = object
     x*, y*: array[DirectionCorners, T]
-
-  SiwinRenderBackend* = object
-
-  SiwinPresentationTarget* = object
-
-  WindowVisualRegion* = object
-    pos*: vmath.IVec2
-    size*: vmath.IVec2
-
-  WindowBackdropConfig* = object
-    regions*: seq[WindowVisualRegion]
-    case kind*: WindowBackdropKind
-    of wbkMaterial:
-      material*: WindowBackdropMaterial
-    of wbkNone, wbkBlur:
-      discard
-
-  WindowVisualEffectError* = object of CatchableError
-
-  Mouse* = object
-    pos*: vmath.Vec2
-    pressed*: set[MouseButton]
-
-  Keyboard* = object
-    pressed*: set[Key]
-    modifiers*: set[ModifierKey]
-
-  Clipboard* = ref object
-    window: Window
-    mimeTypes: seq[string]
-
-  Window* = ref object
-    handle: NativeSiwinApp
-    eventsHandler*: WindowEventsHandler
-    clipboard*: Clipboard
-    backdropConfig: WindowBackdropConfig
-    autoScale: bool
-    width, height: int32
-    titleText: string
-    fullscreen, vsync, resizable, frameless, transparent: bool
 
   FigRenderer*[BackendState] = ref object
     atlasSize: int
     pixelScale: float32
+    backendState: BackendState
+    native: SiwinRenderer
     window: Window
+    autoScale: bool
 
-  CloseEvent* = object
-    window*: Window
-
-  RenderEvent* = object
-    window*: Window
-
-  ResizeEvent* = object
-    window*: Window
-    size*: vmath.IVec2
-    initial*: bool
-
-  WindowMoveEvent* = object
-    window*: Window
-    pos*: vmath.IVec2
-
-  MouseMoveKind* = enum
-    move
-    enter
-    leave
-    moveWhileDragging
-
-  MouseMoveEvent* = object
-    window*: Window
-    pos*: vmath.Vec2
-    kind*: MouseMoveKind
-
-  MouseButtonEvent* = object
-    window*: Window
-    button*: MouseButton
-    pressed*: bool
-    generated*: bool
-
-  ScrollDeviceKind* = enum
-    unknown
-    discrete
-    continuous
-
-  ScrollEvent* = object
-    window*: Window
-    delta*: float
-    deltaX*: float
-    device*: ScrollDeviceKind
-
-  KeyEvent* = object
-    window*: Window
-    key*: Key
-    pressed*: bool
-    repeated*: bool
-    generated*: bool
-    modifiers*: set[ModifierKey]
-
-  TextInputEvent* = object
-    window*: Window
-    text*: string
-    repeated*: bool
-
-  StateBoolChangedEventKind* = enum
-    focus
-    fullscreen
-    maximized
-    frameless
-
-  StateBoolChangedEvent* = object
-    window*: Window
-    value*: bool
-    kind*: StateBoolChangedEventKind
-    isExternal*: bool
-
-  PopupDismissReason* = enum
-    pdrClientClosed
-    pdrCompositorDismissed
-    pdrParentClosed
-
-  PopupEvent* = object
-    window*: Window
-    reason*: PopupDismissReason
-
-  PopupPlacement* = object
-    anchorRectPos*: vmath.IVec2
-    anchorRectSize*: vmath.IVec2
-    size*: vmath.IVec2
-    anchor*: Edge
-    gravity*: Edge
-    offset*: vmath.IVec2
-    constraintAdjustment*: set[PopupConstraintAdjustment]
-    reactive*: bool
-
-  WindowEventsHandler* = object
-    onClose*: proc(e: CloseEvent)
-    onRender*: proc(e: RenderEvent)
-    onResize*: proc(e: ResizeEvent)
-    onWindowMove*: proc(e: WindowMoveEvent)
-    onMouseMove*: proc(e: MouseMoveEvent)
-    onMouseButton*: proc(e: MouseButtonEvent)
-    onScroll*: proc(e: ScrollEvent)
-    onKey*: proc(e: KeyEvent)
-    onTextInput*: proc(e: TextInputEvent)
-    onStateBoolChanged*: proc(e: StateBoolChangedEvent)
-    onPopupDone*: proc(e: PopupEvent)
+converter toSiwinRenderer*(renderer: FigRenderer[SiwinRenderBackend]): SiwinRenderer =
+  ## Exposes the typed renderer for direct native renderer operations.
+  renderer.native
 
 converter nilToImageRef*(value: typeof(nil)): ImageRef =
   discard value
   default(ImageRef)
 
-proc dispatchNativeResize(
-    context: pointer, width, height: int32, initial: bool
-) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onResize != nil:
-    window.eventsHandler.onResize(
-      ResizeEvent(window: window, size: vmath.ivec2(width, height), initial: initial)
+converter toCursor*(value: BuiltinCursor): Cursor {.inline.} =
+  Cursor(kind: CursorKind.builtin, builtin: value)
+
+converter toOptionalPosition*(value: vmath.Vec2): Option[vmath.Vec2] {.inline.} =
+  some(value)
+
+converter toPixelBuffer*(image: Image): PixelBuffer {.inline.} =
+  ## Borrows the image's premultiplied pixels; keep the image alive while using
+  ## the returned buffer. Nil or empty images yield an empty buffer.
+  if not image.isNil and image.data.len > 0:
+    result = PixelBuffer(
+      data: image.data[0].addr,
+      size: ivec2(image.width.int32, image.height.int32),
+      format: rgbx_32bit,
     )
-
-proc dispatchNativeClose(context: pointer) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onClose != nil:
-    window.eventsHandler.onClose(CloseEvent(window: window))
-
-proc dispatchNativeRender(context: pointer) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onRender != nil:
-    window.eventsHandler.onRender(RenderEvent(window: window))
-
-proc dispatchNativeWindowMove(context: pointer, x, y: int32) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onWindowMove != nil:
-    window.eventsHandler.onWindowMove(
-      WindowMoveEvent(window: window, pos: vmath.ivec2(x, y))
-    )
-
-proc dispatchNativeMouseMove(context: pointer, x, y: float32, kind: uint8) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onMouseMove != nil:
-    window.eventsHandler.onMouseMove(
-      MouseMoveEvent(window: window, pos: vmath.vec2(x, y), kind: MouseMoveKind(kind))
-    )
-
-proc dispatchNativeMouseButton(
-    context: pointer, button: MouseButton, pressed, generated: bool
-) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onMouseButton != nil:
-    window.eventsHandler.onMouseButton(
-      MouseButtonEvent(
-        window: window, button: button, pressed: pressed, generated: generated
-      )
-    )
-
-proc dispatchNativeScroll(
-    context: pointer, delta, deltaX: float, device: uint8
-) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onScroll != nil:
-    window.eventsHandler.onScroll(
-      ScrollEvent(
-        window: window, delta: delta, deltaX: deltaX, device: ScrollDeviceKind(device)
-      )
-    )
-
-proc dispatchNativeKey(
-    context: pointer, key: Key, pressed, repeated, generated: bool, modifierMask: uint8
-) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onKey != nil:
-    var modifiers: set[ModifierKey]
-    for modifier in ModifierKey:
-      if (modifierMask and (1'u8 shl modifier.ord)) != 0:
-        modifiers.incl modifier
-    window.eventsHandler.onKey(
-      KeyEvent(
-        window: window,
-        key: key,
-        pressed: pressed,
-        repeated: repeated,
-        generated: generated,
-        modifiers: modifiers,
-      )
-    )
-
-proc dispatchNativeTextInput(
-    context, text: pointer, textLen: int, repeated: bool
-) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onTextInput != nil:
-    var value = newString(textLen)
-    if textLen > 0:
-      copyMem(value[0].addr, text, textLen)
-    window.eventsHandler.onTextInput(
-      TextInputEvent(window: window, text: value, repeated: repeated)
-    )
-
-proc dispatchNativeStateBoolChanged(
-    context: pointer, value: bool, kind: uint8, isExternal: bool
-) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onStateBoolChanged != nil:
-    window.eventsHandler.onStateBoolChanged(
-      StateBoolChangedEvent(
-        window: window,
-        value: value,
-        kind: StateBoolChangedEventKind(kind),
-        isExternal: isExternal,
-      )
-    )
-
-proc dispatchNativePopup(context: pointer, reason: uint8) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onPopupDone != nil:
-    window.eventsHandler.onPopupDone(
-      PopupEvent(window: window, reason: PopupDismissReason(reason))
-    )
-
-proc installEventCallbacks(window: Window) =
-  siwinSetEventCallbacks(
-    window.handle,
-    cast[pointer](window),
-    cast[pointer](dispatchNativeClose),
-    cast[pointer](dispatchNativeResize),
-    cast[pointer](dispatchNativeRender),
-    cast[pointer](dispatchNativeWindowMove),
-    cast[pointer](dispatchNativeMouseMove),
-    cast[pointer](dispatchNativeMouseButton),
-    cast[pointer](dispatchNativeScroll),
-    cast[pointer](dispatchNativeKey),
-    cast[pointer](dispatchNativeTextInput),
-    cast[pointer](dispatchNativeStateBoolChanged),
-    cast[pointer](dispatchNativePopup),
-  )
-
-converter toNativeRect*(value: bumpy.Rect): figdraw_native_abi.Rect {.inline.} =
-  cast[figdraw_native_abi.Rect](value)
-
-converter toRect*(value: figdraw_native_abi.Rect): bumpy.Rect {.inline.} =
-  cast[bumpy.Rect](value)
-
-converter toNativeColor*(
-    value: chroma.ColorRGBA
-): figdraw_native_abi.ColorRGBA {.inline.} =
-  cast[figdraw_native_abi.ColorRGBA](value)
-
-converter toColor*(value: figdraw_native_abi.ColorRGBA): chroma.ColorRGBA {.inline.} =
-  cast[chroma.ColorRGBA](value)
-
-converter toNativeVec2*(value: vmath.Vec2): figdraw_native_abi.Vec2 {.inline.} =
-  cast[figdraw_native_abi.Vec2](value)
-
-converter toVec2*(value: figdraw_native_abi.Vec2): vmath.Vec2 {.inline.} =
-  cast[vmath.Vec2](value)
-
-converter toNativeMat4*(value: vmath.Mat4): figdraw_native_abi.Mat4 {.inline.} =
-  cast[figdraw_native_abi.Mat4](value)
-
-converter toMat4*(value: figdraw_native_abi.Mat4): vmath.Mat4 {.inline.} =
-  cast[vmath.Mat4](value)
-
-converter toNativeRune*(value: unicode.Rune): figdraw_native_abi.Rune {.inline.} =
-  cast[figdraw_native_abi.Rune](value)
-
-converter toRune*(value: figdraw_native_abi.Rune): unicode.Rune {.inline.} =
-  cast[unicode.Rune](value)
-
-func len*(runes: figdraw_native_abi.Utf8Runes): int {.inline.} =
-  figdraw_native_abi.utf8RunesLength(runes)
-
-func isEmpty*(runes: figdraw_native_abi.Utf8Runes): bool {.inline.} =
-  runes.len == 0
-
-func stringValue*(runes: figdraw_native_abi.Utf8Runes): string {.inline.} =
-  figdraw_native_abi.utf8RunesText(runes)
-
-proc toRunes*(runes: figdraw_native_abi.Utf8Runes): seq[unicode.Rune] =
-  let nativeRunes = figdraw_native_abi.utf8RunesToRunes(runes)
-  result = newSeqOfCap[unicode.Rune](nativeRunes.len)
-  for rune in nativeRunes:
-    result.add rune.toRune()
 
 converter toRuneSequence*(runes: figdraw_native_abi.Utf8Runes): seq[unicode.Rune] =
   runes.toRunes()
 
 converter toUtf8Runes*(runes: seq[unicode.Rune]): figdraw_native_abi.Utf8Runes =
-  var nativeRunes = newSeqOfCap[figdraw_native_abi.Rune](runes.len)
-  for rune in runes:
-    nativeRunes.add rune.toNativeRune()
-  figdraw_native_abi.utf8RunesFromRunes(nativeRunes)
-
-proc copyUtf8Runes*(runes: figdraw_native_abi.Utf8Runes): figdraw_native_abi.Utf8Runes =
-  figdraw_native_abi.copyUtf8RuneStorage(runes)
-
-proc `[]`*(runes: figdraw_native_abi.Utf8Runes, index: int): unicode.Rune =
-  figdraw_native_abi.utf8RuneAt(runes, index).toRune()
-
-proc `[]`*(
-    runes: figdraw_native_abi.Utf8Runes, slice: Slice[int]
-): figdraw_native_abi.Utf8Runes =
-  figdraw_native_abi.utf8RunesSlice(runes, cast[figdraw_native_abi.IntSlice](slice))
+  figdraw_native_abi.initUtf8Runes(runes)
 
 iterator items*(runes: figdraw_native_abi.Utf8Runes): unicode.Rune =
-  for rune in figdraw_native_abi.utf8RunesText(runes).runes:
+  for rune in figdraw_native_abi.stringValue(runes).runes:
     yield rune
 
 iterator pairs*(
     runes: figdraw_native_abi.Utf8Runes
 ): tuple[index: int, value: unicode.Rune] =
   var index = 0
-  for rune in figdraw_native_abi.utf8RunesText(runes).runes:
+  for rune in figdraw_native_abi.stringValue(runes).runes:
     yield (index, rune)
     inc index
 
@@ -409,127 +108,44 @@ func `==`*(a, b: figdraw_native_abi.Utf8Runes): bool {.inline.} =
   figdraw_native_abi.utf8RunesEqual(a, b)
 
 func `==`*(a: figdraw_native_abi.Utf8Runes, b: openArray[unicode.Rune]): bool =
-  var nativeRunes = newSeqOfCap[figdraw_native_abi.Rune](b.len)
-  for rune in b:
-    nativeRunes.add rune.toNativeRune()
-  figdraw_native_abi.utf8RunesEqualRunes(a, nativeRunes)
+  figdraw_native_abi.utf8RunesEqualRunes(a, b)
 
 func `==`*(a: openArray[unicode.Rune], b: figdraw_native_abi.Utf8Runes): bool =
   b == a
 
-converter toNativeSelectionRange*(
-    value: Slice[int16]
-): figdraw_native_abi.FigSelectionRange {.inline.} =
-  cast[figdraw_native_abi.FigSelectionRange](value)
-
-converter toSelectionRange*(
-    value: figdraw_native_abi.FigSelectionRange
-): Slice[int16] {.inline.} =
-  cast[Slice[int16]](value)
-
-converter toNativeIntSlice*(value: Slice[int]): figdraw_native_abi.IntSlice {.inline.} =
-  cast[figdraw_native_abi.IntSlice](value)
-
-converter toIntSlice*(value: figdraw_native_abi.IntSlice): Slice[int] {.inline.} =
-  cast[Slice[int]](value)
-
-proc glyphRangeFor*(
-    arrangement: figdraw_native_abi.GlyphArrangement, sourceRange: Slice[int]
-): Slice[int] {.inline.} =
-  cast[Slice[int]](figdraw_native_abi.glyphRangeFor(
-    arrangement, cast[figdraw_native_abi.IntSlice](sourceRange)
-  ))
-
-proc glyphSourceRange*(
-    arrangement: figdraw_native_abi.GlyphArrangement, glyphIndex: int
-): figdraw_native_abi.GlyphSourceRange {.inline.} =
-  figdraw_native_abi.glyphSourceRange(arrangement, glyphIndex)
-
-proc glyphRect*(
-    arrangement: figdraw_native_abi.GlyphArrangement, glyphIndex: int
-): bumpy.Rect {.inline.} =
-  figdraw_native_abi.glyphRect(arrangement, glyphIndex).toRect()
-
-proc glyphFont*(
-    arrangement: figdraw_native_abi.GlyphArrangement, glyphIndex: int
-): figdraw_native_abi.GlyphFont {.inline.} =
-  figdraw_native_abi.glyphFont(arrangement, glyphIndex)
-
-proc lineGlyphRanges*(
-    arrangement: figdraw_native_abi.GlyphArrangement
-): seq[Slice[int]] {.inline.} =
-  for nativeRange in figdraw_native_abi.lineGlyphRanges(arrangement):
-    result.add cast[Slice[int]](nativeRange)
-
-proc layoutContentSize*(
-    arrangement: figdraw_native_abi.GlyphArrangement
-): vmath.Vec2 {.inline.} =
-  figdraw_native_abi.layoutContentSize(arrangement).toVec2()
-
-proc selectionRectsFor*(
-    arrangement: figdraw_native_abi.GlyphArrangement, sourceRange: Slice[int]
-): seq[bumpy.Rect] {.inline.} =
-  for nativeRect in figdraw_native_abi.selectionRectsFor(
-    arrangement, cast[figdraw_native_abi.IntSlice](sourceRange)
-  ):
-    result.add nativeRect.toRect()
-
-proc glyphIndexAt*(
-    arrangement: figdraw_native_abi.GlyphArrangement, point: vmath.Vec2
-): int {.inline.} =
-  figdraw_native_abi.glyphIndexAt(arrangement, point.toNativeVec2())
-
-proc sourceRuneRangeAt*(
-    arrangement: figdraw_native_abi.GlyphArrangement, point: vmath.Vec2
-): Slice[int] {.inline.} =
-  cast[Slice[int]](figdraw_native_abi.sourceRuneRangeAt(
-    arrangement, point.toNativeVec2()
-  ))
-
-proc sourceRuneCount*(
-    arrangement: figdraw_native_abi.GlyphArrangement
-): int {.inline.} =
-  figdraw_native_abi.sourceRuneCount(arrangement)
-
-proc caretPositionsFor*(
-    arrangement: figdraw_native_abi.GlyphArrangement, sourceRune: int
-): seq[figdraw_native_abi.TextCaretPosition] {.inline.} =
-  for caret in figdraw_native_abi.caretPositionsFor(arrangement, sourceRune):
-    result.add caret
-
-proc nearestSourceRuneForCaretPoint*(
-    arrangement: figdraw_native_abi.GlyphArrangement, point: vmath.Vec2
-): int {.inline.} =
-  figdraw_native_abi.nearestSourceRuneForCaretPoint(arrangement, point.toNativeVec2())
-
 converter toFill*(value: chroma.ColorRGBA): Fill {.inline.} =
-  fill(value.toNativeColor())
+  fill(value)
 
 converter toFill*(value: chroma.Color): Fill {.inline.} =
-  fill(value.rgba().toNativeColor())
+  fill(value.rgba())
+
+proc typeset*(
+    box: bumpy.Rect,
+    spans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent = false,
+    wrap = true,
+): GlyphArrangement {.inline.} =
+  figdraw_native_abi.typesetStyled(box, spans, hAlign, vAlign, minContent, wrap)
+
+proc typesetForMeasurement*(
+    box: bumpy.Rect,
+    spans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent = false,
+    wrap = true,
+): GlyphArrangement {.inline.} =
+  figdraw_native_abi.typesetStyledForMeasurement(
+    box, spans, hAlign, vAlign, minContent, wrap
+  )
 
 func `==`*(a, b: FigIdx): bool {.inline.} =
   int16(a) == int16(b)
 
 func `==`*(a, b: ImageId): bool {.inline.} =
   int(a) == int(b)
-
-proc drawableBezier*(
-    controls: openArray[vmath.Vec2], steps: uint16 = 0'u16
-): DrawableOp {.inline.} =
-  result = DrawableOp(kind: dkBezier, steps: steps)
-  for control in controls:
-    result.controls.add control.toNativeVec2()
-
-proc drawableEllipse*(center, radii: vmath.Vec2): DrawableOp {.inline.} =
-  DrawableOp(
-    kind: dkEllipse,
-    ellipseCenter: center.toNativeVec2(),
-    ellipseRadii: radii.toNativeVec2(),
-  )
-
-proc drawableEllipse*(x, y, radiusX, radiusY: float32): DrawableOp {.inline.} =
-  drawableEllipse(vmath.vec2(x, y), vmath.vec2(radiusX, radiusY))
 
 proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
   when v is SomeFloat:
@@ -547,11 +163,11 @@ proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
 
 converter toCornerRadii*[T: SomeNumber](a: array[4, T]): CornerRadii =
   for i in 0 ..< 4:
-    result[i] = cornerToU16(a[i])
+    result[DirectionCorners(i)] = cornerToU16(a[i])
 
 converter toCornerRadii*[T: SomeNumber](a: array[DirectionCorners, T]): CornerRadii =
   for c in DirectionCorners:
-    result[c.ord] = cornerToU16(a[c])
+    result[c] = cornerToU16(a[c])
 
 func initCornerRadii2D*[T](radii: array[DirectionCorners, T]): CornerRadii2D[T] =
   CornerRadii2D[T](x: radii, y: radii)
@@ -568,85 +184,15 @@ func isCircular*[T](radii: CornerRadii2D[T]): bool =
       return false
   true
 
-proc initWindowBackdrop*(
-    regions: openArray[WindowVisualRegion] = []
-): WindowBackdropConfig =
-  WindowBackdropConfig(kind: wbkBlur, regions: @regions)
-
-proc initWindowBackdrop*(
-    material: WindowBackdropMaterial, regions: openArray[WindowVisualRegion] = []
-): WindowBackdropConfig =
-  WindowBackdropConfig(kind: wbkMaterial, material: material, regions: @regions)
-
 const
   clearColor* = chroma.color(0, 0, 0, 0)
   whiteColor* = chroma.color(1, 1, 1, 1)
   blackColor* = chroma.color(0, 0, 0, 1)
   blueColor* = chroma.color(0, 0, 1, 1)
 
-var appUiScale = 1.0'f32
-
-proc figUiScale*(): float32 {.inline.} =
-  appUiScale
-
-proc setFigUiScale*(scale: float32) {.inline.} =
-  appUiScale = scale
-
-proc scaled*(value: bumpy.Rect): bumpy.Rect {.inline.} =
-  value * appUiScale
-
-proc descaled*(value: bumpy.Rect): bumpy.Rect {.inline.} =
-  value / appUiScale
-
-proc scaled*(value: vmath.Vec2): vmath.Vec2 {.inline.} =
-  value * appUiScale
-
-proc descaled*(value: vmath.Vec2): vmath.Vec2 {.inline.} =
-  value / appUiScale
-
-proc scaled*(value: vmath.IVec2): vmath.IVec2 {.inline.} =
-  vmath.ivec2(vmath.vec2(value) * appUiScale)
-
-proc scaled*(value: float32): float32 {.inline.} =
-  value * appUiScale
-
-proc descaled*(value: float32): float32 {.inline.} =
-  value / appUiScale
-
-proc fs*(
-    font: FigFont, color: Fill = fill(rgba(0, 0, 0, 255).toNativeColor())
-): FontStyle {.inline.} =
-  FontStyle(font: font, color: color)
-
-proc fsp*(font: FigFont, color: Fill, text: string): (FontStyle, string) {.inline.} =
-  (FontStyle(font: font, color: color), text)
-
-proc span*(font: FigFont, color: Fill, text: string): (FontStyle, string) {.inline.} =
-  (FontStyle(font: font, color: color), text)
-
-proc fontWithSize*(fontId: TypefaceId, size: float32): FigFont {.inline.} =
-  FigFont(typefaceId: fontId, size: size)
-
-proc loadTypeface*(name: string, fallbackNames: openArray[string]): TypefaceId =
-  figdraw_native_abi.loadTypeface(name, fallbackNames)
-
-proc loadTypeface*(name: string): TypefaceId =
-  figdraw_native_abi.loadTypeface(name)
-
-proc loadTypeface*(file: systemfonttypes.SystemTypefaceFile): TypefaceId =
-  figdraw_native_abi.loadTypeface(
-    figdraw_native_abi.SystemTypefaceFile(path: file.path, faceIndex: file.faceIndex)
-  )
-
-proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId =
-  figdraw_native_abi.loadTypeface(name, data, kind)
-
-proc fontWithSize*(typeface: SystemTypeface, size: float32): FigFont =
-  ## Loads an exact installed typeface through the native ABI.
-  result = loadTypeface(typeface.file).fontWithSize(size)
-  result.variations = newSeqOfCap[FontVariation](typeface.variations.len)
-  for variation in typeface.variations:
-    result.variations.add FontVariation(tag: variation.tag, value: variation.value)
+proc fs*(font: FigFont): FontStyle {.inline.} =
+  ## Supplies the source API's default fill omitted from generated bindings.
+  figdraw_native_abi.fs(font, fill(rgba(0, 0, 0, 255)))
 
 func fontFeature*(
     tag: string, value = 1'u32, start = 0'u32, ending = uint32.high
@@ -658,11 +204,7 @@ proc placeGlyphs*(
     glyphs: openArray[(unicode.Rune, vmath.Vec2)],
     origin = GlyphTopLeft,
 ): GlyphArrangement {.inline.} =
-  var nativeGlyphs =
-    newSeqOfCap[(figdraw_native_abi.Rune, figdraw_native_abi.Vec2)](glyphs.len)
-  for (rune, pos) in glyphs:
-    nativeGlyphs.add((rune.toNativeRune(), pos.toNativeVec2()))
-  figdraw_native_abi.placeStyledGlyphs(style, nativeGlyphs, origin)
+  figdraw_native_abi.placeStyledGlyphs(style, glyphs, origin)
 
 template registerStaticTypeface*(
     name: static[string], path: static[string], kind: static[TypeFaceKinds] = TTF
@@ -670,85 +212,16 @@ template registerStaticTypeface*(
   const fontData {.gensym.} = staticRead(path)
   registerStaticTypefaceData(name, fontData, kind)
 
-proc figDashedRoundedRectBorder*(
-    box: bumpy.Rect,
-    corners: CornerRadii,
-    color: Fill,
-    weight, dashLength, gapLength: float32,
-    offset = 0.0'f32,
-    cap = scButt,
-    zlevel = 0.ZLevel,
-): Fig {.inline.} =
-  figdraw_native_abi.figDashedRoundedRectBorder(
-    box.toNativeRect(),
-    corners,
-    color,
-    weight,
-    dashLength,
-    gapLength,
-    offset,
-    cap,
-    zlevel,
-  )
-
-proc figRoundedRectBorder*(
-    box: bumpy.Rect,
-    corners: CornerRadii,
-    color: Fill,
-    weight: float32,
-    cap = scButt,
-    zlevel = 0.ZLevel,
-): Fig {.inline.} =
-  figdraw_native_abi.figRoundedRectBorder(
-    box.toNativeRect(), corners, color, weight, cap, zlevel
-  )
-
-proc figDottedRoundedRectBorder*(
-    box: bumpy.Rect,
-    corners: CornerRadii,
-    color: Fill,
-    weight, gapLength: float32,
-    offset = 0.0'f32,
-    zlevel = 0.ZLevel,
-): Fig {.inline.} =
-  figdraw_native_abi.figDottedRoundedRectBorder(
-    box.toNativeRect(), corners, color, weight, gapLength, offset, zlevel
-  )
-
-proc typeset*(
-    box: bumpy.Rect,
-    spans: openArray[(FontStyle, string)],
-    hAlign = FontHorizontal.Left,
-    vAlign = FontVertical.Top,
-    minContent = false,
-    wrap = true,
-): GlyphArrangement =
-  figdraw_native_abi.typeset(
-    box.toNativeRect(), spans, hAlign, vAlign, minContent, wrap
-  )
-
-proc typesetForMeasurement*(
-    box: bumpy.Rect,
-    spans: openArray[(FontStyle, string)],
-    hAlign = FontHorizontal.Left,
-    vAlign = FontVertical.Top,
-    minContent = false,
-    wrap = true,
-): GlyphArrangement =
-  figdraw_native_abi.typesetForMeasurement(
-    box.toNativeRect(), spans, hAlign, vAlign, minContent, wrap
-  )
-
 proc toImage*(image: Image): Image {.inline.} =
   image
 
 proc toImage*[T](image: T): Image {.inline.} =
   when compiles(image.width) and compiles(image.height) and compiles(image.data):
-    result = figdraw_native_abi.newPixieImage(image.width, image.height)
+    result = figdraw_native_abi.newImage(image.width, image.height)
     for y in 0 ..< image.height:
       for x in 0 ..< image.width:
         let pixel = image.data[y * image.width + x]
-        figdraw_native_abi.setImagePixel(
+        figdraw_native_abi.`[]=`(
           result,
           x,
           y,
@@ -757,56 +230,18 @@ proc toImage*[T](image: T): Image {.inline.} =
   else:
     {.error: "toImage requires an image with width, height, and data fields".}
 
-proc newImage*(width, height: int): Image {.inline.} =
-  newPixieImage(width, height)
-
-proc readImage*(filePath: string): Image {.inline.} =
-  readPixieImage(filePath)
-
-proc decodeImage*(data: string): Image {.inline.} =
-  decodePixieImage(data)
-
-proc writeFile*(image: Image, filePath: string) {.inline.} =
-  writePixieImage(image, filePath)
-
-proc copy*(image: Image): Image {.inline.} =
-  copyImage(image)
-
-proc width*(image: Image): int {.inline.} =
-  imageWidth(image)
-
-proc height*(image: Image): int {.inline.} =
-  imageHeight(image)
-
 proc `[]`*(image: Image, x, y: int): chroma.ColorRGBA {.inline.} =
-  imagePixel(image, x, y).toColor()
-
-proc `[]=`*(image: Image, x, y: int, color: chroma.ColorRGBA) {.inline.} =
-  setImagePixel(image, x, y, color.toNativeColor())
-
-proc fill*(image: Image, color: chroma.ColorRGBA) {.inline.} =
-  fillImage(image, color.toNativeColor())
+  ## Keeps FigDraw's straight-alpha view over Pixie's premultiplied pixels.
+  figdraw_native_abi.`[]`(image, x, y).rgba()
 
 proc loadImageRef*(filePath: string): ImageRef =
   loadFigImage(filePath)
 
-proc loadImage*(filePath: string): ImageId {.inline.} =
-  loadFigImage(filePath)
-
-proc loadImage*(id: ImageId, image: Image) {.inline.} =
-  putFigImage(id, image)
-
 proc loadImage*[T](id: ImageId, image: T) {.inline.} =
-  putFigImage(id, image.toImage())
-
-proc replaceImage*(id: ImageId, image: Image) {.inline.} =
-  replaceFigImage(id, image)
+  figdraw_native_abi.loadImage(id, image.toImage())
 
 proc replaceImage*[T](id: ImageId, image: T) {.inline.} =
-  replaceFigImage(id, image.toImage())
-
-proc imgId*(name: string): ImageId {.inline.} =
-  figImageId(name)
+  figdraw_native_abi.replaceImage(id, image.toImage())
 
 proc imageStyle*(image: ImageRef): ImageStyle =
   ImageStyle(id: image, fill: fill(rgba(255, 255, 255, 255)))
@@ -814,8 +249,9 @@ proc imageStyle*(image: ImageRef): ImageStyle =
 proc newFigRenderer*(
     atlasSize: int, backendState: SiwinRenderBackend, pixelScale = 1.0'f32
 ): FigRenderer[SiwinRenderBackend] =
-  discard backendState
-  FigRenderer[SiwinRenderBackend](atlasSize: atlasSize, pixelScale: pixelScale)
+  FigRenderer[SiwinRenderBackend](
+    atlasSize: atlasSize, pixelScale: pixelScale, backendState: backendState
+  )
 
 proc newSiwinWindow*(
     size = ivec2(1280, 720),
@@ -827,87 +263,26 @@ proc newSiwinWindow*(
     frameless = false,
     transparent = false,
 ): Window =
-  discard msaa
-  result = Window(
-    width: size.x,
-    height: size.y,
-    titleText: title,
-    fullscreen: fullscreen,
-    vsync: vsync,
-    resizable: resizable,
-    frameless: frameless,
-    transparent: transparent,
-  )
-  result.clipboard = Clipboard(window: result)
-
-proc toNativePopupPlacement(value: PopupPlacement): NativePopupPlacement =
-  NativePopupPlacement(
-    anchorX: value.anchorRectPos.x,
-    anchorY: value.anchorRectPos.y,
-    anchorWidth: value.anchorRectSize.x,
-    anchorHeight: value.anchorRectSize.y,
-    width: value.size.x,
-    height: value.size.y,
-    anchor: value.anchor,
-    gravity: value.gravity,
-    offsetX: value.offset.x,
-    offsetY: value.offset.y,
-    constraintAdjustment: value.constraintAdjustment,
-    reactive: value.reactive,
+  ## Creates the producer's platform window without importing Siwin locally.
+  figdraw_native_abi.newSiwinWindow(
+    size, fullscreen, title, vsync, msaa, resizable, frameless, transparent
   )
 
 proc newPopupWindow*(
     parent: Window, placement: PopupPlacement, transparent = true, grab = true
 ): Window =
-  result = Window(
-    handle: newFigSiwinPopup(
-      parent.handle, placement.toNativePopupPlacement(), 1024, 1.0, transparent, grab
-    ),
-    width: placement.size.x,
-    height: placement.size.y,
-    transparent: transparent,
-  )
-  result.clipboard = Clipboard(window: result)
-
-proc reposition*(window: Window, placement: PopupPlacement) =
-  siwinRepositionPopup(window.handle, placement.toNativePopupPlacement())
-
-proc clipboardText*(clipboard: Clipboard): string =
-  siwinClipboardText(clipboard.window.handle)
-
-proc `clipboardText=`*(clipboard: Clipboard, value: string) =
-  siwinSetClipboardText(clipboard.window.handle, value)
-
-proc clipboardFiles*(clipboard: Clipboard): seq[string] =
-  siwinClipboardFiles(clipboard.window.handle)
-
-proc `clipboardFiles=`*(clipboard: Clipboard, value: seq[string]) =
-  siwinSetClipboardFiles(clipboard.window.handle, value)
-
-proc clipboardData*(clipboard: Clipboard, mimeType: string): string =
-  siwinClipboardData(clipboard.window.handle, mimeType)
-
-proc setClipboardData*(clipboard: Clipboard, mimeType, value: string) =
-  siwinSetClipboardData(clipboard.window.handle, mimeType, value)
-  if mimeType notin clipboard.mimeTypes:
-    clipboard.mimeTypes.add mimeType
-
-proc availableMimeTypes*(clipboard: Clipboard): seq[string] =
-  result = siwinClipboardMimeTypes(clipboard.window.handle)
-  for mimeType in clipboard.mimeTypes:
-    if mimeType notin result:
-      result.add mimeType
+  figdraw_native_abi.newSiwinPopupWindow(parent, placement, transparent, grab)
 
 proc setupBackend*(renderer: FigRenderer[SiwinRenderBackend], window: Window) =
-  if window.handle.isNil:
-    window.handle = newFigSiwinApp(
-      window.width, window.height, window.titleText, renderer.atlasSize,
-      renderer.pixelScale, window.fullscreen, window.vsync, 0, window.resizable,
-      window.frameless, window.transparent,
-    )
+  let native = figdraw_native_abi.newFigRenderer(
+    renderer.atlasSize, renderer.backendState, renderer.pixelScale
+  )
+  figdraw_native_abi.setupBackend(native, window)
+  let autoScale = figdraw_native_abi.configureUiScale(window, "HDI")
+  renderer.native = native
   renderer.window = window
-  if window.autoScale:
-    setFigUiScale(siwinUiScale(window.handle))
+  renderer.backendState = default(SiwinRenderBackend)
+  renderer.autoScale = autoScale
 
 proc newSiwinWindow*(
     renderer: FigRenderer[SiwinRenderBackend],
@@ -925,269 +300,28 @@ proc newSiwinWindow*(
   )
   renderer.setupBackend(result)
 
-proc contentScale*(window: Window): float32 =
-  siwinUiScale(window.handle)
-
-proc inputDeviceScale*(window: Window): float32 =
-  if window.isNil:
-    return 1.0'f32
-  let scale = window.contentScale()
-  if scale > 0.0'f32: scale else: 1.0'f32
-
-proc siwinBackendName*(): string =
-  "OpenGL"
-
-proc mouse*(window: Window): Mouse =
-  let pos = siwinMousePos(window.handle)
-  result.pos = vmath.vec2(pos.x, pos.y)
-  for button in MouseButton:
-    if siwinMouseButtonPressed(window.handle, button):
-      result.pressed.incl button
-
-proc keyboard*(window: Window): Keyboard =
-  for key in Key:
-    if siwinKeyPressed(window.handle, key):
-      result.pressed.incl key
-  for modifier in ModifierKey:
-    if siwinModifierPressed(window.handle, modifier):
-      result.modifiers.incl modifier
-
-proc configureUiScale*(window: Window, envVar = "HDI"): bool =
-  let configuredScale = getEnv(envVar)
-  if configuredScale.len == 0:
-    window.autoScale = true
-    if not window.handle.isNil:
-      setFigUiScale(window.contentScale())
-    true
-  else:
-    window.autoScale = false
-    setFigUiScale(configuredScale.parseFloat().float32)
-    false
-
-proc refreshUiScale*(window: Window, autoScale: bool) =
-  siwinRefreshUiScale(window.handle)
-  if autoScale:
-    setFigUiScale(window.contentScale())
-
-proc backingSize*(window: Window): vmath.IVec2 =
-  let size = siwinBackingSize(window.handle)
-  ivec2(size.w, size.h)
-
-proc inputUsesBackingPixels*(window: Window): bool =
-  siwinInputUsesBackingPixels(window.handle)
-
-proc size*(window: Window): vmath.IVec2 =
-  let size = siwinWindowSize(window.handle)
-  ivec2(size.w, size.h)
-
-proc `size=`*(window: Window, value: vmath.IVec2) =
-  window.installEventCallbacks()
-  siwinSetWindowSize(window.handle, value.x, value.y)
-
-proc pos*(window: Window): vmath.IVec2 =
-  let pos = siwinWindowPos(window.handle)
-  ivec2(pos.x, pos.y)
-
-proc `pos=`*(window: Window, value: vmath.IVec2) =
-  siwinSetWindowPos(window.handle, value.x, value.y)
-
-proc nativeWindowKey*(window: Window): pointer =
-  siwinNativeWindowKey(window.handle)
-
-proc logicalSize*(window: Window): vmath.Vec2 =
-  let
-    size = window.backingSize()
-    scale = max(figUiScale(), 0.0001'f32)
-  vec2(size.x.float32 / scale, size.y.float32 / scale)
-
-proc `title=`*(window: Window, value: string) =
-  window.titleText = value
-  siwinSetTitle(window.handle, value)
-
-proc title*(window: Window): string =
-  siwinTitle(window.handle)
-
-proc visible*(window: Window): bool =
-  siwinIsVisible(window.handle)
-
-proc `visible=`*(window: Window, value: bool) =
-  siwinSetVisible(window.handle, value)
-
-proc focused*(window: Window): bool =
-  siwinIsFocused(window.handle)
-
-proc fullscreen*(window: Window): bool =
-  siwinIsFullscreen(window.handle)
-
-proc `fullscreen=`*(window: Window, value: bool) =
-  siwinSetFullscreen(window.handle, value)
-
-proc maximized*(window: Window): bool =
-  siwinIsMaximized(window.handle)
-
-proc `maximized=`*(window: Window, value: bool) =
-  siwinSetMaximized(window.handle, value)
-
-proc minimized*(window: Window): bool =
-  siwinIsMinimized(window.handle)
-
-proc `minimized=`*(window: Window, value: bool) =
-  siwinSetMinimized(window.handle, value)
-
-proc resizable*(window: Window): bool =
-  siwinIsResizable(window.handle)
-
-proc `resizable=`*(window: Window, value: bool) =
-  siwinSetResizable(window.handle, value)
-
-proc frameless*(window: Window): bool =
-  siwinIsFrameless(window.handle)
-
-proc `frameless=`*(window: Window, value: bool) =
-  siwinSetFrameless(window.handle, value)
-
-proc transparent*(window: Window): bool =
-  siwinIsTransparent(window.handle)
-
-proc visualCapabilities*(window: Window): set[WindowVisualCapability] =
-  siwinVisualCapabilities(window.handle)
-
-proc supports*(window: Window, capability: WindowVisualCapability): bool =
-  capability in window.visualCapabilities()
-
-proc backdrop*(window: Window): WindowBackdropConfig =
-  window.backdropConfig
-
-proc trySetBackdrop*(window: Window, config: WindowBackdropConfig): bool =
-  var regions = newSeqOfCap[NativeWindowVisualRegion](config.regions.len)
-  for region in config.regions:
-    regions.add NativeWindowVisualRegion(
-      x: region.pos.x, y: region.pos.y, width: region.size.x, height: region.size.y
-    )
-  let material =
-    case config.kind
-    of wbkMaterial: config.material
-    of wbkNone, wbkBlur: wbmDefault
-  result = siwinTrySetBackdrop(window.handle, config.kind, material, regions)
-  if result:
-    window.backdropConfig = config
-
-proc clearBackdrop*(window: Window) =
-  discard window.trySetBackdrop(WindowBackdropConfig(kind: wbkNone))
-
-proc setBackdrop*(window: Window, config: WindowBackdropConfig) =
-  if not window.trySetBackdrop(config):
-    raise WindowVisualEffectError.newException(
-      "window backdrop effect is not supported by this backend or configuration"
-    )
-
-proc minSize*(window: Window): vmath.IVec2 =
-  let size = siwinMinSize(window.handle)
-  vmath.ivec2(size.w, size.h)
-
-proc `minSize=`*(window: Window, value: vmath.IVec2) =
-  siwinSetMinSize(window.handle, value.x, value.y)
-
-proc maxSize*(window: Window): vmath.IVec2 =
-  let size = siwinMaxSize(window.handle)
-  vmath.ivec2(size.w, size.h)
-
-proc `maxSize=`*(window: Window, value: vmath.IVec2) =
-  siwinSetMaxSize(window.handle, value.x, value.y)
-
-proc customTitlebar*(window: Window): bool =
-  siwinUsesCustomTitlebar(window.handle)
-
-proc supportsCustomTitlebar*(window: Window): bool =
-  siwinSupportsCustomTitlebar(window.handle)
-
-proc `customTitlebar=`*(window: Window, value: bool) =
-  siwinSetCustomTitlebar(window.handle, value)
-
-proc setTitleRegion*(window: Window, pos, size: vmath.Vec2) =
-  siwinSetTitleRegion(window.handle, pos.x, pos.y, size.x, size.y)
-
-proc setInputRegion*(window: Window, pos, size: vmath.Vec2) =
-  siwinSetInputRegion(window.handle, pos.x, pos.y, size.x, size.y)
-
-proc setBorderWidth*(window: Window, innerWidth, outerWidth, diagonalSize: float32) =
-  siwinSetBorderWidth(window.handle, innerWidth, outerWidth, diagonalSize)
-
-proc startInteractiveMove*(window: Window, pos: vmath.Vec2) =
-  siwinStartInteractiveMove(window.handle, pos.x, pos.y)
-
-proc startInteractiveResize*(window: Window, edge: Edge, pos: vmath.Vec2) =
-  siwinStartInteractiveResize(window.handle, edge, pos.x, pos.y)
-
-proc showWindowMenu*(window: Window, pos: vmath.Vec2) =
-  siwinShowWindowMenu(window.handle, pos.x, pos.y)
-
-proc `cursor=`*(window: Window, value: BuiltinCursor) =
-  siwinSetBuiltinCursor(window.handle, value)
-
-proc `vsync=`*(window: Window, value: bool) =
-  window.vsync = value
-  siwinSetVsync(window.handle, value)
-
-proc separateTouch*(window: Window): bool =
-  siwinUsesSeparateTouch(window.handle)
-
-proc `separateTouch=`*(window: Window, value: bool) =
-  siwinSetSeparateTouch(window.handle, value)
-
-proc canBecomeKeyWindow*(window: Window): bool =
-  siwinCanBecomeKeyWindow(window.handle)
-
-proc `canBecomeKeyWindow=`*(window: Window, value: bool) =
-  siwinSetCanBecomeKeyWindow(window.handle, value)
-
-proc canBecomeMainWindow*(window: Window): bool =
-  siwinCanBecomeMainWindow(window.handle)
-
-proc `canBecomeMainWindow=`*(window: Window, value: bool) =
-  siwinSetCanBecomeMainWindow(window.handle, value)
+proc nativeWindowKey*(window: Window): pointer {.inline.} =
+  cast[pointer](window)
 
 proc `icon=`*(window: Window, image: Image) {.inline.} =
-  figdraw_native_abi.siwinSetIcon(window.handle, image)
+  ## Converts image icons while preserving Siwin's distinct clear-icon call.
+  if image.isNil or image.data.len == 0:
+    figdraw_native_abi.`icon=`(window, nil)
+  else:
+    figdraw_native_abi.`icon=`(window, image.toPixelBuffer())
 
-proc opened*(window: Window): bool =
-  not window.handle.isNil and opened(window.handle)
+template `vsync=`*(window: Window, value: bool) =
+  figdraw_native_abi.`vsync=`(window, value, false)
 
-proc closed*(window: Window): bool =
-  not window.opened()
+template firstStep*(window: Window) =
+  figdraw_native_abi.firstStep(window, true)
 
-proc presentNow*(window: Window) =
-  redraw(window.handle)
-
-proc close*(window: Window) =
-  if not window.handle.isNil:
-    close(window.handle)
-
-proc firstStep*(window: Window, makeVisible = true) =
-  window.installEventCallbacks()
-  firstStep(window.handle, makeVisible)
-
-proc redraw*(window: Window) =
-  redraw(window.handle)
-
-proc makeCurrent*(window: Window) =
-  makeCurrent(window.handle)
-
-proc step*(window: Window) =
-  window.installEventCallbacks()
-  step(window.handle)
-
-proc presentationTarget*(
-    renderer: FigRenderer[SiwinRenderBackend]
-): SiwinPresentationTarget =
-  discard renderer
-
-proc updatePresentationTarget*(target: SiwinPresentationTarget, window: Window) =
-  discard target
-  discard window
+template configureUiScale*(window: Window): bool =
+  figdraw_native_abi.configureUiScale(window, "HDI")
 
 proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
-  discard renderer
+  renderer.window.refreshUiScale(renderer.autoScale)
+  figdraw_native_abi.beginFrame(renderer.native)
 
 proc renderFrame*(
     renderer: FigRenderer[SiwinRenderBackend],
@@ -1196,47 +330,10 @@ proc renderFrame*(
     clearMain = true,
     clearColor = whiteColor,
 ) =
-  renderFrame(
-    renderer.window.handle, renders, size.x, size.y, clearMain, clearColor.r,
-    clearColor.g, clearColor.b, clearColor.a,
-  )
-
-proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
-  discard renderer
-
-proc backendName*(renderer: FigRenderer[SiwinRenderBackend]): string =
-  siwinBackendName(renderer.window.handle)
-
-proc backendKind*(renderer: FigRenderer[SiwinRenderBackend]): RendererBackendKind =
-  siwinBackendKind(renderer.window.handle)
-
-proc setTextLcdFiltering*(renderer: FigRenderer[SiwinRenderBackend], enabled: bool) =
-  setTextLcdFiltering(renderer.window.handle, enabled)
-
-proc textLcdFiltering*(renderer: FigRenderer[SiwinRenderBackend]): bool =
-  textLcdFiltering(renderer.window.handle)
-
-proc setTextSubpixelPositioning*(
-    renderer: FigRenderer[SiwinRenderBackend], enabled: bool
-) =
-  setTextSubpixelPositioning(renderer.window.handle, enabled)
-
-proc textSubpixelPositioning*(renderer: FigRenderer[SiwinRenderBackend]): bool =
-  textSubpixelPositioning(renderer.window.handle)
-
-proc setTextSubpixelGlyphVariants*(
-    renderer: FigRenderer[SiwinRenderBackend], enabled: bool
-) =
-  setTextSubpixelGlyphVariants(renderer.window.handle, enabled)
-
-proc textSubpixelGlyphVariants*(renderer: FigRenderer[SiwinRenderBackend]): bool =
-  textSubpixelGlyphVariants(renderer.window.handle)
+  figdraw_native_abi.renderFrame(renderer.native, renders, size, clearMain, clearColor)
 
 proc siwinWindowTitle*(suffix = "Siwin RenderList"): string =
   "figdraw: " & siwinBackendName() & " + " & suffix
-
-proc siwinDisplayServerName*(window: Window): string =
-  figdraw_native_abi.siwinDisplayServerName(window.handle)
 
 proc siwinWindowTitle*(
     renderer: FigRenderer[SiwinRenderBackend],

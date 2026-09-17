@@ -1,5 +1,7 @@
 import std/[math, monotimes, os, strformat, times]
 
+import pkg/bumpy as bumpy
+from pkg/vmath import ivec2, vec2, x, y
 import figdraw_native_abi
 
 when defined(macosx):
@@ -38,7 +40,7 @@ proc buildRenderTree(
   renders.clear()
   let background = Fig(
     kind: nkRectangle,
-    screenBox: Rect(x: 0, y: 0, w: width, h: height),
+    screenBox: bumpy.Rect(x: 0, y: 0, w: width, h: height),
     fill: fill(rgba(255, 255, 255, 155)),
   )
   discard renders.addRoot(0, background)
@@ -62,7 +64,7 @@ proc buildRenderTree(
 
     let red = Fig(
       kind: nkRectangle,
-      screenBox: Rect(
+      screenBox: bumpy.Rect(
         x: 60 + offsetX,
         y: 60 + offsetY,
         w: 160 + 100 * pulse,
@@ -85,7 +87,7 @@ proc buildRenderTree(
     )
     let green = Fig(
       kind: nkRectangle,
-      screenBox: Rect(
+      screenBox: bumpy.Rect(
         x: 320 + offsetX,
         y: 120 + offsetY,
         w: 160 + 100 * inversePulse,
@@ -105,7 +107,7 @@ proc buildRenderTree(
 
     let blue = Fig(
       kind: nkRectangle,
-      screenBox: Rect(
+      screenBox: bumpy.Rect(
         x: 180 + offsetX, y: 300 + offsetY, w: 160 + 100 * pulse, h: 110 + 70 * pulse
       ),
       fill: fill(blueFill),
@@ -115,7 +117,7 @@ proc buildRenderTree(
 
   let preview = Fig(
     kind: nkImage,
-    screenBox: Rect(x: 16, y: 16, w: 96, h: 96),
+    screenBox: bumpy.Rect(x: 16, y: 16, w: 96, h: 96),
     image: ImageStyle(id: previewImageId, fill: fill(rgba(255, 255, 255, 255))),
   )
   discard renders.addRoot(0, preview)
@@ -126,19 +128,27 @@ when isMainModule:
   let
     typeface = loadTypeface("Ubuntu.ttf")
     fpsFont = FigFont(typefaceId: typeface, size: 18)
-    previewImage = readPixieImage(getCurrentDir() / "data" / "img1.png")
-    previewImageId = figImageId("native-shared-preview")
-    app = newFigSiwinApp(
-      800, 600, "Siwin RenderList (Native Nim Dynlib)", 512, 1.0, false, true, 0, true,
-      false, false,
+    previewImage = readImage(getCurrentDir() / "data" / "img1.png")
+    previewImageId = imgId("native-shared-preview")
+    window = newSiwinWindow(
+      ivec2(800, 600),
+      false,
+      "Siwin RenderList (Native Nim Dynlib)",
+      true,
+      0,
+      true,
+      false,
+      false,
     )
+    renderer = newFigSiwinApp(window, 512, 1.0)
+    autoScale = configureUiScale(window, "HDI")
   var renders = newRenders()
-  putFigImage(previewImageId, previewImage)
+  loadImage(previewImageId, previewImage)
 
-  if app.isNil or renders.isNil:
+  if renderer.isNil or renders.isNil:
     quit("Failed to initialize native FigDraw objects", 1)
 
-  firstStep(app)
+  firstStep(window, true)
   var
     appRunning = true
     frames = 0
@@ -149,15 +159,15 @@ when isMainModule:
     fpsText = "0.0 FPS"
 
   try:
-    while opened(app) and appRunning:
-      siwinRefreshUiScale(app)
+    while opened(window) and appRunning:
+      refreshUiScale(window, autoScale)
       inc frames
       inc fpsFrames
 
       let
-        size = siwinLogicalSize(app)
-        width = size.w
-        height = size.h
+        size = logicalSize(window)
+        width = size.x
+        height = size.y
         buildStart = getMonoTime()
 
       buildRenderTree(renders, width, height, frames, previewImageId)
@@ -166,12 +176,12 @@ when isMainModule:
       let
         hud = Fig(
           kind: nkRectangle,
-          screenBox: Rect(x: width - 192, y: 12, w: 180, h: 34),
+          screenBox: bumpy.Rect(x: width - 192, y: 12, w: 180, h: 34),
           fill: fill(rgba(0, 0, 0, 155)),
           corners: [8'u16, 8'u16, 8'u16, 8'u16],
         )
-        layout = typeset(
-          Rect(x: 0, y: 0, w: 160, h: 22),
+        layout = typesetStyled(
+          bumpy.Rect(x: 0, y: 0, w: 160, h: 22),
           [(FontStyle(font: fpsFont, color: fill(rgba(0, 0, 0, 255))), fpsText)],
           hAlign = Right,
           vAlign = Middle,
@@ -182,17 +192,21 @@ when isMainModule:
 
       let text = Fig(
         kind: nkText,
-        screenBox: Rect(x: width - 182, y: 18, w: 160, h: 22),
+        screenBox: bumpy.Rect(x: width - 182, y: 18, w: 160, h: 22),
         fill: fill(rgba(0, 0, 0, 0)),
         textLayout: layout,
       )
       discard renders.addRoot(0, text)
 
       let renderStart = getMonoTime()
-      renderFrame(app, renders, width, height)
+      renderer.beginFrame()
+      renderer.renderFrame(
+        renders, vec2(width, height), true, Color(r: 1, g: 1, b: 1, a: 1)
+      )
+      renderer.endFrame()
       renderMicros += float((getMonoTime() - renderStart).inMicroseconds)
-      redraw(app)
-      step(app)
+      redraw(window)
+      step(window)
 
       let elapsed = epochTime() - fpsStart
       if elapsed >= 1.0:
@@ -219,4 +233,4 @@ when isMainModule:
           sleep(16)
   finally:
     clearFigImage(previewImageId)
-    close(app)
+    close(window)

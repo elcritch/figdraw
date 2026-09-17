@@ -285,8 +285,8 @@ when defined(linux) or defined(bsd):
         "The selected FigDraw backend cannot create an OpenGL layer surface"
       )
 
-proc newSiwinWindow*(
-    renderer: FigRenderer,
+proc newSiwinWindow*[BackendState](
+    renderer: FigRenderer[BackendState],
     size: IVec2,
     fullscreen = false,
     title = "FigDraw",
@@ -352,6 +352,12 @@ proc newSiwinWindow*(
     transparent = transparent,
   )
 
+proc newSiwinPopupWindow*(
+    parent: Window, placement: PopupPlacement, transparent = true, grab = true
+): Window =
+  ## Creates a popup using the producer's shared Siwin globals.
+  siWindow.newPopupWindow(sharedSiwinGlobals(), parent, placement, transparent, grab)
+
 proc backingSize*(window: Window): IVec2 =
   when defined(macosx):
     let contentView = cast[NSView](WindowCocoa(window).nativeViewHandle())
@@ -370,8 +376,6 @@ proc inputUsesBackingPixels*(window: Window): bool =
     window of siX11Window.WindowX11 or window of siWaylandWindow.WindowWayland
   else:
     false
-
-proc inputDeviceScale*(window: Window): float32
 
 proc logicalSize*(window: Window): Vec2 =
   if window.isNil:

@@ -9,6 +9,11 @@ import ./formatflippy
 import ./fonttypes
 import ./shared
 
+when defined(figdrawNativeDynlib):
+  {.pragma: nativeAbi, exportabi.}
+else:
+  {.pragma: nativeAbi.}
+
 type
   ImageId* = distinct Hash
   OwnerToken* = distinct uint64
@@ -505,6 +510,9 @@ proc clearImage*(id: ImageId) =
 proc clearImage*(image: ImageRef) =
   clearImage(image.id)
 
+proc clearFigImage*(id: ImageId) {.nativeAbi.} =
+  clearImage(id)
+
 proc clearImages*(ids: openArray[ImageId]) =
   if ids.len == 0:
     return
@@ -555,6 +563,9 @@ proc loadImage*(filePath: string): ImageId =
   result = imgId(filePath)
   var imgObj = ImgObj(id: result, kind: FlippyImg, flippy: ensureMove flippy)
   sendImageCached(imgObj)
+
+proc loadFigImage*(filePath: string): ImageId {.nativeAbi.} =
+  loadImage(filePath)
 
 proc loadImage*(id: ImageId, image: sink Image) =
   var imgObj = ImgObj(id: id, kind: PixieImg, pimg: ensureMove image)

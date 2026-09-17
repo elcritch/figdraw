@@ -182,20 +182,27 @@ proc initUtf8Runes*(runes: openArray[Rune]): Utf8Runes =
     result.text.add rune
   result.rebuildRuneIndex()
 
+proc utf8RunesFromText*(text: string): Utf8Runes {.nativeAbi.} =
+  ## Creates UTF-8-backed storage without retaining the caller's string.
+  var ownedText = newString(text.len)
+  if text.len > 0:
+    copyMem(ownedText[0].addr, text[0].unsafeAddr, text.len)
+  initUtf8Runes(ownedText)
+
 converter toUtf8Runes*(runes: seq[Rune]): Utf8Runes =
   ## Allows existing `GlyphArrangement` literals to keep accepting rune sequences.
   initUtf8Runes(runes)
 
-func len*(runes: Utf8Runes): int {.inline.} =
+func len*(runes: Utf8Runes): int =
   if runes.isNil:
     0
   else:
     int(runes.runeLength)
 
-func isEmpty*(runes: Utf8Runes): bool {.inline.} =
+func isEmpty*(runes: Utf8Runes): bool =
   runes.len == 0
 
-func stringValue*(runes: Utf8Runes): string {.inline.} =
+func stringValue*(runes: Utf8Runes): string =
   ## Returns the UTF-8 representation.
   if runes.isNil: "" else: runes.text
 
@@ -284,6 +291,12 @@ func `==`*(a: Utf8Runes, b: openArray[Rune]): bool =
 
 func `==`*(a: openArray[Rune], b: Utf8Runes): bool =
   b == a
+
+func utf8RunesEqual*(a, b: Utf8Runes): bool {.nativeAbi.} =
+  a == b
+
+func utf8RunesEqualRunes*(a: Utf8Runes, b: openArray[Rune]): bool {.nativeAbi.} =
+  a == b
 
 proc initArrangementRunes*(text: sink string): ArrangementRunes =
   ## Creates storage suitable for `GlyphArrangement` rune fields.

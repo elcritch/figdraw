@@ -145,7 +145,10 @@ task test, "run unit test":
     if name.startsWith("windy_") and name.endsWith(".nim"):
       nimExec("c", file)
     elif name.startsWith("siwin_") and name.endsWith(".nim"):
-      nimExec("c", file)
+      if name == "siwin_shared_native.nim":
+        echo "Skipping native shared example (run: nim native_shared_example)"
+      else:
+        nimExec("c", file)
     elif name.startsWith("sdl2_") and name.endsWith(".nim"):
       if enableSdl2:
         nimExec("c", file, "-d:figdraw.metal=off -d:figdraw.vulkan=off")
@@ -172,6 +175,44 @@ task test_emscripten, "build emscripten examples":
       nimExec("c", file, "-d:emscripten")
 
 when defined(feature.figdraw.sharedlib):
+  proc requestedDefine(name: string): tuple[found: bool, value: string] =
+    let prefixes = ["-d:" & name, "--define:" & name]
+    for index in 0 ..< paramCount():
+      let argument = paramStr(index)
+      for prefix in prefixes:
+        if argument == prefix:
+          return (true, "true")
+        if argument.startsWith(prefix & "="):
+          return (true, argument[(prefix.len + 1) .. ^1])
+
+    # NIMFLAGS is used by Atlas and by a few local build scripts. NimScript's
+    # parameter list contains command-line switches, but not flags injected
+    # through this environment variable.
+    for argument in getEnv("NIMFLAGS").splitWhitespace():
+      for prefix in prefixes:
+        if argument == prefix:
+          return (true, "true")
+        if argument.startsWith(prefix & "="):
+          return (true, argument[(prefix.len + 1) .. ^1])
+
+  proc addProducerDefine(
+      args: var seq[string], name: string, configured, defaultValue: bool
+  ): bool =
+    let requested = requestedDefine(name)
+    if requested.found:
+      try:
+        result = requested.value.parseBool()
+      except ValueError as exc:
+        quit "invalid value for " & name & ": " & exc.msg
+      args.add("-d:" & name & "=" & requested.value)
+    elif configured:
+      # A bare define supplied by a parent config has no value available to
+      # NimScript. It has Nim's normal true semantics.
+      result = true
+      args.add("-d:" & name & "=true")
+    else:
+      result = defaultValue
+
   let
     nativeBackend = getEnv("FIGDRAW_NATIVE_BACKEND", "c").strip().toLowerAscii()
     nativeProducer = "src/figdraw/bindings/native_bindings.nim"
@@ -187,10 +228,29 @@ when defined(feature.figdraw.sharedlib):
     backend = nativeBackend,
   )
   nativeBuild.nimArgs =
-    @[
-      "--mm:arc", "-d:useMalloc", "-d:release", "-d:vmathObjBased", "--path:src",
-      "--path:deps/siwin/src",
-    ]
+    @["--mm:arc", "-d:useMalloc", "-d:release", "--path:src", "--path:deps/siwin/src"]
+  let
+    defaultMetal = defined(macosx)
+    defaultVulkan = defined(bsd) or defined(linux) or defined(windows)
+    defaultOpenGl =
+      when defined(linux) or defined(cpu32):
+        true
+      else:
+        not (defined(macosx) or defined(bsd) or defined(windows))
+    producerMetal = nativeBuild.nimArgs.addProducerDefine(
+      "figdraw.metal", defined(figdraw.metal), defaultMetal
+    )
+    producerVulkan = nativeBuild.nimArgs.addProducerDefine(
+      "figdraw.vulkan", defined(figdraw.vulkan), defaultVulkan
+    )
+    producerOpenGl = nativeBuild.nimArgs.addProducerDefine(
+      "figdraw.opengl", defined(figdraw.opengl), defaultOpenGl
+    )
+  discard nativeBuild.nimArgs.addProducerDefine(
+    "figdraw.openglFallback",
+    defined(figdraw.openglFallback),
+    (producerMetal or producerVulkan) and not producerOpenGl,
+  )
   nativeBuild.libraryNameStrdefine = true
   when defined(macosx):
     nativeBuild.linkerArgs =
@@ -206,7 +266,7 @@ when defined(feature.figdraw.sharedlib):
           AuxDependencies.splitWhitespace(),
       )
       .splitWhitespace()
-    when defined(figdraw.vulkan):
+    if producerVulkan and not producerOpenGl:
       nativeBuild.linkerArgs.add pkgConfigFlags("libs", ["vulkan"]).splitWhitespace()
     when defined(figdraw.harfbuzz):
       nativeBuild.linkerArgs.add(
@@ -237,6 +297,6 @@ when defined(feature.figdraw.sharedlib):
     runNativeNim(
       [
         "c", "-d:release", "--mm:arc", "-d:useMalloc", "--path:bin",
-        "--out:examples/siwing_shared_native", "examples/siwing_shared_native.nim",
+        "--out:examples/siwin_shared_native", "examples/siwin_shared_native.nim",
       ]
     )
