@@ -1,7 +1,10 @@
 import std/[math, unittest]
 
-import figdraw/fignodes
-import figdraw/utils/drawutils
+when defined(useNativeDynlib):
+  import figdraw
+else:
+  import figdraw/fignodes
+  import figdraw/utils/drawutils
 
 proc approxEq(a, b: float32, eps = 0.001'f32): bool =
   abs(a - b) <= eps

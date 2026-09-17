@@ -3,7 +3,7 @@ when defined(useNativeDynlib):
 
   export nativeFacade
 else:
-  import chroma
+  import chroma, bumpy, vmath
   from pkg/pixie import Image, newImage, opaqueBounds, `[]`, `[]=`, fill
   import figdraw/commons
   import figdraw/common/fontglyphs
@@ -12,8 +12,19 @@ else:
   import figdraw/fignodes
   import figdraw/renderfragments
   import figdraw/figrender as figrenderer
+  import figdraw/utils/drawutils
 
-  export
-    chroma, commons, fontglyphs, typefaceinfos, typefaces, fignodes, renderfragments,
-    figrenderer
+  export chroma
+  export bumpy
+  export vmath
   export Image, newImage, opaqueBounds, `[]`, `[]=`, fill
+
+  export commons
+  export fontglyphs
+  export typefaceinfos
+  export typefaces
+  export fignodes
+  export renderfragments
+  export figrenderer
+  export drawutils
+

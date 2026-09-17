@@ -94,6 +94,7 @@
     {"source": "../fignodes.nim", "name": "newRenders"},
     {"source": "../fignodes.nim", "name": "setLayer"},
     {"source": "../fignodes.nim", "name": "contains"},
+    {"source": "../fignodes.nim", "name": "childIndex"},
     {"source": "../common/filltypes.nim", "name": "fill"},
     {"source": "../common/filltypes.nim", "name": "linear"},
     {"source": "../common/shared.nim", "name": "setFigDataDir"},
@@ -205,6 +206,9 @@
     {"source": "../utils/drawutils.nim", "name": "figDashedRoundedRectBorder"},
     {"source": "../utils/drawutils.nim", "name": "figDottedRoundedRectBorder"},
     {"source": "../utils/drawutils.nim", "name": "figRoundedRectBorder"},
+    {"source": "../utils/drawutils.nim", "name": "getCircleBoxSizes"},
+    {"source": "../utils/drawutils.nim", "name": "roundedBoxCornerSizes"},
+    {"source": "../utils/drawutils.nim", "name": "drawable*"},
     {"source": "../figbackend.nim", "name": "backendName"},
     {"source": "../figrender.nim", "name": "newFigRenderer", "typeArgs": ["../windowing/siwinshim.nim:SiwinRenderBackend"]},
     {"source": "../figrender.nim", "name": "backendKind", "typeArgs": ["../windowing/siwinshim.nim:SiwinRenderBackend"]},
@@ -260,7 +264,7 @@
     {"name": "FillKind", "module": "figdraw/common/filltypes", "source": "../common/filltypes.nim"},
     {"name": "FillGradientAxis", "module": "figdraw/common/filltypes", "source": "../common/filltypes.nim"},
     {"name": "SystemTypefaceFile", "module": "figdraw/extras/systemfonttypes", "source": "../extras/systemfonttypes.nim"},
-    {"name": "SystemTypeface", "module": "figdraw/extras/systemfonttypes", "source": "../extras/systemfonttypes.nim"}
+    {"name": "SystemTypeface", "module": "figdraw/extras/systemfonttypes", "source": "../extras/systemfonttypes.nim"},
   ],
   "opaqueTypes": [
     {"name": "SiwinRenderer", "source": "native_bindings.nim"},
