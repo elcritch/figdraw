@@ -62,6 +62,14 @@ suite "siwin redraw":
           figdraw_native_abi.beginFrame(renderer)
           figdraw_native_abi.renderFrame(renderer, renders, size, true, whiteColor)
           figdraw_native_abi.endFrame(renderer)
+
+          let supportsDedicated = figdraw_native_abi.backendSupportsDedicatedRenderThread(
+            renderer.backendKind()
+          )
+          check figdraw_native_abi.supportsDedicatedRenderThread(renderer) ==
+            supportsDedicated
+          if supportsDedicated:
+            figdraw_native_abi.useDedicatedRenderThread(renderer)
         finally:
           closeWindow(window)
 

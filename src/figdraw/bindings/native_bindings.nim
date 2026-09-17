@@ -16,6 +16,11 @@ proc instantiateNativeExports(renderer: SiwinRenderer, image: pixie.Image) {.use
   renderer.setTextLcdFiltering(renderer.textLcdFiltering())
   renderer.setTextSubpixelPositioning(renderer.textSubpixelPositioning())
   renderer.setTextSubpixelGlyphVariants(renderer.textSubpixelGlyphVariants())
+  discard backendSupportsDedicatedRenderThread(renderer.backendKind())
+  discard renderer.supportsDedicatedRenderThread()
+  # Keep the concrete dedicated-render routine in the producer ABI even
+  # though this anchor is never called by the library entry point.
+  renderer.useDedicatedRenderThread()
   pixie.`[]=`(image, 0, 0, default(ColorRGBA))
   pixie.fill(image, default(ColorRGBA))
 

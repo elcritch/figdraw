@@ -1038,6 +1038,10 @@ generated ABI module, then compile an example with `-d:useNativeDynlib`:
 ../Nim/bin/nim c -r -d:useNativeDynlib examples/siwin_renderlist.nim
 ```
 
+The native build task forwards explicit backend defines to the producer, so a
+platform-specific library can be selected with the same flags as a static
+build, for example `-d:figdraw.vulkan=on -d:figdraw.opengl=off`.
+
 The generated ABI is staged at `bin/figdraw_native_abi.nim`. It exposes Siwin's
 `Window`, event handlers, clipboard APIs, and window methods directly; consumers
 do not import or compile Siwin. Create a window with `newSiwinWindow`, then call
@@ -1082,6 +1086,13 @@ UI scaling in `beginFrame`, while a converter exposes the same typed renderer
 for direct backend, text-preference, presentation, and end-frame calls.
 It retains the attached window separately for UI-scale tracking, without reading
 the opaque renderer's internal state.
+
+Dedicated rendering is also available through the raw ABI. After `setupBackend`,
+check `supportsDedicatedRenderThread()`, obtain and update the
+`presentationTarget()` on the window thread, then call
+`useDedicatedRenderThread()` before moving frame work to the render thread.
+`backendSupportsDedicatedRenderThread()` provides the backend-level capability
+query; OpenGL remains window-thread-bound.
 
 The generated ABI reuses `bumpy.Rect`, Pixie's `Image`, Vmath's `Vec2`, `IVec2`,
 and `Mat4`, Chroma's `Color`, `ColorRGBA`, and `ColorRGBX`, and stdlib `Rune` and `Slice`

@@ -144,6 +144,9 @@ suite "native dynlib API":
         "proc endFrame*(renderer: SiwinRenderer",
         "proc presentationTarget*(renderer: SiwinRenderer",
         "proc updatePresentationTarget*(target: SiwinPresentationTarget",
+        "proc backendSupportsDedicatedRenderThread*(kind: RendererBackendKind",
+        "proc supportsDedicatedRenderThread*(renderer: SiwinRenderer",
+        "proc useDedicatedRenderThread*(renderer: SiwinRenderer",
       ]:
         var found = false
         for line in generatedAbi.splitLines():
@@ -151,6 +154,16 @@ suite "native dynlib API":
             check "importc:" in line
             found = true
         check found
+
+      doAssert compiles(
+        block:
+          let renderer = default(figdraw_native_abi.SiwinRenderer)
+          discard figdraw_native_abi.backendSupportsDedicatedRenderThread(rbOpenGL)
+          discard figdraw_native_abi.supportsDedicatedRenderThread(renderer)
+          let target = figdraw_native_abi.presentationTarget(renderer)
+          figdraw_native_abi.updatePresentationTarget(target, default(Window))
+          figdraw_native_abi.useDedicatedRenderThread(renderer)
+      )
 
     test "uses generated Siwin types without the legacy bridge records":
       const generatedAbi = staticRead("../bin/figdraw_native_abi.nim")
