@@ -14,28 +14,67 @@ suite "native dynlib UI scale":
             skip()
             break runWindow
 
-        let app = newFigSiwinApp(
-          320, 220, "figdraw native scale test", 192, 1.0, false, true, 0, true, false,
-          false,
-        )
+        let
+          window = newSiwinWindow(
+            IVec2(x: 320, y: 220),
+            false,
+            "figdraw native scale test",
+            true,
+            0,
+            true,
+            false,
+            false,
+          )
+          app = newFigSiwinApp(window, 192, 1.0)
+          autoScale = configureUiScale(window, "HDI")
         require app.raw != nil
-        let window = siwinNativeWindowKey(app)
+        var
+          resizeCount = 0
+          resizeSize: IVec2
+          closeCount = 0
+        window.eventsHandler = WindowEventsHandler(
+          onResize: proc(event: ResizeEvent) =
+            inc resizeCount
+            resizeSize = event.size,
+          onClose: proc(event: CloseEvent) =
+            inc closeCount
+          ,
+        )
         try:
-          siwinWindowFirstStep(window, false)
-          siwinRefreshUiScale(app)
+          firstStep(window, false)
+          refreshUiScale(window, autoScale)
 
-          let logical = siwinLogicalSize(app)
-          if siwinWindowInputUsesBackingPixels(window):
+          `minSize=`(window, IVec2(x: 100, y: 80))
+          `maxSize=`(window, IVec2(x: 1280, y: 720))
+          check minSize(window).x == 100
+          check minSize(window).y == 80
+          check maxSize(window).x == 1280
+          check maxSize(window).y == 720
+          `title=`(window, "direct Siwin setters")
+          `size=`(window, IVec2(x: 400, y: 280))
+          for _ in 0 ..< 20:
+            step(window)
+            if resizeCount > 0:
+              break
+          check resizeCount > 0
+          check resizeSize.x > 0
+          check resizeSize.y > 0
+          check closeCount == 0
+
+          let logical = logicalSize(window)
+          if inputUsesBackingPixels(window):
             let
-              backing = siwinBackingSize(app)
-              scale = max(siwinWindowUiScale(window), 0.0001'f32)
-            check abs(logical.w - backing.w.float32 / scale) < 0.01'f32
-            check abs(logical.h - backing.h.float32 / scale) < 0.01'f32
+              backing = backingSize(window)
+              scale = max(contentScale(window), 0.0001'f32)
+            check abs(logical.x - backing.x.float32 / scale) < 0.01'f32
+            check abs(logical.y - backing.y.float32 / scale) < 0.01'f32
           else:
-            let size = siwinWindowSize(app)
-            check logical.w == size.w.float32
-            check logical.h == size.h.float32
+            let dimensions = size(window)
+            check logical.x == dimensions.x.float32
+            check logical.y == dimensions.y.float32
         finally:
-          siwinWindowClose(window)
+          # Release consumer closures before closing the producer-owned window.
+          window.eventsHandler = WindowEventsHandler()
+          close(window)
     else:
       skip()

@@ -129,18 +129,25 @@ when isMainModule:
     fpsFont = FigFont(typefaceId: typeface, size: 18)
     previewImage = readPixieImage(getCurrentDir() / "data" / "img1.png")
     previewImageId = imgId("native-shared-preview")
-    app = newFigSiwinApp(
-      800, 600, "Siwin RenderList (Native Nim Dynlib)", 512, 1.0, false, true, 0, true,
-      false, false,
+    window = newSiwinWindow(
+      IVec2(x: 800, y: 600),
+      false,
+      "Siwin RenderList (Native Nim Dynlib)",
+      true,
+      0,
+      true,
+      false,
+      false,
     )
+    app = newFigSiwinApp(window, 512, 1.0)
+    autoScale = configureUiScale(window, "HDI")
   var renders = newRenders()
   putFigImage(previewImageId, previewImage)
 
   if app.raw == nil or renders.isNil:
     quit("Failed to initialize native FigDraw objects", 1)
 
-  let window = siwinNativeWindowKey(app)
-  siwinWindowFirstStep(window, true)
+  firstStep(window, true)
   var
     appRunning = true
     frames = 0
@@ -151,15 +158,15 @@ when isMainModule:
     fpsText = "0.0 FPS"
 
   try:
-    while siwinWindowOpened(window) and appRunning:
-      siwinRefreshUiScale(app)
+    while opened(window) and appRunning:
+      refreshUiScale(window, autoScale)
       inc frames
       inc fpsFrames
 
       let
-        size = siwinLogicalSize(app)
-        width = size.w
-        height = size.h
+        size = logicalSize(window)
+        width = size.x
+        height = size.y
         buildStart = getMonoTime()
 
       buildRenderTree(renders, width, height, frames, previewImageId)
@@ -193,8 +200,8 @@ when isMainModule:
       let renderStart = getMonoTime()
       renderFrame(app, renders, width, height, true, 1, 1, 1, 1)
       renderMicros += float((getMonoTime() - renderStart).inMicroseconds)
-      siwinWindowRedraw(window)
-      siwinWindowStep(window)
+      redraw(window)
+      step(window)
 
       let elapsed = epochTime() - fpsStart
       if elapsed >= 1.0:
@@ -221,4 +228,4 @@ when isMainModule:
           sleep(16)
   finally:
     clearFigImage(previewImageId)
-    siwinWindowClose(window)
+    close(window)

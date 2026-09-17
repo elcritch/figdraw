@@ -2,6 +2,12 @@
 
 ## 0.39.0
 
+- Export Siwin windows, events, clipboard operations, and platform methods
+  directly from the native dynamic library without compiling Siwin in clients.
+  Create windows with `newSiwinWindow`, then attach FigDraw rendering with
+  `newFigSiwinApp(window, atlasSize, pixelScale)`; remove the legacy window
+  records, pointer forwarders, and C-callback bridge while retaining shared-type
+  converters and the renderer ownership handle.
 - Store `GlyphArrangement` source and display text as UTF-8 with sparse rune
   indexes in both static and native dynamic-library builds, reducing retained
   text-layout memory while preserving indexed rune access plus compatibility

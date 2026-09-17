@@ -2,7 +2,7 @@ import std/[math, os, strutils]
 import pkg/chroma
 import vmath
 
-import siwin/[clipboards, window as siWindow, windowOpengl as siWindowOpengl]
+import siwin/[window as siWindow, windowOpengl as siWindowOpengl]
 import siwin/platforms
 
 import ../commons
@@ -285,8 +285,8 @@ when defined(linux) or defined(bsd):
         "The selected FigDraw backend cannot create an OpenGL layer surface"
       )
 
-proc newSiwinWindow*(
-    renderer: FigRenderer,
+proc newSiwinWindow*[BackendState](
+    renderer: FigRenderer[BackendState],
     size: IVec2,
     fullscreen = false,
     title = "FigDraw",
@@ -352,6 +352,12 @@ proc newSiwinWindow*(
     transparent = transparent,
   )
 
+proc newSiwinPopupWindow*(
+    parent: Window, placement: PopupPlacement, transparent = true, grab = true
+): Window =
+  ## Creates a popup using the producer's shared Siwin globals.
+  siWindow.newPopupWindow(sharedSiwinGlobals(), parent, placement, transparent, grab)
+
 proc backingSize*(window: Window): IVec2 =
   when defined(macosx):
     let contentView = cast[NSView](WindowCocoa(window).nativeViewHandle())
@@ -371,166 +377,12 @@ proc inputUsesBackingPixels*(window: Window): bool =
   else:
     false
 
-proc inputDeviceScale*(window: Window): float32
-
 proc logicalSize*(window: Window): Vec2 =
   if window.isNil:
     return vec2(0.0'f32, 0.0'f32)
   if window.inputUsesBackingPixels():
     return vec2(window.backingSize()).descaled()
   vec2(window.size)
-
-## ABI-direct entry points for operations whose native receiver is already a
-## Siwin window. The dynamic-library facade keeps the owning FigDraw app
-## handle separately, but these calls no longer need an app-specific adapter.
-template rawSiwinWindow(value: pointer): Window =
-  cast[Window](value)
-
-proc siwinWindowFirstStep*(window: pointer, makeVisible: bool) =
-  rawSiwinWindow(window).firstStep(makeVisible)
-
-proc siwinWindowStep*(window: pointer) =
-  rawSiwinWindow(window).step()
-
-proc siwinWindowRedraw*(window: pointer) =
-  rawSiwinWindow(window).redraw()
-
-proc siwinWindowMakeCurrent*(window: pointer) =
-  rawSiwinWindow(window).makeCurrent()
-
-proc siwinWindowClose*(window: pointer) =
-  rawSiwinWindow(window).close()
-
-proc siwinWindowOpened*(window: pointer): bool =
-  rawSiwinWindow(window).opened
-
-proc siwinWindowVisible*(window: pointer): bool =
-  rawSiwinWindow(window).visible
-
-proc siwinWindowSetVisible*(window: pointer, value: bool) =
-  rawSiwinWindow(window).visible = value
-
-proc siwinWindowFocused*(window: pointer): bool =
-  rawSiwinWindow(window).focused
-
-proc siwinWindowFullscreen*(window: pointer): bool =
-  rawSiwinWindow(window).fullscreen
-
-proc siwinWindowSetFullscreen*(window: pointer, value: bool) =
-  rawSiwinWindow(window).fullscreen = value
-
-proc siwinWindowMaximized*(window: pointer): bool =
-  rawSiwinWindow(window).maximized
-
-proc siwinWindowSetMaximized*(window: pointer, value: bool) =
-  rawSiwinWindow(window).maximized = value
-
-proc siwinWindowMinimized*(window: pointer): bool =
-  rawSiwinWindow(window).minimized
-
-proc siwinWindowSetMinimized*(window: pointer, value: bool) =
-  rawSiwinWindow(window).minimized = value
-
-proc siwinWindowResizable*(window: pointer): bool =
-  rawSiwinWindow(window).resizable
-
-proc siwinWindowSetResizable*(window: pointer, value: bool) =
-  rawSiwinWindow(window).resizable = value
-
-proc siwinWindowFrameless*(window: pointer): bool =
-  rawSiwinWindow(window).frameless
-
-proc siwinWindowSetFrameless*(window: pointer, value: bool) =
-  rawSiwinWindow(window).frameless = value
-
-proc siwinWindowTransparent*(window: pointer): bool =
-  rawSiwinWindow(window).transparent
-
-proc siwinWindowCustomTitlebar*(window: pointer): bool =
-  rawSiwinWindow(window).customTitlebar
-
-proc siwinWindowSupportsCustomTitlebar*(window: pointer): bool =
-  rawSiwinWindow(window).supportsCustomTitlebar()
-
-proc siwinWindowSetCustomTitlebar*(window: pointer, value: bool) =
-  rawSiwinWindow(window).customTitlebar = value
-
-proc siwinWindowSetVsync*(window: pointer, value: bool) =
-  rawSiwinWindow(window).vsync = value
-
-proc siwinWindowSeparateTouch*(window: pointer): bool =
-  rawSiwinWindow(window).separateTouch
-
-proc siwinWindowSetSeparateTouch*(window: pointer, value: bool) =
-  rawSiwinWindow(window).separateTouch = value
-
-proc siwinWindowCanBecomeKeyWindow*(window: pointer): bool =
-  rawSiwinWindow(window).canBecomeKeyWindow()
-
-proc siwinWindowSetCanBecomeKeyWindow*(window: pointer, value: bool) =
-  rawSiwinWindow(window).canBecomeKeyWindow = value
-
-proc siwinWindowCanBecomeMainWindow*(window: pointer): bool =
-  rawSiwinWindow(window).canBecomeMainWindow()
-
-proc siwinWindowSetCanBecomeMainWindow*(window: pointer, value: bool) =
-  rawSiwinWindow(window).canBecomeMainWindow = value
-
-proc siwinWindowInputUsesBackingPixels*(window: pointer): bool =
-  rawSiwinWindow(window).inputUsesBackingPixels()
-
-proc siwinWindowSetBorderWidth*(
-    window: pointer, innerWidth, outerWidth, diagonalSize: float32
-) =
-  rawSiwinWindow(window).setBorderWidth(innerWidth, outerWidth, diagonalSize)
-
-proc siwinWindowMouseButtonPressed*(window: pointer, button: MouseButton): bool =
-  button in rawSiwinWindow(window).mouse.pressed
-
-proc siwinWindowKeyPressed*(window: pointer, key: Key): bool =
-  key in rawSiwinWindow(window).keyboard.pressed
-
-proc siwinWindowModifierPressed*(window: pointer, modifier: ModifierKey): bool =
-  modifier in rawSiwinWindow(window).keyboard.modifiers
-
-proc siwinWindowClipboardText*(window: pointer): string =
-  rawSiwinWindow(window).clipboard.text
-
-proc siwinWindowSetClipboardText*(window: pointer, value: string) =
-  rawSiwinWindow(window).clipboard.text = value
-
-proc siwinWindowClipboardFiles*(window: pointer): seq[string] =
-  rawSiwinWindow(window).clipboard.files
-
-proc siwinWindowSetClipboardFiles*(window: pointer, value: seq[string]) =
-  rawSiwinWindow(window).clipboard.files = value
-
-proc siwinWindowClipboardData*(window: pointer, mimeType: string): string =
-  rawSiwinWindow(window).clipboard[mimeType]
-
-proc siwinWindowSetClipboardData*(window: pointer, mimeType, value: string) =
-  rawSiwinWindow(window).clipboard[mimeType] = value
-
-proc siwinWindowClipboardMimeTypes*(window: pointer): seq[string] =
-  rawSiwinWindow(window).clipboard.availableMimeTypes
-
-proc siwinWindowUiScale*(window: pointer): float32 =
-  rawSiwinWindow(window).uiScale()
-
-proc siwinWindowIsPopup*(window: pointer): bool =
-  rawSiwinWindow(window).isPopup
-
-proc siwinWindowPopupGrab*(window: pointer): bool =
-  rawSiwinWindow(window).popupGrab
-
-proc siwinWindowPopupOpen*(window: pointer): bool =
-  rawSiwinWindow(window).popupOpen
-
-proc siwinWindowVisualCapabilities*(window: pointer): set[WindowVisualCapability] =
-  rawSiwinWindow(window).visualCapabilities()
-
-proc siwinWindowDisplayServerName*(window: pointer): string =
-  rawSiwinWindow(window).siwinDisplayServerName()
 
 proc contentScale*(window: Window): float32 =
   when defined(macosx):

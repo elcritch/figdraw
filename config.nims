@@ -237,6 +237,6 @@ when defined(feature.figdraw.sharedlib):
     runNativeNim(
       [
         "c", "-d:release", "--mm:arc", "-d:useMalloc", "--path:bin",
-        "--out:examples/siwing_shared_native", "examples/siwing_shared_native.nim",
+        "--out:examples/siwin_shared_native", "examples/siwin_shared_native.nim",
       ]
     )

@@ -3,8 +3,9 @@ import std/[unittest, unicode]
 import pkg/bumpy as bumpy
 
 when defined(useNativeDynlib):
+  import std/strutils
   import figdraw/dynlib
-  import figdraw_native_abi except SystemTypefaceFile
+  from figdraw_native_abi import nil
 
   proc loadExactTypefaceForCompileCheck(file: SystemTypefaceFile): TypefaceId {.used.} =
     loadTypeface(file)
@@ -16,6 +17,52 @@ when defined(useNativeDynlib):
 
 suite "native dynlib API":
   when defined(useNativeDynlib):
+    test "uses generated Siwin types without the legacy bridge records":
+      const generatedAbi = staticRead("../bin/figdraw_native_abi.nim")
+      for line in generatedAbi.splitLines():
+        if line.startsWith("import "):
+          check "siwin" notin line
+      doAssert Window is figdraw_native_abi.Window
+      doAssert WindowEventsHandler is figdraw_native_abi.WindowEventsHandler
+      doAssert PopupPlacement is figdraw_native_abi.PopupPlacement
+      doAssert not declared(NativeWindowSize)
+      doAssert not declared(NativeLogicalSize)
+      doAssert not declared(NativeWindowVisualRegion)
+      doAssert not declared(NativePopupPlacement)
+      doAssert not declared(PopupConstraintAdjustments)
+      doAssert not declared(WindowVisualCapabilities)
+      doAssert not declared(FigFlagSet)
+      doAssert not declared(NativeCloseCallback)
+      doAssert not declared(siwinSetEventCallbacks)
+      doAssert not declared(siwinWindowStep)
+      doAssert not declared(siwinWindowHandle)
+      doAssert compiles(
+        block:
+          let window = figdraw_native_abi.newSiwinWindow(
+            figdraw_native_abi.IVec2(x: 320, y: 220),
+            false,
+            "raw Siwin",
+            true,
+            0,
+            true,
+            false,
+            false,
+          )
+          window.eventsHandler = WindowEventsHandler(
+            onResize: proc(event: ResizeEvent) =
+              discard event.size,
+            onTextInput: proc(event: TextInputEvent) =
+              discard event.text,
+          )
+          figdraw_native_abi.firstStep(window, false)
+          figdraw_native_abi.`size=`(window, figdraw_native_abi.IVec2(x: 400, y: 300))
+          discard figdraw_native_abi.clipboard(window).text()
+          discard figdraw_native_abi.`[]`(window.clipboard(), "text/plain")
+          let placement = PopupPlacement(size: ivec2(80, 60))
+          discard figdraw_native_abi.newSiwinPopupWindow(window, placement, true, true)
+          figdraw_native_abi.close(window)
+      )
+
     test "supports elliptical corners and drawable ellipses":
       let
         horizontal = [4'u16, 6'u16, 8'u16, 10'u16]
@@ -233,7 +280,7 @@ suite "native dynlib API":
           discard window.inputDeviceScale()
           discard siwinBackendName()
           discard window.nativeWindowKey()
-          discard window.title()
+          window.title = "direct Siwin title"
           window.minSize = ivec2(100, 80)
           window.maxSize = ivec2(1920, 1080)
           window.customTitlebar = true

@@ -1038,8 +1038,16 @@ generated ABI module, then compile an example with `-d:useNativeDynlib`:
 ../Nim/bin/nim c -r -d:useNativeDynlib examples/siwin_renderlist.nim
 ```
 
-The equivalent Nimble task is
-`FIGDRAW_NATIVE_NIM=../Nim/bin/nim nimble nativeDynlib`.
+The generated ABI is staged at `bin/figdraw_native_abi.nim`. It exposes Siwin's
+`Window`, event handlers, clipboard APIs, and window methods directly; consumers
+do not import or compile Siwin. Create a window with `newSiwinWindow`, then call
+`newFigSiwinApp(window, atlasSize, pixelScale)` to attach FigDraw rendering. See
+`examples/siwin_shared_native.nim` for a client using the generated ABI directly.
+
+The `figdraw/dynlib` facade retains shared-type converters and constructor
+defaults, but uses the same generated window and event types. Event closures are
+ordinary Nim closures; avoid capturing their owning window (or clear its handlers
+before releasing it) to prevent ARC reference cycles.
 
 The same switch is supported by `siwin_cell_grid.nim`,
 `siwin_image_renderlist.nim`, and `siwin_two_windows.nim`.

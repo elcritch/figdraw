@@ -1,6 +1,6 @@
-## Source-compatible FigDraw/Siwin facade backed by the native Nim dynamic library.
+## FigDraw conveniences and shared-type converters over the generated native ABI.
 
-import std/[os, strutils, tables, unicode]
+import std/[tables, unicode]
 import pkg/bumpy as bumpy
 import pkg/chroma as chroma
 from pkg/pixie import Image
@@ -17,8 +17,8 @@ when not defined(gcArc):
 export tables, bumpy, chroma, vmath
 export Image
 export figdraw_native_abi except
-  ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile, placeGlyphs,
-  toRunes, `[]`
+  ColorRGBA, Vec2, IVec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile,
+  placeGlyphs, toRunes, `[]`, newSiwinWindow
 export
   SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
   initSystemTypeface
@@ -60,276 +60,14 @@ type
 
   SiwinPresentationTarget* = object
 
-  WindowVisualRegion* = object
-    pos*: vmath.IVec2
-    size*: vmath.IVec2
-
-  WindowBackdropConfig* = object
-    regions*: seq[WindowVisualRegion]
-    case kind*: WindowBackdropKind
-    of wbkMaterial:
-      material*: WindowBackdropMaterial
-    of wbkNone, wbkBlur:
-      discard
-
-  WindowVisualEffectError* = object of CatchableError
-
-  Mouse* = object
-    pos*: vmath.Vec2
-    pressed*: set[MouseButton]
-
-  Keyboard* = object
-    pressed*: set[Key]
-    modifiers*: set[ModifierKey]
-
-  Clipboard* = ref object
-    window: Window
-    mimeTypes: seq[string]
-
-  Window* = ref object
-    handle: NativeSiwinApp
-    raw: pointer
-    eventsHandler*: WindowEventsHandler
-    clipboard*: Clipboard
-    backdropConfig: WindowBackdropConfig
-    autoScale: bool
-    width, height: int32
-    titleText: string
-    fullscreen, vsync, resizable, frameless, transparent: bool
-
   FigRenderer*[BackendState] = ref object
     atlasSize: int
     pixelScale: float32
-    window: Window
-
-  CloseEvent* = object
-    window*: Window
-
-  RenderEvent* = object
-    window*: Window
-
-  ResizeEvent* = object
-    window*: Window
-    size*: vmath.IVec2
-    initial*: bool
-
-  WindowMoveEvent* = object
-    window*: Window
-    pos*: vmath.IVec2
-
-  MouseMoveKind* = enum
-    move
-    enter
-    leave
-    moveWhileDragging
-
-  MouseMoveEvent* = object
-    window*: Window
-    pos*: vmath.Vec2
-    kind*: MouseMoveKind
-
-  MouseButtonEvent* = object
-    window*: Window
-    button*: MouseButton
-    pressed*: bool
-    generated*: bool
-
-  ScrollDeviceKind* = enum
-    unknown
-    discrete
-    continuous
-
-  ScrollEvent* = object
-    window*: Window
-    delta*: float
-    deltaX*: float
-    device*: ScrollDeviceKind
-
-  KeyEvent* = object
-    window*: Window
-    key*: Key
-    pressed*: bool
-    repeated*: bool
-    generated*: bool
-    modifiers*: set[ModifierKey]
-
-  TextInputEvent* = object
-    window*: Window
-    text*: string
-    repeated*: bool
-
-  StateBoolChangedEventKind* = enum
-    focus
-    fullscreen
-    maximized
-    frameless
-
-  StateBoolChangedEvent* = object
-    window*: Window
-    value*: bool
-    kind*: StateBoolChangedEventKind
-    isExternal*: bool
-
-  PopupDismissReason* = enum
-    pdrClientClosed
-    pdrCompositorDismissed
-    pdrParentClosed
-
-  PopupEvent* = object
-    window*: Window
-    reason*: PopupDismissReason
-
-  PopupPlacement* = object
-    anchorRectPos*: vmath.IVec2
-    anchorRectSize*: vmath.IVec2
-    size*: vmath.IVec2
-    anchor*: Edge
-    gravity*: Edge
-    offset*: vmath.IVec2
-    constraintAdjustment*: set[PopupConstraintAdjustment]
-    reactive*: bool
-
-  WindowEventsHandler* = object
-    onClose*: proc(e: CloseEvent)
-    onRender*: proc(e: RenderEvent)
-    onResize*: proc(e: ResizeEvent)
-    onWindowMove*: proc(e: WindowMoveEvent)
-    onMouseMove*: proc(e: MouseMoveEvent)
-    onMouseButton*: proc(e: MouseButtonEvent)
-    onScroll*: proc(e: ScrollEvent)
-    onKey*: proc(e: KeyEvent)
-    onTextInput*: proc(e: TextInputEvent)
-    onStateBoolChanged*: proc(e: StateBoolChangedEvent)
-    onPopupDone*: proc(e: PopupEvent)
+    handle: NativeSiwinApp
 
 converter nilToImageRef*(value: typeof(nil)): ImageRef =
   discard value
   default(ImageRef)
-
-proc dispatchNativeResize(
-    context: pointer, width, height: int32, initial: bool
-) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onResize != nil:
-    window.eventsHandler.onResize(
-      ResizeEvent(window: window, size: vmath.ivec2(width, height), initial: initial)
-    )
-
-proc dispatchNativeClose(context: pointer) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onClose != nil:
-    window.eventsHandler.onClose(CloseEvent(window: window))
-
-proc dispatchNativeRender(context: pointer) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onRender != nil:
-    window.eventsHandler.onRender(RenderEvent(window: window))
-
-proc dispatchNativeWindowMove(context: pointer, x, y: int32) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onWindowMove != nil:
-    window.eventsHandler.onWindowMove(
-      WindowMoveEvent(window: window, pos: vmath.ivec2(x, y))
-    )
-
-proc dispatchNativeMouseMove(context: pointer, x, y: float32, kind: uint8) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onMouseMove != nil:
-    window.eventsHandler.onMouseMove(
-      MouseMoveEvent(window: window, pos: vmath.vec2(x, y), kind: MouseMoveKind(kind))
-    )
-
-proc dispatchNativeMouseButton(
-    context: pointer, button: MouseButton, pressed, generated: bool
-) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onMouseButton != nil:
-    window.eventsHandler.onMouseButton(
-      MouseButtonEvent(
-        window: window, button: button, pressed: pressed, generated: generated
-      )
-    )
-
-proc dispatchNativeScroll(
-    context: pointer, delta, deltaX: float, device: uint8
-) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onScroll != nil:
-    window.eventsHandler.onScroll(
-      ScrollEvent(
-        window: window, delta: delta, deltaX: deltaX, device: ScrollDeviceKind(device)
-      )
-    )
-
-proc dispatchNativeKey(
-    context: pointer, key: Key, pressed, repeated, generated: bool, modifierMask: uint8
-) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onKey != nil:
-    var modifiers: set[ModifierKey]
-    for modifier in ModifierKey:
-      if (modifierMask and (1'u8 shl modifier.ord)) != 0:
-        modifiers.incl modifier
-    window.eventsHandler.onKey(
-      KeyEvent(
-        window: window,
-        key: key,
-        pressed: pressed,
-        repeated: repeated,
-        generated: generated,
-        modifiers: modifiers,
-      )
-    )
-
-proc dispatchNativeTextInput(
-    context, text: pointer, textLen: int, repeated: bool
-) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onTextInput != nil:
-    var value = newString(textLen)
-    if textLen > 0:
-      copyMem(value[0].addr, text, textLen)
-    window.eventsHandler.onTextInput(
-      TextInputEvent(window: window, text: value, repeated: repeated)
-    )
-
-proc dispatchNativeStateBoolChanged(
-    context: pointer, value: bool, kind: uint8, isExternal: bool
-) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onStateBoolChanged != nil:
-    window.eventsHandler.onStateBoolChanged(
-      StateBoolChangedEvent(
-        window: window,
-        value: value,
-        kind: StateBoolChangedEventKind(kind),
-        isExternal: isExternal,
-      )
-    )
-
-proc dispatchNativePopup(context: pointer, reason: uint8) {.cdecl.} =
-  let window = cast[Window](context)
-  if window.eventsHandler.onPopupDone != nil:
-    window.eventsHandler.onPopupDone(
-      PopupEvent(window: window, reason: PopupDismissReason(reason))
-    )
-
-proc installEventCallbacks(window: Window) =
-  siwinSetEventCallbacks(
-    window.handle,
-    cast[pointer](window),
-    cast[pointer](dispatchNativeClose),
-    cast[pointer](dispatchNativeResize),
-    cast[pointer](dispatchNativeRender),
-    cast[pointer](dispatchNativeWindowMove),
-    cast[pointer](dispatchNativeMouseMove),
-    cast[pointer](dispatchNativeMouseButton),
-    cast[pointer](dispatchNativeScroll),
-    cast[pointer](dispatchNativeKey),
-    cast[pointer](dispatchNativeTextInput),
-    cast[pointer](dispatchNativeStateBoolChanged),
-    cast[pointer](dispatchNativePopup),
-  )
 
 converter toNativeColor*(
     value: chroma.ColorRGBA
@@ -344,6 +82,15 @@ converter toNativeVec2*(value: vmath.Vec2): figdraw_native_abi.Vec2 {.inline.} =
 
 converter toVec2*(value: figdraw_native_abi.Vec2): vmath.Vec2 {.inline.} =
   cast[vmath.Vec2](value)
+
+converter toNativeIVec2*(value: vmath.IVec2): figdraw_native_abi.IVec2 {.inline.} =
+  cast[figdraw_native_abi.IVec2](value)
+
+converter toIVec2*(value: figdraw_native_abi.IVec2): vmath.IVec2 {.inline.} =
+  cast[vmath.IVec2](value)
+
+converter toCursor*(value: BuiltinCursor): Cursor {.inline.} =
+  Cursor(kind: CursorKind.builtin, builtin: value)
 
 converter toNativeMat4*(value: vmath.Mat4): figdraw_native_abi.Mat4 {.inline.} =
   cast[figdraw_native_abi.Mat4](value)
@@ -498,50 +245,32 @@ func isCircular*[T](radii: CornerRadii2D[T]): bool =
       return false
   true
 
-proc initWindowBackdrop*(
-    regions: openArray[WindowVisualRegion] = []
-): WindowBackdropConfig =
-  WindowBackdropConfig(kind: wbkBlur, regions: @regions)
-
-proc initWindowBackdrop*(
-    material: WindowBackdropMaterial, regions: openArray[WindowVisualRegion] = []
-): WindowBackdropConfig =
-  WindowBackdropConfig(kind: wbkMaterial, material: material, regions: @regions)
-
 const
   clearColor* = chroma.color(0, 0, 0, 0)
   whiteColor* = chroma.color(1, 1, 1, 1)
   blackColor* = chroma.color(0, 0, 0, 1)
   blueColor* = chroma.color(0, 0, 1, 1)
 
-var appUiScale = 1.0'f32
-
-proc figUiScale*(): float32 {.inline.} =
-  appUiScale
-
-proc setFigUiScale*(scale: float32) {.inline.} =
-  appUiScale = scale
-
 proc scaled*(value: bumpy.Rect): bumpy.Rect {.inline.} =
-  value * appUiScale
+  value * figUiScale()
 
 proc descaled*(value: bumpy.Rect): bumpy.Rect {.inline.} =
-  value / appUiScale
+  value / figUiScale()
 
 proc scaled*(value: vmath.Vec2): vmath.Vec2 {.inline.} =
-  value * appUiScale
+  value * figUiScale()
 
 proc descaled*(value: vmath.Vec2): vmath.Vec2 {.inline.} =
-  value / appUiScale
+  value / figUiScale()
 
 proc scaled*(value: vmath.IVec2): vmath.IVec2 {.inline.} =
-  vmath.ivec2(vmath.vec2(value) * appUiScale)
+  vmath.ivec2(vmath.vec2(value) * figUiScale())
 
 proc scaled*(value: float32): float32 {.inline.} =
-  value * appUiScale
+  value * figUiScale()
 
 proc descaled*(value: float32): float32 {.inline.} =
-  value / appUiScale
+  value / figUiScale()
 
 proc fs*(
     font: FigFont, color: Fill = fill(rgba(0, 0, 0, 255).toNativeColor())
@@ -676,90 +405,25 @@ proc newSiwinWindow*(
     frameless = false,
     transparent = false,
 ): Window =
-  discard msaa
-  result = Window(
-    width: size.x,
-    height: size.y,
-    titleText: title,
-    fullscreen: fullscreen,
-    vsync: vsync,
-    resizable: resizable,
-    frameless: frameless,
-    transparent: transparent,
-  )
-  result.clipboard = Clipboard(window: result)
-
-proc toNativePopupPlacement(value: PopupPlacement): NativePopupPlacement =
-  NativePopupPlacement(
-    anchorX: value.anchorRectPos.x,
-    anchorY: value.anchorRectPos.y,
-    anchorWidth: value.anchorRectSize.x,
-    anchorHeight: value.anchorRectSize.y,
-    width: value.size.x,
-    height: value.size.y,
-    anchor: value.anchor,
-    gravity: value.gravity,
-    offsetX: value.offset.x,
-    offsetY: value.offset.y,
-    constraintAdjustment: value.constraintAdjustment,
-    reactive: value.reactive,
+  ## Creates the producer's platform window without importing Siwin locally.
+  figdraw_native_abi.newSiwinWindow(
+    size.toNativeIVec2(),
+    fullscreen,
+    title,
+    vsync,
+    msaa,
+    resizable,
+    frameless,
+    transparent,
   )
 
 proc newPopupWindow*(
     parent: Window, placement: PopupPlacement, transparent = true, grab = true
 ): Window =
-  let handle = newFigSiwinPopup(
-    parent.handle, placement.toNativePopupPlacement(), 1024, 1.0, transparent, grab
-  )
-  result = Window(
-    handle: handle,
-    raw: siwinNativeWindowKey(handle),
-    width: placement.size.x,
-    height: placement.size.y,
-    transparent: transparent,
-  )
-  result.clipboard = Clipboard(window: result)
-
-proc reposition*(window: Window, placement: PopupPlacement) =
-  siwinRepositionPopup(window.handle, placement.toNativePopupPlacement())
-
-proc clipboardText*(clipboard: Clipboard): string =
-  siwinWindowClipboardText(clipboard.window.raw)
-
-proc `clipboardText=`*(clipboard: Clipboard, value: string) =
-  siwinWindowSetClipboardText(clipboard.window.raw, value)
-
-proc clipboardFiles*(clipboard: Clipboard): seq[string] =
-  siwinWindowClipboardFiles(clipboard.window.raw)
-
-proc `clipboardFiles=`*(clipboard: Clipboard, value: seq[string]) =
-  siwinWindowSetClipboardFiles(clipboard.window.raw, value)
-
-proc clipboardData*(clipboard: Clipboard, mimeType: string): string =
-  siwinWindowClipboardData(clipboard.window.raw, mimeType)
-
-proc setClipboardData*(clipboard: Clipboard, mimeType, value: string) =
-  siwinWindowSetClipboardData(clipboard.window.raw, mimeType, value)
-  if mimeType notin clipboard.mimeTypes:
-    clipboard.mimeTypes.add mimeType
-
-proc availableMimeTypes*(clipboard: Clipboard): seq[string] =
-  result = siwinWindowClipboardMimeTypes(clipboard.window.raw)
-  for mimeType in clipboard.mimeTypes:
-    if mimeType notin result:
-      result.add mimeType
+  figdraw_native_abi.newSiwinPopupWindow(parent, placement, transparent, grab)
 
 proc setupBackend*(renderer: FigRenderer[SiwinRenderBackend], window: Window) =
-  if window.handle.raw == nil:
-    window.handle = newFigSiwinApp(
-      window.width, window.height, window.titleText, renderer.atlasSize,
-      renderer.pixelScale, window.fullscreen, window.vsync, 0, window.resizable,
-      window.frameless, window.transparent,
-    )
-    window.raw = siwinNativeWindowKey(window.handle)
-  renderer.window = window
-  if window.autoScale:
-    setFigUiScale(siwinWindowUiScale(window.raw))
+  renderer.handle = newFigSiwinApp(window, renderer.atlasSize, renderer.pixelScale)
 
 proc newSiwinWindow*(
     renderer: FigRenderer[SiwinRenderBackend],
@@ -777,257 +441,32 @@ proc newSiwinWindow*(
   )
   renderer.setupBackend(result)
 
-proc contentScale*(window: Window): float32 =
-  siwinWindowUiScale(window.raw)
+proc nativeWindowKey*(window: Window): pointer {.inline.} =
+  cast[pointer](window)
 
-proc inputDeviceScale*(window: Window): float32 =
-  if window.isNil:
-    return 1.0'f32
-  let scale = window.contentScale()
-  if scale > 0.0'f32: scale else: 1.0'f32
+proc startInteractiveMove*(window: Window, pos: vmath.Vec2) {.inline.} =
+  siwinStartInteractiveMove(window, pos.toNativeVec2())
 
-proc siwinBackendName*(): string =
-  "OpenGL"
+proc startInteractiveResize*(window: Window, edge: Edge, pos: vmath.Vec2) {.inline.} =
+  siwinStartInteractiveResize(window, edge, pos.toNativeVec2())
 
-proc mouse*(window: Window): Mouse =
-  let pos = siwinMousePos(window.handle)
-  result.pos = vmath.vec2(pos.x, pos.y)
-  for button in MouseButton:
-    if siwinWindowMouseButtonPressed(window.raw, button):
-      result.pressed.incl button
-
-proc keyboard*(window: Window): Keyboard =
-  for key in Key:
-    if siwinWindowKeyPressed(window.raw, key):
-      result.pressed.incl key
-  for modifier in ModifierKey:
-    if siwinWindowModifierPressed(window.raw, modifier):
-      result.modifiers.incl modifier
-
-proc configureUiScale*(window: Window, envVar = "HDI"): bool =
-  let configuredScale = getEnv(envVar)
-  if configuredScale.len == 0:
-    window.autoScale = true
-    if window.handle.raw != nil:
-      setFigUiScale(window.contentScale())
-    true
-  else:
-    window.autoScale = false
-    setFigUiScale(configuredScale.parseFloat().float32)
-    false
-
-proc refreshUiScale*(window: Window, autoScale: bool) =
-  siwinRefreshUiScale(window.handle)
-  if autoScale:
-    setFigUiScale(window.contentScale())
-
-proc backingSize*(window: Window): vmath.IVec2 =
-  let size = siwinBackingSize(window.handle)
-  ivec2(size.w, size.h)
-
-proc inputUsesBackingPixels*(window: Window): bool =
-  siwinWindowInputUsesBackingPixels(window.raw)
-
-proc size*(window: Window): vmath.IVec2 =
-  let size = siwinWindowSize(window.handle)
-  ivec2(size.w, size.h)
-
-proc `size=`*(window: Window, value: vmath.IVec2) =
-  window.installEventCallbacks()
-  siwinSetWindowSize(window.handle, value.x, value.y)
-
-proc pos*(window: Window): vmath.IVec2 =
-  let pos = siwinWindowPos(window.handle)
-  ivec2(pos.x, pos.y)
-
-proc `pos=`*(window: Window, value: vmath.IVec2) =
-  siwinSetWindowPos(window.handle, value.x, value.y)
-
-proc nativeWindowKey*(window: Window): pointer =
-  siwinNativeWindowKey(window.handle)
-
-proc logicalSize*(window: Window): vmath.Vec2 =
-  let
-    size = window.backingSize()
-    scale = max(figUiScale(), 0.0001'f32)
-  vec2(size.x.float32 / scale, size.y.float32 / scale)
-
-proc `title=`*(window: Window, value: string) =
-  window.titleText = value
-  siwinSetTitle(window.handle, value)
-
-proc title*(window: Window): string =
-  siwinTitle(window.handle)
-
-proc visible*(window: Window): bool =
-  siwinWindowVisible(window.raw)
-
-proc `visible=`*(window: Window, value: bool) =
-  siwinWindowSetVisible(window.raw, value)
-
-proc focused*(window: Window): bool =
-  siwinWindowFocused(window.raw)
-
-proc fullscreen*(window: Window): bool =
-  siwinWindowFullscreen(window.raw)
-
-proc `fullscreen=`*(window: Window, value: bool) =
-  siwinWindowSetFullscreen(window.raw, value)
-
-proc maximized*(window: Window): bool =
-  siwinWindowMaximized(window.raw)
-
-proc `maximized=`*(window: Window, value: bool) =
-  siwinWindowSetMaximized(window.raw, value)
-
-proc minimized*(window: Window): bool =
-  siwinWindowMinimized(window.raw)
-
-proc `minimized=`*(window: Window, value: bool) =
-  siwinWindowSetMinimized(window.raw, value)
-
-proc resizable*(window: Window): bool =
-  siwinWindowResizable(window.raw)
-
-proc `resizable=`*(window: Window, value: bool) =
-  siwinWindowSetResizable(window.raw, value)
-
-proc frameless*(window: Window): bool =
-  siwinWindowFrameless(window.raw)
-
-proc `frameless=`*(window: Window, value: bool) =
-  siwinWindowSetFrameless(window.raw, value)
-
-proc transparent*(window: Window): bool =
-  siwinWindowTransparent(window.raw)
-
-proc visualCapabilities*(window: Window): set[WindowVisualCapability] =
-  siwinWindowVisualCapabilities(window.raw)
-
-proc supports*(window: Window, capability: WindowVisualCapability): bool =
-  capability in window.visualCapabilities()
-
-proc backdrop*(window: Window): WindowBackdropConfig =
-  window.backdropConfig
-
-proc trySetBackdrop*(window: Window, config: WindowBackdropConfig): bool =
-  var regions = newSeqOfCap[NativeWindowVisualRegion](config.regions.len)
-  for region in config.regions:
-    regions.add NativeWindowVisualRegion(
-      x: region.pos.x, y: region.pos.y, width: region.size.x, height: region.size.y
-    )
-  let material =
-    case config.kind
-    of wbkMaterial: config.material
-    of wbkNone, wbkBlur: wbmDefault
-  result = siwinTrySetBackdrop(window.handle, config.kind, material, regions)
-  if result:
-    window.backdropConfig = config
-
-proc clearBackdrop*(window: Window) =
-  discard window.trySetBackdrop(WindowBackdropConfig(kind: wbkNone))
-
-proc setBackdrop*(window: Window, config: WindowBackdropConfig) =
-  if not window.trySetBackdrop(config):
-    raise WindowVisualEffectError.newException(
-      "window backdrop effect is not supported by this backend or configuration"
-    )
-
-proc minSize*(window: Window): vmath.IVec2 =
-  let size = siwinMinSize(window.handle)
-  vmath.ivec2(size.w, size.h)
-
-proc `minSize=`*(window: Window, value: vmath.IVec2) =
-  siwinSetMinSize(window.handle, value.x, value.y)
-
-proc maxSize*(window: Window): vmath.IVec2 =
-  let size = siwinMaxSize(window.handle)
-  vmath.ivec2(size.w, size.h)
-
-proc `maxSize=`*(window: Window, value: vmath.IVec2) =
-  siwinSetMaxSize(window.handle, value.x, value.y)
-
-proc customTitlebar*(window: Window): bool =
-  siwinWindowCustomTitlebar(window.raw)
-
-proc supportsCustomTitlebar*(window: Window): bool =
-  siwinWindowSupportsCustomTitlebar(window.raw)
-
-proc `customTitlebar=`*(window: Window, value: bool) =
-  siwinWindowSetCustomTitlebar(window.raw, value)
-
-proc setTitleRegion*(window: Window, pos, size: vmath.Vec2) =
-  siwinSetTitleRegion(window.handle, pos.x, pos.y, size.x, size.y)
-
-proc setInputRegion*(window: Window, pos, size: vmath.Vec2) =
-  siwinSetInputRegion(window.handle, pos.x, pos.y, size.x, size.y)
-
-proc setBorderWidth*(window: Window, innerWidth, outerWidth, diagonalSize: float32) =
-  siwinWindowSetBorderWidth(window.raw, innerWidth, outerWidth, diagonalSize)
-
-proc startInteractiveMove*(window: Window, pos: vmath.Vec2) =
-  siwinStartInteractiveMove(window.handle, pos.x, pos.y)
-
-proc startInteractiveResize*(window: Window, edge: Edge, pos: vmath.Vec2) =
-  siwinStartInteractiveResize(window.handle, edge, pos.x, pos.y)
-
-proc showWindowMenu*(window: Window, pos: vmath.Vec2) =
-  siwinShowWindowMenu(window.handle, pos.x, pos.y)
-
-proc `cursor=`*(window: Window, value: BuiltinCursor) =
-  siwinSetBuiltinCursor(window.handle, value)
-
-proc `vsync=`*(window: Window, value: bool) =
-  window.vsync = value
-  siwinWindowSetVsync(window.raw, value)
-
-proc separateTouch*(window: Window): bool =
-  siwinWindowSeparateTouch(window.raw)
-
-proc `separateTouch=`*(window: Window, value: bool) =
-  siwinWindowSetSeparateTouch(window.raw, value)
-
-proc canBecomeKeyWindow*(window: Window): bool =
-  siwinWindowCanBecomeKeyWindow(window.raw)
-
-proc `canBecomeKeyWindow=`*(window: Window, value: bool) =
-  siwinWindowSetCanBecomeKeyWindow(window.raw, value)
-
-proc canBecomeMainWindow*(window: Window): bool =
-  siwinWindowCanBecomeMainWindow(window.raw)
-
-proc `canBecomeMainWindow=`*(window: Window, value: bool) =
-  siwinWindowSetCanBecomeMainWindow(window.raw, value)
+proc showWindowMenu*(window: Window, pos: vmath.Vec2) {.inline.} =
+  siwinShowWindowMenu(window, pos.toNativeVec2())
 
 proc `icon=`*(window: Window, image: Image) {.inline.} =
-  figdraw_native_abi.siwinSetIcon(window.handle, image)
+  siwinSetIcon(window, image)
 
-proc opened*(window: Window): bool =
-  window.raw != nil and siwinWindowOpened(window.raw)
+template `vsync=`*(window: Window, value: bool) =
+  figdraw_native_abi.`vsync=`(window, value, false)
 
-proc closed*(window: Window): bool =
-  not window.opened()
+template firstStep*(window: Window) =
+  figdraw_native_abi.firstStep(window, true)
 
-proc presentNow*(window: Window) =
-  siwinWindowRedraw(window.raw)
+template configureUiScale*(window: Window): bool =
+  figdraw_native_abi.configureUiScale(window, "HDI")
 
-proc close*(window: Window) =
-  if window.handle.raw != nil:
-    siwinWindowClose(window.raw)
-
-proc firstStep*(window: Window, makeVisible = true) =
-  window.installEventCallbacks()
-  siwinWindowFirstStep(window.raw, makeVisible)
-
-proc redraw*(window: Window) =
-  siwinWindowRedraw(window.raw)
-
-proc makeCurrent*(window: Window) =
-  siwinWindowMakeCurrent(window.raw)
-
-proc step*(window: Window) =
-  window.installEventCallbacks()
-  siwinWindowStep(window.raw)
+proc `[]`*(clipboard: Clipboard, mimeType: string): string {.inline.} =
+  figdraw_native_abi.`[]`(clipboard, mimeType)
 
 proc presentationTarget*(
     renderer: FigRenderer[SiwinRenderBackend]
@@ -1049,46 +488,43 @@ proc renderFrame*(
     clearColor = whiteColor,
 ) =
   renderFrame(
-    renderer.window.handle, renders, size.x, size.y, clearMain, clearColor.r,
-    clearColor.g, clearColor.b, clearColor.a,
+    renderer.handle, renders, size.x, size.y, clearMain, clearColor.r, clearColor.g,
+    clearColor.b, clearColor.a,
   )
 
 proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   discard renderer
 
 proc backendName*(renderer: FigRenderer[SiwinRenderBackend]): string =
-  siwinBackendName(renderer.window.handle)
+  siwinBackendName(renderer.handle)
 
 proc backendKind*(renderer: FigRenderer[SiwinRenderBackend]): RendererBackendKind =
-  siwinBackendKind(renderer.window.handle)
+  siwinBackendKind(renderer.handle)
 
 proc setTextLcdFiltering*(renderer: FigRenderer[SiwinRenderBackend], enabled: bool) =
-  setTextLcdFiltering(renderer.window.handle, enabled)
+  setTextLcdFiltering(renderer.handle, enabled)
 
 proc textLcdFiltering*(renderer: FigRenderer[SiwinRenderBackend]): bool =
-  textLcdFiltering(renderer.window.handle)
+  textLcdFiltering(renderer.handle)
 
 proc setTextSubpixelPositioning*(
     renderer: FigRenderer[SiwinRenderBackend], enabled: bool
 ) =
-  setTextSubpixelPositioning(renderer.window.handle, enabled)
+  setTextSubpixelPositioning(renderer.handle, enabled)
 
 proc textSubpixelPositioning*(renderer: FigRenderer[SiwinRenderBackend]): bool =
-  textSubpixelPositioning(renderer.window.handle)
+  textSubpixelPositioning(renderer.handle)
 
 proc setTextSubpixelGlyphVariants*(
     renderer: FigRenderer[SiwinRenderBackend], enabled: bool
 ) =
-  setTextSubpixelGlyphVariants(renderer.window.handle, enabled)
+  setTextSubpixelGlyphVariants(renderer.handle, enabled)
 
 proc textSubpixelGlyphVariants*(renderer: FigRenderer[SiwinRenderBackend]): bool =
-  textSubpixelGlyphVariants(renderer.window.handle)
+  textSubpixelGlyphVariants(renderer.handle)
 
 proc siwinWindowTitle*(suffix = "Siwin RenderList"): string =
   "figdraw: " & siwinBackendName() & " + " & suffix
-
-proc siwinDisplayServerName*(window: Window): string =
-  siwinWindowDisplayServerName(window.raw)
 
 proc siwinWindowTitle*(
     renderer: FigRenderer[SiwinRenderBackend],

@@ -62,7 +62,7 @@ suite "siwin redraw":
       )
 
       try:
-        window.firstStep()
+        window.firstStep(true)
         window.redraw()
         for _ in 0 ..< 20:
           window.step()
@@ -93,4 +93,5 @@ suite "siwin redraw":
         check abs(renderedSize.x - actualSize.x) < 0.01'f32
         check abs(renderedSize.y - actualSize.y) < 0.01'f32
       finally:
+        window.eventsHandler = WindowEventsHandler()
         closeWindow(window)
