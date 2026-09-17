@@ -1,6 +1,8 @@
 import std/unittest
 
-import figdraw
+import chroma
+import figdraw/commons
+import figdraw/fignodes
 import figdraw/figrender
 import figdraw/windowing/siwinshim
 

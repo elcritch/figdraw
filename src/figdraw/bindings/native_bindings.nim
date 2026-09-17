@@ -3,10 +3,62 @@
 import pkg/pixie as pixie
 
 import figdraw/commons
+import figdraw/common/fonttypes
 import figdraw/figrender
 import figdraw/windowing/siwinshim
+from figdraw/common/typefaces import nil
+from figdraw/common/imgutils import nil
 
 type SiwinRenderer* = FigRenderer[SiwinRenderBackend]
+
+type
+  NativeFontRef* = object
+    ## Producer-owned font reference with compiler-generated ownership hooks.
+    value: typefaces.FontRef
+
+  NativeImageMessageSubscription* = object
+    ## Keeps subscription channels and their destruction inside the producer.
+    value: imgutils.ImageMessageSubscription
+
+proc newNativeFontRef*(font: sink FigFont): NativeFontRef =
+  NativeFontRef(value: typefaces.fontRef(font))
+
+proc font*(handle: NativeFontRef): FigFont =
+  ## Returns the font value retained by this handle.
+  handle.value.font
+
+proc fontId*(handle: NativeFontRef): FontId =
+  handle.value.fontId
+
+proc isNil*(handle: NativeFontRef): bool =
+  handle.value.isNil
+
+proc sameFontRef*(a, b: NativeFontRef): bool =
+  typefaces.sameFontRef(a.value, b.value)
+
+proc fs*(handle: NativeFontRef, color: Fill): FontStyle =
+  fs(handle.value, color)
+
+proc fsp*(handle: NativeFontRef, color: Fill, text: string): (FontStyle, string) =
+  fsp(handle.value, color, text)
+
+proc span*(handle: NativeFontRef, color: Fill, text: string): (FontStyle, string) =
+  span(handle.value, color, text)
+
+proc clearFontGlyphs*(handle: NativeFontRef) =
+  clearFontGlyphs(handle.value)
+
+proc newImageMessageSubscription*(): NativeImageMessageSubscription =
+  NativeImageMessageSubscription(value: imgutils.newImageMessageSubscription())
+
+proc tryRecvImageMsg*(handle: NativeImageMessageSubscription, msg: var ImageMsg): bool =
+  imgutils.tryRecvImageMsg(handle.value, msg)
+
+proc tryRecvImageMsg*(msg: var ImageMsg): bool =
+  imgutils.tryRecvImageMsg(msg)
+
+proc replayImageMessages*(handle: NativeImageMessageSubscription) =
+  imgutils.replayImageMessages(handle.value)
 
 # Materialize the concrete routines for Binny's semantic-symbol discovery.
 # This private instantiation anchor is never called or exported.

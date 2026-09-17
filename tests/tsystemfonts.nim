@@ -1,15 +1,8 @@
 import std/[math, options, os, sets, strutils, unittest]
 
-import figdraw/common/fonttypes
+from figdraw/common/fonttypes import nil
 
-when defined(useNativeDynlib):
-  import figdraw/dynlib
-  from figdraw/extras/systemfonts import
-    systemDefaultFontNames, findSystemFontFile, findSystemTypeface,
-    refreshSystemFontMetadata, fontNameMatchScore, systemTypefaces, SystemTypefaceQuery,
-    SystemTypeface, sfrMono
-else:
-  import figdraw
+import figdraw
 
 suite "system fonts":
   test "exact typeface identities canonicalize and validate variation axes":

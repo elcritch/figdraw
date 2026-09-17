@@ -16,16 +16,16 @@ import ./imgutils
 import ./typefaces
 import ./fontglyphs
 
-when defined(figdrawNativeDynlib):
-  {.pragma: nativeAbi, exportabi.}
-else:
-  {.pragma: nativeAbi.}
-
 export
   FontRef, SystemTypefaceFile, SystemTypeface, TypefaceInfo, TypefaceLocalizedName,
   TypefaceVariationAxis
 export font, fontId, fontRef, loadTypeface, getTypefaceInfo, convertFont, fontWithSize
 export registerStaticTypeface
+export resetFontCache, getFigFont, getTypefaceSource
+export hasTypeface, hasFont, hasStaticTypeface
+export tryGetFigFont, tryGetTypefaceSource, tryGetTypefaceInfo
+export cacheFont, defaultFontLineHeight, getLineHeightImpl, isNil, sameFontRef
+export canLoadTypeface
 
 when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
   import ./textbackends/harfbuzzy as textBackend
@@ -72,7 +72,7 @@ proc typesetStyled*(
     vAlign = FontVertical.Top,
     minContent: bool,
     wrap: bool,
-): GlyphArrangement {.nativeAbi.} =
+): GlyphArrangement =
   textBackend.typeset(box, uiSpans, hAlign, vAlign, minContent, wrap, true)
 
 proc typesetStyledForMeasurement*(
@@ -82,7 +82,7 @@ proc typesetStyledForMeasurement*(
     vAlign = FontVertical.Top,
     minContent: bool,
     wrap: bool,
-): GlyphArrangement {.nativeAbi.} =
+): GlyphArrangement =
   textBackend.typeset(box, uiSpans, hAlign, vAlign, minContent, wrap, false)
 
 proc typeset*(
@@ -117,7 +117,7 @@ proc typeset*(
     vAlign = FontVertical.Top,
     minContent: bool,
     wrap: bool,
-): GlyphArrangement {.nativeAbi.} =
+): GlyphArrangement =
   typeset(box, [(font, text)], hAlign, vAlign, minContent, wrap)
 
 proc typeset*(
@@ -148,7 +148,7 @@ proc placeGlyphs*(
     style: FontStyle,
     glyphs: openArray[(Rune, Vec2)],
     origin: GlyphOrigin = GlyphTopLeft,
-): GlyphArrangement {.nativeAbi.} =
+): GlyphArrangement =
   ## Builds a glyph arrangement using explicit positions for each glyph.
   ## `origin` controls whether positions are the glyph's top-left or baseline.
   threadEffects:
@@ -273,6 +273,6 @@ proc placeStyledGlyphs*(
     style: FontStyle,
     glyphs: openArray[(Rune, Vec2)],
     origin: GlyphOrigin = GlyphTopLeft,
-): GlyphArrangement {.nativeAbi.} =
+): GlyphArrangement =
   ## ABI-stable entry point for explicitly styled glyph placement.
   placeGlyphs(style, glyphs, origin)

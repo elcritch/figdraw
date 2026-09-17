@@ -8,7 +8,7 @@ when defined(useNativeDynlib):
   import pkg/vmath as vmath
   import figdraw/extras/systemfonttypes as systemfonttypes
   from figdraw/common/fonttypes import nil
-  import figdraw/dynlib
+  import figdraw
   from figdraw_native_abi import nil
 
   proc loadExactTypefaceForCompileCheck(file: SystemTypefaceFile): TypefaceId {.used.} =
@@ -76,6 +76,8 @@ suite "native dynlib API":
       doAssert not compiles(default(SiwinPresentationTarget).metalLayer)
       doAssert not declared(NSView)
       doAssert not declared(CAMetalLayer)
+      doAssert not compiles(default(FontRef).value)
+      doAssert not compiles(default(ImageMessageSubscription).inbox)
 
       let arrangement =
         GlyphArrangement(lines: @[2 .. 5], arrangedGlyphs: newSeq[ArrangedGlyph](6))
@@ -285,10 +287,10 @@ suite "native dynlib API":
       check textStorage.stringValue() == source
       check storage.len == sourceRunes.len
       check not storage.isEmpty
-      check dynlib.`[]`(storage, 1) == sourceRunes[1]
-      check dynlib.`[]`(storage, 2 .. 4).stringValue() == "λ 😀"
+      check figdraw.`[]`(storage, 1) == sourceRunes[1]
+      check figdraw.`[]`(storage, 2 .. 4).stringValue() == "λ 😀"
       check storage.stringValue() == source
-      check dynlib.toRunes(storage) == sourceRunes
+      check figdraw.toRunes(storage) == sourceRunes
       check storage == sourceRunes
 
       let arrangement = GlyphArrangement(sourceRunes: sourceRunes, runes: sourceRunes)

@@ -2,6 +2,13 @@
 
 ## 0.39.0
 
+- Expose `resetFontCache` and font/source/metadata lookups through the regular
+  and native `figdraw` imports. Reset font registration and glyph caches together,
+  preserving static typeface registrations and ordinary images by default.
+- Export font metrics, glyph rasterization and selection helpers, and system-font
+  discovery through the native facade. Keep font ownership and image-message
+  subscriptions opaque; raise missing-cache lookup errors in the consumer using
+  producer-side status-returning lookups.
 - Hide native renderer, backend-state, and presentation-target fields behind
   Binny 0.5.12 opaque exports. Remove Cocoa/Metal type imports from the shared export
   configuration while preserving direct calls and producer-owned destruction.
