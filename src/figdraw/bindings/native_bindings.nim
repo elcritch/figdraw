@@ -46,10 +46,6 @@ proc wrap(value: SiwinApp): NativeSiwinApp =
 template siwinApp(value: NativeSiwinApp): SiwinApp =
   cast[SiwinApp](value.raw)
 
-proc imagePixel*(value: pixie.Image, x, y: int): ColorRGBA =
-  ## Converts Pixie's premultiplied pixel to FigDraw's straight-alpha view.
-  value[x, y].rgba()
-
 proc `[]=`*(value: pixie.Image, x, y: int, color: ColorRGBA) =
   ## Instantiates Pixie's generic pixel setter for the shared RGBA type.
   pixie.`[]=`(value, x, y, color)

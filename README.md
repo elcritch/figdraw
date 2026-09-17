@@ -1045,12 +1045,17 @@ do not import or compile Siwin. Create a window with `newSiwinWindow`, then call
 `examples/siwin_shared_native.nim` for a client using the generated ABI directly.
 
 The generated ABI reuses `bumpy.Rect`, Pixie's `Image`, Vmath's `Vec2`, `IVec2`,
-and `Mat4`, Chroma's `ColorRGBA`, and stdlib `Rune` and `Slice` types directly.
+and `Mat4`, Chroma's `ColorRGBA` and `ColorRGBX`, and stdlib `Rune` and `Slice`
+types directly.
 No boundary casts or separate `IntSlice` type are needed. Import shared-library
 constructors and accessors where needed (for example, `ivec2`, `x`, and `y` from
 Vmath); the producer uses Vmath's default layout, so clients must use the same
 layout. `initUtf8Runes` accepts `sink string` or `openArray[Rune]` directly, and
 `loadImage` and `replaceImage` accept `sink Image`.
+
+The raw ABI exports Pixie's pixel getter directly: `image[x, y]` returns
+premultiplied `ColorRGBX`. The facade keeps straight-alpha `ColorRGBA` reads by
+converting that result with Chroma's `rgba()`.
 
 The `figdraw/dynlib` facade retains semantic conversions such as color-to-fill
 and rune-sequence-to-UTF-8 storage, plus constructor defaults omitted from the
@@ -1062,7 +1067,8 @@ Interactive move/resize and window-menu methods accept `Option[Vec2]` directly;
 the facade also converts a plain `Vec2` to `some(position)`. Raw icon methods
 accept `PixelBuffer` or `nil`. The facade keeps `window.icon = image` through a
 borrowed-pixel conversion; keep the image alive when using `toPixelBuffer`
-separately. These exports require Binny's imported-alias and `typeof(nil)` support.
+separately. These exports require Binny 0.5.10 or newer for imported-alias and
+`typeof(nil)` support.
 
 The same switch is supported by `siwin_cell_grid.nim`,
 `siwin_image_renderlist.nim`, and `siwin_two_windows.nim`.

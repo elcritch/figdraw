@@ -2,6 +2,9 @@
 
 ## 0.39.0
 
+- Export Pixie's pixel getter directly with shared Chroma `ColorRGBX`, keeping
+  straight-alpha conversion in the dynlib facade instead of a producer adapter.
+  Require Binny 0.5.10 for the imported-alias and nil-overload fixes.
 - Use the direct backend-kind naming API instead of an app-specific native
   name forwarder.
 - Export Siwin interactive move/resize, window-menu, and raw icon methods

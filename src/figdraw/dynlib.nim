@@ -1,6 +1,6 @@
 ## FigDraw conveniences over the generated native ABI and shared Nim types.
 
-import std/[options, tables, unicode]
+import std/[macros, options, tables, unicode]
 import pkg/bumpy as bumpy
 import pkg/chroma as chroma
 from pkg/pixie import Image
@@ -15,7 +15,18 @@ when not defined(gcArc):
 
 export options, tables, bumpy, chroma, vmath
 export Image
-export figdraw_native_abi except SystemTypefaceFile, placeGlyphs, newSiwinWindow
+export figdraw_native_abi except SystemTypefaceFile, placeGlyphs, newSiwinWindow, `[]`
+
+macro exportNativeIndexers(indexers: typed): untyped =
+  ## Re-export ABI symbols directly, except the image getter converted below.
+  result = newNimNode(nnkExportStmt)
+  for indexer in indexers:
+    let firstParamType = indexer.getTypeImpl()[0][1][^2]
+    if not firstParamType.sameType(bindSym("Image")):
+      result.add indexer
+
+exportNativeIndexers(figdraw_native_abi.`[]`)
+
 export
   SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
   initSystemTypeface
@@ -234,7 +245,7 @@ proc toImage*[T](image: T): Image {.inline.} =
 
 proc `[]`*(image: Image, x, y: int): chroma.ColorRGBA {.inline.} =
   ## Keeps FigDraw's straight-alpha view over Pixie's premultiplied pixels.
-  imagePixel(image, x, y)
+  figdraw_native_abi.`[]`(image, x, y).rgba()
 
 proc loadImageRef*(filePath: string): ImageRef =
   loadFigImage(filePath)

@@ -144,6 +144,7 @@
     {"source": "../common/imgutils.nim", "name": "clearFigImage"},
     {"source": "*pixie/common.nim", "name": "newImage"},
     {"source": "*pixie/common.nim", "name": "copy"},
+    {"source": "*pixie/images.nim", "name": "[]"},
     {"source": "*pixie.nim", "name": "readImage"},
     {"source": "*pixie/fileformats/png.nim", "name": "encodePng"},
     {"source": "*pixie.nim", "name": "decodeImage"},
@@ -177,6 +178,7 @@
     {"name": "IVec2", "module": "vmath"},
     {"name": "Mat4", "module": "vmath"},
     {"name": "ColorRGBA", "module": "chroma"},
+    {"name": "ColorRGBX", "module": "chroma"},
     {"name": "Rune", "module": "std/unicode"},
     {"name": "Duration", "module": "std/times"}
   ],

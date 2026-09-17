@@ -25,6 +25,7 @@ suite "native dynlib API":
       doAssert figdraw_native_abi.IVec2 is vmath.IVec2
       doAssert figdraw_native_abi.Mat4 is vmath.Mat4
       doAssert figdraw_native_abi.ColorRGBA is chroma.ColorRGBA
+      doAssert figdraw_native_abi.ColorRGBX is chroma.ColorRGBX
       doAssert figdraw_native_abi.Rune is unicode.Rune
       doAssert typeof(default(GlyphArrangement).lines) is seq[Slice[int]]
       doAssert typeof(default(Fig).selectionRange) is Slice[int16]
@@ -47,6 +48,7 @@ suite "native dynlib API":
       doAssert not declared(replaceFigImage)
       doAssert not declared(imageWidth)
       doAssert not declared(imageHeight)
+      doAssert not declared(imagePixel)
       doAssert not declared(setImagePixel)
       doAssert not declared(fillImage)
       doAssert not declared(siwinSetIcon)
@@ -294,9 +296,15 @@ suite "native dynlib API":
           image = figdraw_native_abi.newImage(2, 2)
           color = rgba(64, 32, 16, 128)
         figdraw_native_abi.fill(image, color)
-        check figdraw_native_abi.imagePixel(image, 1, 1) == color
+        let pixel = figdraw_native_abi.`[]`(image, 1, 1)
+        doAssert typeof(pixel) is chroma.ColorRGBX
+        doAssert typeof(image[1, 1]) is chroma.ColorRGBA
+        check pixel == chroma.ColorRGBX(r: 32, g: 16, b: 8, a: 128)
+        check pixel.rgba() == color
         check image[1, 1] == color
-        check image[-1, 0] == rgba(0, 0, 0, 0)
+        for (x, y) in [(-1, 0), (0, -1), (image.width, 0), (0, image.height)]:
+          check figdraw_native_abi.`[]`(image, x, y) == chroma.ColorRGBX()
+          check image[x, y] == rgba(0, 0, 0, 0)
         figdraw_native_abi.`[]=`(image, -1, 0, rgba(255, 255, 255, 255))
         check image[0, 0] == color
         let copy = figdraw_native_abi.copy(image)
