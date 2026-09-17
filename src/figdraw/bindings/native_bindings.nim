@@ -1,9 +1,7 @@
 ## Native dynamic-library producer entry point and ABI-specific adapters.
 
-import std/options
 import vmath
 import pkg/pixie as pixie
-import siwin/colorutils
 
 import figdraw/commons
 import figdraw/fignodes
@@ -71,29 +69,6 @@ proc newFigSiwinApp*(
       newFigRenderer(atlasSize, SiwinRenderBackend(window: window), pixelScale)
   renderer.setupBackend(window)
   wrap(SiwinApp(renderer: renderer, autoScale: window.configureUiScale()))
-
-proc siwinStartInteractiveMove*(window: Window, pos: Vec2) =
-  window.startInteractiveMove(some(pos))
-
-proc siwinStartInteractiveResize*(window: Window, edge: Edge, pos: Vec2) =
-  window.startInteractiveResize(edge, some(pos))
-
-proc siwinShowWindowMenu*(window: Window, pos: Vec2) =
-  window.showWindowMenu(some(pos))
-
-proc `icon=`*(window: Window, value: pixie.Image) =
-  let image = value
-  if image.isNil or image.data.len == 0:
-    window.icon = nil
-  else:
-    window.icon = PixelBuffer(
-      data: image.data[0].addr,
-      size: ivec2(image.width.int32, image.height.int32),
-      format: rgbx_32bit,
-    )
-
-proc siwinBackendName*(appHandle: NativeSiwinApp): string =
-  siwinApp(appHandle).renderer.siwinBackendName()
 
 proc siwinBackendKind*(appHandle: NativeSiwinApp): RendererBackendKind =
   siwinApp(appHandle).renderer.backendKind()

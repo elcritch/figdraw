@@ -4,6 +4,7 @@ when defined(linux) or defined(bsd):
 
 when defined(useNativeDynlib):
   import figdraw/dynlib
+  from figdraw_native_abi import nil
 else:
   import figdraw
   import figdraw/windowing/siwinshim
@@ -24,6 +25,34 @@ proc closeWindow(window: Window) =
     window.close()
 
 suite "siwin redraw":
+  when defined(useNativeDynlib):
+    test "direct icon overloads support borrowed pixels and clearing":
+      block runWindow:
+        when defined(linux) or defined(bsd):
+          if getEnv("DISPLAY").len == 0 and getEnv("WAYLAND_DISPLAY").len == 0:
+            skip()
+            break runWindow
+
+        let window = newSiwinWindow(size = ivec2(160, 120), title = "figdraw icon test")
+        try:
+          let
+            image = newImage(2, 2)
+            iconColor = rgba(64, 32, 16, 255)
+          image.fill(iconColor)
+          let buffer: PixelBuffer = image
+          figdraw_native_abi.`icon=`(window, buffer)
+          check image[0, 0] == iconColor
+          figdraw_native_abi.`icon=`(window, nil)
+
+          window.icon = image
+          check image[0, 0] == iconColor
+          window.icon = newImage(1, 1)
+          window.icon = Image()
+          window.icon = Image(nil)
+          window.icon = nil
+        finally:
+          closeWindow(window)
+
   test "resize dispatches a redraw using the new logical size":
     block runWindow:
       when defined(linux) or defined(bsd):
@@ -35,6 +64,7 @@ suite "siwin redraw":
         renderer = newFigRenderer(atlasSize = 192, backendState = SiwinRenderBackend())
         window = newSiwinWindow(size = ivec2(320, 220), title = "figdraw resize test")
       renderer.setupBackend(window)
+      check renderer.backendName() == backendName(renderer.backendKind())
 
       var
         running = true

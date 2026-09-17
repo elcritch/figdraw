@@ -1058,6 +1058,12 @@ generated bindings. It uses the same shared types and generated window/event
 types. Event closures are ordinary Nim closures; avoid capturing their owning
 window (or clear its handlers before releasing it) to prevent ARC reference cycles.
 
+Interactive move/resize and window-menu methods accept `Option[Vec2]` directly;
+the facade also converts a plain `Vec2` to `some(position)`. Raw icon methods
+accept `PixelBuffer` or `nil`. The facade keeps `window.icon = image` through a
+borrowed-pixel conversion; keep the image alive when using `toPixelBuffer`
+separately. These exports require Binny's imported-alias and `typeof(nil)` support.
+
 The same switch is supported by `siwin_cell_grid.nim`,
 `siwin_image_renderlist.nim`, and `siwin_two_windows.nim`.
 

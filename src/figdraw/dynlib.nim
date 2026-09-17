@@ -1,6 +1,6 @@
 ## FigDraw conveniences over the generated native ABI and shared Nim types.
 
-import std/[tables, unicode]
+import std/[options, tables, unicode]
 import pkg/bumpy as bumpy
 import pkg/chroma as chroma
 from pkg/pixie import Image
@@ -13,7 +13,7 @@ from figdraw/extras/systemfonttypes import
 when not defined(gcArc):
   {.error: "figdraw/dynlib requires --mm:arc to match the native library".}
 
-export tables, bumpy, chroma, vmath
+export options, tables, bumpy, chroma, vmath
 export Image
 export figdraw_native_abi except SystemTypefaceFile, placeGlyphs, newSiwinWindow
 export
@@ -62,6 +62,19 @@ converter nilToImageRef*(value: typeof(nil)): ImageRef =
 
 converter toCursor*(value: BuiltinCursor): Cursor {.inline.} =
   Cursor(kind: CursorKind.builtin, builtin: value)
+
+converter toOptionalPosition*(value: vmath.Vec2): Option[vmath.Vec2] {.inline.} =
+  some(value)
+
+converter toPixelBuffer*(image: Image): PixelBuffer {.inline.} =
+  ## Borrows the image's premultiplied pixels; keep the image alive while using
+  ## the returned buffer. Nil or empty images yield an empty buffer.
+  if not image.isNil and image.data.len > 0:
+    result = PixelBuffer(
+      data: image.data[0].addr,
+      size: ivec2(image.width.int32, image.height.int32),
+      format: rgbx_32bit,
+    )
 
 converter toRuneSequence*(runes: figdraw_native_abi.Utf8Runes): seq[unicode.Rune] =
   runes.toRunes()
@@ -283,14 +296,12 @@ proc newSiwinWindow*(
 proc nativeWindowKey*(window: Window): pointer {.inline.} =
   cast[pointer](window)
 
-proc startInteractiveMove*(window: Window, pos: vmath.Vec2) {.inline.} =
-  siwinStartInteractiveMove(window, pos)
-
-proc startInteractiveResize*(window: Window, edge: Edge, pos: vmath.Vec2) {.inline.} =
-  siwinStartInteractiveResize(window, edge, pos)
-
-proc showWindowMenu*(window: Window, pos: vmath.Vec2) {.inline.} =
-  siwinShowWindowMenu(window, pos)
+proc `icon=`*(window: Window, image: Image) {.inline.} =
+  ## Converts image icons while preserving Siwin's distinct clear-icon call.
+  if image.isNil or image.data.len == 0:
+    figdraw_native_abi.`icon=`(window, nil)
+  else:
+    figdraw_native_abi.`icon=`(window, image.toPixelBuffer())
 
 template `vsync=`*(window: Window, value: bool) =
   figdraw_native_abi.`vsync=`(window, value, false)
@@ -329,7 +340,7 @@ proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   discard renderer
 
 proc backendName*(renderer: FigRenderer[SiwinRenderBackend]): string =
-  siwinBackendName(renderer.handle)
+  figdraw_native_abi.backendName(siwinBackendKind(renderer.handle))
 
 proc backendKind*(renderer: FigRenderer[SiwinRenderBackend]): RendererBackendKind =
   siwinBackendKind(renderer.handle)

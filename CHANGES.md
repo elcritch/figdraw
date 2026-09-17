@@ -2,6 +2,11 @@
 
 ## 0.39.0
 
+- Use the direct backend-kind naming API instead of an app-specific native
+  name forwarder.
+- Export Siwin interactive move/resize, window-menu, and raw icon methods
+  directly. Keep only facade conversions for optional positions and borrowed
+  image pixels, including the distinct clear-icon call.
 - Export Pixie's image factory, copy, file reader, and PNG overloads directly
   with Binny 0.5.9. Remove duplicate image setter, fill, and icon facade
   forwarders while keeping alpha and icon-format conversions.

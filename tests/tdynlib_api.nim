@@ -50,6 +50,9 @@ suite "native dynlib API":
       doAssert not declared(setImagePixel)
       doAssert not declared(fillImage)
       doAssert not declared(siwinSetIcon)
+      doAssert not declared(siwinStartInteractiveMove)
+      doAssert not declared(siwinStartInteractiveResize)
+      doAssert not declared(siwinShowWindowMenu)
 
       let arrangement =
         GlyphArrangement(lines: @[2 .. 5], arrangedGlyphs: newSeq[ArrangedGlyph](6))
@@ -77,6 +80,12 @@ suite "native dynlib API":
       var renders = newRenders()
       figdraw_native_abi.`[]`(renders, 0.ZLevel).nodes.add Fig(kind: nkRectangle)
       check renders.len(0.ZLevel) == 1
+
+    test "uses the direct backend enum naming routine":
+      check figdraw_native_abi.backendName(rbOpenGL) == "OpenGL"
+      check figdraw_native_abi.backendName(rbMetal) == "Metal"
+      check figdraw_native_abi.backendName(rbVulkan) == "Vulkan"
+      doAssert not compiles(siwinBackendName(default(NativeSiwinApp)))
 
     test "uses generated Siwin types without the legacy bridge records":
       const generatedAbi = staticRead("../bin/figdraw_native_abi.nim")
@@ -112,6 +121,11 @@ suite "native dynlib API":
           figdraw_native_abi.`size=`(window, ivec2(400, 300))
           discard figdraw_native_abi.clipboard(window).text()
           discard figdraw_native_abi.`[]`(window.clipboard(), "text/plain")
+          figdraw_native_abi.startInteractiveMove(window, some(vec2(10, 20)))
+          figdraw_native_abi.startInteractiveResize(window, Edge.top, none(Vec2))
+          figdraw_native_abi.showWindowMenu(window, none(Vec2))
+          figdraw_native_abi.`icon=`(window, nil)
+          figdraw_native_abi.`icon=`(window, PixelBuffer())
           window.startInteractiveMove(vec2(10, 20))
           window.startInteractiveResize(Edge.top, vec2(10, 20))
           window.showWindowMenu(vec2(10, 20))
@@ -121,6 +135,18 @@ suite "native dynlib API":
           discard figdraw_native_abi.newSiwinPopupWindow(window, placement, true, true)
           figdraw_native_abi.close(window)
       )
+
+    test "converts positions and borrows icon pixels without producer bridges":
+      let position: Option[Vec2] = vec2(3, 5)
+      check position.get() == vec2(3, 5)
+      let
+        image = newImage(2, 3)
+        buffer = image.toPixelBuffer()
+      check buffer.data == image.data[0].addr
+      check buffer.size == ivec2(2, 3)
+      check buffer.format == rgbx_32bit
+      check toPixelBuffer(Image(nil)).data == nil
+      check toPixelBuffer(Image()).data == nil
 
     test "supports elliptical corners and drawable ellipses":
       let
