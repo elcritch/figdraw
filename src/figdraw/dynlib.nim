@@ -15,7 +15,7 @@ when not defined(gcArc):
 
 export tables, bumpy, chroma, vmath
 export figdraw_native_abi except
-  Rect, ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile, placeGlyphs,
+  ColorRGBA, Vec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile, placeGlyphs,
   toRunes, `[]`
 export
   SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
@@ -329,12 +329,6 @@ proc installEventCallbacks(window: Window) =
     cast[pointer](dispatchNativePopup),
   )
 
-converter toNativeRect*(value: bumpy.Rect): figdraw_native_abi.Rect {.inline.} =
-  cast[figdraw_native_abi.Rect](value)
-
-converter toRect*(value: figdraw_native_abi.Rect): bumpy.Rect {.inline.} =
-  cast[bumpy.Rect](value)
-
 converter toNativeColor*(
     value: chroma.ColorRGBA
 ): figdraw_native_abi.ColorRGBA {.inline.} =
@@ -438,9 +432,7 @@ proc typeset*(
     minContent = false,
     wrap = true,
 ): GlyphArrangement {.inline.} =
-  figdraw_native_abi.typesetStyled(
-    box.toNativeRect(), spans, hAlign, vAlign, minContent, wrap
-  )
+  figdraw_native_abi.typesetStyled(box, spans, hAlign, vAlign, minContent, wrap)
 
 proc typesetForMeasurement*(
     box: bumpy.Rect,
@@ -451,7 +443,7 @@ proc typesetForMeasurement*(
     wrap = true,
 ): GlyphArrangement {.inline.} =
   figdraw_native_abi.typesetStyledForMeasurement(
-    box.toNativeRect(), spans, hAlign, vAlign, minContent, wrap
+    box, spans, hAlign, vAlign, minContent, wrap
   )
 
 func `==`*(a, b: FigIdx): bool {.inline.} =

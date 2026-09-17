@@ -110,5 +110,8 @@
     {"source": "../utils/drawutils.nim", "name": "figDottedRoundedRectBorder"},
     {"source": "../utils/drawutils.nim", "name": "figRoundedRectBorder"}
   ],
+  "typeImports": [
+    {"name": "Rect", "module": "bumpy"}
+  ],
   "requireMatches": true
 }

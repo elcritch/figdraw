@@ -1,5 +1,6 @@
 import std/[math, monotimes, os, strformat, times]
 
+import pkg/bumpy as bumpy
 import figdraw_native_abi
 
 when defined(macosx):
@@ -38,7 +39,7 @@ proc buildRenderTree(
   renders.clear()
   let background = Fig(
     kind: nkRectangle,
-    screenBox: Rect(x: 0, y: 0, w: width, h: height),
+    screenBox: bumpy.Rect(x: 0, y: 0, w: width, h: height),
     fill: fill(rgba(255, 255, 255, 155)),
   )
   discard renders.addRoot(0, background)
@@ -62,7 +63,7 @@ proc buildRenderTree(
 
     let red = Fig(
       kind: nkRectangle,
-      screenBox: Rect(
+      screenBox: bumpy.Rect(
         x: 60 + offsetX,
         y: 60 + offsetY,
         w: 160 + 100 * pulse,
@@ -85,7 +86,7 @@ proc buildRenderTree(
     )
     let green = Fig(
       kind: nkRectangle,
-      screenBox: Rect(
+      screenBox: bumpy.Rect(
         x: 320 + offsetX,
         y: 120 + offsetY,
         w: 160 + 100 * inversePulse,
@@ -105,7 +106,7 @@ proc buildRenderTree(
 
     let blue = Fig(
       kind: nkRectangle,
-      screenBox: Rect(
+      screenBox: bumpy.Rect(
         x: 180 + offsetX, y: 300 + offsetY, w: 160 + 100 * pulse, h: 110 + 70 * pulse
       ),
       fill: fill(blueFill),
@@ -115,7 +116,7 @@ proc buildRenderTree(
 
   let preview = Fig(
     kind: nkImage,
-    screenBox: Rect(x: 16, y: 16, w: 96, h: 96),
+    screenBox: bumpy.Rect(x: 16, y: 16, w: 96, h: 96),
     image: ImageStyle(id: previewImageId, fill: fill(rgba(255, 255, 255, 255))),
   )
   discard renders.addRoot(0, preview)
@@ -167,12 +168,12 @@ when isMainModule:
       let
         hud = Fig(
           kind: nkRectangle,
-          screenBox: Rect(x: width - 192, y: 12, w: 180, h: 34),
+          screenBox: bumpy.Rect(x: width - 192, y: 12, w: 180, h: 34),
           fill: fill(rgba(0, 0, 0, 155)),
           corners: [8'u16, 8'u16, 8'u16, 8'u16],
         )
         layout = typesetStyled(
-          Rect(x: 0, y: 0, w: 160, h: 22),
+          bumpy.Rect(x: 0, y: 0, w: 160, h: 22),
           [(FontStyle(font: fpsFont, color: fill(rgba(0, 0, 0, 255))), fpsText)],
           hAlign = Right,
           vAlign = Middle,
@@ -183,7 +184,7 @@ when isMainModule:
 
       let text = Fig(
         kind: nkText,
-        screenBox: Rect(x: width - 182, y: 18, w: 160, h: 22),
+        screenBox: bumpy.Rect(x: width - 182, y: 18, w: 160, h: 22),
         fill: fill(rgba(0, 0, 0, 0)),
         textLayout: layout,
       )
