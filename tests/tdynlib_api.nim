@@ -24,6 +24,7 @@ suite "native dynlib API":
       doAssert figdraw_native_abi.Vec2 is vmath.Vec2
       doAssert figdraw_native_abi.IVec2 is vmath.IVec2
       doAssert figdraw_native_abi.Mat4 is vmath.Mat4
+      doAssert figdraw_native_abi.Color is chroma.Color
       doAssert figdraw_native_abi.ColorRGBA is chroma.ColorRGBA
       doAssert figdraw_native_abi.ColorRGBX is chroma.ColorRGBX
       doAssert figdraw_native_abi.Rune is unicode.Rune
@@ -55,6 +56,10 @@ suite "native dynlib API":
       doAssert not declared(siwinStartInteractiveMove)
       doAssert not declared(siwinStartInteractiveResize)
       doAssert not declared(siwinShowWindowMenu)
+      doAssert SiwinRenderer is figdraw_native_abi.SiwinRenderer
+      doAssert SiwinRenderBackend is figdraw_native_abi.SiwinRenderBackend
+      doAssert typeof(default(NativeSiwinApp).renderer) is SiwinRenderer
+      doAssert not compiles(default(NativeSiwinApp).raw)
 
       let arrangement =
         GlyphArrangement(lines: @[2 .. 5], arrangedGlyphs: newSeq[ArrangedGlyph](6))
@@ -87,7 +92,22 @@ suite "native dynlib API":
       check figdraw_native_abi.backendName(rbOpenGL) == "OpenGL"
       check figdraw_native_abi.backendName(rbMetal) == "Metal"
       check figdraw_native_abi.backendName(rbVulkan) == "Vulkan"
+      doAssert not declared(siwinBackendKind)
       doAssert not compiles(siwinBackendName(default(NativeSiwinApp)))
+
+    test "exports typed renderer routines directly":
+      const generatedAbi = staticRead("../bin/figdraw_native_abi.nim")
+      for name in [
+        "backendKind", "setTextLcdFiltering", "textLcdFiltering",
+        "setTextSubpixelPositioning", "textSubpixelPositioning",
+        "setTextSubpixelGlyphVariants", "textSubpixelGlyphVariants",
+      ]:
+        var found = false
+        for line in generatedAbi.splitLines():
+          if line.startsWith("proc " & name & "*(renderer: SiwinRenderer"):
+            check "importc: \"binny_generic_" in line
+            found = true
+        check found
 
     test "uses generated Siwin types without the legacy bridge records":
       const generatedAbi = staticRead("../bin/figdraw_native_abi.nim")
@@ -187,7 +207,7 @@ suite "native dynlib API":
 
       var appHandle: NativeSiwinApp
       var imageHandle: Image
-      check appHandle.raw == nil
+      check appHandle.isNil
       check imageHandle.isNil
 
       let

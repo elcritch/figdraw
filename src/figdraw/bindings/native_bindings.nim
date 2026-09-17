@@ -9,42 +9,21 @@ import figdraw/figrender
 import figdraw/windowing/siwinshim
 
 type
-  # Owns renderer state; Siwin windows and events are exported directly.
-  NativeSiwinApp* = object
-    raw*: pointer
+  SiwinRenderer* = FigRenderer[SiwinRenderBackend]
 
-  SiwinApp = ref object
-    renderer: FigRenderer[SiwinRenderBackend]
+  NativeSiwinApp* = ref object
+    ## Groups a managed renderer with the app's automatic UI-scale policy.
+    renderer*: SiwinRenderer
     autoScale: bool
 
-proc retainRaw[T](raw: pointer) =
-  if raw != nil:
-    let value {.cursor.} = cast[T](raw)
-    GC_ref(value)
-
-proc releaseRaw[T](raw: pointer) =
-  if raw != nil:
-    let value {.cursor.} = cast[T](raw)
-    GC_unref(value)
-
-template defineHandleHooks(HandleType, RefType: typedesc) =
-  proc `=destroy`(value: HandleType) =
-    releaseRaw[RefType](value.raw)
-
-  proc `=copy`(dest: var HandleType, source: HandleType) =
-    if dest.raw != source.raw:
-      retainRaw[RefType](source.raw)
-      releaseRaw[RefType](dest.raw)
-      dest.raw = source.raw
-
-defineHandleHooks(NativeSiwinApp, SiwinApp)
-
-proc wrap(value: SiwinApp): NativeSiwinApp =
-  retainRaw[SiwinApp](cast[pointer](value))
-  result.raw = cast[pointer](value)
-
-template siwinApp(value: NativeSiwinApp): SiwinApp =
-  cast[SiwinApp](value.raw)
+# Materialize the concrete routines for Binny's semantic-symbol discovery.
+# This private instantiation anchor is never called or exported.
+proc instantiateRendererExports(renderer: SiwinRenderer) {.used.} =
+  discard renderer.backendKind()
+  discard renderer.backendName()
+  renderer.setTextLcdFiltering(renderer.textLcdFiltering())
+  renderer.setTextSubpixelPositioning(renderer.textSubpixelPositioning())
+  renderer.setTextSubpixelGlyphVariants(renderer.textSubpixelGlyphVariants())
 
 proc `[]=`*(value: pixie.Image, x, y: int, color: ColorRGBA) =
   ## Instantiates Pixie's generic pixel setter for the shared RGBA type.
@@ -64,37 +43,15 @@ proc newFigSiwinApp*(
     let renderer =
       newFigRenderer(atlasSize, SiwinRenderBackend(window: window), pixelScale)
   renderer.setupBackend(window)
-  wrap(SiwinApp(renderer: renderer, autoScale: window.configureUiScale()))
-
-proc siwinBackendKind*(appHandle: NativeSiwinApp): RendererBackendKind =
-  siwinApp(appHandle).renderer.backendKind()
-
-proc setTextLcdFiltering*(appHandle: NativeSiwinApp, enabled: bool) =
-  siwinApp(appHandle).renderer.setTextLcdFiltering(enabled)
-
-proc textLcdFiltering*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).renderer.textLcdFiltering()
-
-proc setTextSubpixelPositioning*(appHandle: NativeSiwinApp, enabled: bool) =
-  siwinApp(appHandle).renderer.setTextSubpixelPositioning(enabled)
-
-proc textSubpixelPositioning*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).renderer.textSubpixelPositioning()
-
-proc setTextSubpixelGlyphVariants*(appHandle: NativeSiwinApp, enabled: bool) =
-  siwinApp(appHandle).renderer.setTextSubpixelGlyphVariants(enabled)
-
-proc textSubpixelGlyphVariants*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).renderer.textSubpixelGlyphVariants()
+  NativeSiwinApp(renderer: renderer, autoScale: window.configureUiScale())
 
 proc renderFrame*(
-    appHandle: NativeSiwinApp,
+    app: NativeSiwinApp,
     renders: var Renders,
     width, height: float32,
     clearMain: bool,
     clearR, clearG, clearB, clearA: float32,
 ) =
-  let app = siwinApp(appHandle)
   app.renderer.backendState.window.refreshUiScale(app.autoScale)
   app.renderer.beginFrame()
   app.renderer.renderFrame(

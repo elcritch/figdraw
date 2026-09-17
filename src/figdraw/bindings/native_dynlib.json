@@ -158,6 +158,14 @@
     {"source": "../utils/drawutils.nim", "name": "figDottedRoundedRectBorder"},
     {"source": "../utils/drawutils.nim", "name": "figRoundedRectBorder"},
     {"source": "../figbackend.nim", "name": "backendName"},
+    {"source": "../figrender.nim", "name": "backendKind", "typeArgs": ["../windowing/siwinshim.nim:SiwinRenderBackend"]},
+    {"source": "../figrender.nim", "name": "backendName", "typeArgs": ["../windowing/siwinshim.nim:SiwinRenderBackend"]},
+    {"source": "../figrender.nim", "name": "setTextLcdFiltering", "typeArgs": ["../windowing/siwinshim.nim:SiwinRenderBackend"]},
+    {"source": "../figrender.nim", "name": "textLcdFiltering", "typeArgs": ["../windowing/siwinshim.nim:SiwinRenderBackend"]},
+    {"source": "../figrender.nim", "name": "setTextSubpixelPositioning", "typeArgs": ["../windowing/siwinshim.nim:SiwinRenderBackend"]},
+    {"source": "../figrender.nim", "name": "textSubpixelPositioning", "typeArgs": ["../windowing/siwinshim.nim:SiwinRenderBackend"]},
+    {"source": "../figrender.nim", "name": "setTextSubpixelGlyphVariants", "typeArgs": ["../windowing/siwinshim.nim:SiwinRenderBackend"]},
+    {"source": "../figrender.nim", "name": "textSubpixelGlyphVariants", "typeArgs": ["../windowing/siwinshim.nim:SiwinRenderBackend"]},
     {"source": "../windowing/siwinshim.nim", "name": "newSiwinWindow"},
     {"source": "../windowing/siwinshim.nim", "name": "siwinBackendName"},
     {"source": "../windowing/siwinshim.nim", "name": "newSiwinPopupWindow"},
@@ -177,10 +185,15 @@
     {"name": "Vec2", "module": "vmath"},
     {"name": "IVec2", "module": "vmath"},
     {"name": "Mat4", "module": "vmath"},
+    {"name": "Color", "module": "chroma", "source": "*chroma/src/chroma/colortypes.nim"},
     {"name": "ColorRGBA", "module": "chroma"},
     {"name": "ColorRGBX", "module": "chroma"},
     {"name": "Rune", "module": "std/unicode"},
-    {"name": "Duration", "module": "std/times"}
+    {"name": "Duration", "module": "std/times"},
+    {"name": "Lock", "module": "std/locks"},
+    {"name": "Cond", "module": "std/locks"},
+    {"name": "NSView", "module": "darwin/app_kit/nsview", "source": "*darwin/darwin/app_kit/nsview.nim"},
+    {"name": "CAMetalLayer", "module": "metalx/cametal", "source": "*metalx/src/metalx/cametal.nim"}
   ],
   "requireMatches": true
 }

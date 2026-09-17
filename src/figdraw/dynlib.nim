@@ -58,14 +58,16 @@ type
   CornerRadii2D*[T] = object
     x*, y*: array[DirectionCorners, T]
 
-  SiwinRenderBackend* = object
-
   SiwinPresentationTarget* = object
 
   FigRenderer*[BackendState] = ref object
     atlasSize: int
     pixelScale: float32
     handle: NativeSiwinApp
+
+converter toSiwinRenderer*(renderer: FigRenderer[SiwinRenderBackend]): SiwinRenderer =
+  ## Exposes the app's typed renderer for direct native renderer operations.
+  renderer.handle.renderer
 
 converter nilToImageRef*(value: typeof(nil)): ImageRef =
   discard value
@@ -349,34 +351,6 @@ proc renderFrame*(
 
 proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   discard renderer
-
-proc backendName*(renderer: FigRenderer[SiwinRenderBackend]): string =
-  figdraw_native_abi.backendName(siwinBackendKind(renderer.handle))
-
-proc backendKind*(renderer: FigRenderer[SiwinRenderBackend]): RendererBackendKind =
-  siwinBackendKind(renderer.handle)
-
-proc setTextLcdFiltering*(renderer: FigRenderer[SiwinRenderBackend], enabled: bool) =
-  setTextLcdFiltering(renderer.handle, enabled)
-
-proc textLcdFiltering*(renderer: FigRenderer[SiwinRenderBackend]): bool =
-  textLcdFiltering(renderer.handle)
-
-proc setTextSubpixelPositioning*(
-    renderer: FigRenderer[SiwinRenderBackend], enabled: bool
-) =
-  setTextSubpixelPositioning(renderer.handle, enabled)
-
-proc textSubpixelPositioning*(renderer: FigRenderer[SiwinRenderBackend]): bool =
-  textSubpixelPositioning(renderer.handle)
-
-proc setTextSubpixelGlyphVariants*(
-    renderer: FigRenderer[SiwinRenderBackend], enabled: bool
-) =
-  setTextSubpixelGlyphVariants(renderer.handle, enabled)
-
-proc textSubpixelGlyphVariants*(renderer: FigRenderer[SiwinRenderBackend]): bool =
-  textSubpixelGlyphVariants(renderer.handle)
 
 proc siwinWindowTitle*(suffix = "Siwin RenderList"): string =
   "figdraw: " & siwinBackendName() & " + " & suffix

@@ -26,6 +26,48 @@ proc closeWindow(window: Window) =
 
 suite "siwin redraw":
   when defined(useNativeDynlib):
+    test "direct renderer exports retain ownership and desired text flags":
+      block runWindow:
+        when defined(linux) or defined(bsd):
+          if getEnv("DISPLAY").len == 0 and getEnv("WAYLAND_DISPLAY").len == 0:
+            skip()
+            break runWindow
+
+        let window = newSiwinWindow(size = ivec2(160, 120), title = "direct renderer")
+        try:
+          var app = newFigSiwinApp(window, 192, 1.0)
+          require not app.isNil
+          let renderer = app.renderer
+          require not renderer.isNil
+          block:
+            let appAlias = app
+            app = nil
+            check appAlias.renderer == renderer
+          # Both app references have gone out of scope; the renderer owns its state.
+          check renderer.backendState.window == window
+          check renderer.backendName() == backendName(renderer.backendKind())
+
+          for enabled in [false, true, false]:
+            # Metal stores desired flags for fallback, but has no active text toggles.
+            let expected = enabled and renderer.backendKind() != rbMetal
+            figdraw_native_abi.setTextLcdFiltering(renderer, enabled)
+            figdraw_native_abi.setTextSubpixelPositioning(renderer, enabled)
+            figdraw_native_abi.setTextSubpixelGlyphVariants(renderer, enabled)
+            check figdraw_native_abi.textLcdFiltering(renderer) == expected
+            check figdraw_native_abi.textSubpixelPositioning(renderer) == expected
+            check figdraw_native_abi.textSubpixelGlyphVariants(renderer) == expected
+            var desiredFlags = 0
+            for name, value in fieldPairs(renderer[]):
+              when name in [
+                "textLcdFilteringDesired", "textSubpixelPositioningDesired",
+                "textSubpixelGlyphVariantsDesired",
+              ]:
+                check value == enabled
+                inc desiredFlags
+            check desiredFlags == 3
+        finally:
+          closeWindow(window)
+
     test "direct icon overloads support borrowed pixels and clearing":
       block runWindow:
         when defined(linux) or defined(bsd):
@@ -65,6 +107,19 @@ suite "siwin redraw":
         window = newSiwinWindow(size = ivec2(320, 220), title = "figdraw resize test")
       renderer.setupBackend(window)
       check renderer.backendName() == backendName(renderer.backendKind())
+      when defined(useNativeDynlib):
+        let typedRenderer: SiwinRenderer = renderer
+        for enabled in [true, false]:
+          let expected = enabled and renderer.backendKind() != rbMetal
+          renderer.setTextLcdFiltering(enabled)
+          renderer.setTextSubpixelPositioning(enabled)
+          renderer.setTextSubpixelGlyphVariants(enabled)
+          check renderer.textLcdFiltering() == expected
+          check renderer.textSubpixelPositioning() == expected
+          check renderer.textSubpixelGlyphVariants() == expected
+          check typedRenderer.textLcdFiltering() == expected
+          check typedRenderer.textSubpixelPositioning() == expected
+          check typedRenderer.textSubpixelGlyphVariants() == expected
 
       var
         running = true

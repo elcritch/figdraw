@@ -1044,8 +1044,23 @@ do not import or compile Siwin. Create a window with `newSiwinWindow`, then call
 `newFigSiwinApp(window, atlasSize, pixelScale)` to attach FigDraw rendering. See
 `examples/siwin_shared_native.nim` for a client using the generated ABI directly.
 
+The app is an ARC-managed reference, not an opaque pointer handle. Its
+`renderer` field exposes the generated `SiwinRenderer` type. Backend queries
+and text preferences call FigDraw's renderer routines directly:
+
+```nim
+let app = newFigSiwinApp(window, 512, 1.0)
+app.renderer.setTextLcdFiltering(true)
+echo app.renderer.backendName()
+```
+
+Renderer references remain valid independently of the app's lifetime. The
+app constructor and fused frame routine retain window setup, automatic UI-scale
+refresh, and begin/end-frame behavior. The facade uses a converter to expose the
+same typed renderer, without its own backend/text-preference forwarding APIs.
+
 The generated ABI reuses `bumpy.Rect`, Pixie's `Image`, Vmath's `Vec2`, `IVec2`,
-and `Mat4`, Chroma's `ColorRGBA` and `ColorRGBX`, and stdlib `Rune` and `Slice`
+and `Mat4`, Chroma's `Color`, `ColorRGBA`, and `ColorRGBX`, and stdlib `Rune` and `Slice`
 types directly.
 No boundary casts or separate `IntSlice` type are needed. Import shared-library
 constructors and accessors where needed (for example, `ivec2`, `x`, and `y` from
@@ -1067,8 +1082,9 @@ Interactive move/resize and window-menu methods accept `Option[Vec2]` directly;
 the facade also converts a plain `Vec2` to `some(position)`. Raw icon methods
 accept `PixelBuffer` or `nil`. The facade keeps `window.icon = image` through a
 borrowed-pixel conversion; keep the image alive when using `toPixelBuffer`
-separately. These exports require Binny 0.5.10 or newer for imported-alias and
-`typeof(nil)` support.
+separately. These exports require Binny 0.5.11 or newer for concrete generic
+exports, dependency aliases, source-qualified type imports, and `typeof(nil)`
+support.
 
 The same switch is supported by `siwin_cell_grid.nim`,
 `siwin_image_renderlist.nim`, and `siwin_two_windows.nim`.
