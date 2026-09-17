@@ -112,7 +112,8 @@
   ],
   "typeImports": [
     {"name": "Rect", "module": "bumpy"},
-    {"name": "Image", "module": "pixie"}
+    {"name": "Image", "module": "pixie"},
+    {"name": "Window", "module": "siwin/window"}
   ],
   "requireMatches": true
 }

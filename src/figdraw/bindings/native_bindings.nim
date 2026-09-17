@@ -363,6 +363,9 @@ proc siwinTitle*(appHandle: NativeSiwinApp): string =
 proc siwinNativeWindowKey*(appHandle: NativeSiwinApp): pointer =
   cast[pointer](siwinApp(appHandle).window)
 
+proc siwinWindowHandle*(appHandle: NativeSiwinApp): Window =
+  siwinApp(appHandle).window
+
 proc siwinMinSize*(appHandle: NativeSiwinApp): NativeWindowSize =
   let size = siwinApp(appHandle).window.minSize
   NativeWindowSize(w: size.x, h: size.y)
