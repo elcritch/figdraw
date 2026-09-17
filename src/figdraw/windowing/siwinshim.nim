@@ -380,6 +380,102 @@ proc logicalSize*(window: Window): Vec2 =
     return vec2(window.backingSize()).descaled()
   vec2(window.size)
 
+## ABI-direct entry points for operations whose native receiver is already a
+## Siwin window. The dynamic-library facade keeps the owning FigDraw app
+## handle separately, but these calls no longer need an app-specific adapter.
+template rawSiwinWindow(value: pointer): Window =
+  cast[Window](value)
+
+proc siwinWindowFirstStep*(window: pointer, makeVisible: bool) =
+  rawSiwinWindow(window).firstStep(makeVisible)
+
+proc siwinWindowStep*(window: pointer) =
+  rawSiwinWindow(window).step()
+
+proc siwinWindowRedraw*(window: pointer) =
+  rawSiwinWindow(window).redraw()
+
+proc siwinWindowMakeCurrent*(window: pointer) =
+  rawSiwinWindow(window).makeCurrent()
+
+proc siwinWindowClose*(window: pointer) =
+  rawSiwinWindow(window).close()
+
+proc siwinWindowOpened*(window: pointer): bool =
+  rawSiwinWindow(window).opened
+
+proc siwinWindowVisible*(window: pointer): bool =
+  rawSiwinWindow(window).visible
+
+proc siwinWindowSetVisible*(window: pointer, value: bool) =
+  rawSiwinWindow(window).visible = value
+
+proc siwinWindowFocused*(window: pointer): bool =
+  rawSiwinWindow(window).focused
+
+proc siwinWindowFullscreen*(window: pointer): bool =
+  rawSiwinWindow(window).fullscreen
+
+proc siwinWindowSetFullscreen*(window: pointer, value: bool) =
+  rawSiwinWindow(window).fullscreen = value
+
+proc siwinWindowMaximized*(window: pointer): bool =
+  rawSiwinWindow(window).maximized
+
+proc siwinWindowSetMaximized*(window: pointer, value: bool) =
+  rawSiwinWindow(window).maximized = value
+
+proc siwinWindowMinimized*(window: pointer): bool =
+  rawSiwinWindow(window).minimized
+
+proc siwinWindowSetMinimized*(window: pointer, value: bool) =
+  rawSiwinWindow(window).minimized = value
+
+proc siwinWindowResizable*(window: pointer): bool =
+  rawSiwinWindow(window).resizable
+
+proc siwinWindowSetResizable*(window: pointer, value: bool) =
+  rawSiwinWindow(window).resizable = value
+
+proc siwinWindowFrameless*(window: pointer): bool =
+  rawSiwinWindow(window).frameless
+
+proc siwinWindowSetFrameless*(window: pointer, value: bool) =
+  rawSiwinWindow(window).frameless = value
+
+proc siwinWindowTransparent*(window: pointer): bool =
+  rawSiwinWindow(window).transparent
+
+proc siwinWindowCustomTitlebar*(window: pointer): bool =
+  rawSiwinWindow(window).customTitlebar
+
+proc siwinWindowSupportsCustomTitlebar*(window: pointer): bool =
+  rawSiwinWindow(window).supportsCustomTitlebar()
+
+proc siwinWindowSetCustomTitlebar*(window: pointer, value: bool) =
+  rawSiwinWindow(window).customTitlebar = value
+
+proc siwinWindowSetVsync*(window: pointer, value: bool) =
+  rawSiwinWindow(window).vsync = value
+
+proc siwinWindowSeparateTouch*(window: pointer): bool =
+  rawSiwinWindow(window).separateTouch
+
+proc siwinWindowSetSeparateTouch*(window: pointer, value: bool) =
+  rawSiwinWindow(window).separateTouch = value
+
+proc siwinWindowCanBecomeKeyWindow*(window: pointer): bool =
+  rawSiwinWindow(window).canBecomeKeyWindow()
+
+proc siwinWindowSetCanBecomeKeyWindow*(window: pointer, value: bool) =
+  rawSiwinWindow(window).canBecomeKeyWindow = value
+
+proc siwinWindowCanBecomeMainWindow*(window: pointer): bool =
+  rawSiwinWindow(window).canBecomeMainWindow()
+
+proc siwinWindowSetCanBecomeMainWindow*(window: pointer, value: bool) =
+  rawSiwinWindow(window).canBecomeMainWindow = value
+
 proc contentScale*(window: Window): float32 =
   when defined(macosx):
     let contentView = cast[NSView](WindowCocoa(window).nativeViewHandle())

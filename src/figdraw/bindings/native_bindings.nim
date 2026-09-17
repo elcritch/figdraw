@@ -250,9 +250,6 @@ proc newFigSiwinPopup*(
     SiwinApp(window: window, renderer: renderer, autoScale: window.configureUiScale())
   )
 
-proc firstStep*(appHandle: NativeSiwinApp, makeVisible: bool) =
-  siwinApp(appHandle).window.firstStep(makeVisible)
-
 func nativeModifierMask(modifiers: set[ModifierKey]): uint8 =
   for modifier in modifiers:
     result = result or (1'u8 shl modifier.ord)
@@ -344,21 +341,6 @@ proc siwinSetEventCallbacks*(
     app.window.eventsHandler.onPopupDone = proc(e: PopupEvent) =
       cast[NativePopupCallback](popupCallback)(context, e.reason.ord.uint8)
 
-proc step*(appHandle: NativeSiwinApp) =
-  siwinApp(appHandle).window.step()
-
-proc redraw*(appHandle: NativeSiwinApp) =
-  siwinApp(appHandle).window.redraw()
-
-proc makeCurrent*(appHandle: NativeSiwinApp) =
-  siwinApp(appHandle).window.makeCurrent()
-
-proc close*(appHandle: NativeSiwinApp) =
-  siwinApp(appHandle).window.close()
-
-proc opened*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.opened
-
 proc siwinWindowSize*(appHandle: NativeSiwinApp): NativeWindowSize =
   let size = siwinApp(appHandle).window.size
   NativeWindowSize(w: size.x, h: size.y)
@@ -392,48 +374,6 @@ proc siwinSetTitle*(appHandle: NativeSiwinApp, title: string) =
 proc siwinTitle*(appHandle: NativeSiwinApp): string =
   siwinApp(appHandle).title
 
-proc siwinIsVisible*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.visible
-
-proc siwinSetVisible*(appHandle: NativeSiwinApp, visible: bool) =
-  siwinApp(appHandle).window.visible = visible
-
-proc siwinIsFocused*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.focused
-
-proc siwinIsFullscreen*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.fullscreen
-
-proc siwinSetFullscreen*(appHandle: NativeSiwinApp, fullscreen: bool) =
-  siwinApp(appHandle).window.fullscreen = fullscreen
-
-proc siwinIsMaximized*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.maximized
-
-proc siwinSetMaximized*(appHandle: NativeSiwinApp, maximized: bool) =
-  siwinApp(appHandle).window.maximized = maximized
-
-proc siwinIsMinimized*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.minimized
-
-proc siwinSetMinimized*(appHandle: NativeSiwinApp, minimized: bool) =
-  siwinApp(appHandle).window.minimized = minimized
-
-proc siwinIsResizable*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.resizable
-
-proc siwinSetResizable*(appHandle: NativeSiwinApp, resizable: bool) =
-  siwinApp(appHandle).window.resizable = resizable
-
-proc siwinIsFrameless*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.frameless
-
-proc siwinIsTransparent*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.transparent
-
-proc siwinSetFrameless*(appHandle: NativeSiwinApp, frameless: bool) =
-  siwinApp(appHandle).window.frameless = frameless
-
 proc siwinNativeWindowKey*(appHandle: NativeSiwinApp): pointer =
   cast[pointer](siwinApp(appHandle).window)
 
@@ -450,15 +390,6 @@ proc siwinMaxSize*(appHandle: NativeSiwinApp): NativeWindowSize =
 
 proc siwinSetMaxSize*(appHandle: NativeSiwinApp, width, height: int32) =
   siwinApp(appHandle).window.maxSize = ivec2(width, height)
-
-proc siwinUsesCustomTitlebar*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.customTitlebar
-
-proc siwinSupportsCustomTitlebar*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.supportsCustomTitlebar()
-
-proc siwinSetCustomTitlebar*(appHandle: NativeSiwinApp, enabled: bool) =
-  siwinApp(appHandle).window.customTitlebar = enabled
 
 proc siwinSetTitleRegion*(appHandle: NativeSiwinApp, x, y, width, height: float32) =
   siwinApp(appHandle).window.setTitleRegion(vec2(x, y), vec2(width, height))
@@ -497,27 +428,6 @@ proc siwinKeyPressed*(appHandle: NativeSiwinApp, key: Key): bool =
 
 proc siwinModifierPressed*(appHandle: NativeSiwinApp, modifier: ModifierKey): bool =
   modifier in siwinApp(appHandle).window.keyboard.modifiers
-
-proc siwinSetVsync*(appHandle: NativeSiwinApp, enabled: bool) =
-  siwinApp(appHandle).window.vsync = enabled
-
-proc siwinUsesSeparateTouch*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.separateTouch
-
-proc siwinSetSeparateTouch*(appHandle: NativeSiwinApp, enabled: bool) =
-  siwinApp(appHandle).window.separateTouch = enabled
-
-proc siwinCanBecomeKeyWindow*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.canBecomeKeyWindow()
-
-proc siwinSetCanBecomeKeyWindow*(appHandle: NativeSiwinApp, enabled: bool) =
-  siwinApp(appHandle).window.canBecomeKeyWindow = enabled
-
-proc siwinCanBecomeMainWindow*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.canBecomeMainWindow()
-
-proc siwinSetCanBecomeMainWindow*(appHandle: NativeSiwinApp, enabled: bool) =
-  siwinApp(appHandle).window.canBecomeMainWindow = enabled
 
 proc siwinSetIcon*(appHandle: NativeSiwinApp, value: Image) =
   let image = value.image

@@ -86,6 +86,7 @@ type
 
   Window* = ref object
     handle: NativeSiwinApp
+    raw: pointer
     eventsHandler*: WindowEventsHandler
     clipboard*: Clipboard
     backdropConfig: WindowBackdropConfig
@@ -713,10 +714,12 @@ proc toNativePopupPlacement(value: PopupPlacement): NativePopupPlacement =
 proc newPopupWindow*(
     parent: Window, placement: PopupPlacement, transparent = true, grab = true
 ): Window =
+  let handle = newFigSiwinPopup(
+    parent.handle, placement.toNativePopupPlacement(), 1024, 1.0, transparent, grab
+  )
   result = Window(
-    handle: newFigSiwinPopup(
-      parent.handle, placement.toNativePopupPlacement(), 1024, 1.0, transparent, grab
-    ),
+    handle: handle,
+    raw: siwinNativeWindowKey(handle),
     width: placement.size.x,
     height: placement.size.y,
     transparent: transparent,
@@ -759,6 +762,7 @@ proc setupBackend*(renderer: FigRenderer[SiwinRenderBackend], window: Window) =
       renderer.pixelScale, window.fullscreen, window.vsync, 0, window.resizable,
       window.frameless, window.transparent,
     )
+    window.raw = siwinNativeWindowKey(window.handle)
   renderer.window = window
   if window.autoScale:
     setFigUiScale(siwinUiScale(window.handle))
@@ -862,46 +866,46 @@ proc title*(window: Window): string =
   siwinTitle(window.handle)
 
 proc visible*(window: Window): bool =
-  siwinIsVisible(window.handle)
+  siwinWindowVisible(window.raw)
 
 proc `visible=`*(window: Window, value: bool) =
-  siwinSetVisible(window.handle, value)
+  siwinWindowSetVisible(window.raw, value)
 
 proc focused*(window: Window): bool =
-  siwinIsFocused(window.handle)
+  siwinWindowFocused(window.raw)
 
 proc fullscreen*(window: Window): bool =
-  siwinIsFullscreen(window.handle)
+  siwinWindowFullscreen(window.raw)
 
 proc `fullscreen=`*(window: Window, value: bool) =
-  siwinSetFullscreen(window.handle, value)
+  siwinWindowSetFullscreen(window.raw, value)
 
 proc maximized*(window: Window): bool =
-  siwinIsMaximized(window.handle)
+  siwinWindowMaximized(window.raw)
 
 proc `maximized=`*(window: Window, value: bool) =
-  siwinSetMaximized(window.handle, value)
+  siwinWindowSetMaximized(window.raw, value)
 
 proc minimized*(window: Window): bool =
-  siwinIsMinimized(window.handle)
+  siwinWindowMinimized(window.raw)
 
 proc `minimized=`*(window: Window, value: bool) =
-  siwinSetMinimized(window.handle, value)
+  siwinWindowSetMinimized(window.raw, value)
 
 proc resizable*(window: Window): bool =
-  siwinIsResizable(window.handle)
+  siwinWindowResizable(window.raw)
 
 proc `resizable=`*(window: Window, value: bool) =
-  siwinSetResizable(window.handle, value)
+  siwinWindowSetResizable(window.raw, value)
 
 proc frameless*(window: Window): bool =
-  siwinIsFrameless(window.handle)
+  siwinWindowFrameless(window.raw)
 
 proc `frameless=`*(window: Window, value: bool) =
-  siwinSetFrameless(window.handle, value)
+  siwinWindowSetFrameless(window.raw, value)
 
 proc transparent*(window: Window): bool =
-  siwinIsTransparent(window.handle)
+  siwinWindowTransparent(window.raw)
 
 proc visualCapabilities*(window: Window): set[WindowVisualCapability] =
   siwinVisualCapabilities(window.handle)
@@ -950,13 +954,13 @@ proc `maxSize=`*(window: Window, value: vmath.IVec2) =
   siwinSetMaxSize(window.handle, value.x, value.y)
 
 proc customTitlebar*(window: Window): bool =
-  siwinUsesCustomTitlebar(window.handle)
+  siwinWindowCustomTitlebar(window.raw)
 
 proc supportsCustomTitlebar*(window: Window): bool =
-  siwinSupportsCustomTitlebar(window.handle)
+  siwinWindowSupportsCustomTitlebar(window.raw)
 
 proc `customTitlebar=`*(window: Window, value: bool) =
-  siwinSetCustomTitlebar(window.handle, value)
+  siwinWindowSetCustomTitlebar(window.raw, value)
 
 proc setTitleRegion*(window: Window, pos, size: vmath.Vec2) =
   siwinSetTitleRegion(window.handle, pos.x, pos.y, size.x, size.y)
@@ -981,55 +985,55 @@ proc `cursor=`*(window: Window, value: BuiltinCursor) =
 
 proc `vsync=`*(window: Window, value: bool) =
   window.vsync = value
-  siwinSetVsync(window.handle, value)
+  siwinWindowSetVsync(window.raw, value)
 
 proc separateTouch*(window: Window): bool =
-  siwinUsesSeparateTouch(window.handle)
+  siwinWindowSeparateTouch(window.raw)
 
 proc `separateTouch=`*(window: Window, value: bool) =
-  siwinSetSeparateTouch(window.handle, value)
+  siwinWindowSetSeparateTouch(window.raw, value)
 
 proc canBecomeKeyWindow*(window: Window): bool =
-  siwinCanBecomeKeyWindow(window.handle)
+  siwinWindowCanBecomeKeyWindow(window.raw)
 
 proc `canBecomeKeyWindow=`*(window: Window, value: bool) =
-  siwinSetCanBecomeKeyWindow(window.handle, value)
+  siwinWindowSetCanBecomeKeyWindow(window.raw, value)
 
 proc canBecomeMainWindow*(window: Window): bool =
-  siwinCanBecomeMainWindow(window.handle)
+  siwinWindowCanBecomeMainWindow(window.raw)
 
 proc `canBecomeMainWindow=`*(window: Window, value: bool) =
-  siwinSetCanBecomeMainWindow(window.handle, value)
+  siwinWindowSetCanBecomeMainWindow(window.raw, value)
 
 proc `icon=`*(window: Window, image: Image) {.inline.} =
   figdraw_native_abi.siwinSetIcon(window.handle, image)
 
 proc opened*(window: Window): bool =
-  window.handle.raw != nil and opened(window.handle)
+  window.raw != nil and siwinWindowOpened(window.raw)
 
 proc closed*(window: Window): bool =
   not window.opened()
 
 proc presentNow*(window: Window) =
-  redraw(window.handle)
+  siwinWindowRedraw(window.raw)
 
 proc close*(window: Window) =
   if window.handle.raw != nil:
-    close(window.handle)
+    siwinWindowClose(window.raw)
 
 proc firstStep*(window: Window, makeVisible = true) =
   window.installEventCallbacks()
-  firstStep(window.handle, makeVisible)
+  siwinWindowFirstStep(window.raw, makeVisible)
 
 proc redraw*(window: Window) =
-  redraw(window.handle)
+  siwinWindowRedraw(window.raw)
 
 proc makeCurrent*(window: Window) =
-  makeCurrent(window.handle)
+  siwinWindowMakeCurrent(window.raw)
 
 proc step*(window: Window) =
   window.installEventCallbacks()
-  step(window.handle)
+  siwinWindowStep(window.raw)
 
 proc presentationTarget*(
     renderer: FigRenderer[SiwinRenderBackend]
