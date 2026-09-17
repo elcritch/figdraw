@@ -145,7 +145,10 @@ task test, "run unit test":
     if name.startsWith("windy_") and name.endsWith(".nim"):
       nimExec("c", file)
     elif name.startsWith("siwin_") and name.endsWith(".nim"):
-      nimExec("c", file)
+      if name == "siwin_shared_native.nim":
+        echo "Skipping native shared example (run: nim native_shared_example)"
+      else:
+        nimExec("c", file)
     elif name.startsWith("sdl2_") and name.endsWith(".nim"):
       if enableSdl2:
         nimExec("c", file, "-d:figdraw.metal=off -d:figdraw.vulkan=off")
