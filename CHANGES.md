@@ -2,6 +2,10 @@
 
 ## 0.39.0
 
+- Hide native renderer, backend-state, and presentation-target fields behind
+  Binny 0.5.12 opaque exports. Remove Cocoa/Metal type imports from the shared export
+  configuration while preserving direct calls and producer-owned destruction.
+  Keep the attached window in the facade for automatic UI-scale tracking.
 - Export Pixie's RGBA setter/fill and Siwin renderer frame/presentation APIs
   directly. Return `SiwinRenderer` from `newFigSiwinApp`; remove `NativeSiwinApp`
   and the scalar fused-frame adapter. Keep facade lazy setup, defaults, and

@@ -26,7 +26,7 @@ proc closeWindow(window: Window) =
 
 suite "siwin redraw":
   when defined(useNativeDynlib):
-    test "direct renderer exports retain ownership and desired text flags":
+    test "direct opaque renderer exports retain ownership and text preferences":
       block runWindow:
         when defined(linux) or defined(bsd):
           if getEnv("DISPLAY").len == 0 and getEnv("WAYLAND_DISPLAY").len == 0:
@@ -40,7 +40,7 @@ suite "siwin redraw":
           let renderer = original
           original = nil
           # The copied renderer reference keeps the producer-owned state alive.
-          check renderer.backendState.window == window
+          check window.opened
           check renderer.backendName() == backendName(renderer.backendKind())
 
           for enabled in [false, true, false]:
@@ -52,15 +52,6 @@ suite "siwin redraw":
             check figdraw_native_abi.textLcdFiltering(renderer) == expected
             check figdraw_native_abi.textSubpixelPositioning(renderer) == expected
             check figdraw_native_abi.textSubpixelGlyphVariants(renderer) == expected
-            var desiredFlags = 0
-            for name, value in fieldPairs(renderer[]):
-              when name in [
-                "textLcdFilteringDesired", "textSubpixelPositioningDesired",
-                "textSubpixelGlyphVariantsDesired",
-              ]:
-                check value == enabled
-                inc desiredFlags
-            check desiredFlags == 3
 
           let target = figdraw_native_abi.presentationTarget(renderer)
           figdraw_native_abi.updatePresentationTarget(target, window)

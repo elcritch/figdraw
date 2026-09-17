@@ -59,6 +59,7 @@ type
     pixelScale: float32
     backendState: BackendState
     native: SiwinRenderer
+    window: Window
     autoScale: bool
 
 converter toSiwinRenderer*(renderer: FigRenderer[SiwinRenderBackend]): SiwinRenderer =
@@ -279,6 +280,7 @@ proc setupBackend*(renderer: FigRenderer[SiwinRenderBackend], window: Window) =
   figdraw_native_abi.setupBackend(native, window)
   let autoScale = figdraw_native_abi.configureUiScale(window, "HDI")
   renderer.native = native
+  renderer.window = window
   renderer.backendState = default(SiwinRenderBackend)
   renderer.autoScale = autoScale
 
@@ -318,7 +320,7 @@ template configureUiScale*(window: Window): bool =
   figdraw_native_abi.configureUiScale(window, "HDI")
 
 proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
-  renderer.native.backendState.window.refreshUiScale(renderer.autoScale)
+  renderer.window.refreshUiScale(renderer.autoScale)
   figdraw_native_abi.beginFrame(renderer.native)
 
 proc renderFrame*(

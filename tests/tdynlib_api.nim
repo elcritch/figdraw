@@ -67,6 +67,15 @@ suite "native dynlib API":
       doAssert not declared(NativeSiwinApp)
       doAssert SiwinPresentationTarget is figdraw_native_abi.SiwinPresentationTarget
       doAssert typeof(newFigSiwinApp(default(Window), 192, 1.0)) is SiwinRenderer
+      doAssert not compiles(default(SiwinRenderer).backendState)
+      doAssert not compiles(default(SiwinRenderer).ctx)
+      doAssert not compiles(default(SiwinRenderBackend).window)
+      doAssert not compiles(default(SiwinRenderBackend).dedicatedRender)
+      doAssert not compiles(default(SiwinRenderBackend).metalLayer)
+      doAssert not compiles(default(SiwinRenderBackend).vulkanMetalLayer)
+      doAssert not compiles(default(SiwinPresentationTarget).metalLayer)
+      doAssert not declared(NSView)
+      doAssert not declared(CAMetalLayer)
 
       let arrangement =
         GlyphArrangement(lines: @[2 .. 5], arrangedGlyphs: newSeq[ArrangedGlyph](6))
@@ -103,6 +112,11 @@ suite "native dynlib API":
 
     test "exports typed renderer routines directly":
       const generatedAbi = staticRead("../bin/figdraw_native_abi.nim")
+      check "darwin/" notin generatedAbi
+      check "metalx/" notin generatedAbi
+      check "SiwinMetalLayerHandle" notin generatedAbi
+      for name in ["BackendContext", "GlContext", "VulkanContext", "MetalContext"]:
+        check name notin generatedAbi
       for name in [
         "backendKind", "setTextLcdFiltering", "textLcdFiltering",
         "setTextSubpixelPositioning", "textSubpixelPositioning",

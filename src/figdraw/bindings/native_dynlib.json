@@ -202,11 +202,14 @@
     {"name": "Duration", "module": "std/times"},
     {"name": "Lock", "module": "std/locks"},
     {"name": "Cond", "module": "std/locks"},
-    {"name": "NSView", "module": "darwin/app_kit/nsview", "source": "*darwin/darwin/app_kit/nsview.nim"},
-    {"name": "CAMetalLayer", "module": "metalx/cametal", "source": "*metalx/src/metalx/cametal.nim"},
     {"name": "FontVariation", "module": "figdraw/common/fonttypes", "source": "../common/fonttypes.nim"},
     {"name": "SystemTypefaceFile", "module": "figdraw/extras/systemfonttypes", "source": "../extras/systemfonttypes.nim"},
     {"name": "SystemTypeface", "module": "figdraw/extras/systemfonttypes", "source": "../extras/systemfonttypes.nim"}
+  ],
+  "opaqueTypes": [
+    {"name": "SiwinRenderer", "source": "native_bindings.nim"},
+    {"name": "SiwinRenderBackend", "source": "../windowing/siwinshim.nim"},
+    {"name": "SiwinPresentationTarget", "source": "../windowing/siwinshim.nim"}
   ],
   "requireMatches": true
 }

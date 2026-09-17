@@ -1067,10 +1067,21 @@ Alternatively, create a renderer through the raw `newFigRenderer` export and
 attach it with `setupBackend`. Presentation targets are generated native types
 with direct creation/update APIs, not facade placeholders.
 
+`SiwinRenderer`, `SiwinRenderBackend`, and `SiwinPresentationTarget` are opaque
+generated types: use their native procedures rather than inspecting backend
+fields. Metal, Vulkan, and OpenGL implementation types stay in the producer;
+clients do not import Cocoa/Metal or compile graphics-backend modules. The same
+`native_dynlib.json` selects these types on every platform. Build and distribute
+the generated ABI alongside its matching platform/backend library; opacity does
+not make one binary ABI portable across operating systems. These exports require
+Binny 0.5.12's `opaqueTypes` support and ARC/atomicARC (the FigDraw facade uses ARC).
+
 The facade retains a small lazy renderer owner so OpenGL setup happens after
 window creation. It preserves constructor/frame defaults and refreshes automatic
 UI scaling in `beginFrame`, while a converter exposes the same typed renderer
 for direct backend, text-preference, presentation, and end-frame calls.
+It retains the attached window separately for UI-scale tracking, without reading
+the opaque renderer's internal state.
 
 The generated ABI reuses `bumpy.Rect`, Pixie's `Image`, Vmath's `Vec2`, `IVec2`,
 and `Mat4`, Chroma's `Color`, `ColorRGBA`, and `ColorRGBX`, and stdlib `Rune` and `Slice`
@@ -1097,9 +1108,9 @@ Interactive move/resize and window-menu methods accept `Option[Vec2]` directly;
 the facade also converts a plain `Vec2` to `some(position)`. Raw icon methods
 accept `PixelBuffer` or `nil`. The facade keeps `window.icon = image` through a
 borrowed-pixel conversion; keep the image alive when using `toPixelBuffer`
-separately. These exports require Binny 0.5.11 or newer for concrete generic
-exports, dependency aliases, source-qualified type imports, and `typeof(nil)`
-support.
+separately. Native exports require Binny 0.5.12 or newer for opaque types,
+concrete generic exports, dependency aliases, source-qualified type imports,
+and `typeof(nil)` support.
 
 The same switch is supported by `siwin_cell_grid.nim`,
 `siwin_image_renderlist.nim`, and `siwin_two_windows.nim`.
