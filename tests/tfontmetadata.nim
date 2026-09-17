@@ -1,7 +1,8 @@
 import std/[options, os, tempfiles, unicode, unittest]
 
-import figdraw/common/typefaceinfos
-import figdraw/extras/systemfonts
+#import figdraw/common/typefaceinfos
+#import figdraw/extras/systemfonts
+import figdraw
 
 type NameEntry = tuple[id: int, text: string]
 
