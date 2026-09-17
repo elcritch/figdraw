@@ -26,10 +26,10 @@ suite "native dynlib UI scale":
             false,
             false,
           )
-          app = newFigSiwinApp(window, 192, 1.0)
+          renderer = newFigSiwinApp(window, 192, 1.0)
           autoScale = configureUiScale(window, "HDI")
-        require not app.isNil
-        require not app.renderer.isNil
+        require not renderer.isNil
+        check renderer.backendState.window == window
         var
           resizeCount = 0
           resizeSize: IVec2

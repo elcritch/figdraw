@@ -1044,33 +1044,48 @@ do not import or compile Siwin. Create a window with `newSiwinWindow`, then call
 `newFigSiwinApp(window, atlasSize, pixelScale)` to attach FigDraw rendering. See
 `examples/siwin_shared_native.nim` for a client using the generated ABI directly.
 
-The app is an ARC-managed reference, not an opaque pointer handle. Its
-`renderer` field exposes the generated `SiwinRenderer` type. Backend queries
-and text preferences call FigDraw's renderer routines directly:
+`newFigSiwinApp` returns the generated ARC-managed `SiwinRenderer` directly;
+there is no separate app handle. Backend queries, text preferences, and frame
+operations call FigDraw's renderer routines directly:
 
 ```nim
-let app = newFigSiwinApp(window, 512, 1.0)
-app.renderer.setTextLcdFiltering(true)
-echo app.renderer.backendName()
+let renderer = newFigSiwinApp(window, 512, 1.0)
+let autoScale = configureUiScale(window, "HDI")
+renderer.setTextLcdFiltering(true)
+echo renderer.backendName()
+
+# For each frame (renders and size are prepared by the client):
+refreshUiScale(window, autoScale)
+renderer.beginFrame()
+renderer.renderFrame(renders, size, true, Color(r: 1, g: 1, b: 1, a: 1))
+renderer.endFrame()
 ```
 
-Renderer references remain valid independently of the app's lifetime. The
-app constructor and fused frame routine retain window setup, automatic UI-scale
-refresh, and begin/end-frame behavior. The facade uses a converter to expose the
-same typed renderer, without its own backend/text-preference forwarding APIs.
+The constructor retains window attachment and initial UI-scale configuration;
+raw clients retain the returned auto-scale policy and refresh it before frames.
+Alternatively, create a renderer through the raw `newFigRenderer` export and
+attach it with `setupBackend`. Presentation targets are generated native types
+with direct creation/update APIs, not facade placeholders.
+
+The facade retains a small lazy renderer owner so OpenGL setup happens after
+window creation. It preserves constructor/frame defaults and refreshes automatic
+UI scaling in `beginFrame`, while a converter exposes the same typed renderer
+for direct backend, text-preference, presentation, and end-frame calls.
 
 The generated ABI reuses `bumpy.Rect`, Pixie's `Image`, Vmath's `Vec2`, `IVec2`,
 and `Mat4`, Chroma's `Color`, `ColorRGBA`, and `ColorRGBX`, and stdlib `Rune` and `Slice`
 types directly.
+It also shares `FontVariation`, `SystemTypefaceFile`, and `SystemTypeface`
+metadata, so exact typeface loading and sizing need no boundary copies.
 No boundary casts or separate `IntSlice` type are needed. Import shared-library
 constructors and accessors where needed (for example, `ivec2`, `x`, and `y` from
 Vmath); the producer uses Vmath's default layout, so clients must use the same
 layout. `initUtf8Runes` accepts `sink string` or `openArray[Rune]` directly, and
 `loadImage` and `replaceImage` accept `sink Image`.
 
-The raw ABI exports Pixie's pixel getter directly: `image[x, y]` returns
-premultiplied `ColorRGBX`. The facade keeps straight-alpha `ColorRGBA` reads by
-converting that result with Chroma's `rgba()`.
+The raw ABI exports Pixie's pixel getter, RGBA setter, and RGBA fill directly.
+`image[x, y]` returns premultiplied `ColorRGBX`. The facade keeps straight-alpha
+`ColorRGBA` reads by converting that result with Chroma's `rgba()`.
 
 The `figdraw/dynlib` facade retains semantic conversions such as color-to-fill
 and rune-sequence-to-UTF-8 storage, plus constructor defaults omitted from the

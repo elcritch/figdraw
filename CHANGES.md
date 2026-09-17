@@ -2,6 +2,13 @@
 
 ## 0.39.0
 
+- Export Pixie's RGBA setter/fill and Siwin renderer frame/presentation APIs
+  directly. Return `SiwinRenderer` from `newFigSiwinApp`; remove `NativeSiwinApp`
+  and the scalar fused-frame adapter. Keep facade lazy setup, defaults, and
+  automatic UI-scale tracking while replacing dummy presentation/frame APIs.
+- Share system typeface identities and font variations between producer and
+  consumers; use direct exact-file loading and sizing instead of copying
+  metadata in the facade.
 - Export the typed Siwin renderer's backend queries and text preferences
   directly with Binny 0.5.11. Remove native and facade forwarding APIs plus
   manual opaque-handle ownership hooks. Expose `app.renderer` from an

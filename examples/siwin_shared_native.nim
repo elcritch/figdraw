@@ -1,7 +1,7 @@
 import std/[math, monotimes, os, strformat, times]
 
 import pkg/bumpy as bumpy
-from pkg/vmath import ivec2, x, y
+from pkg/vmath import ivec2, vec2, x, y
 import figdraw_native_abi
 
 when defined(macosx):
@@ -140,12 +140,12 @@ when isMainModule:
       false,
       false,
     )
-    app = newFigSiwinApp(window, 512, 1.0)
+    renderer = newFigSiwinApp(window, 512, 1.0)
     autoScale = configureUiScale(window, "HDI")
   var renders = newRenders()
   loadImage(previewImageId, previewImage)
 
-  if app.isNil or app.renderer.isNil or renders.isNil:
+  if renderer.isNil or renders.isNil:
     quit("Failed to initialize native FigDraw objects", 1)
 
   firstStep(window, true)
@@ -199,7 +199,11 @@ when isMainModule:
       discard renders.addRoot(0, text)
 
       let renderStart = getMonoTime()
-      renderFrame(app, renders, width, height, true, 1, 1, 1, 1)
+      renderer.beginFrame()
+      renderer.renderFrame(
+        renders, vec2(width, height), true, Color(r: 1, g: 1, b: 1, a: 1)
+      )
+      renderer.endFrame()
       renderMicros += float((getMonoTime() - renderStart).inMicroseconds)
       redraw(window)
       step(window)

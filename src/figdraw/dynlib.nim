@@ -6,16 +6,14 @@ import pkg/chroma as chroma
 from pkg/pixie import Image
 import pkg/vmath as vmath
 import figdraw_native_abi
-import figdraw/extras/systemfonttypes as systemfonttypes
-from figdraw/extras/systemfonttypes import
-  SystemTypeface, initSystemTypefaceFile, initSystemTypeface
+from figdraw/extras/systemfonttypes import initSystemTypefaceFile, initSystemTypeface
 
 when not defined(gcArc):
   {.error: "figdraw/dynlib requires --mm:arc to match the native library".}
 
 export options, tables, bumpy, chroma, vmath
 export Image
-export figdraw_native_abi except SystemTypefaceFile, placeGlyphs, newSiwinWindow, `[]`
+export figdraw_native_abi except placeGlyphs, newSiwinWindow, newFigRenderer, `[]`
 
 macro exportNativeIndexers(indexers: typed): untyped =
   ## Re-export ABI symbols directly, except the image getter converted below.
@@ -27,9 +25,7 @@ macro exportNativeIndexers(indexers: typed): untyped =
 
 exportNativeIndexers(figdraw_native_abi.`[]`)
 
-export
-  SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
-  initSystemTypeface
+export initSystemTypefaceFile, initSystemTypeface
 
 proc systemFontDirs*(): seq[string] {.inline.} =
   figdraw_native_abi.systemFontDirs(figdraw_native_abi.detectDisplayServer())
@@ -58,16 +54,16 @@ type
   CornerRadii2D*[T] = object
     x*, y*: array[DirectionCorners, T]
 
-  SiwinPresentationTarget* = object
-
   FigRenderer*[BackendState] = ref object
     atlasSize: int
     pixelScale: float32
-    handle: NativeSiwinApp
+    backendState: BackendState
+    native: SiwinRenderer
+    autoScale: bool
 
 converter toSiwinRenderer*(renderer: FigRenderer[SiwinRenderBackend]): SiwinRenderer =
-  ## Exposes the app's typed renderer for direct native renderer operations.
-  renderer.handle.renderer
+  ## Exposes the typed renderer for direct native renderer operations.
+  renderer.native
 
 converter nilToImageRef*(value: typeof(nil)): ImageRef =
   discard value
@@ -197,18 +193,6 @@ proc fs*(font: FigFont): FontStyle {.inline.} =
   ## Supplies the source API's default fill omitted from generated bindings.
   figdraw_native_abi.fs(font, fill(rgba(0, 0, 0, 255)))
 
-proc loadTypeface*(file: systemfonttypes.SystemTypefaceFile): TypefaceId =
-  figdraw_native_abi.loadTypeface(
-    figdraw_native_abi.SystemTypefaceFile(path: file.path, faceIndex: file.faceIndex)
-  )
-
-proc fontWithSize*(typeface: SystemTypeface, size: float32): FigFont =
-  ## Loads an exact installed typeface through the native ABI.
-  result = loadTypeface(typeface.file).fontWithSize(size)
-  result.variations = newSeqOfCap[FontVariation](typeface.variations.len)
-  for variation in typeface.variations:
-    result.variations.add FontVariation(tag: variation.tag, value: variation.value)
-
 func fontFeature*(
     tag: string, value = 1'u32, start = 0'u32, ending = uint32.high
 ): FontFeature {.inline.} =
@@ -264,8 +248,9 @@ proc imageStyle*(image: ImageRef): ImageStyle =
 proc newFigRenderer*(
     atlasSize: int, backendState: SiwinRenderBackend, pixelScale = 1.0'f32
 ): FigRenderer[SiwinRenderBackend] =
-  discard backendState
-  FigRenderer[SiwinRenderBackend](atlasSize: atlasSize, pixelScale: pixelScale)
+  FigRenderer[SiwinRenderBackend](
+    atlasSize: atlasSize, pixelScale: pixelScale, backendState: backendState
+  )
 
 proc newSiwinWindow*(
     size = ivec2(1280, 720),
@@ -288,7 +273,14 @@ proc newPopupWindow*(
   figdraw_native_abi.newSiwinPopupWindow(parent, placement, transparent, grab)
 
 proc setupBackend*(renderer: FigRenderer[SiwinRenderBackend], window: Window) =
-  renderer.handle = newFigSiwinApp(window, renderer.atlasSize, renderer.pixelScale)
+  let native = figdraw_native_abi.newFigRenderer(
+    renderer.atlasSize, renderer.backendState, renderer.pixelScale
+  )
+  figdraw_native_abi.setupBackend(native, window)
+  let autoScale = figdraw_native_abi.configureUiScale(window, "HDI")
+  renderer.native = native
+  renderer.backendState = default(SiwinRenderBackend)
+  renderer.autoScale = autoScale
 
 proc newSiwinWindow*(
     renderer: FigRenderer[SiwinRenderBackend],
@@ -325,17 +317,9 @@ template firstStep*(window: Window) =
 template configureUiScale*(window: Window): bool =
   figdraw_native_abi.configureUiScale(window, "HDI")
 
-proc presentationTarget*(
-    renderer: FigRenderer[SiwinRenderBackend]
-): SiwinPresentationTarget =
-  discard renderer
-
-proc updatePresentationTarget*(target: SiwinPresentationTarget, window: Window) =
-  discard target
-  discard window
-
 proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
-  discard renderer
+  renderer.native.backendState.window.refreshUiScale(renderer.autoScale)
+  figdraw_native_abi.beginFrame(renderer.native)
 
 proc renderFrame*(
     renderer: FigRenderer[SiwinRenderBackend],
@@ -344,13 +328,7 @@ proc renderFrame*(
     clearMain = true,
     clearColor = whiteColor,
 ) =
-  renderFrame(
-    renderer.handle, renders, size.x, size.y, clearMain, clearColor.r, clearColor.g,
-    clearColor.b, clearColor.a,
-  )
-
-proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
-  discard renderer
+  figdraw_native_abi.renderFrame(renderer.native, renders, size, clearMain, clearColor)
 
 proc siwinWindowTitle*(suffix = "Siwin RenderList"): string =
   "figdraw: " & siwinBackendName() & " + " & suffix

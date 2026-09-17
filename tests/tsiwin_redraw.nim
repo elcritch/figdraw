@@ -35,15 +35,11 @@ suite "siwin redraw":
 
         let window = newSiwinWindow(size = ivec2(160, 120), title = "direct renderer")
         try:
-          var app = newFigSiwinApp(window, 192, 1.0)
-          require not app.isNil
-          let renderer = app.renderer
-          require not renderer.isNil
-          block:
-            let appAlias = app
-            app = nil
-            check appAlias.renderer == renderer
-          # Both app references have gone out of scope; the renderer owns its state.
+          var original = newFigSiwinApp(window, 192, 1.0)
+          require not original.isNil
+          let renderer = original
+          original = nil
+          # The copied renderer reference keeps the producer-owned state alive.
           check renderer.backendState.window == window
           check renderer.backendName() == backendName(renderer.backendKind())
 
@@ -65,6 +61,16 @@ suite "siwin redraw":
                 check value == enabled
                 inc desiredFlags
             check desiredFlags == 3
+
+          let target = figdraw_native_abi.presentationTarget(renderer)
+          figdraw_native_abi.updatePresentationTarget(target, window)
+          # Realize the window's drawable before exercising direct frame calls.
+          window.firstStep(true)
+          let size = window.logicalSize()
+          var renders = renderTree(size)
+          figdraw_native_abi.beginFrame(renderer)
+          figdraw_native_abi.renderFrame(renderer, renders, size, true, whiteColor)
+          figdraw_native_abi.endFrame(renderer)
         finally:
           closeWindow(window)
 
@@ -109,6 +115,8 @@ suite "siwin redraw":
       check renderer.backendName() == backendName(renderer.backendKind())
       when defined(useNativeDynlib):
         let typedRenderer: SiwinRenderer = renderer
+        let target: SiwinPresentationTarget = renderer.presentationTarget()
+        target.updatePresentationTarget(window)
         for enabled in [true, false]:
           let expected = enabled and renderer.backendKind() != rbMetal
           renderer.setTextLcdFiltering(enabled)

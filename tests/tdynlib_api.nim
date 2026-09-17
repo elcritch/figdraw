@@ -6,6 +6,8 @@ when defined(useNativeDynlib):
   import std/[os, strutils, tempfiles]
   import pkg/chroma as chroma
   import pkg/vmath as vmath
+  import figdraw/extras/systemfonttypes as systemfonttypes
+  from figdraw/common/fonttypes import nil
   import figdraw/dynlib
   from figdraw_native_abi import nil
 
@@ -28,6 +30,10 @@ suite "native dynlib API":
       doAssert figdraw_native_abi.ColorRGBA is chroma.ColorRGBA
       doAssert figdraw_native_abi.ColorRGBX is chroma.ColorRGBX
       doAssert figdraw_native_abi.Rune is unicode.Rune
+      doAssert figdraw_native_abi.FontVariation is fonttypes.FontVariation
+      doAssert figdraw_native_abi.SystemTypefaceFile is
+        systemfonttypes.SystemTypefaceFile
+      doAssert figdraw_native_abi.SystemTypeface is systemfonttypes.SystemTypeface
       doAssert typeof(default(GlyphArrangement).lines) is seq[Slice[int]]
       doAssert typeof(default(Fig).selectionRange) is Slice[int16]
       doAssert DirectionCorners is figdraw_native_abi.DirectionCorners
@@ -58,8 +64,9 @@ suite "native dynlib API":
       doAssert not declared(siwinShowWindowMenu)
       doAssert SiwinRenderer is figdraw_native_abi.SiwinRenderer
       doAssert SiwinRenderBackend is figdraw_native_abi.SiwinRenderBackend
-      doAssert typeof(default(NativeSiwinApp).renderer) is SiwinRenderer
-      doAssert not compiles(default(NativeSiwinApp).raw)
+      doAssert not declared(NativeSiwinApp)
+      doAssert SiwinPresentationTarget is figdraw_native_abi.SiwinPresentationTarget
+      doAssert typeof(newFigSiwinApp(default(Window), 192, 1.0)) is SiwinRenderer
 
       let arrangement =
         GlyphArrangement(lines: @[2 .. 5], arrangedGlyphs: newSeq[ArrangedGlyph](6))
@@ -93,7 +100,6 @@ suite "native dynlib API":
       check figdraw_native_abi.backendName(rbMetal) == "Metal"
       check figdraw_native_abi.backendName(rbVulkan) == "Vulkan"
       doAssert not declared(siwinBackendKind)
-      doAssert not compiles(siwinBackendName(default(NativeSiwinApp)))
 
     test "exports typed renderer routines directly":
       const generatedAbi = staticRead("../bin/figdraw_native_abi.nim")
@@ -106,6 +112,29 @@ suite "native dynlib API":
         for line in generatedAbi.splitLines():
           if line.startsWith("proc " & name & "*(renderer: SiwinRenderer"):
             check "importc: \"binny_generic_" in line
+            found = true
+        check found
+
+      for prefix in ["proc `[]=`*(image: Image", "proc fill*(image: Image"]:
+        var found = false
+        for line in generatedAbi.splitLines():
+          if line.startsWith(prefix):
+            check "importc: \"binny_generic_" in line
+            found = true
+        check found
+
+      for prefix in [
+        "proc setupBackend*(renderer: SiwinRenderer",
+        "proc beginFrame*(renderer: SiwinRenderer",
+        "proc renderFrame*(renderer: SiwinRenderer",
+        "proc endFrame*(renderer: SiwinRenderer",
+        "proc presentationTarget*(renderer: SiwinRenderer",
+        "proc updatePresentationTarget*(target: SiwinPresentationTarget",
+      ]:
+        var found = false
+        for line in generatedAbi.splitLines():
+          if line.startsWith(prefix):
+            check "importc:" in line
             found = true
         check found
 
@@ -205,9 +234,9 @@ suite "native dynlib API":
       imageRef = nil
       check imageRef == default(ImageRef)
 
-      var appHandle: NativeSiwinApp
+      var renderer: SiwinRenderer
       var imageHandle: Image
-      check appHandle.isNil
+      check renderer.isNil
       check imageHandle.isNil
 
       let
@@ -286,6 +315,7 @@ suite "native dynlib API":
       check span(font, fill(color), "alias span")[1] == "alias span"
       check image.width == 2
       check image.height == 3
+
       image.fill(color)
       check image[1, 2] == color
       let copiedImage = image.copy()
@@ -307,6 +337,21 @@ suite "native dynlib API":
       figdraw_native_abi.loadImage(imageId, move(ownedImage))
       check ownedImage.isNil
       clearFigImage(imageId)
+
+    test "loads shared system typeface metadata through direct native routines":
+      let
+        file =
+          initSystemTypefaceFile(currentSourcePath().parentDir / "../data/Ubuntu.ttf")
+        selection = initSystemTypeface(file, [FontVariation(tag: "wght", value: 450)])
+        loaded = figdraw_native_abi.loadTypeface(file)
+        font = figdraw_native_abi.fontWithSize(selection, 20.0'f32)
+      check uint64(font.typefaceId) == uint64(loaded)
+      check font.size == 20.0'f32
+      check font.variations == selection.variations
+      var independent = font
+      independent.variations[0].value = 600
+      check font.variations[0].value == 450
+      check selection.variations[0].value == 450
 
     test "uses direct Pixie file codecs and preserves alpha conversion":
       let directory = createTempDir("figdraw-native-codecs-", "")
