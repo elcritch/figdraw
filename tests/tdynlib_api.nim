@@ -65,6 +65,8 @@ suite "native dynlib API":
       doAssert SiwinRenderer is figdraw_native_abi.SiwinRenderer
       doAssert SiwinRenderBackend is figdraw_native_abi.SiwinRenderBackend
       doAssert not declared(NativeSiwinApp)
+      doAssert not declared(NativeFontRef)
+      doAssert not declared(NativeImageMessageSubscription)
       doAssert SiwinPresentationTarget is figdraw_native_abi.SiwinPresentationTarget
       doAssert typeof(newFigSiwinApp(default(Window), 192, 1.0)) is SiwinRenderer
       doAssert not compiles(default(SiwinRenderer).backendState)

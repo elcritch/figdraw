@@ -266,8 +266,8 @@
     {"name": "SiwinRenderer", "source": "native_bindings.nim"},
     {"name": "SiwinRenderBackend", "source": "../windowing/siwinshim.nim"},
     {"name": "SiwinPresentationTarget", "source": "../windowing/siwinshim.nim"},
-    {"name": "NativeFontRef", "source": "native_bindings.nim"},
-    {"name": "NativeImageMessageSubscription", "source": "native_bindings.nim"}
+    {"name": "FontRef", "source": "native_bindings.nim"},
+    {"name": "ImageMessageSubscription", "source": "native_bindings.nim"}
   ],
   "requireMatches": true
 }

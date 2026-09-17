@@ -20,12 +20,7 @@ export figdraw_native_abi except
   placeGlyphs, newSiwinWindow, newFigRenderer, `[]`, Hash, getFigFont,
   getTypefaceSource, getTypefaceInfo, typeset, typesetForMeasurement, generateGlyph,
   generateGlyphImages, hash, getContentHash, findSystemTypeface, findSystemFontFile,
-  systemDefaultFontNames, NativeFontRef, NativeImageMessageSubscription, FillKind,
-  FillGradientAxis
-
-type
-  FontRef* = NativeFontRef
-  ImageMessageSubscription* = NativeImageMessageSubscription
+  systemDefaultFontNames, FillKind, FillGradientAxis
 
 proc fontRef*(font: sink FigFont): FontRef {.inline.} =
   newNativeFontRef(font)

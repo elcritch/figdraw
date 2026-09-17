@@ -12,52 +12,52 @@ from figdraw/common/imgutils import nil
 type SiwinRenderer* = FigRenderer[SiwinRenderBackend]
 
 type
-  NativeFontRef* = object
+  FontRef* = object
     ## Producer-owned font reference with compiler-generated ownership hooks.
     value: typefaces.FontRef
 
-  NativeImageMessageSubscription* = object
+  ImageMessageSubscription* = object
     ## Keeps subscription channels and their destruction inside the producer.
     value: imgutils.ImageMessageSubscription
 
-proc newNativeFontRef*(font: sink FigFont): NativeFontRef =
-  NativeFontRef(value: typefaces.fontRef(font))
+proc newNativeFontRef*(font: sink FigFont): FontRef =
+  FontRef(value: typefaces.fontRef(font))
 
-proc font*(handle: NativeFontRef): FigFont =
+proc font*(handle: FontRef): FigFont =
   ## Returns the font value retained by this handle.
   handle.value.font
 
-proc fontId*(handle: NativeFontRef): FontId =
+proc fontId*(handle: FontRef): FontId =
   handle.value.fontId
 
-proc isNil*(handle: NativeFontRef): bool =
+proc isNil*(handle: FontRef): bool =
   handle.value.isNil
 
-proc sameFontRef*(a, b: NativeFontRef): bool =
+proc sameFontRef*(a, b: FontRef): bool =
   typefaces.sameFontRef(a.value, b.value)
 
-proc fs*(handle: NativeFontRef, color: Fill): FontStyle =
+proc fs*(handle: FontRef, color: Fill): FontStyle =
   fs(handle.value, color)
 
-proc fsp*(handle: NativeFontRef, color: Fill, text: string): (FontStyle, string) =
+proc fsp*(handle: FontRef, color: Fill, text: string): (FontStyle, string) =
   fsp(handle.value, color, text)
 
-proc span*(handle: NativeFontRef, color: Fill, text: string): (FontStyle, string) =
+proc span*(handle: FontRef, color: Fill, text: string): (FontStyle, string) =
   span(handle.value, color, text)
 
-proc clearFontGlyphs*(handle: NativeFontRef) =
+proc clearFontGlyphs*(handle: FontRef) =
   clearFontGlyphs(handle.value)
 
-proc newImageMessageSubscription*(): NativeImageMessageSubscription =
-  NativeImageMessageSubscription(value: imgutils.newImageMessageSubscription())
+proc newImageMessageSubscription*(): ImageMessageSubscription =
+  ImageMessageSubscription(value: imgutils.newImageMessageSubscription())
 
-proc tryRecvImageMsg*(handle: NativeImageMessageSubscription, msg: var ImageMsg): bool =
+proc tryRecvImageMsg*(handle: ImageMessageSubscription, msg: var ImageMsg): bool =
   imgutils.tryRecvImageMsg(handle.value, msg)
 
 proc tryRecvImageMsg*(msg: var ImageMsg): bool =
   imgutils.tryRecvImageMsg(msg)
 
-proc replayImageMessages*(handle: NativeImageMessageSubscription) =
+proc replayImageMessages*(handle: ImageMessageSubscription) =
   imgutils.replayImageMessages(handle.value)
 
 # Materialize the concrete routines for Binny's semantic-symbol discovery.
