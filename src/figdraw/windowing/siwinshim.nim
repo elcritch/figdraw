@@ -2,7 +2,7 @@ import std/[math, os, strutils]
 import pkg/chroma
 import vmath
 
-import siwin/[window as siWindow, windowOpengl as siWindowOpengl]
+import siwin/[clipboards, window as siWindow, windowOpengl as siWindowOpengl]
 import siwin/platforms
 
 import ../commons
@@ -475,6 +475,57 @@ proc siwinWindowCanBecomeMainWindow*(window: pointer): bool =
 
 proc siwinWindowSetCanBecomeMainWindow*(window: pointer, value: bool) =
   rawSiwinWindow(window).canBecomeMainWindow = value
+
+proc siwinWindowInputUsesBackingPixels*(window: pointer): bool =
+  rawSiwinWindow(window).inputUsesBackingPixels()
+
+proc siwinWindowMouseButtonPressed*(window: pointer, button: MouseButton): bool =
+  button in rawSiwinWindow(window).mouse.pressed
+
+proc siwinWindowKeyPressed*(window: pointer, key: Key): bool =
+  key in rawSiwinWindow(window).keyboard.pressed
+
+proc siwinWindowModifierPressed*(window: pointer, modifier: ModifierKey): bool =
+  modifier in rawSiwinWindow(window).keyboard.modifiers
+
+proc siwinWindowClipboardText*(window: pointer): string =
+  rawSiwinWindow(window).clipboard.text
+
+proc siwinWindowSetClipboardText*(window: pointer, value: string) =
+  rawSiwinWindow(window).clipboard.text = value
+
+proc siwinWindowClipboardFiles*(window: pointer): seq[string] =
+  rawSiwinWindow(window).clipboard.files
+
+proc siwinWindowSetClipboardFiles*(window: pointer, value: seq[string]) =
+  rawSiwinWindow(window).clipboard.files = value
+
+proc siwinWindowClipboardData*(window: pointer, mimeType: string): string =
+  rawSiwinWindow(window).clipboard[mimeType]
+
+proc siwinWindowSetClipboardData*(window: pointer, mimeType, value: string) =
+  rawSiwinWindow(window).clipboard[mimeType] = value
+
+proc siwinWindowClipboardMimeTypes*(window: pointer): seq[string] =
+  rawSiwinWindow(window).clipboard.availableMimeTypes
+
+proc siwinWindowUiScale*(window: pointer): float32 =
+  rawSiwinWindow(window).uiScale()
+
+proc siwinWindowIsPopup*(window: pointer): bool =
+  rawSiwinWindow(window).isPopup
+
+proc siwinWindowPopupGrab*(window: pointer): bool =
+  rawSiwinWindow(window).popupGrab
+
+proc siwinWindowPopupOpen*(window: pointer): bool =
+  rawSiwinWindow(window).popupOpen
+
+proc siwinWindowVisualCapabilities*(window: pointer): set[WindowVisualCapability] =
+  rawSiwinWindow(window).visualCapabilities()
+
+proc siwinWindowDisplayServerName*(window: pointer): string =
+  rawSiwinWindow(window).siwinDisplayServerName()
 
 proc contentScale*(window: Window): float32 =
   when defined(macosx):

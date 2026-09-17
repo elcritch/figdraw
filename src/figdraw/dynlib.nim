@@ -730,27 +730,27 @@ proc reposition*(window: Window, placement: PopupPlacement) =
   siwinRepositionPopup(window.handle, placement.toNativePopupPlacement())
 
 proc clipboardText*(clipboard: Clipboard): string =
-  siwinClipboardText(clipboard.window.handle)
+  siwinWindowClipboardText(clipboard.window.raw)
 
 proc `clipboardText=`*(clipboard: Clipboard, value: string) =
-  siwinSetClipboardText(clipboard.window.handle, value)
+  siwinWindowSetClipboardText(clipboard.window.raw, value)
 
 proc clipboardFiles*(clipboard: Clipboard): seq[string] =
-  siwinClipboardFiles(clipboard.window.handle)
+  siwinWindowClipboardFiles(clipboard.window.raw)
 
 proc `clipboardFiles=`*(clipboard: Clipboard, value: seq[string]) =
-  siwinSetClipboardFiles(clipboard.window.handle, value)
+  siwinWindowSetClipboardFiles(clipboard.window.raw, value)
 
 proc clipboardData*(clipboard: Clipboard, mimeType: string): string =
-  siwinClipboardData(clipboard.window.handle, mimeType)
+  siwinWindowClipboardData(clipboard.window.raw, mimeType)
 
 proc setClipboardData*(clipboard: Clipboard, mimeType, value: string) =
-  siwinSetClipboardData(clipboard.window.handle, mimeType, value)
+  siwinWindowSetClipboardData(clipboard.window.raw, mimeType, value)
   if mimeType notin clipboard.mimeTypes:
     clipboard.mimeTypes.add mimeType
 
 proc availableMimeTypes*(clipboard: Clipboard): seq[string] =
-  result = siwinClipboardMimeTypes(clipboard.window.handle)
+  result = siwinWindowClipboardMimeTypes(clipboard.window.raw)
   for mimeType in clipboard.mimeTypes:
     if mimeType notin result:
       result.add mimeType
@@ -765,7 +765,7 @@ proc setupBackend*(renderer: FigRenderer[SiwinRenderBackend], window: Window) =
     window.raw = siwinNativeWindowKey(window.handle)
   renderer.window = window
   if window.autoScale:
-    setFigUiScale(siwinUiScale(window.handle))
+    setFigUiScale(siwinWindowUiScale(window.raw))
 
 proc newSiwinWindow*(
     renderer: FigRenderer[SiwinRenderBackend],
@@ -784,7 +784,7 @@ proc newSiwinWindow*(
   renderer.setupBackend(result)
 
 proc contentScale*(window: Window): float32 =
-  siwinUiScale(window.handle)
+  siwinWindowUiScale(window.raw)
 
 proc inputDeviceScale*(window: Window): float32 =
   if window.isNil:
@@ -799,15 +799,15 @@ proc mouse*(window: Window): Mouse =
   let pos = siwinMousePos(window.handle)
   result.pos = vmath.vec2(pos.x, pos.y)
   for button in MouseButton:
-    if siwinMouseButtonPressed(window.handle, button):
+    if siwinWindowMouseButtonPressed(window.raw, button):
       result.pressed.incl button
 
 proc keyboard*(window: Window): Keyboard =
   for key in Key:
-    if siwinKeyPressed(window.handle, key):
+    if siwinWindowKeyPressed(window.raw, key):
       result.pressed.incl key
   for modifier in ModifierKey:
-    if siwinModifierPressed(window.handle, modifier):
+    if siwinWindowModifierPressed(window.raw, modifier):
       result.modifiers.incl modifier
 
 proc configureUiScale*(window: Window, envVar = "HDI"): bool =
@@ -832,7 +832,7 @@ proc backingSize*(window: Window): vmath.IVec2 =
   ivec2(size.w, size.h)
 
 proc inputUsesBackingPixels*(window: Window): bool =
-  siwinInputUsesBackingPixels(window.handle)
+  siwinWindowInputUsesBackingPixels(window.raw)
 
 proc size*(window: Window): vmath.IVec2 =
   let size = siwinWindowSize(window.handle)
@@ -908,7 +908,7 @@ proc transparent*(window: Window): bool =
   siwinWindowTransparent(window.raw)
 
 proc visualCapabilities*(window: Window): set[WindowVisualCapability] =
-  siwinVisualCapabilities(window.handle)
+  siwinWindowVisualCapabilities(window.raw)
 
 proc supports*(window: Window, capability: WindowVisualCapability): bool =
   capability in window.visualCapabilities()
@@ -1094,7 +1094,7 @@ proc siwinWindowTitle*(suffix = "Siwin RenderList"): string =
   "figdraw: " & siwinBackendName() & " + " & suffix
 
 proc siwinDisplayServerName*(window: Window): string =
-  figdraw_native_abi.siwinDisplayServerName(window.handle)
+  siwinWindowDisplayServerName(window.raw)
 
 proc siwinWindowTitle*(
     renderer: FigRenderer[SiwinRenderBackend],

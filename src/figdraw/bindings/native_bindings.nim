@@ -353,9 +353,6 @@ proc siwinLogicalSize*(appHandle: NativeSiwinApp): NativeLogicalSize =
   let size = siwinApp(appHandle).window.logicalSize()
   NativeLogicalSize(w: size.x, h: size.y)
 
-proc siwinInputUsesBackingPixels*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.inputUsesBackingPixels()
-
 proc siwinSetWindowSize*(appHandle: NativeSiwinApp, width, height: int32) =
   siwinApp(appHandle).window.size = ivec2(width, height)
 
@@ -420,15 +417,6 @@ proc siwinMousePos*(appHandle: NativeSiwinApp): NativePoint =
   let pos = siwinApp(appHandle).window.mouse.pos
   NativePoint(x: pos.x, y: pos.y)
 
-proc siwinMouseButtonPressed*(appHandle: NativeSiwinApp, button: MouseButton): bool =
-  button in siwinApp(appHandle).window.mouse.pressed
-
-proc siwinKeyPressed*(appHandle: NativeSiwinApp, key: Key): bool =
-  key in siwinApp(appHandle).window.keyboard.pressed
-
-proc siwinModifierPressed*(appHandle: NativeSiwinApp, modifier: ModifierKey): bool =
-  modifier in siwinApp(appHandle).window.keyboard.modifiers
-
 proc siwinSetIcon*(appHandle: NativeSiwinApp, value: Image) =
   let image = value.image
   if image.isNil or image.data.len == 0:
@@ -440,39 +428,6 @@ proc siwinSetIcon*(appHandle: NativeSiwinApp, value: Image) =
       format: rgbx_32bit,
     )
 
-proc siwinClipboardText*(appHandle: NativeSiwinApp): string =
-  siwinApp(appHandle).window.clipboard.text
-
-proc siwinSetClipboardText*(appHandle: NativeSiwinApp, value: string) =
-  siwinApp(appHandle).window.clipboard.text = value
-
-proc siwinClipboardFiles*(appHandle: NativeSiwinApp): seq[string] =
-  siwinApp(appHandle).window.clipboard.files
-
-proc siwinSetClipboardFiles*(appHandle: NativeSiwinApp, value: seq[string]) =
-  siwinApp(appHandle).window.clipboard.files = value
-
-proc siwinClipboardData*(appHandle: NativeSiwinApp, mimeType: string): string =
-  siwinApp(appHandle).window.clipboard[mimeType]
-
-proc siwinSetClipboardData*(appHandle: NativeSiwinApp, mimeType, value: string) =
-  siwinApp(appHandle).window.clipboard[mimeType] = value
-
-proc siwinClipboardMimeTypes*(appHandle: NativeSiwinApp): seq[string] =
-  siwinApp(appHandle).window.clipboard.availableMimeTypes
-
-proc siwinUiScale*(appHandle: NativeSiwinApp): float32 =
-  siwinApp(appHandle).window.uiScale()
-
-proc siwinIsPopup*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.isPopup
-
-proc siwinPopupGrab*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.popupGrab
-
-proc siwinPopupOpen*(appHandle: NativeSiwinApp): bool =
-  siwinApp(appHandle).window.popupOpen
-
 proc siwinPopupPlacement*(appHandle: NativeSiwinApp): NativePopupPlacement =
   siwinApp(appHandle).window.placement().nativePlacement()
 
@@ -482,9 +437,6 @@ proc siwinRepositionPopup*(appHandle: NativeSiwinApp, placement: NativePopupPlac
 proc siwinRefreshUiScale*(appHandle: NativeSiwinApp) =
   let app = siwinApp(appHandle)
   app.window.refreshUiScale(app.autoScale)
-
-proc siwinVisualCapabilities*(appHandle: NativeSiwinApp): WindowVisualCapabilities =
-  siwinApp(appHandle).window.visualCapabilities()
 
 proc siwinTrySetBackdrop*(
     appHandle: NativeSiwinApp,
@@ -528,9 +480,6 @@ proc setTextSubpixelGlyphVariants*(appHandle: NativeSiwinApp, enabled: bool) =
 
 proc textSubpixelGlyphVariants*(appHandle: NativeSiwinApp): bool =
   siwinApp(appHandle).renderer.textSubpixelGlyphVariants()
-
-proc siwinDisplayServerName*(appHandle: NativeSiwinApp): string =
-  siwinApp(appHandle).window.siwinDisplayServerName()
 
 proc renderFrame*(
     appHandle: NativeSiwinApp,

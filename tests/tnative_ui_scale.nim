@@ -18,16 +18,17 @@ suite "native dynlib UI scale":
           320, 220, "figdraw native scale test", 192, 1.0, false, true, 0, true, false,
           false,
         )
-        require not app.isNil
+        require app.raw != nil
+        let window = siwinNativeWindowKey(app)
         try:
-          firstStep(app, false)
+          siwinWindowFirstStep(window, false)
           siwinRefreshUiScale(app)
 
           let logical = siwinLogicalSize(app)
-          if siwinInputUsesBackingPixels(app):
+          if siwinWindowInputUsesBackingPixels(window):
             let
               backing = siwinBackingSize(app)
-              scale = max(siwinUiScale(app), 0.0001'f32)
+              scale = max(siwinWindowUiScale(window), 0.0001'f32)
             check abs(logical.w - backing.w.float32 / scale) < 0.01'f32
             check abs(logical.h - backing.h.float32 / scale) < 0.01'f32
           else:
@@ -35,6 +36,6 @@ suite "native dynlib UI scale":
             check logical.w == size.w.float32
             check logical.h == size.h.float32
         finally:
-          close(app)
+          siwinWindowClose(window)
     else:
       skip()
