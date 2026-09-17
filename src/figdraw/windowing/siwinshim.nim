@@ -479,6 +479,11 @@ proc siwinWindowSetCanBecomeMainWindow*(window: pointer, value: bool) =
 proc siwinWindowInputUsesBackingPixels*(window: pointer): bool =
   rawSiwinWindow(window).inputUsesBackingPixels()
 
+proc siwinWindowSetBorderWidth*(
+    window: pointer, innerWidth, outerWidth, diagonalSize: float32
+) =
+  rawSiwinWindow(window).setBorderWidth(innerWidth, outerWidth, diagonalSize)
+
 proc siwinWindowMouseButtonPressed*(window: pointer, button: MouseButton): bool =
   button in rawSiwinWindow(window).mouse.pressed
 

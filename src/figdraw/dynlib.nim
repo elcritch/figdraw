@@ -969,7 +969,7 @@ proc setInputRegion*(window: Window, pos, size: vmath.Vec2) =
   siwinSetInputRegion(window.handle, pos.x, pos.y, size.x, size.y)
 
 proc setBorderWidth*(window: Window, innerWidth, outerWidth, diagonalSize: float32) =
-  siwinSetBorderWidth(window.handle, innerWidth, outerWidth, diagonalSize)
+  siwinWindowSetBorderWidth(window.raw, innerWidth, outerWidth, diagonalSize)
 
 proc startInteractiveMove*(window: Window, pos: vmath.Vec2) =
   siwinStartInteractiveMove(window.handle, pos.x, pos.y)

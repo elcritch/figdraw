@@ -84,6 +84,7 @@
     {"source": "../windowing/siwinshim.nim", "name": "siwinWindowCanBecomeMainWindow"},
     {"source": "../windowing/siwinshim.nim", "name": "siwinWindowSetCanBecomeMainWindow"},
     {"source": "../windowing/siwinshim.nim", "name": "siwinWindowInputUsesBackingPixels"},
+    {"source": "../windowing/siwinshim.nim", "name": "siwinWindowSetBorderWidth"},
     {"source": "../windowing/siwinshim.nim", "name": "siwinWindowMouseButtonPressed"},
     {"source": "../windowing/siwinshim.nim", "name": "siwinWindowKeyPressed"},
     {"source": "../windowing/siwinshim.nim", "name": "siwinWindowModifierPressed"},

@@ -394,11 +394,6 @@ proc siwinSetTitleRegion*(appHandle: NativeSiwinApp, x, y, width, height: float3
 proc siwinSetInputRegion*(appHandle: NativeSiwinApp, x, y, width, height: float32) =
   siwinApp(appHandle).window.setInputRegion(vec2(x, y), vec2(width, height))
 
-proc siwinSetBorderWidth*(
-    appHandle: NativeSiwinApp, innerWidth, outerWidth, diagonalSize: float32
-) =
-  siwinApp(appHandle).window.setBorderWidth(innerWidth, outerWidth, diagonalSize)
-
 proc siwinStartInteractiveMove*(appHandle: NativeSiwinApp, x, y: float32) =
   siwinApp(appHandle).window.startInteractiveMove(some(vec2(x, y)))
 
