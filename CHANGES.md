@@ -2,6 +2,9 @@
 
 ## 0.39.0
 
+- Export Pixie's image factory, copy, file reader, and PNG overloads directly
+  with Binny 0.5.9. Remove duplicate image setter, fill, and icon facade
+  forwarders while keeping alpha and icon-format conversions.
 - Reuse Bumpy, Vmath, Chroma, Rune, and stdlib Slice types in native bindings
   without boundary casts. Remove `IntSlice` and `FigSelectionRange` bridge
   aliases; text selection ranges use `Slice[int16]` directly. Export UTF-8

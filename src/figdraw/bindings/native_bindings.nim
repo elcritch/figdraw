@@ -3,7 +3,6 @@
 import std/options
 import vmath
 import pkg/pixie as pixie
-import pkg/pixie/fileformats/png as png
 import siwin/colorutils
 
 import figdraw/commons
@@ -49,26 +48,17 @@ proc wrap(value: SiwinApp): NativeSiwinApp =
 template siwinApp(value: NativeSiwinApp): SiwinApp =
   cast[SiwinApp](value.raw)
 
-proc newImage*(width, height: int): pixie.Image =
-  pixie.newImage(width, height)
-
-proc copy*(value: pixie.Image): pixie.Image =
-  pixie.copy(value)
-
-proc readImage*(filePath: string): pixie.Image =
-  pixie.readImage(filePath)
-
-proc encodePng*(value: pixie.Image): string =
-  png.encodePng(value)
-
 proc imagePixel*(value: pixie.Image, x, y: int): ColorRGBA =
+  ## Converts Pixie's premultiplied pixel to FigDraw's straight-alpha view.
   value[x, y].rgba()
 
-proc setImagePixel*(value: pixie.Image, x, y: int, color: ColorRGBA) =
-  value[x, y] = color
+proc `[]=`*(value: pixie.Image, x, y: int, color: ColorRGBA) =
+  ## Instantiates Pixie's generic pixel setter for the shared RGBA type.
+  pixie.`[]=`(value, x, y, color)
 
-proc fillImage*(value: pixie.Image, color: ColorRGBA) =
-  value.fill(color)
+proc fill*(value: pixie.Image, color: ColorRGBA) =
+  ## Instantiates Pixie's generic fill routine for the shared RGBA type.
+  pixie.fill(value, color)
 
 proc newFigSiwinApp*(
     window: Window, atlasSize: int, pixelScale: float32
@@ -91,7 +81,7 @@ proc siwinStartInteractiveResize*(window: Window, edge: Edge, pos: Vec2) =
 proc siwinShowWindowMenu*(window: Window, pos: Vec2) =
   window.showWindowMenu(some(pos))
 
-proc siwinSetIcon*(window: Window, value: pixie.Image) =
+proc `icon=`*(window: Window, value: pixie.Image) =
   let image = value
   if image.isNil or image.data.len == 0:
     window.icon = nil

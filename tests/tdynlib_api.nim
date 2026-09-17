@@ -3,7 +3,7 @@ import std/[unittest, unicode]
 import pkg/bumpy as bumpy
 
 when defined(useNativeDynlib):
-  import std/strutils
+  import std/[os, strutils, tempfiles]
   import pkg/chroma as chroma
   import pkg/vmath as vmath
   import figdraw/dynlib
@@ -47,6 +47,9 @@ suite "native dynlib API":
       doAssert not declared(replaceFigImage)
       doAssert not declared(imageWidth)
       doAssert not declared(imageHeight)
+      doAssert not declared(setImagePixel)
+      doAssert not declared(fillImage)
+      doAssert not declared(siwinSetIcon)
 
       let arrangement =
         GlyphArrangement(lines: @[2 .. 5], arrangedGlyphs: newSeq[ArrangedGlyph](6))
@@ -109,6 +112,11 @@ suite "native dynlib API":
           figdraw_native_abi.`size=`(window, ivec2(400, 300))
           discard figdraw_native_abi.clipboard(window).text()
           discard figdraw_native_abi.`[]`(window.clipboard(), "text/plain")
+          window.startInteractiveMove(vec2(10, 20))
+          window.startInteractiveResize(Edge.top, vec2(10, 20))
+          window.showWindowMenu(vec2(10, 20))
+          window.icon = newImage(1, 1)
+          window.icon = nil
           let placement = PopupPlacement(size: ivec2(80, 60))
           discard figdraw_native_abi.newSiwinPopupWindow(window, placement, true, true)
           figdraw_native_abi.close(window)
@@ -251,6 +259,32 @@ suite "native dynlib API":
       figdraw_native_abi.loadImage(imageId, move(ownedImage))
       check ownedImage.isNil
       clearFigImage(imageId)
+
+    test "uses direct Pixie file codecs and preserves alpha conversion":
+      let directory = createTempDir("figdraw-native-codecs-", "")
+      try:
+        let
+          path = directory / "image.png"
+          image = figdraw_native_abi.newImage(2, 2)
+          color = rgba(64, 32, 16, 128)
+        figdraw_native_abi.fill(image, color)
+        check figdraw_native_abi.imagePixel(image, 1, 1) == color
+        check image[1, 1] == color
+        check image[-1, 0] == rgba(0, 0, 0, 0)
+        figdraw_native_abi.`[]=`(image, -1, 0, rgba(255, 255, 255, 255))
+        check image[0, 0] == color
+        let copy = figdraw_native_abi.copy(image)
+        figdraw_native_abi.`[]=`(copy, 0, 0, rgba(255, 255, 255, 255))
+        check image[0, 0] == color
+        figdraw_native_abi.writeFile(image, path)
+        let loaded = figdraw_native_abi.readImage(path)
+        check loaded.width == 2
+        check loaded.height == 2
+        check loaded[1, 1] == color
+        check decodeImage(figdraw_native_abi.encodePng(image))[1, 1] == color
+      finally:
+        removeFile(directory / "image.png")
+        removeDir(directory)
 
     test "direct scale helpers use producer state with shared vector and rect types":
       let previousScale = figUiScale()

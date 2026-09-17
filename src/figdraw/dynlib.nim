@@ -210,7 +210,7 @@ proc toImage*[T](image: T): Image {.inline.} =
     for y in 0 ..< image.height:
       for x in 0 ..< image.width:
         let pixel = image.data[y * image.width + x]
-        figdraw_native_abi.setImagePixel(
+        figdraw_native_abi.`[]=`(
           result,
           x,
           y,
@@ -220,13 +220,8 @@ proc toImage*[T](image: T): Image {.inline.} =
     {.error: "toImage requires an image with width, height, and data fields".}
 
 proc `[]`*(image: Image, x, y: int): chroma.ColorRGBA {.inline.} =
+  ## Keeps FigDraw's straight-alpha view over Pixie's premultiplied pixels.
   imagePixel(image, x, y)
-
-proc `[]=`*(image: Image, x, y: int, color: chroma.ColorRGBA) {.inline.} =
-  setImagePixel(image, x, y, color)
-
-proc fill*(image: Image, color: chroma.ColorRGBA) {.inline.} =
-  fillImage(image, color)
 
 proc loadImageRef*(filePath: string): ImageRef =
   loadFigImage(filePath)
@@ -296,9 +291,6 @@ proc startInteractiveResize*(window: Window, edge: Edge, pos: vmath.Vec2) {.inli
 
 proc showWindowMenu*(window: Window, pos: vmath.Vec2) {.inline.} =
   siwinShowWindowMenu(window, pos)
-
-proc `icon=`*(window: Window, image: Image) {.inline.} =
-  siwinSetIcon(window, image)
 
 template `vsync=`*(window: Window, value: bool) =
   figdraw_native_abi.`vsync=`(window, value, false)
