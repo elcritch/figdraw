@@ -1044,10 +1044,19 @@ do not import or compile Siwin. Create a window with `newSiwinWindow`, then call
 `newFigSiwinApp(window, atlasSize, pixelScale)` to attach FigDraw rendering. See
 `examples/siwin_shared_native.nim` for a client using the generated ABI directly.
 
-The `figdraw/dynlib` facade retains shared-type converters and constructor
-defaults, but uses the same generated window and event types. Event closures are
-ordinary Nim closures; avoid capturing their owning window (or clear its handlers
-before releasing it) to prevent ARC reference cycles.
+The generated ABI reuses `bumpy.Rect`, Pixie's `Image`, Vmath's `Vec2`, `IVec2`,
+and `Mat4`, Chroma's `ColorRGBA`, and stdlib `Rune` and `Slice` types directly.
+No boundary casts or separate `IntSlice` type are needed. Import shared-library
+constructors and accessors where needed (for example, `ivec2`, `x`, and `y` from
+Vmath); the producer uses Vmath's default layout, so clients must use the same
+layout. `initUtf8Runes` accepts `sink string` or `openArray[Rune]` directly, and
+`loadImage` and `replaceImage` accept `sink Image`.
+
+The `figdraw/dynlib` facade retains semantic conversions such as color-to-fill
+and rune-sequence-to-UTF-8 storage, plus constructor defaults omitted from the
+generated bindings. It uses the same shared types and generated window/event
+types. Event closures are ordinary Nim closures; avoid capturing their owning
+window (or clear its handlers before releasing it) to prevent ARC reference cycles.
 
 The same switch is supported by `siwin_cell_grid.nim`,
 `siwin_image_renderlist.nim`, and `siwin_two_windows.nim`.

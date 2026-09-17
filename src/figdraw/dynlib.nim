@@ -1,4 +1,4 @@
-## FigDraw conveniences and shared-type converters over the generated native ABI.
+## FigDraw conveniences over the generated native ABI and shared Nim types.
 
 import std/[tables, unicode]
 import pkg/bumpy as bumpy
@@ -6,7 +6,6 @@ import pkg/chroma as chroma
 from pkg/pixie import Image
 import pkg/vmath as vmath
 import figdraw_native_abi
-from figdraw/common/fonttypes import fontVariation
 import figdraw/extras/systemfonttypes as systemfonttypes
 from figdraw/extras/systemfonttypes import
   SystemTypeface, initSystemTypefaceFile, initSystemTypeface
@@ -16,9 +15,7 @@ when not defined(gcArc):
 
 export tables, bumpy, chroma, vmath
 export Image
-export figdraw_native_abi except
-  ColorRGBA, Vec2, IVec2, Mat4, Rune, FigSelectionRange, SystemTypefaceFile,
-  placeGlyphs, toRunes, `[]`, newSiwinWindow
+export figdraw_native_abi except SystemTypefaceFile, placeGlyphs, newSiwinWindow
 export
   SystemTypeface, systemfonttypes.SystemTypefaceFile, initSystemTypefaceFile,
   initSystemTypeface
@@ -47,12 +44,6 @@ const figdrawTextBackend* {.strdefine.} =
 type
   ImageRef* = ImageId
 
-  DirectionCorners* = enum
-    dcTopLeft
-    dcTopRight
-    dcBottomLeft
-    dcBottomRight
-
   CornerRadii2D*[T] = object
     x*, y*: array[DirectionCorners, T]
 
@@ -69,63 +60,14 @@ converter nilToImageRef*(value: typeof(nil)): ImageRef =
   discard value
   default(ImageRef)
 
-converter toNativeColor*(
-    value: chroma.ColorRGBA
-): figdraw_native_abi.ColorRGBA {.inline.} =
-  cast[figdraw_native_abi.ColorRGBA](value)
-
-converter toColor*(value: figdraw_native_abi.ColorRGBA): chroma.ColorRGBA {.inline.} =
-  cast[chroma.ColorRGBA](value)
-
-converter toNativeVec2*(value: vmath.Vec2): figdraw_native_abi.Vec2 {.inline.} =
-  cast[figdraw_native_abi.Vec2](value)
-
-converter toVec2*(value: figdraw_native_abi.Vec2): vmath.Vec2 {.inline.} =
-  cast[vmath.Vec2](value)
-
-converter toNativeIVec2*(value: vmath.IVec2): figdraw_native_abi.IVec2 {.inline.} =
-  cast[figdraw_native_abi.IVec2](value)
-
-converter toIVec2*(value: figdraw_native_abi.IVec2): vmath.IVec2 {.inline.} =
-  cast[vmath.IVec2](value)
-
 converter toCursor*(value: BuiltinCursor): Cursor {.inline.} =
   Cursor(kind: CursorKind.builtin, builtin: value)
-
-converter toNativeMat4*(value: vmath.Mat4): figdraw_native_abi.Mat4 {.inline.} =
-  cast[figdraw_native_abi.Mat4](value)
-
-converter toMat4*(value: figdraw_native_abi.Mat4): vmath.Mat4 {.inline.} =
-  cast[vmath.Mat4](value)
-
-converter toNativeRune*(value: unicode.Rune): figdraw_native_abi.Rune {.inline.} =
-  cast[figdraw_native_abi.Rune](value)
-
-converter toRune*(value: figdraw_native_abi.Rune): unicode.Rune {.inline.} =
-  cast[unicode.Rune](value)
-
-proc toRunes*(runes: figdraw_native_abi.Utf8Runes): seq[unicode.Rune] =
-  let nativeRunes = figdraw_native_abi.toRunes(runes)
-  result = newSeqOfCap[unicode.Rune](nativeRunes.len)
-  for rune in nativeRunes:
-    result.add rune.toRune()
 
 converter toRuneSequence*(runes: figdraw_native_abi.Utf8Runes): seq[unicode.Rune] =
   runes.toRunes()
 
 converter toUtf8Runes*(runes: seq[unicode.Rune]): figdraw_native_abi.Utf8Runes =
-  var nativeRunes = newSeqOfCap[figdraw_native_abi.Rune](runes.len)
-  for rune in runes:
-    nativeRunes.add rune.toNativeRune()
-  figdraw_native_abi.utf8RunesFromRunes(nativeRunes)
-
-proc `[]`*(runes: figdraw_native_abi.Utf8Runes, index: int): unicode.Rune =
-  figdraw_native_abi.`[]`(runes, index).toRune()
-
-proc `[]`*(
-    runes: figdraw_native_abi.Utf8Runes, slice: Slice[int]
-): figdraw_native_abi.Utf8Runes =
-  figdraw_native_abi.`[]`(runes, cast[figdraw_native_abi.IntSlice](slice))
+  figdraw_native_abi.initUtf8Runes(runes)
 
 iterator items*(runes: figdraw_native_abi.Utf8Runes): unicode.Rune =
   for rune in figdraw_native_abi.stringValue(runes).runes:
@@ -143,35 +85,16 @@ func `==`*(a, b: figdraw_native_abi.Utf8Runes): bool {.inline.} =
   figdraw_native_abi.utf8RunesEqual(a, b)
 
 func `==`*(a: figdraw_native_abi.Utf8Runes, b: openArray[unicode.Rune]): bool =
-  var nativeRunes = newSeqOfCap[figdraw_native_abi.Rune](b.len)
-  for rune in b:
-    nativeRunes.add rune.toNativeRune()
-  figdraw_native_abi.utf8RunesEqualRunes(a, nativeRunes)
+  figdraw_native_abi.utf8RunesEqualRunes(a, b)
 
 func `==`*(a: openArray[unicode.Rune], b: figdraw_native_abi.Utf8Runes): bool =
   b == a
 
-converter toNativeSelectionRange*(
-    value: Slice[int16]
-): figdraw_native_abi.FigSelectionRange {.inline.} =
-  cast[figdraw_native_abi.FigSelectionRange](value)
-
-converter toSelectionRange*(
-    value: figdraw_native_abi.FigSelectionRange
-): Slice[int16] {.inline.} =
-  cast[Slice[int16]](value)
-
-converter toNativeIntSlice*(value: Slice[int]): figdraw_native_abi.IntSlice {.inline.} =
-  cast[figdraw_native_abi.IntSlice](value)
-
-converter toIntSlice*(value: figdraw_native_abi.IntSlice): Slice[int] {.inline.} =
-  cast[Slice[int]](value)
-
 converter toFill*(value: chroma.ColorRGBA): Fill {.inline.} =
-  fill(value.toNativeColor())
+  fill(value)
 
 converter toFill*(value: chroma.Color): Fill {.inline.} =
-  fill(value.rgba().toNativeColor())
+  fill(value.rgba())
 
 proc typeset*(
     box: bumpy.Rect,
@@ -201,13 +124,6 @@ func `==`*(a, b: FigIdx): bool {.inline.} =
 func `==`*(a, b: ImageId): bool {.inline.} =
   int(a) == int(b)
 
-proc drawableBezier*(
-    controls: openArray[vmath.Vec2], steps: uint16 = 0'u16
-): DrawableOp {.inline.} =
-  result = DrawableOp(kind: dkBezier, steps: steps)
-  for control in controls:
-    result.controls.add control.toNativeVec2()
-
 proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
   when v is SomeFloat:
     if v <= 0:
@@ -224,11 +140,11 @@ proc cornerToU16(v: SomeNumber): uint16 {.inline.} =
 
 converter toCornerRadii*[T: SomeNumber](a: array[4, T]): CornerRadii =
   for i in 0 ..< 4:
-    result[i] = cornerToU16(a[i])
+    result[DirectionCorners(i)] = cornerToU16(a[i])
 
 converter toCornerRadii*[T: SomeNumber](a: array[DirectionCorners, T]): CornerRadii =
   for c in DirectionCorners:
-    result[c.ord] = cornerToU16(a[c])
+    result[c] = cornerToU16(a[c])
 
 func initCornerRadii2D*[T](radii: array[DirectionCorners, T]): CornerRadii2D[T] =
   CornerRadii2D[T](x: radii, y: radii)
@@ -251,40 +167,9 @@ const
   blackColor* = chroma.color(0, 0, 0, 1)
   blueColor* = chroma.color(0, 0, 1, 1)
 
-proc scaled*(value: bumpy.Rect): bumpy.Rect {.inline.} =
-  value * figUiScale()
-
-proc descaled*(value: bumpy.Rect): bumpy.Rect {.inline.} =
-  value / figUiScale()
-
-proc scaled*(value: vmath.Vec2): vmath.Vec2 {.inline.} =
-  value * figUiScale()
-
-proc descaled*(value: vmath.Vec2): vmath.Vec2 {.inline.} =
-  value / figUiScale()
-
-proc scaled*(value: vmath.IVec2): vmath.IVec2 {.inline.} =
-  vmath.ivec2(vmath.vec2(value) * figUiScale())
-
-proc scaled*(value: float32): float32 {.inline.} =
-  value * figUiScale()
-
-proc descaled*(value: float32): float32 {.inline.} =
-  value / figUiScale()
-
-proc fs*(
-    font: FigFont, color: Fill = fill(rgba(0, 0, 0, 255).toNativeColor())
-): FontStyle {.inline.} =
-  FontStyle(font: font, color: color)
-
-proc fsp*(font: FigFont, color: Fill, text: string): (FontStyle, string) {.inline.} =
-  (FontStyle(font: font, color: color), text)
-
-proc span*(font: FigFont, color: Fill, text: string): (FontStyle, string) {.inline.} =
-  (FontStyle(font: font, color: color), text)
-
-proc fontWithSize*(fontId: TypefaceId, size: float32): FigFont {.inline.} =
-  FigFont(typefaceId: fontId, size: size)
+proc fs*(font: FigFont): FontStyle {.inline.} =
+  ## Supplies the source API's default fill omitted from generated bindings.
+  figdraw_native_abi.fs(font, fill(rgba(0, 0, 0, 255)))
 
 proc loadTypeface*(file: systemfonttypes.SystemTypefaceFile): TypefaceId =
   figdraw_native_abi.loadTypeface(
@@ -308,11 +193,7 @@ proc placeGlyphs*(
     glyphs: openArray[(unicode.Rune, vmath.Vec2)],
     origin = GlyphTopLeft,
 ): GlyphArrangement {.inline.} =
-  var nativeGlyphs =
-    newSeqOfCap[(figdraw_native_abi.Rune, figdraw_native_abi.Vec2)](glyphs.len)
-  for (rune, pos) in glyphs:
-    nativeGlyphs.add((rune.toNativeRune(), pos.toNativeVec2()))
-  figdraw_native_abi.placeStyledGlyphs(style, nativeGlyphs, origin)
+  figdraw_native_abi.placeStyledGlyphs(style, glyphs, origin)
 
 template registerStaticTypeface*(
     name: static[string], path: static[string], kind: static[TypeFaceKinds] = TTF
@@ -325,7 +206,7 @@ proc toImage*(image: Image): Image {.inline.} =
 
 proc toImage*[T](image: T): Image {.inline.} =
   when compiles(image.width) and compiles(image.height) and compiles(image.data):
-    result = figdraw_native_abi.newPixieImage(image.width, image.height)
+    result = figdraw_native_abi.newImage(image.width, image.height)
     for y in 0 ..< image.height:
       for x in 0 ..< image.width:
         let pixel = image.data[y * image.width + x]
@@ -338,53 +219,23 @@ proc toImage*[T](image: T): Image {.inline.} =
   else:
     {.error: "toImage requires an image with width, height, and data fields".}
 
-proc newImage*(width, height: int): Image {.inline.} =
-  newPixieImage(width, height)
-
-proc readImage*(filePath: string): Image {.inline.} =
-  readPixieImage(filePath)
-
-proc decodeImage*(data: string): Image {.inline.} =
-  decodePixieImage(data)
-
-proc writeFile*(image: Image, filePath: string) {.inline.} =
-  writePixieImage(image, filePath)
-
-proc copy*(image: Image): Image {.inline.} =
-  copyImage(image)
-
-proc width*(image: Image): int {.inline.} =
-  imageWidth(image)
-
-proc height*(image: Image): int {.inline.} =
-  imageHeight(image)
-
 proc `[]`*(image: Image, x, y: int): chroma.ColorRGBA {.inline.} =
-  imagePixel(image, x, y).toColor()
+  imagePixel(image, x, y)
 
 proc `[]=`*(image: Image, x, y: int, color: chroma.ColorRGBA) {.inline.} =
-  setImagePixel(image, x, y, color.toNativeColor())
+  setImagePixel(image, x, y, color)
 
 proc fill*(image: Image, color: chroma.ColorRGBA) {.inline.} =
-  fillImage(image, color.toNativeColor())
+  fillImage(image, color)
 
 proc loadImageRef*(filePath: string): ImageRef =
   loadFigImage(filePath)
 
-proc loadImage*(filePath: string): ImageId {.inline.} =
-  loadFigImage(filePath)
-
-proc loadImage*(id: ImageId, image: Image) {.inline.} =
-  putFigImage(id, image)
-
 proc loadImage*[T](id: ImageId, image: T) {.inline.} =
-  putFigImage(id, image.toImage())
-
-proc replaceImage*(id: ImageId, image: Image) {.inline.} =
-  replaceFigImage(id, image)
+  figdraw_native_abi.loadImage(id, image.toImage())
 
 proc replaceImage*[T](id: ImageId, image: T) {.inline.} =
-  replaceFigImage(id, image.toImage())
+  figdraw_native_abi.replaceImage(id, image.toImage())
 
 proc imageStyle*(image: ImageRef): ImageStyle =
   ImageStyle(id: image, fill: fill(rgba(255, 255, 255, 255)))
@@ -407,14 +258,7 @@ proc newSiwinWindow*(
 ): Window =
   ## Creates the producer's platform window without importing Siwin locally.
   figdraw_native_abi.newSiwinWindow(
-    size.toNativeIVec2(),
-    fullscreen,
-    title,
-    vsync,
-    msaa,
-    resizable,
-    frameless,
-    transparent,
+    size, fullscreen, title, vsync, msaa, resizable, frameless, transparent
   )
 
 proc newPopupWindow*(
@@ -445,13 +289,13 @@ proc nativeWindowKey*(window: Window): pointer {.inline.} =
   cast[pointer](window)
 
 proc startInteractiveMove*(window: Window, pos: vmath.Vec2) {.inline.} =
-  siwinStartInteractiveMove(window, pos.toNativeVec2())
+  siwinStartInteractiveMove(window, pos)
 
 proc startInteractiveResize*(window: Window, edge: Edge, pos: vmath.Vec2) {.inline.} =
-  siwinStartInteractiveResize(window, edge, pos.toNativeVec2())
+  siwinStartInteractiveResize(window, edge, pos)
 
 proc showWindowMenu*(window: Window, pos: vmath.Vec2) {.inline.} =
-  siwinShowWindowMenu(window, pos.toNativeVec2())
+  siwinShowWindowMenu(window, pos)
 
 proc `icon=`*(window: Window, image: Image) {.inline.} =
   siwinSetIcon(window, image)
@@ -464,9 +308,6 @@ template firstStep*(window: Window) =
 
 template configureUiScale*(window: Window): bool =
   figdraw_native_abi.configureUiScale(window, "HDI")
-
-proc `[]`*(clipboard: Clipboard, mimeType: string): string {.inline.} =
-  figdraw_native_abi.`[]`(clipboard, mimeType)
 
 proc presentationTarget*(
     renderer: FigRenderer[SiwinRenderBackend]

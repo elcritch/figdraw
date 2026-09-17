@@ -1,6 +1,7 @@
 import std/[math, monotimes, os, strformat, times]
 
 import pkg/bumpy as bumpy
+from pkg/vmath import ivec2, x, y
 import figdraw_native_abi
 
 when defined(macosx):
@@ -127,10 +128,10 @@ when isMainModule:
   let
     typeface = loadTypeface("Ubuntu.ttf")
     fpsFont = FigFont(typefaceId: typeface, size: 18)
-    previewImage = readPixieImage(getCurrentDir() / "data" / "img1.png")
+    previewImage = readImage(getCurrentDir() / "data" / "img1.png")
     previewImageId = imgId("native-shared-preview")
     window = newSiwinWindow(
-      IVec2(x: 800, y: 600),
+      ivec2(800, 600),
       false,
       "Siwin RenderList (Native Nim Dynlib)",
       true,
@@ -142,7 +143,7 @@ when isMainModule:
     app = newFigSiwinApp(window, 512, 1.0)
     autoScale = configureUiScale(window, "HDI")
   var renders = newRenders()
-  putFigImage(previewImageId, previewImage)
+  loadImage(previewImageId, previewImage)
 
   if app.raw == nil or renders.isNil:
     quit("Failed to initialize native FigDraw objects", 1)

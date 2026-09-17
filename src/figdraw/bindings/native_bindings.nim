@@ -1,21 +1,17 @@
-## Native Nim dynamic-library facade generated through Binny.
+## Native dynamic-library producer entry point and ABI-specific adapters.
 
-import std/[options, unicode]
+import std/options
 import vmath
 import pkg/pixie as pixie
 import pkg/pixie/fileformats/png as png
 import siwin/colorutils
 
 import figdraw/commons
-import figdraw/common/fonttypes as fonttypes
 import figdraw/fignodes
 import figdraw/figrender
 import figdraw/windowing/siwinshim
 
 type
-  # Keep a stable ABI name for the stdlib Slice boundary converters.
-  IntSlice* = Slice[int]
-
   # Owns renderer state; Siwin windows and events are exported directly.
   NativeSiwinApp* = object
     raw*: pointer
@@ -23,10 +19,6 @@ type
   SiwinApp = ref object
     renderer: FigRenderer[SiwinRenderBackend]
     autoScale: bool
-
-proc utf8RunesFromRunes*(runes: seq[Rune]): fonttypes.Utf8Runes =
-  ## Creates UTF-8-backed storage from a compatibility rune sequence.
-  fonttypes.initUtf8Runes(runes)
 
 proc retainRaw[T](raw: pointer) =
   if raw != nil:
@@ -57,29 +49,17 @@ proc wrap(value: SiwinApp): NativeSiwinApp =
 template siwinApp(value: NativeSiwinApp): SiwinApp =
   cast[SiwinApp](value.raw)
 
-proc newPixieImage*(width, height: int): pixie.Image =
+proc newImage*(width, height: int): pixie.Image =
   pixie.newImage(width, height)
 
-proc readPixieImage*(filePath: string): pixie.Image =
-  pixie.readImage(filePath)
+proc copy*(value: pixie.Image): pixie.Image =
+  pixie.copy(value)
 
-proc decodePixieImage*(data: string): pixie.Image =
-  pixie.decodeImage(data)
+proc readImage*(filePath: string): pixie.Image =
+  pixie.readImage(filePath)
 
 proc encodePng*(value: pixie.Image): string =
   png.encodePng(value)
-
-proc writePixieImage*(value: pixie.Image, filePath: string) =
-  value.writeFile(filePath)
-
-proc copyImage*(value: pixie.Image): pixie.Image =
-  value.copy()
-
-proc imageWidth*(value: pixie.Image): int =
-  value.width
-
-proc imageHeight*(value: pixie.Image): int =
-  value.height
 
 proc imagePixel*(value: pixie.Image, x, y: int): ColorRGBA =
   value[x, y].rgba()
@@ -89,12 +69,6 @@ proc setImagePixel*(value: pixie.Image, x, y: int, color: ColorRGBA) =
 
 proc fillImage*(value: pixie.Image, color: ColorRGBA) =
   value.fill(color)
-
-proc putFigImage*(id: ImageId, value: pixie.Image) =
-  loadImage(id, value)
-
-proc replaceFigImage*(id: ImageId, value: pixie.Image) =
-  replaceImage(id, value)
 
 proc newFigSiwinApp*(
     window: Window, atlasSize: int, pixelScale: float32

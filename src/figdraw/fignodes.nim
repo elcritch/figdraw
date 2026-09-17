@@ -51,7 +51,6 @@ type
     layers*: OrderedTable[ZLevel, RenderList]
 
   FigIdx* = distinct int16
-  FigSelectionRange* = Slice[int16]
 
   Fig* = object
     zlevel*: ZLevel
@@ -75,7 +74,7 @@ type
       stroke*: RenderStroke
     of nkText:
       textLayout*: GlyphArrangement
-      selectionRange*: FigSelectionRange
+      selectionRange*: Slice[int16]
     of nkDrawable:
       drawStroke*: RenderStroke
       drawSteps*: uint16

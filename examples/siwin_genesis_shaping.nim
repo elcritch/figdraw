@@ -11,8 +11,6 @@ else:
   import figdraw
   import figdraw/windowing/siwinshim
 
-import figdraw/extras/systemfonts
-
 logScope:
   scope = "siwin_scripture_shaping"
 

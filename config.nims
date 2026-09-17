@@ -188,7 +188,7 @@ when defined(feature.figdraw.sharedlib):
   )
   nativeBuild.nimArgs =
     @[
-      "--mm:arc", "-d:useMalloc", "-d:release", "-d:vmathObjBased", "--path:src",
+      "--mm:arc", "-d:useMalloc", "-d:release", "--path:src",
       "--path:deps/siwin/src",
     ]
   nativeBuild.libraryNameStrdefine = true

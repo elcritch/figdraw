@@ -4,6 +4,8 @@ import pkg/bumpy as bumpy
 
 when defined(useNativeDynlib):
   import std/strutils
+  import pkg/chroma as chroma
+  import pkg/vmath as vmath
   import figdraw/dynlib
   from figdraw_native_abi import nil
 
@@ -17,6 +19,62 @@ when defined(useNativeDynlib):
 
 suite "native dynlib API":
   when defined(useNativeDynlib):
+    test "uses shared Nim types directly without boundary casts":
+      doAssert figdraw_native_abi.Rect is bumpy.Rect
+      doAssert figdraw_native_abi.Vec2 is vmath.Vec2
+      doAssert figdraw_native_abi.IVec2 is vmath.IVec2
+      doAssert figdraw_native_abi.Mat4 is vmath.Mat4
+      doAssert figdraw_native_abi.ColorRGBA is chroma.ColorRGBA
+      doAssert figdraw_native_abi.Rune is unicode.Rune
+      doAssert typeof(default(GlyphArrangement).lines) is seq[Slice[int]]
+      doAssert typeof(default(Fig).selectionRange) is Slice[int16]
+      doAssert DirectionCorners is figdraw_native_abi.DirectionCorners
+      doAssert CornerRadii is array[DirectionCorners, uint16]
+      doAssert not declared(IntSlice)
+      doAssert not declared(FigSelectionRange)
+      doAssert not declared(toNativeVec2)
+      doAssert not declared(toNativeIVec2)
+      doAssert not declared(toNativeMat4)
+      doAssert not declared(toNativeColor)
+      doAssert not declared(toNativeRune)
+      doAssert not declared(toNativeIntSlice)
+      doAssert not declared(toNativeSelectionRange)
+      doAssert not declared(utf8RunesFromRunes)
+      doAssert not declared(newPixieImage)
+      doAssert not declared(copyImage)
+      doAssert not declared(readPixieImage)
+      doAssert not declared(putFigImage)
+      doAssert not declared(replaceFigImage)
+      doAssert not declared(imageWidth)
+      doAssert not declared(imageHeight)
+
+      let arrangement =
+        GlyphArrangement(lines: @[2 .. 5], arrangedGlyphs: newSeq[ArrangedGlyph](6))
+      let ranges: seq[Slice[int]] = figdraw_native_abi.lineGlyphRanges(arrangement)
+      check ranges == @[2 .. 5]
+      check Fig(kind: nkText, selectionRange: 1'i16 .. 3'i16).selectionRange ==
+        1'i16 .. 3'i16
+      check figdraw_native_abi.fill(chroma.rgba(12, 34, 56, 255)).color ==
+        chroma.rgba(12, 34, 56, 255)
+
+      var matrix = mat4()
+      matrix[0, 1] = 3.0'f32
+      var list = RenderList()
+      discard figdraw_native_abi.addRoot(
+        list,
+        Fig(
+          kind: nkTransform,
+          transform:
+            TransformStyle(translation: vec2(4, 5), matrix: matrix, useMatrix: true),
+        ),
+      )
+      check list.nodes[0].transform.translation == vec2(4, 5)
+      check list.nodes[0].transform.matrix == matrix
+
+      var renders = newRenders()
+      figdraw_native_abi.`[]`(renders, 0.ZLevel).nodes.add Fig(kind: nkRectangle)
+      check renders.len(0.ZLevel) == 1
+
     test "uses generated Siwin types without the legacy bridge records":
       const generatedAbi = staticRead("../bin/figdraw_native_abi.nim")
       for line in generatedAbi.splitLines():
@@ -39,14 +97,7 @@ suite "native dynlib API":
       doAssert compiles(
         block:
           let window = figdraw_native_abi.newSiwinWindow(
-            figdraw_native_abi.IVec2(x: 320, y: 220),
-            false,
-            "raw Siwin",
-            true,
-            0,
-            true,
-            false,
-            false,
+            ivec2(320, 220), false, "raw Siwin", true, 0, true, false, false
           )
           window.eventsHandler = WindowEventsHandler(
             onResize: proc(event: ResizeEvent) =
@@ -55,7 +106,7 @@ suite "native dynlib API":
               discard event.text,
           )
           figdraw_native_abi.firstStep(window, false)
-          figdraw_native_abi.`size=`(window, figdraw_native_abi.IVec2(x: 400, y: 300))
+          figdraw_native_abi.`size=`(window, ivec2(400, 300))
           discard figdraw_native_abi.clipboard(window).text()
           discard figdraw_native_abi.`[]`(window.clipboard(), "text/plain")
           let placement = PopupPlacement(size: ivec2(80, 60))
@@ -73,18 +124,25 @@ suite "native dynlib API":
       check not radii.isCircular()
       check initCornerRadii2D(horizontal).isCircular()
       check ellipse.kind == dkEllipse
-      check ellipse.ellipseCenter.toVec2() == vec2(12.0'f32, 18.0'f32)
-      check ellipse.ellipseRadii.toVec2() == vec2(24.0'f32, 10.0'f32)
+      check ellipse.ellipseCenter == vec2(12.0'f32, 18.0'f32)
+      check ellipse.ellipseRadii == vec2(24.0'f32, 10.0'f32)
       let bezier = drawableBezier([vec2(0, 0), vec2(1, 2), vec2(3, 4)], steps = 8'u16)
       check bezier.kind == dkBezier
       check bezier.controls.len == 3
-      check bezier.controls[1].toVec2() == vec2(1.0'f32, 2.0'f32)
+      check bezier.controls[1] == vec2(1.0'f32, 2.0'f32)
 
       var node = Fig(kind: nkRectangle)
       node.corners = horizontal
       node.cornerRadiiY = vertical
       node.flags.incl NfEllipticalCorners
       check NfEllipticalCorners in node.flags
+      node.corners = [4.0'f32, 6.0'f32, 8.0'f32, 10.0'f32]
+      check node.corners[dcTopLeft] == 4'u16
+      check node.corners[dcBottomRight] == 10'u16
+      var enumRadii: array[DirectionCorners, float32]
+      enumRadii[dcTopRight] = 12.0'f32
+      node.corners = enumRadii
+      check node.corners[dcTopRight] == 12'u16
 
     test "provides source-compatible image and backdrop values":
       var imageRef: ImageRef
@@ -128,6 +186,85 @@ suite "native dynlib API":
       check textBackendFeatures().len > 0
       check supportedFontFileExtensions().len > 0
       check storage.copyUtf8Runes().stringValue() == source
+
+    test "uses direct UTF-8 constructors with shared Rune and sink string arguments":
+      let
+        source = "A λ 😀"
+        sourceRunes = source.toRunes()
+        fromRunes = figdraw_native_abi.initUtf8Runes(sourceRunes)
+        fromArray = figdraw_native_abi.initUtf8Runes([Rune(0x3bb), Rune(0x1f600)])
+
+      check figdraw_native_abi.toRunes(fromRunes) == sourceRunes
+      check figdraw_native_abi.`[]`(fromRunes, 2) == Rune(0x3bb)
+      check figdraw_native_abi.`[]`(fromRunes, 2 .. 4).stringValue() == "λ 😀"
+      check fromArray.stringValue() == "λ😀"
+      check sourceRunes == source.toRunes()
+
+      var retainedText = source
+      let fromRetainedText = figdraw_native_abi.initUtf8Runes(retainedText)
+      retainedText[0] = 'B'
+      check fromRetainedText.stringValue() == source
+      check retainedText == "B λ 😀"
+
+      var ownedText = source & "!"
+      let fromOwnedText = figdraw_native_abi.initUtf8Runes(move(ownedText))
+      check fromOwnedText.stringValue() == source & "!"
+      check ownedText.len == 0
+      check figdraw_native_abi.initUtf8Runes(newSeq[Rune]()).isEmpty
+      check figdraw_native_abi.initUtf8Runes("").isEmpty
+
+    test "uses direct font helpers and shared image fields":
+      let
+        font = fontWithSize(TypefaceId(17), 20.0'f32)
+        color = rgba(12, 34, 56, 255)
+        style = figdraw_native_abi.fs(font, fill(color))
+        styledText = fsp(font, fill(color), "direct span")
+        image = newImage(2, 3)
+
+      check uint64(font.typefaceId) == 17'u64
+      check font.size == 20.0'f32
+      check style.color.color == color
+      check fs(font).color.color == rgba(0, 0, 0, 255)
+      check styledText[0].font.size == font.size
+      check styledText[1] == "direct span"
+      check span(font, fill(color), "alias span")[1] == "alias span"
+      check image.width == 2
+      check image.height == 3
+      image.fill(color)
+      check image[1, 2] == color
+      let copiedImage = image.copy()
+      copiedImage[1, 2] = rgba(90, 80, 70, 255)
+      check copiedImage[1, 2] == rgba(90, 80, 70, 255)
+      check image[1, 2] == color
+      let decodedImage = decodeImage(image.encodePng())
+      check decodedImage.width == image.width
+      check decodedImage.height == image.height
+      check decodedImage[1, 2] == color
+
+      let imageId = imgId("native-direct-upload")
+      figdraw_native_abi.loadImage(imageId, image)
+      check image.width == 2
+      check image[1, 2] == color
+      figdraw_native_abi.replaceImage(imageId, copiedImage)
+      check copiedImage[1, 2] == rgba(90, 80, 70, 255)
+      var ownedImage = newImage(2, 3)
+      figdraw_native_abi.loadImage(imageId, move(ownedImage))
+      check ownedImage.isNil
+      clearFigImage(imageId)
+
+    test "direct scale helpers use producer state with shared vector and rect types":
+      let previousScale = figUiScale()
+      try:
+        setFigUiScale(2.0'f32)
+        check scaled(vec2(3, 4)) == vec2(6, 8)
+        check descaled(vec2(6, 8)) == vec2(3, 4)
+        check scaled(ivec2(3, 4)) == ivec2(6, 8)
+        check scaled(bumpy.rect(1, 2, 3, 4)) == bumpy.rect(2, 4, 6, 8)
+        check descaled(bumpy.rect(2, 4, 6, 8)) == bumpy.rect(1, 2, 3, 4)
+        check scaled(3.0'f32) == 6.0'f32
+        check descaled(6.0'f32) == 3.0'f32
+      finally:
+        setFigUiScale(previousScale)
 
     test "exports render tree and text layout helpers":
       doAssert compiles(
@@ -212,7 +349,7 @@ suite "native dynlib API":
           let arrangement = GlyphArrangement()
           let glyphRange: Slice[int] = arrangement.glyphRangeFor(0 .. 1)
           let sourceRange: Slice[int] = arrangement.sourceRuneRangeAt(vec2(0, 0))
-          let lines: seq[IntSlice] = arrangement.lineGlyphRanges()
+          let lines: seq[Slice[int]] = arrangement.lineGlyphRanges()
           let selectionRects: seq[bumpy.Rect] = arrangement.selectionRectsFor(0 .. 1)
           let carets: seq[TextCaretPosition] = arrangement.caretPositionsFor(0)
           discard glyphRange

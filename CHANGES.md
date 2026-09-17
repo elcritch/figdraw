@@ -2,12 +2,17 @@
 
 ## 0.39.0
 
+- Reuse Bumpy, Vmath, Chroma, Rune, and stdlib Slice types in native bindings
+  without boundary casts. Remove `IntSlice` and `FigSelectionRange` bridge
+  aliases; text selection ranges use `Slice[int16]` directly. Export UTF-8
+  constructors, scale/font helpers, Bezier overloads, Pixie codecs,
+  and sink-based image uploads directly instead of maintaining duplicates.
 - Export Siwin windows, events, clipboard operations, and platform methods
   directly from the native dynamic library without compiling Siwin in clients.
   Create windows with `newSiwinWindow`, then attach FigDraw rendering with
   `newFigSiwinApp(window, atlasSize, pixelScale)`; remove the legacy window
-  records, pointer forwarders, and C-callback bridge while retaining shared-type
-  converters and the renderer ownership handle.
+  records, pointer forwarders, and C-callback bridge while retaining semantic
+  converters, constructor defaults, and the renderer ownership handle.
 - Store `GlyphArrangement` source and display text as UTF-8 with sparse rune
   indexes in both static and native dynamic-library builds, reducing retained
   text-layout memory while preserving indexed rune access plus compatibility

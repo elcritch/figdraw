@@ -4,6 +4,7 @@ when defined(linux) or defined(bsd):
 
 when defined(useNativeDynlib):
   import figdraw_native_abi
+  from pkg/vmath import ivec2, x, y
 
 suite "native dynlib UI scale":
   test "reports logical dimensions instead of backing pixels":
@@ -16,7 +17,7 @@ suite "native dynlib UI scale":
 
         let
           window = newSiwinWindow(
-            IVec2(x: 320, y: 220),
+            ivec2(320, 220),
             false,
             "figdraw native scale test",
             true,
@@ -44,14 +45,14 @@ suite "native dynlib UI scale":
           firstStep(window, false)
           refreshUiScale(window, autoScale)
 
-          `minSize=`(window, IVec2(x: 100, y: 80))
-          `maxSize=`(window, IVec2(x: 1280, y: 720))
+          `minSize=`(window, ivec2(100, 80))
+          `maxSize=`(window, ivec2(1280, 720))
           check minSize(window).x == 100
           check minSize(window).y == 80
           check maxSize(window).x == 1280
           check maxSize(window).y == 720
           `title=`(window, "direct Siwin setters")
-          `size=`(window, IVec2(x: 400, y: 280))
+          `size=`(window, ivec2(400, 280))
           for _ in 0 ..< 20:
             step(window)
             if resizeCount > 0:
