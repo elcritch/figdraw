@@ -45,7 +45,7 @@ feature "vulkan":
 feature "metal":
   requires "https://github.com/elcritch/metalx#head"
 feature "sharedlib":
-  requires "gh:elcritch/binny >= 0.5.16"
+  requires "gh:elcritch/binny >= 0.5.17"
 
 import std/os
 when fileExists("src/figdraw/build/tasks.nim"):
