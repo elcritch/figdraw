@@ -463,7 +463,7 @@ jobs:
       run: atlas install --features:siwin,sharedlib
 
     - name: Build and stage native dynamic library
-      run: nim native_dynlib
+      run: nim build_dynlib
 
     - name: Compile consumer against staged native artifacts
       run: |

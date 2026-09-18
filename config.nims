@@ -284,7 +284,7 @@ proc runNativeNim(arguments: openArray[string]) =
   command.add arguments
   exec nativeCommand(command)
 
-task native_dynlib, "Stage native Nim dynlib artifacts in bin":
+task build_dynlib, "Stage native Nim dynlib artifacts in bin":
   when not defined(feature.figdraw.sharedlib):
     {.error: "requires sharedlib feature".}
   nativeBuild.buildNativeDynlib()

@@ -7,7 +7,6 @@ when defined(useNativeDynlib):
   import figdraw/dynlib
 else:
   import figdraw
-  import figdraw/windowing/siwinshim
 
 import renderlist_100_common
 
