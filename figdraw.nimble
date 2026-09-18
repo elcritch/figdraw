@@ -49,6 +49,5 @@ feature "sharedlib":
 
 import std/os
 
-task build_dynlib, "Build and stage the native Nim dynamic library":
-  let compiler = getEnv("FIGDRAW_NATIVE_NIM", getHomeDir() & "/projs/nims/Nim/bin/nim")
-  exec compiler.quoteShell & " build_dynlib"
+when fileExists("./config.nims"):
+  include "config.nims"
