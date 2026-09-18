@@ -48,6 +48,21 @@ feature "sharedlib":
   requires "gh:elcritch/binny >= 0.5.16"
 
 import std/os
+when fileExists("src/figdraw/build/tasks.nim"):
+	import src/figdraw/build/tasks
+else:
+	import figdraw/build/tasks
 
-when fileExists("./config.nims"):
-  include "config.nims"
+task build_dynlib, "Stage native Nim dynlib artifacts in bin":
+  nativeBuild.buildNativeDynlib()
+  nativeBuild.stageNativeDynlib("bin")
+
+task native_shared_example, "Stage the native dynlib and build the siwin example":
+  nativeBuild.buildNativeDynlib()
+  nativeBuild.stageNativeDynlib("bin")
+  runNativeNim(
+    [
+      "c", "-d:release", "--mm:arc", "-d:useMalloc", "--path:bin",
+      "--out:examples/siwin_shared_native", "examples/siwin_shared_native.nim",
+    ]
+  )
