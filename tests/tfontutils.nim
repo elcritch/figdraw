@@ -165,6 +165,24 @@ suite "fontutils":
     check materialized == sourceRunes
     check legacyRuneCount(runes) == runes.len
 
+  test "UTF-8 glyph builder preserves source byte ranges":
+    let
+      runes = initArrangementRunes("a🙂β")
+      fontId = FontId(Hash(1))
+      glyphFont = GlyphFont(fontId: fontId, lineHeight: 14, descentAdj: 10)
+      positions = @[vec2(0, 0), vec2(10, 0), vec2(20, 0)]
+      selectionRects = @[rect(0, 0, 10, 14), rect(10, 0, 10, 14), rect(20, 0, 10, 14)]
+      arranged =
+        buildArrangedGlyphs(runes, positions, selectionRects, @[0 .. 2], @[glyphFont])
+
+    check arranged.len == 3
+    check arranged[0].source.byteStart == 0
+    check arranged[0].source.byteEnd == 1
+    check arranged[1].source.byteStart == 1
+    check arranged[1].source.byteEnd == 5
+    check arranged[2].source.byteStart == 5
+    check arranged[2].source.byteEnd == 7
+
   test "load typeface from buffer":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let id1 = loadTypeface("Ubuntu.ttf", fontData, TTF)

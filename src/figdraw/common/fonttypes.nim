@@ -236,6 +236,13 @@ proc byteOffsetForRune(runes: Utf8Runes, index: int): int =
     inc runeIndex
   byteOffset
 
+proc byteRangeForRune*(runes: Utf8Runes, index: int): tuple[start, stop: int] =
+  ## Returns the UTF-8 byte range for one rune.
+  if index < 0 or index >= runes.len:
+    raise newException(IndexDefect, "UTF-8 rune index out of bounds")
+  result.start = runes.byteOffsetForRune(index)
+  result.stop = runes.byteOffsetForRune(index + 1)
+
 proc `[]`*(runes: Utf8Runes, index: int): Rune =
   if index < 0 or index >= runes.len:
     raise newException(IndexDefect, "UTF-8 rune index out of bounds")

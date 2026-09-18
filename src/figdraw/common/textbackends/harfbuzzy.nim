@@ -18,7 +18,7 @@ const
 
 type
   DecodedSource = object
-    runes: seq[Rune]
+    runes: Utf8Runes
     displayByteStarts: seq[int]
     displayByteEnds: seq[int]
     sourceByteStarts: seq[int]
@@ -48,20 +48,20 @@ type
 
 var harfbuzzTypefaceCache {.threadvar.}: Table[FontId, hb.Typeface]
 
-proc decodeText(
-    text: string
-): tuple[runes: seq[Rune], byteStarts: seq[int], byteEnds: seq[int]] =
-  var byteOffset = 0
-  for rune in text.runes:
-    result.runes.add rune
-    result.byteStarts.add byteOffset
-    byteOffset += ($rune).len
-    result.byteEnds.add byteOffset
+func utf8RuneWidth(text: string, byteOffset: int): int {.inline.} =
+  if byteOffset < 0 or byteOffset >= text.len:
+    return 0
+  min(max(runeLenAt(text, byteOffset), 1), text.len - byteOffset)
 
 proc decodeSource(
     sourceSpans, displaySpans: openArray[(FontStyle, string)]
 ): DecodedSource =
+  var sourceTextCapacity = 0
+  for (_, text) in sourceSpans:
+    sourceTextCapacity += text.len
+
   var
+    sourceRunesText = newStringOfCap(sourceTextCapacity)
     sourceByteOffset = 0
     sourceRuneOffset = 0
     displayByteOffset = 0
@@ -70,47 +70,66 @@ proc decodeSource(
     let
       sourceText = sourceSpans[spanIndex][1]
       displayText = displaySpans[spanIndex][1]
-      source = decodeText(sourceText)
-      display = decodeText(displayText)
+      sourceRuneCount = sourceText.runeLen
+      displayRuneCount = displayText.runeLen
 
-    result.runes.add source.runes
-    for displayIndex in 0 ..< display.runes.len:
+    sourceRunesText.add sourceText
+
+    var
+      sourceByteIndex = 0
+      sourceRuneIndex = 0
+      displayByteIndex = 0
+    for displayIndex in 0 ..< displayRuneCount:
+      let displayByteLength = displayText.utf8RuneWidth(displayByteIndex)
       let
         mappedStart =
-          if source.runes.len == 0:
+          if sourceRuneCount == 0:
             0
           else:
             min(
-              displayIndex * source.runes.len div max(display.runes.len, 1),
-              source.runes.len - 1,
+              displayIndex * sourceRuneCount div max(displayRuneCount, 1),
+              sourceRuneCount - 1,
             )
         mappedEnd =
-          if source.runes.len == 0:
+          if sourceRuneCount == 0:
             0
           else:
             max(
               mappedStart + 1,
               min(
-                ((displayIndex + 1) * source.runes.len + display.runes.len - 1) div
-                  max(display.runes.len, 1),
-                source.runes.len,
+                ((displayIndex + 1) * sourceRuneCount + displayRuneCount - 1) div
+                  max(displayRuneCount, 1),
+                sourceRuneCount,
               ),
             )
 
-      result.displayByteStarts.add displayByteOffset + display.byteStarts[displayIndex]
-      result.displayByteEnds.add displayByteOffset + display.byteEnds[displayIndex]
+      while sourceRuneIndex < mappedStart:
+        sourceByteIndex += sourceText.utf8RuneWidth(sourceByteIndex)
+        inc sourceRuneIndex
+      let sourceByteStart = sourceByteIndex
+      while sourceRuneIndex < mappedEnd:
+        sourceByteIndex += sourceText.utf8RuneWidth(sourceByteIndex)
+        inc sourceRuneIndex
+      let sourceByteEnd = sourceByteIndex
+
+      result.displayByteStarts.add displayByteOffset + displayByteIndex
+      result.displayByteEnds.add displayByteOffset + displayByteIndex + displayByteLength
       result.sourceRuneStarts.add sourceRuneOffset + mappedStart
       result.sourceRuneEnds.add sourceRuneOffset + mappedEnd
-      if source.runes.len > 0:
-        result.sourceByteStarts.add sourceByteOffset + source.byteStarts[mappedStart]
-        result.sourceByteEnds.add sourceByteOffset + source.byteEnds[mappedEnd - 1]
+      if sourceRuneCount > 0:
+        result.sourceByteStarts.add sourceByteOffset + sourceByteStart
+        result.sourceByteEnds.add sourceByteOffset + sourceByteEnd
       else:
         result.sourceByteStarts.add sourceByteOffset
         result.sourceByteEnds.add sourceByteOffset
 
+      displayByteIndex += displayByteLength
+
     sourceByteOffset += sourceText.len
-    sourceRuneOffset += source.runes.len
+    sourceRuneOffset += sourceRuneCount
     displayByteOffset += displayText.len
+
+  result.runes = initArrangementRunes(sourceRunesText)
 
 proc applyFontCase(text: string, fontCase: FontCase): string =
   case fontCase
@@ -833,7 +852,7 @@ proc typeset*(
       h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign, minContent, wrap)
       h = h !& hash(figUiScale())
       !$h,
-    sourceRunes: initArrangementRunes(decoded.runes),
+    sourceRunes: decoded.runes,
   )
 
   let paragraphs = splitParagraphs(shapedSpans)
