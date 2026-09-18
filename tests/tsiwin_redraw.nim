@@ -20,9 +20,15 @@ proc renderTree(size: Vec2): Renders =
     ),
   )
 
-proc closeWindow(window: Window) =
-  if window.opened:
-    window.close()
+when defined(useNativeDynlib):
+  proc closeWindow(window: Window) =
+    if window.opened:
+      window.close()
+
+else:
+  proc closeWindow(window: siWindow.Window) =
+    if window.opened:
+      window.close()
 
 suite "siwin redraw":
   when defined(useNativeDynlib):
