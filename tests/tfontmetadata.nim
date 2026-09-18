@@ -238,7 +238,7 @@ suite "installed font metadata resolution":
     check findSystemTypeface(["Fixture Sans"], [path]).isNone
 
   test "lightweight name metadata has a distinct result type":
-    let info = readTypefaceNameInfo(fontMetadata("Fixture Sans"))
+    let info = readTypefaceNameInfo(fontMetadata("Fixture Sans"), 0)
     check info.family == "Fixture Sans"
     check info.faceIndex == 0
     check info.regular
