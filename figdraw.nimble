@@ -49,9 +49,9 @@ feature "sharedlib":
 
 import std/os
 when fileExists("src/figdraw/build/tasks.nim"):
-	import src/figdraw/build/tasks
+  import src/figdraw/build/tasks
 else:
-	import figdraw/build/tasks
+  import figdraw/build/tasks
 
 task build_dynlib, "Stage native Nim dynlib artifacts in bin":
   nativeBuild.buildNativeDynlib()
