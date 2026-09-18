@@ -3,15 +3,9 @@ when defined(emscripten):
 else:
   import std/[os, times, monotimes, strformat, strutils]
 
-when defined(useWindex):
-  import windex
-else:
-  import figdraw/windyshim
-
 import chroma
 
-import figdraw/commons
-import figdraw/fignodes
+import figdraw
 import figdraw/figrender
 
 import renderlist_100_common

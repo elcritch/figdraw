@@ -1,7 +1,7 @@
 when defined(useNativeDynlib):
   import figdraw/dynlib as nativeFacade
-
   export nativeFacade
+
 else:
   import chroma, bumpy, vmath
   from pkg/pixie import Image, newImage, opaqueBounds, `[]`, `[]=`, fill
