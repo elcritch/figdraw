@@ -8,14 +8,18 @@ import pkg/vmath as vmath
 import figdraw_native_abi
 from figdraw/extras/systemfonttypes import initSystemTypefaceFile, initSystemTypeface
 from figdraw/common/fonttypes import nil
-from figdraw/common/filltypes import FillKind, FillGradientAxis
+from figdraw/common/filltypes import
+  FillKind, FillGradientAxis, Linear2, Linear3, sampleColor, centerColorRgba,
+  centerColor
 
 when not defined(gcArc):
   {.error: "figdraw/dynlib requires --mm:arc to match the native library".}
 
 export options, tables, bumpy, chroma, vmath
 export Image
-export FillKind, FillGradientAxis
+export
+  FillKind, FillGradientAxis, Linear2, Linear3, sampleColor, centerColorRgba,
+  centerColor
 export figdraw_native_abi except
   placeGlyphs, newSiwinWindow, newFigRenderer, `[]`, Hash, getFigFont,
   getTypefaceSource, getTypefaceInfo, typeset, typesetForMeasurement, generateGlyph,

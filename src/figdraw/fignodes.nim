@@ -448,6 +448,11 @@ proc `[]`*(renders: Renders, lvl: ZLevel): var RenderList =
 proc newRenders*(): Renders =
   Renders(layers: initOrderedTable[ZLevel, RenderList]())
 
+iterator pairs*(renders: Renders): (ZLevel, RenderList) =
+  ## Iterates the render layers as value copies.
+  for level, list in renders.layers.pairs():
+    yield (level, list)
+
 proc setLayer*(renders: Renders, lvl: ZLevel, list: RenderList) =
   renders.layers[lvl] = list
 
