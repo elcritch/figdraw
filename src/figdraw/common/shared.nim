@@ -11,11 +11,6 @@ export extras, uimaths
 
 import pkg/chroma
 
-when defined(figdrawNativeDynlib):
-  {.pragma: nativeAbi, exportabi.}
-else:
-  {.pragma: nativeAbi.}
-
 type FigDrawError* = object of CatchableError
 
 type
@@ -58,10 +53,10 @@ var
   dataDirStr {.runtimeVar.}: string = os.getCurrentDir() / "data"
   appUiScale {.runtimeVar.}: float32 = 1.0'f32
 
-proc figDataDir*(): string {.nativeAbi.} =
+proc figDataDir*(): string =
   dataDirStr
 
-proc setFigDataDir*(dir: string) {.nativeAbi.} =
+proc setFigDataDir*(dir: string) =
   dataDirStr = dir
 
 proc figUiScale*(): float32 =

@@ -4,11 +4,6 @@ export tables, hashes
 import ./figbasics
 export figbasics
 
-when defined(figdrawNativeDynlib):
-  {.pragma: nativeAbi, exportabi.}
-else:
-  {.pragma: nativeAbi.}
-
 type
   DrawableKind* = enum
     dkLine
@@ -230,8 +225,6 @@ proc remappedNodes(list: RenderList, insertIdx: int, parentIdx: FigIdx): seq[Fig
 proc relevelNodes(nodes: var seq[Fig], lvl: ZLevel) =
   for node in nodes.mitems:
     node.zlevel = lvl
-
-{.push nativeAbi.}
 
 proc drawableLine*(a, b: Vec2): DrawableOp =
   DrawableOp(kind: dkLine, a: a, b: b)
@@ -455,6 +448,11 @@ proc `[]`*(renders: Renders, lvl: ZLevel): var RenderList =
 proc newRenders*(): Renders =
   Renders(layers: initOrderedTable[ZLevel, RenderList]())
 
+iterator pairs*(renders: Renders): (ZLevel, RenderList) =
+  ## Iterates the render layers as value copies.
+  for level, list in renders.layers.pairs():
+    yield (level, list)
+
 proc setLayer*(renders: Renders, lvl: ZLevel, list: RenderList) =
   renders.layers[lvl] = list
 
@@ -553,5 +551,3 @@ proc addChildren*(
 
 proc contains*(r: Renders, lvl: ZLevel): bool =
   r.layers.contains(lvl)
-
-{.pop.}

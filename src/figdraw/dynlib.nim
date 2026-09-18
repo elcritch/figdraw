@@ -1,19 +1,61 @@
 ## FigDraw conveniences over the generated native ABI and shared Nim types.
 
-import std/[macros, options, tables, unicode]
+import std/[hashes, macros, options, tables, unicode]
 import pkg/bumpy as bumpy
 import pkg/chroma as chroma
 from pkg/pixie import Image
 import pkg/vmath as vmath
 import figdraw_native_abi
 from figdraw/extras/systemfonttypes import initSystemTypefaceFile, initSystemTypeface
+from figdraw/common/fonttypes import nil
+from figdraw/common/filltypes import
+  FillKind, FillGradientAxis, Linear2, Linear3, sampleColor, centerColorRgba,
+  centerColor
 
 when not defined(gcArc):
   {.error: "figdraw/dynlib requires --mm:arc to match the native library".}
 
 export options, tables, bumpy, chroma, vmath
 export Image
-export figdraw_native_abi except placeGlyphs, newSiwinWindow, newFigRenderer, `[]`
+export
+  FillKind, FillGradientAxis, Linear2, Linear3, sampleColor, centerColorRgba,
+  centerColor
+export figdraw_native_abi except
+  placeGlyphs, newSiwinWindow, newFigRenderer, `[]`, Hash, getFigFont,
+  getTypefaceSource, getTypefaceInfo, typeset, typesetForMeasurement, generateGlyph,
+  generateGlyphImages, hash, getContentHash, findSystemTypeface, findSystemFontFile,
+  systemDefaultFontNames, FillKind, FillGradientAxis
+
+export
+  MouseButton, ModifierKey, Key, TouchDeviceKind, Edge, CursorKind, BuiltinCursor,
+  MouseMoveKind, ScrollDeviceKind, StateBoolChangedEventKind, PopupDismissReason,
+  WindowBackdropKind, WindowBackdropMaterial, PopupConstraintAdjustment,
+  WindowVisualCapability, Window, WindowEventsHandler, AnyWindowEvent, CloseEvent,
+  RenderEvent, TickEvent, ResizeEvent, WindowMoveEvent, MouseMoveEvent,
+  MouseButtonEvent, ScrollEvent, ClickEvent, KeyEvent, TextInputEvent, TouchEvent,
+  TouchMoveEvent, TouchPressureChangedEvent, StateBoolChangedEvent, PopupEvent,
+  DropEvent, WindowBackdropConfig, WindowVisualRegion, PopupPlacement
+
+proc fontRef*(font: sink FigFont): FontRef {.inline.} =
+  newNativeFontRef(font)
+
+proc fontRef*(id: TypefaceId, size: float32): FontRef {.inline.} =
+  newNativeFontRef(fontWithSize(id, size))
+
+macro exportSharedValueOperations(operations: typed): untyped =
+  ## Export operations on shared value types without unrelated stdlib overloads.
+  result = newNimNode(nnkExportStmt)
+  for operation in operations:
+    let firstParamType = operation.getTypeImpl()[0][1][^2]
+    for sharedType in [
+      bindSym("TypefaceId"), bindSym("FontId"), bindSym("FontGlyphId"), bindSym("Fill")
+    ]:
+      if firstParamType.sameType(sharedType):
+        result.add operation
+        break
+
+exportSharedValueOperations(fonttypes.hash)
+exportSharedValueOperations(fonttypes.`==`)
 
 macro exportNativeIndexers(indexers: typed): untyped =
   ## Re-export ABI symbols directly, except the image getter converted below.
@@ -32,6 +74,88 @@ proc systemFontDirs*(): seq[string] {.inline.} =
 
 proc systemFontFiles*(): seq[string] {.inline.} =
   figdraw_native_abi.systemFontFiles(figdraw_native_abi.detectDisplayServer())
+
+proc systemDefaultFontNames*(role = sfrSans): seq[string] {.inline.} =
+  figdraw_native_abi.systemDefaultFontNames(role)
+
+proc findSystemTypeface*(
+    names: openArray[string], displayServer = detectDisplayServer()
+): Option[SystemTypeface] {.inline.} =
+  figdraw_native_abi.findSystemTypeface(names, displayServer)
+
+proc findSystemTypeface*(
+    names, fontFiles: openArray[string], preserveInputOrder = false
+): Option[SystemTypeface] {.inline.} =
+  figdraw_native_abi.findSystemTypeface(names, fontFiles, preserveInputOrder)
+
+proc findSystemFontFile*(
+    names: openArray[string], displayServer = detectDisplayServer()
+): string {.inline.} =
+  figdraw_native_abi.findSystemFontFile(names, displayServer)
+
+proc findSystemFontFile*(names, fontFiles: openArray[string]): string {.inline.} =
+  figdraw_native_abi.findSystemFontFile(names, fontFiles)
+
+iterator systemTypefaces*(): SystemTypefaceInfo =
+  ## Keeps the convenient zero-argument form; the query form is exported directly.
+  for info in figdraw_native_abi.systemTypefaces(SystemTypefaceQuery()):
+    yield info
+
+proc getFigFont*(id: FontId): FigFont =
+  ## Raises in the client when the producer has no registered font.
+  if not tryGetFigFont(id, result):
+    raise newException(ValueError, "font is not available for id " & $id.int)
+
+proc getTypefaceSource*(id: TypefaceId): TypefaceSource =
+  ## Raises in the client when the producer has no registered typeface source.
+  if not tryGetTypefaceSource(id, result):
+    raise newException(
+      ValueError, "typeface source data is not available for id " & $id.int
+    )
+
+proc getTypefaceInfo*(id: TypefaceId): TypefaceInfo =
+  ## Raises in the client when the producer has no registered typeface metadata.
+  if not tryGetTypefaceInfo(id, result):
+    raise
+      newException(ValueError, "typeface metadata is not available for id " & $id.int)
+
+converter nilToFontRef*(value: typeof(nil)): FontRef =
+  discard value
+  default(FontRef)
+
+proc `==`*(a, b: FontRef): bool {.inline.} =
+  sameFontRef(a, b)
+
+proc `==`*(a, b: OwnerToken): bool {.borrow.}
+
+proc hash*(
+    glyph: GlyphPosition, lcdFiltering = false, subpixelVariant = 0
+): hashes.Hash {.inline.} =
+  figdraw_native_abi.hash(glyph, lcdFiltering, subpixelVariant)
+
+proc generateGlyph*(
+    glyph: GlyphPosition,
+    lcdFiltering = false,
+    subpixelVariant = 0,
+    force = false,
+    upload = true,
+): Image {.discardable, inline.} =
+  figdraw_native_abi.generateGlyph(glyph, lcdFiltering, subpixelVariant, force, upload)
+
+proc generateGlyphImages*(
+    arrangement: GlyphArrangement, lcdFiltering = false
+) {.inline.} =
+  figdraw_native_abi.generateGlyphImages(arrangement, lcdFiltering)
+
+proc getContentHash*[T: FontStyle | FigFont](
+    size: Vec2,
+    spans: openArray[(T, string)],
+    hAlign = Left,
+    vAlign = Top,
+    minContent = false,
+    wrap = false,
+): hashes.Hash {.inline.} =
+  figdraw_native_abi.getContentHash(size, spans, hAlign, vAlign, minContent, wrap)
 
 const
   UseVulkanBackend* = false
@@ -92,18 +216,6 @@ converter toRuneSequence*(runes: figdraw_native_abi.Utf8Runes): seq[unicode.Rune
 converter toUtf8Runes*(runes: seq[unicode.Rune]): figdraw_native_abi.Utf8Runes =
   figdraw_native_abi.initUtf8Runes(runes)
 
-iterator items*(runes: figdraw_native_abi.Utf8Runes): unicode.Rune =
-  for rune in figdraw_native_abi.stringValue(runes).runes:
-    yield rune
-
-iterator pairs*(
-    runes: figdraw_native_abi.Utf8Runes
-): tuple[index: int, value: unicode.Rune] =
-  var index = 0
-  for rune in figdraw_native_abi.stringValue(runes).runes:
-    yield (index, rune)
-    inc index
-
 func `==`*(a, b: figdraw_native_abi.Utf8Runes): bool {.inline.} =
   figdraw_native_abi.utf8RunesEqual(a, b)
 
@@ -139,6 +251,55 @@ proc typesetForMeasurement*(
 ): GlyphArrangement {.inline.} =
   figdraw_native_abi.typesetStyledForMeasurement(
     box, spans, hAlign, vAlign, minContent, wrap
+  )
+
+proc typeset*[T: FigFont | FontRef](
+    box: bumpy.Rect,
+    font: T,
+    text: string,
+    hAlign = Left,
+    vAlign = Top,
+    minContent = false,
+    wrap = true,
+): GlyphArrangement {.inline.} =
+  typeset(
+    box,
+    [(figdraw_native_abi.fs(font, fill(rgba(0, 0, 0, 255))), text)],
+    hAlign,
+    vAlign,
+    minContent,
+    wrap,
+  )
+
+proc typeset*[T: FigFont | FontRef](
+    box: bumpy.Rect,
+    spans: openArray[(T, string)],
+    hAlign = Left,
+    vAlign = Top,
+    minContent = false,
+    wrap = true,
+): GlyphArrangement {.inline.} =
+  var styled = newSeqOfCap[(FontStyle, string)](spans.len)
+  for (font, text) in spans:
+    styled.add((figdraw_native_abi.fs(font, fill(rgba(0, 0, 0, 255))), text))
+  typeset(box, styled, hAlign, vAlign, minContent, wrap)
+
+proc typesetForMeasurement*[T: FigFont | FontRef](
+    box: bumpy.Rect,
+    font: T,
+    text: string,
+    hAlign = Left,
+    vAlign = Top,
+    minContent = false,
+    wrap = true,
+): GlyphArrangement {.inline.} =
+  typesetForMeasurement(
+    box,
+    [(figdraw_native_abi.fs(font, fill(rgba(0, 0, 0, 255))), text)],
+    hAlign,
+    vAlign,
+    minContent,
+    wrap,
   )
 
 func `==`*(a, b: FigIdx): bool {.inline.} =
@@ -194,6 +355,9 @@ proc fs*(font: FigFont): FontStyle {.inline.} =
   ## Supplies the source API's default fill omitted from generated bindings.
   figdraw_native_abi.fs(font, fill(rgba(0, 0, 0, 255)))
 
+proc fs*(font: FontRef): FontStyle {.inline.} =
+  figdraw_native_abi.fs(font, fill(rgba(0, 0, 0, 255)))
+
 func fontFeature*(
     tag: string, value = 1'u32, start = 0'u32, ending = uint32.high
 ): FontFeature {.inline.} =
@@ -205,6 +369,11 @@ proc placeGlyphs*(
     origin = GlyphTopLeft,
 ): GlyphArrangement {.inline.} =
   figdraw_native_abi.placeStyledGlyphs(style, glyphs, origin)
+
+proc placeGlyphs*[T: FigFont | FontRef](
+    font: T, glyphs: openArray[(unicode.Rune, vmath.Vec2)], origin = GlyphTopLeft
+): GlyphArrangement {.inline.} =
+  placeGlyphs(fs(font), glyphs, origin)
 
 template registerStaticTypeface*(
     name: static[string], path: static[string], kind: static[TypeFaceKinds] = TTF

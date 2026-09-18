@@ -463,7 +463,13 @@ jobs:
       run: atlas install --features:siwin,sharedlib
 
     - name: Build and stage native dynamic library
-      run: nim native_dynlib
+      run: nim build_dynlib
+
+    - name: Compile consumer against staged native artifacts
+      run: |
+        nim c -d:release --mm:arc -d:useMalloc --path:bin \
+          --out:"$RUNNER_TEMP/siwin_shared_native" \
+          examples/siwin_shared_native.nim
 
     - name: Package native dynamic library
       run: |

@@ -7,11 +7,11 @@ import figdraw_native_abi
 when defined(macosx):
   {.passL: "-Wl,-rpath,@executable_path".}
   {.passL: "-Wl,-rpath,@loader_path".}
-  {.passL: "-Wl,-rpath,@executable_path/../.nimcache/native_figdraw".}
-  {.passL: "-Wl,-rpath,@loader_path/../.nimcache/native_figdraw".}
+  {.passL: "-Wl,-rpath,@executable_path/../bin".}
+  {.passL: "-Wl,-rpath,@loader_path/../bin".}
 elif defined(linux) or defined(bsd):
   {.passL: "-Wl,-rpath,$ORIGIN".}
-  {.passL: "-Wl,-rpath,$ORIGIN/../.nimcache/native_figdraw".}
+  {.passL: "-Wl,-rpath,$ORIGIN/../bin".}
 
 const
   Copies = 100

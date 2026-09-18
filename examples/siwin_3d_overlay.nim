@@ -2,11 +2,9 @@ when defined(emscripten):
   import std/[times, math, strformat, strutils]
 else:
   import std/[os, times, math, strformat, strutils]
-when defined(useNativeDynlib):
-  import figdraw/dynlib
-else:
-  import figdraw
-  import figdraw/windowing/siwinshim
+
+import figdraw
+
 import figdraw/utils/glutils
 import pkg/opengl
 

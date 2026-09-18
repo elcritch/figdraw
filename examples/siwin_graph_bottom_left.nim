@@ -3,11 +3,7 @@ when defined(emscripten):
 else:
   import std/[os, times, math]
 
-when defined(useNativeDynlib):
-  import figdraw/dynlib
-else:
-  import figdraw
-  import figdraw/windowing/siwinshim
+import figdraw
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const FontName {.strdefine: "figdraw.defaultfont".}: string = "Ubuntu.ttf"

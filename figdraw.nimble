@@ -45,10 +45,10 @@ feature "vulkan":
 feature "metal":
   requires "https://github.com/elcritch/metalx#head"
 feature "sharedlib":
-  requires "gh:elcritch/binny >= 0.5.14"
+  requires "gh:elcritch/binny >= 0.5.16"
 
 import std/os
 
-task nativeDynlib, "Build and stage the native Nim dynamic library":
+task build_dynlib, "Build and stage the native Nim dynamic library":
   let compiler = getEnv("FIGDRAW_NATIVE_NIM", getHomeDir() & "/projs/nims/Nim/bin/nim")
-  exec compiler.quoteShell & " native_dynlib"
+  exec compiler.quoteShell & " build_dynlib"

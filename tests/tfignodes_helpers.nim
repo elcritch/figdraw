@@ -1,6 +1,6 @@
 import std/[sequtils, unittest]
 
-import figdraw/fignodes
+import figdraw
 
 proc testFig(id: int, zlevel = 0.ZLevel): Fig =
   Fig(kind: nkRectangle, zlevel: zlevel, rotation: id.float32)

@@ -1,23 +1,9 @@
 import std/[hashes, options, os, tables, tempfiles, unicode, unittest]
 
-import pkg/pixie
-import pkg/pixie/fonts
-
-import figdraw/commons
-import figdraw/common/fonttypes
-import figdraw/common/typefaceinfos
-import figdraw/common/typefaces
-import figdraw/common/fontglyphs
-import figdraw/extras/systemfonts
+import figdraw
 
 proc resetFontState() =
-  typefaceTable = initTable[TypefaceId, Typeface]()
-  fontTable = initTable[FontId, FigFont]()
-  typefaceSourceTable = initTable[TypefaceId, TypefaceSource]()
-  staticTypefaceTable =
-    initTable[string, tuple[name: string, data: string, kind: TypeFaceKinds]]()
-  #withLock imageCachedLock:
-  #  imageCached.clear()
+  resetFontCache(clearStaticTypefaces = true)
 
 proc drainImageMessages() =
   var msg: ImageMsg
@@ -77,19 +63,12 @@ template registerStaticDefaultSansTypeface(path: static[string]) =
 
 proc firstLoadableSystemFontPath(candidates: openArray[string]): string =
   let preferred = findSystemFontFile(candidates)
-  if preferred.len > 0:
-    try:
-      discard readTypeface(preferred)
-      return preferred
-    except PixieError:
-      discard
+  if preferred.len > 0 and canLoadTypeface(preferred):
+    return preferred
 
   for path in systemFontFiles():
-    try:
-      discard readTypeface(path)
+    if canLoadTypeface(path):
       return path
-    except PixieError:
-      discard
 
   ""
 
@@ -97,26 +76,13 @@ when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
   proc firstLoadableNamedSystemFontPath(
       candidates: openArray[string], requiredText: string
   ): string =
-    proc supportsRequiredRunes(typeface: Typeface): bool =
-      for rune in requiredText.runes:
-        if not typeface.hasGlyph(rune):
-          return false
-      true
-
     let preferred = findSystemFontFile(candidates)
-    if preferred.len > 0:
-      try:
-        if readTypeface(preferred).supportsRequiredRunes():
-          return preferred
-      except PixieError:
-        discard
+    if preferred.len > 0 and canLoadTypeface(preferred, requiredText):
+      return preferred
 
     for path in systemFontFiles():
-      try:
-        if readTypeface(path).supportsRequiredRunes():
-          return path
-      except PixieError:
-        discard
+      if canLoadTypeface(path, requiredText):
+        return path
     ""
 
 proc testGlyph(
@@ -199,6 +165,24 @@ suite "fontutils":
     check materialized == sourceRunes
     check legacyRuneCount(runes) == runes.len
 
+  test "UTF-8 glyph builder preserves source byte ranges":
+    let
+      runes = initArrangementRunes("a🙂β")
+      fontId = FontId(Hash(1))
+      glyphFont = GlyphFont(fontId: fontId, lineHeight: 14, descentAdj: 10)
+      positions = @[vec2(0, 0), vec2(10, 0), vec2(20, 0)]
+      selectionRects = @[rect(0, 0, 10, 14), rect(10, 0, 10, 14), rect(20, 0, 10, 14)]
+      arranged =
+        buildArrangedGlyphs(runes, positions, selectionRects, @[0 .. 2], @[glyphFont])
+
+    check arranged.len == 3
+    check arranged[0].source.byteStart == 0
+    check arranged[0].source.byteEnd == 1
+    check arranged[1].source.byteStart == 1
+    check arranged[1].source.byteEnd == 5
+    check arranged[2].source.byteStart == 5
+    check arranged[2].source.byteEnd == 7
+
   test "load typeface from buffer":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let id1 = loadTypeface("Ubuntu.ttf", fontData, TTF)
@@ -206,9 +190,8 @@ suite "fontutils":
 
     check id1.int != 0
     check id1 == id2
-    check id1 in typefaceTable
-    check id1 in typefaceSourceTable
-    check typefaceSourceTable[id1].data == fontData
+    check hasTypeface(id1)
+    check getTypefaceSource(id1).data == fontData
 
   test "typeface metadata is parsed and cached with the registered face":
     let
@@ -362,16 +345,16 @@ suite "fontutils":
 
     check firstId == secondId
 
-  test "convertFont caches pixie font":
+  test "cacheFont reuses raster font identity":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
     let uiFont = FigFont(typefaceId: typefaceId, size: 20.0'f32)
 
-    let fontId1 = uiFont.convertFont()[0]
-    let fontId2 = uiFont.convertFont()[0]
+    let fontId1 = uiFont.cacheFont()
+    let fontId2 = uiFont.cacheFont()
 
     check fontId1 == fontId2
-    check fontId1 in fontTable
+    check hasFont(fontId1)
 
   test "font caches are isolated across plain ARC threads":
     drainImageMessages()
@@ -383,7 +366,7 @@ suite "fontutils":
         size: 20.0'f32,
         variations: @[fontVariation("wght", 500.0'f32)],
       )
-      fontId = uiFont.convertFont()[0]
+      fontId = uiFont.cacheFont()
       args = FontCacheThreadArgs(
         typefaceId: typefaceId, fontId: fontId, size: uiFont.size, iterations: 20
       )
@@ -414,7 +397,7 @@ suite "fontutils":
         underline: true,
       )
 
-    check baseFont.convertFont()[0] == shapingFont.convertFont()[0]
+    check baseFont.cacheFont() == shapingFont.cacheFont()
 
   test "layout content hashes include wrapping policy":
     let
@@ -434,11 +417,8 @@ suite "fontutils":
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
     let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
 
-    let (_, pf) = uiFont.convertFont()
-    let expected = pf.defaultLineHeight()
-
-    check abs(pf.lineHeight - expected) < 0.01'f32
-    check abs(getLineHeightImpl(uiFont).scaled() - expected) < 0.01'f32
+    let expected = defaultFontLineHeight(uiFont)
+    check abs(getLineHeightImpl(uiFont) - expected) < 0.01'f32
 
   test "text decorations are carried into glyph font spans":
     let
@@ -1501,7 +1481,8 @@ suite "fontutils":
 
     let expected = [0'u8, 8'u8, 77'u8, 86'u8, 77'u8, 8'u8, 0'u8]
     for x in 0 ..< expected.len:
-      let px = image[x, 0]
+      # Inspect the premultiplied storage that the LCD kernel filters.
+      let px = image.data[x]
       check px.r == expected[x]
       check px.g == expected[x]
       check px.b == expected[x]
@@ -1743,7 +1724,7 @@ suite "fontutils":
 
     let id = loadTypeface(fontName)
     check id.int != 0
-    check typefaceTable[id].filePath == tempFontPath
+    check getTypefaceSource(id).name == tempFontPath
 
   test "loadTypeface falls back to system fonts":
     let oldDataDir = figDataDir()
@@ -1771,7 +1752,7 @@ suite "fontutils":
       let requestName = extractFilename(systemPath)
       let id = loadTypeface(requestName)
       check id.int != 0
-      check typefaceTable[id].filePath.len > 0
+      check getTypefaceSource(id).name.len > 0
 
   test "loadTypeface falls back to platform default font names":
     if systemDefaultFontNames().len == 0:
@@ -1792,7 +1773,7 @@ suite "fontutils":
       let missingName = "__figdraw_missing_font_for_platform_default__.ttf"
       let id = loadTypeface(missingName)
       check id.int != 0
-      check typefaceTable[id].filePath != missingName
+      check getTypefaceSource(id).name != missingName
 
   test "loadTypeface searches static registry via fallbackNames":
     let oldDataDir = figDataDir()
@@ -1811,4 +1792,4 @@ suite "fontutils":
     let missingName = "__figdraw_missing_font_for_embedded_fallback__.ttf"
     let id = loadTypeface(missingName, ["test-ubuntu.ttf"])
     check id.int != 0
-    check typefaceTable[id].filePath == "test-ubuntu.ttf"
+    check getTypefaceSource(id).name == "test-ubuntu.ttf"

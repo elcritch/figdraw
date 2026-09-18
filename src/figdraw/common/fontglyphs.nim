@@ -100,25 +100,14 @@ proc generateGlyph*(
       upload = upload,
     )
 
-proc sourceRangesFor(runes: openArray[Rune]): seq[GlyphSourceRange] =
-  result = newSeq[GlyphSourceRange](runes.len)
-  var byteOffset = 0
-  for i, rune in runes:
-    let byteLen = ($rune).len
-    result[i] = GlyphSourceRange(
-      byteStart: byteOffset, byteEnd: byteOffset + byteLen, runeStart: i, runeEnd: i + 1
-    )
-    byteOffset += byteLen
-
-proc buildArrangedGlyphs*(
-    runes: openArray[Rune],
+proc buildArrangedGlyphsForUtf8(
+    runes: Utf8Runes,
     positions: openArray[Vec2],
     selectionRects: openArray[Rect],
     spans: openArray[Slice[int]],
     fonts: openArray[GlyphFont],
 ): seq[ArrangedGlyph] =
   ## Builds Pixie-compatible arranged glyph records from parallel glyph arrays.
-  let sourceRanges = sourceRangesFor(runes)
   result = newSeq[ArrangedGlyph](runes.len)
 
   for spanIndex, span in spans:
@@ -134,6 +123,7 @@ proc buildArrangedGlyphs*(
     for idx in start .. stop:
       let
         rune = runes[idx]
+        byteRange = runes.byteRangeForRune(idx)
         pos =
           if idx < positions.len:
             positions[idx]
@@ -148,7 +138,12 @@ proc buildArrangedGlyphs*(
         fontId: font.fontId,
         glyphId: syntheticFontGlyphId(font.fontId, rune),
         cluster: uint32(idx),
-        source: sourceRanges[idx],
+        source: GlyphSourceRange(
+          byteStart: byteRange.start,
+          byteEnd: byteRange.stop,
+          runeStart: idx,
+          runeEnd: idx + 1,
+        ),
         rune: rune,
         isWhitespace: unicode.isWhiteSpace(rune),
         pos: pos,
@@ -157,6 +152,28 @@ proc buildArrangedGlyphs*(
         imageOffset: vec2(0, 0),
         rect: selection,
       )
+
+proc buildArrangedGlyphs*(
+    runes: Utf8Runes,
+    positions: openArray[Vec2],
+    selectionRects: openArray[Rect],
+    spans: openArray[Slice[int]],
+    fonts: openArray[GlyphFont],
+): seq[ArrangedGlyph] =
+  ## Builds Pixie-compatible arranged glyph records from UTF-8-backed runes.
+  buildArrangedGlyphsForUtf8(runes, positions, selectionRects, spans, fonts)
+
+proc buildArrangedGlyphs*(
+    runes: openArray[Rune],
+    positions: openArray[Vec2],
+    selectionRects: openArray[Rect],
+    spans: openArray[Slice[int]],
+    fonts: openArray[GlyphFont],
+): seq[ArrangedGlyph] =
+  ## Builds Pixie-compatible arranged glyph records from decoded runes.
+  buildArrangedGlyphsForUtf8(
+    initArrangementRunes(runes), positions, selectionRects, spans, fonts
+  )
 
 iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
   var idx = 0
@@ -251,6 +268,8 @@ proc convertArrangement*(
   for rect in arrangement.selectionRects:
     selectionRects.add rect
 
+  let storedRunes = initArrangementRunes(arrangement.runes)
+
   result = GlyphArrangement(
     contentHash: block:
       var h = Hash(0)
@@ -261,11 +280,11 @@ proc convertArrangement*(
     spans: spanSlices,
     fonts: gfonts,
     spanColors: uiSpans.mapIt(it[0].color),
-    sourceRunes: initArrangementRunes(arrangement.runes),
+    sourceRunes: storedRunes,
     arrangedGlyphs: buildArrangedGlyphs(
-      arrangement.runes, arrangement.positions, selectionRects, spanSlices, gfonts
+      storedRunes, arrangement.positions, selectionRects, spanSlices, gfonts
     ),
-    runes: initArrangementRunes(arrangement.runes),
+    runes: storedRunes,
     positions: arrangement.positions,
     selectionRects: selectionRects,
   )

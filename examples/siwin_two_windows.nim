@@ -1,10 +1,6 @@
 import std/[os, times]
 
-when defined(useNativeDynlib):
-  import figdraw/dynlib
-else:
-  import figdraw
-  import figdraw/windowing/siwinshim
+import figdraw
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const LeftWindowDelaySec = 0.2
@@ -15,7 +11,10 @@ type WindowPalette = object
   accent: Color
 
 type DemoWindow = ref object
-  window: Window
+  when defined(useNativeDynlib):
+    window: Window
+  else:
+    window: siWindow.Window
   renderer: FigRenderer[SiwinRenderBackend]
   renders: Renders
   lastSize: Vec2

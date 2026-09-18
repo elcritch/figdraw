@@ -1034,7 +1034,7 @@ recent devel compiler to build and stage the library, NIF manifest, and
 generated ABI module, then compile an example with `-d:useNativeDynlib`:
 
 ```sh
-../Nim/bin/nim native_dynlib
+../Nim/bin/nim build_dynlib
 ../Nim/bin/nim c -r -d:useNativeDynlib examples/siwin_renderlist.nim
 ```
 

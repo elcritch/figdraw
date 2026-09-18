@@ -4,6 +4,7 @@ import std/locks
 import std/math
 import std/options
 import std/tables
+import std/unicode
 
 import pkg/vmath
 import pkg/pixie
@@ -19,11 +20,6 @@ import ../extras/systemfonts
 export
   SystemTypefaceFile, SystemTypeface, TypefaceInfo, TypefaceLocalizedName,
   TypefaceVariationAxis
-
-when defined(figdrawNativeDynlib):
-  {.pragma: nativeAbi, exportabi.}
-else:
-  {.pragma: nativeAbi.}
 
 type TypeFaceKinds* = enum
   TTF
@@ -64,6 +60,45 @@ var
 
 fontLock.initLock()
 
+proc resetFontCache*(clearStaticTypefaces: bool) =
+  ## Clears registered typefaces, metadata, fonts, and their cached glyph images.
+  ## Also clears the calling thread's parsed-typeface cache. Other threads keep
+  ## their local parsed caches until they exit.
+  ## Call only while font work and rendering are idle and old FontRef handles
+  ## have been released. Reload typefaces before using their IDs or fonts again.
+  ## Static typeface registrations are preserved unless explicitly requested.
+  var typefaceIds: seq[TypefaceId]
+  {.cast(gcsafe).}:
+    withLock(fontLock):
+      for id in typefaceSourceTable.keys:
+        typefaceIds.add(id)
+      typefaceTable.clear()
+      fontTable.clear()
+      fontUiScaleTable.clear()
+      typefaceSourceTable.clear()
+      typefaceInfoTable.clear()
+      if clearStaticTypefaces:
+        staticTypefaceTable.clear()
+  for id in typefaceIds:
+    clearTypefaceGlyphs(id)
+
+proc resetFontCache*() =
+  ## Clears font caches while preserving static typeface registrations.
+  ## Has the same lifetime and threading requirements as the bool overload.
+  resetFontCache(clearStaticTypefaces = false)
+
+proc hasTypeface*(id: TypefaceId): bool =
+  ## Whether a typeface is registered in the current font cache.
+  {.cast(gcsafe).}:
+    withLock(fontLock):
+      result = id in typefaceSourceTable
+
+proc hasFont*(id: FontId): bool =
+  ## Whether a raster font is registered in the current font cache.
+  {.cast(gcsafe).}:
+    withLock(fontLock):
+      result = id in fontTable
+
 proc `=destroy`(fontRef: var FontRefHandle) =
   releaseFontRefId(fontRef.id)
   `=destroy`(fontRef.value)
@@ -75,6 +110,14 @@ func font*(fontRef: FontRef): lent FigFont {.inline.} =
 func fontId*(fontRef: FontRef): FontId {.inline.} =
   ## The registered font ID owned by this handle.
   fontRef.id
+
+proc isNil*(fontRef: FontRef): bool =
+  ## Whether the font handle is empty.
+  system.isNil(fontRef)
+
+proc sameFontRef*(a, b: FontRef): bool =
+  ## Whether two font handles retain the same ownership object.
+  a == b
 
 proc normalizeTypefaceLookupName(name: string): string =
   name.toLowerAscii()
@@ -91,9 +134,7 @@ proc lookupTypefaceNames(name: string): seq[string] =
   if fileStem.len > 0:
     result.add(fileStem.normalizeTypefaceLookupName())
 
-proc registerStaticTypefaceData*(
-    name, data: string, kind: TypeFaceKinds
-) {.nativeAbi.} =
+proc registerStaticTypefaceData*(name, data: string, kind: TypeFaceKinds) =
   ## Registers a static typeface blob that can be found by loadTypeface.
   let entry = (name: name, data: data, kind: kind)
   withLock(fontLock):
@@ -232,9 +273,28 @@ proc staticTypefaceEntry(
         entry = staticTypefaceTable[key]
         return true
 
-proc loadTypeface*(
-    name: string, fallbackNames: openArray[string]
-): TypefaceId {.nativeAbi.} =
+proc hasStaticTypeface*(name: string): bool =
+  ## Whether a name or filename alias has a static typeface registration.
+  var entry: tuple[name: string, data: string, kind: TypeFaceKinds]
+  staticTypefaceEntry(name, entry)
+
+proc canLoadTypeface*(path, requiredText: string): bool =
+  ## Checks whether Pixie can read a file and map all runes in requiredText.
+  ## Does not register the face. Unreadable or unsupported files return false.
+  try:
+    let typeface = readTypeface(path)
+    for rune in requiredText.runes:
+      if not typeface.hasGlyph(rune):
+        return false
+    result = true
+  except CatchableError:
+    result = false
+
+proc canLoadTypeface*(path: string): bool =
+  ## Checks whether Pixie can read a file without registering the face.
+  canLoadTypeface(path, "")
+
+proc loadTypeface*(name: string, fallbackNames: openArray[string]): TypefaceId =
   ## loads a font from a file and adds it to the font index
 
   proc resolveTypefacePath(name: string): ResolvedTypefacePath =
@@ -320,10 +380,10 @@ proc loadTypeface*(
 
   result = registerTypeface(typeface, source)
 
-proc loadTypeface*(name: string): TypefaceId {.nativeAbi.} =
+proc loadTypeface*(name: string): TypefaceId =
   loadTypeface(name, [])
 
-proc loadTypeface*(file: SystemTypefaceFile): TypefaceId {.nativeAbi.} =
+proc loadTypeface*(file: SystemTypefaceFile): TypefaceId =
   ## Loads the physical face in `file`.
   if file.path.len == 0:
     raise newException(PixieError, "typeface path is empty")
@@ -338,21 +398,27 @@ proc fontWithSize*(typeface: SystemTypeface, size: float32): FigFont =
   result = loadTypeface(typeface.file).fontWithSize(size)
   result.variations = typeface.variations
 
-proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId {.nativeAbi.} =
+proc loadTypeface*(name, data: string, kind: TypeFaceKinds): TypefaceId =
   ## loads a font from buffer and adds it to the font index
 
   let typeface = readTypefaceImpl(name, data, kind)
   result =
     registerTypeface(typeface, TypefaceSource(name: name, data: data, kind: kind))
 
-proc getTypefaceSource*(id: TypefaceId): TypefaceSource =
+proc tryGetTypefaceSource*(id: TypefaceId, value: var TypefaceSource): bool =
+  ## Copies a registered source; returns false without changing value if absent.
   {.cast(gcsafe).}:
     withLock(fontLock):
       if id notin typefaceSourceTable:
-        raise newException(
-          ValueError, "typeface source data is not available for id " & $Hash(id)
-        )
-      result = typefaceSourceTable[id]
+        return false
+      value = typefaceSourceTable[id]
+      result = true
+
+proc getTypefaceSource*(id: TypefaceId): TypefaceSource =
+  if not tryGetTypefaceSource(id, result):
+    raise newException(
+      ValueError, "typeface source data is not available for id " & $Hash(id)
+    )
 
 proc getTypefaceInfo*(id: TypefaceId): TypefaceInfo =
   ## Returns backend-neutral metadata cached when the typeface was registered.
@@ -366,12 +432,27 @@ proc getTypefaceInfo*(id: TypefaceId): TypefaceInfo =
         )
       result = typefaceInfoTable[id].copyTypefaceInfo()
 
-proc getFigFont*(fontId: FontId): FigFont =
+proc tryGetTypefaceInfo*(id: TypefaceId, value: var TypefaceInfo): bool =
+  ## Copies registered metadata; returns false without changing value if absent.
+  {.cast(gcsafe).}:
+    withLock(fontLock):
+      if id notin typefaceInfoTable:
+        return false
+      value = typefaceInfoTable[id].copyTypefaceInfo()
+      result = true
+
+proc tryGetFigFont*(fontId: FontId, value: var FigFont): bool =
+  ## Copies a registered font; returns false without changing value if absent.
   {.cast(gcsafe).}:
     withLock(fontLock):
       if fontId notin fontTable:
-        raise newException(ValueError, "font is not available for id " & $Hash(fontId))
-      result = fontTable[fontId]
+        return false
+      value = fontTable[fontId]
+      result = true
+
+proc getFigFont*(fontId: FontId): FigFont =
+  if not tryGetFigFont(fontId, result):
+    raise newException(ValueError, "font is not available for id " & $Hash(fontId))
 
 proc readTypefaceForThread(source: TypefaceSource): Typeface =
   if source.data.len >= 4 and source.data[0 ..< 4] == "ttcf":
@@ -445,6 +526,14 @@ proc convertFont*(font: FigFont): (FontId, Font) =
 
 proc convertFont*(style: FontStyle): (FontId, Font) =
   style.font.convertFont()
+
+proc cacheFont*(font: FigFont): FontId =
+  ## Registers the font's raster settings and returns its cache identity.
+  font.convertFont()[0]
+
+proc defaultFontLineHeight*(font: FigFont): float32 =
+  ## Returns the default line height for the font at its unscaled size.
+  font.pixieFont().defaultLineHeight()
 
 proc fontRef*(font: sink FigFont): FontRef =
   ## Retain a font cache ID for the current thread.

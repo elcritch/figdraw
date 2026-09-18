@@ -216,8 +216,7 @@ when defined(feature.figdraw.sharedlib):
   let
     nativeBackend = getEnv("FIGDRAW_NATIVE_BACKEND", "c").strip().toLowerAscii()
     nativeProducer = "src/figdraw/bindings/native_bindings.nim"
-    nativeBindings =
-      ".nimcache/native_figdraw" / nativeBackend / "figdraw_native_abi.nim"
+    nativeBindings = "bin/figdraw_native_abi.nim"
 
   var nativeBuild = initNativeDynlibBuildConfig(
     nativeProducer,
@@ -227,8 +226,10 @@ when defined(feature.figdraw.sharedlib):
     exportConfigPath = "src/figdraw/bindings/native_dynlib.json",
     backend = nativeBackend,
   )
+
   nativeBuild.nimArgs =
     @["--mm:arc", "-d:useMalloc", "-d:release", "--path:src", "--path:deps/siwin/src"]
+
   let
     defaultMetal = defined(macosx)
     defaultVulkan = defined(bsd) or defined(linux) or defined(windows)
@@ -284,10 +285,7 @@ when defined(feature.figdraw.sharedlib):
     command.add arguments
     exec nativeCommand(command)
 
-  task native_bindings, "Build native Nim dynlib and generate Binny bindings":
-    nativeBuild.buildNativeDynlibAndBindings()
-
-  task native_dynlib, "Stage native Nim dynlib artifacts in bin":
+  task build_dynlib, "Stage native Nim dynlib artifacts in bin":
     nativeBuild.buildNativeDynlib()
     nativeBuild.stageNativeDynlib("bin")
 

@@ -3,7 +3,7 @@ when defined(linux) or defined(bsd):
   import std/os
 
 when defined(useNativeDynlib):
-  import figdraw_native_abi
+  import figdraw
   from pkg/vmath import ivec2, x, y
 
 suite "native dynlib UI scale":

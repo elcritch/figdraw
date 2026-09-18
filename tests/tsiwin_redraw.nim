@@ -3,7 +3,7 @@ when defined(linux) or defined(bsd):
   import std/os
 
 when defined(useNativeDynlib):
-  import figdraw/dynlib
+  import figdraw
   from figdraw_native_abi import nil
 else:
   import figdraw
@@ -20,9 +20,15 @@ proc renderTree(size: Vec2): Renders =
     ),
   )
 
-proc closeWindow(window: Window) =
-  if window.opened:
-    window.close()
+when defined(useNativeDynlib):
+  proc closeWindow(window: Window) =
+    if window.opened:
+      window.close()
+
+else:
+  proc closeWindow(window: siWindow.Window) =
+    if window.opened:
+      window.close()
 
 suite "siwin redraw":
   when defined(useNativeDynlib):

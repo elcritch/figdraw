@@ -5,11 +5,6 @@ import ../fignodes
 
 import pkg/chroma
 
-when defined(figdrawNativeDynlib):
-  {.pragma: nativeAbi, exportabi.}
-else:
-  {.pragma: nativeAbi.}
-
 const DrawablePathEpsilon = 0.000001'f32
 
 type
@@ -348,7 +343,7 @@ proc figDashedRoundedRectBorder*(
     offset: float32 = 0.0'f32,
     cap: StrokeCap = scButt,
     zlevel: ZLevel = 0.ZLevel,
-): Fig {.nativeAbi.} =
+): Fig =
   ## Returns an `nkDrawable` dashed rounded-rectangle border.
   let
     halfWeight = max(0.0'f32, weight) * 0.5'f32
@@ -375,7 +370,7 @@ proc figRoundedRectBorder*(
     weight: float32,
     cap: StrokeCap = scButt,
     zlevel: ZLevel = 0.ZLevel,
-): Fig {.nativeAbi.} =
+): Fig =
   ## Returns an `nkDrawable` solid rounded-rectangle border.
   let
     halfWeight = max(0.0'f32, weight) * 0.5'f32
@@ -401,7 +396,7 @@ proc figDottedRoundedRectBorder*(
     weight, gapLength: float32,
     offset: float32 = 0.0'f32,
     zlevel: ZLevel = 0.ZLevel,
-): Fig {.nativeAbi.} =
+): Fig =
   ## Returns an `nkDrawable` dotted rounded-rectangle border.
   let
     dotRadius = max(0.0'f32, weight) * 0.5'f32

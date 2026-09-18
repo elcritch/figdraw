@@ -8,7 +8,7 @@ when defined(useNativeDynlib):
   import pkg/vmath as vmath
   import figdraw/extras/systemfonttypes as systemfonttypes
   from figdraw/common/fonttypes import nil
-  import figdraw/dynlib
+  import figdraw
   from figdraw_native_abi import nil
 
   proc loadExactTypefaceForCompileCheck(file: SystemTypefaceFile): TypefaceId {.used.} =
@@ -38,6 +38,12 @@ suite "native dynlib API":
       doAssert typeof(default(Fig).selectionRange) is Slice[int16]
       doAssert DirectionCorners is figdraw_native_abi.DirectionCorners
       doAssert CornerRadii is array[DirectionCorners, uint16]
+      doAssert Window is figdraw_native_abi.Window
+      doAssert Key is figdraw_native_abi.Key
+      doAssert ModifierKey is figdraw_native_abi.ModifierKey
+      doAssert KeyEvent is figdraw_native_abi.KeyEvent
+      doAssert MouseButtonEvent is figdraw_native_abi.MouseButtonEvent
+      doAssert ScrollEvent is figdraw_native_abi.ScrollEvent
       doAssert not declared(IntSlice)
       doAssert not declared(FigSelectionRange)
       doAssert not declared(toNativeVec2)
@@ -65,6 +71,8 @@ suite "native dynlib API":
       doAssert SiwinRenderer is figdraw_native_abi.SiwinRenderer
       doAssert SiwinRenderBackend is figdraw_native_abi.SiwinRenderBackend
       doAssert not declared(NativeSiwinApp)
+      doAssert not declared(NativeFontRef)
+      doAssert not declared(NativeImageMessageSubscription)
       doAssert SiwinPresentationTarget is figdraw_native_abi.SiwinPresentationTarget
       doAssert typeof(newFigSiwinApp(default(Window), 192, 1.0)) is SiwinRenderer
       doAssert not compiles(default(SiwinRenderer).backendState)
@@ -76,6 +84,8 @@ suite "native dynlib API":
       doAssert not compiles(default(SiwinPresentationTarget).metalLayer)
       doAssert not declared(NSView)
       doAssert not declared(CAMetalLayer)
+      doAssert not compiles(default(FontRef).value)
+      doAssert not compiles(default(ImageMessageSubscription).inbox)
 
       let arrangement =
         GlyphArrangement(lines: @[2 .. 5], arrangedGlyphs: newSeq[ArrangedGlyph](6))
@@ -170,7 +180,6 @@ suite "native dynlib API":
       for line in generatedAbi.splitLines():
         if line.startsWith("import "):
           check "siwin" notin line
-      doAssert Window is figdraw_native_abi.Window
       doAssert WindowEventsHandler is figdraw_native_abi.WindowEventsHandler
       doAssert PopupPlacement is figdraw_native_abi.PopupPlacement
       doAssert not declared(NativeWindowSize)
@@ -285,10 +294,10 @@ suite "native dynlib API":
       check textStorage.stringValue() == source
       check storage.len == sourceRunes.len
       check not storage.isEmpty
-      check dynlib.`[]`(storage, 1) == sourceRunes[1]
-      check dynlib.`[]`(storage, 2 .. 4).stringValue() == "λ 😀"
+      check figdraw.`[]`(storage, 1) == sourceRunes[1]
+      check figdraw.`[]`(storage, 2 .. 4).stringValue() == "λ 😀"
       check storage.stringValue() == source
-      check dynlib.toRunes(storage) == sourceRunes
+      check figdraw.toRunes(storage) == sourceRunes
       check storage == sourceRunes
 
       let arrangement = GlyphArrangement(sourceRunes: sourceRunes, runes: sourceRunes)
