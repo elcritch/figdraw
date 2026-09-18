@@ -3,10 +3,7 @@ when defined(emscripten):
 else:
   import std/[os, times, monotimes, strformat, strutils]
 
-when defined(useNativeDynlib):
-  import figdraw/dynlib
-else:
-  import figdraw
+import figdraw
 
 import renderlist_100_common
 

@@ -3,11 +3,7 @@ when defined(emscripten):
 else:
   import std/[os, times, strutils]
 
-when defined(useNativeDynlib):
-  import figdraw/dynlib
-else:
-  import figdraw/windowing/siwinshim
-  import figdraw
+import figdraw
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const GridColumns {.intdefine: "figdraw.cols".} = 24

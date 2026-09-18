@@ -8,11 +8,7 @@ import pkg/pixie as pix
 import pkg/sdfy
 import pkg/sdfy/msdfgenSvg
 
-when defined(useNativeDynlib):
-  import figdraw/dynlib
-else:
-  import figdraw
-  import figdraw/windowing/siwinshim
+import figdraw
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 

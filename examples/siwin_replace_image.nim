@@ -2,11 +2,7 @@ import std/[math, os, strformat, times]
 
 import pkg/pixie as pix
 
-when defined(useNativeDynlib):
-  import figdraw/dynlib
-else:
-  import figdraw
-  import figdraw/windowing/siwinshim
+import figdraw
 
 const
   RunOnce {.booldefine: "figdraw.runOnce".}: bool = false

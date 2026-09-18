@@ -3,12 +3,7 @@ when not defined(emscripten):
 
 import chronicles
 
-when defined(useNativeDynlib):
-  import figdraw/dynlib
-else:
-  import figdraw
-  import figdraw/utils/drawutils
-  import figdraw/windowing/siwinshim
+import figdraw
 
 logScope:
   scope = "siwin_dashed_dotted_borders"

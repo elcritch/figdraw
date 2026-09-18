@@ -1,5 +1,4 @@
 import figdraw
-import figdraw/windowing/siwinshim
 
 import renderfragments_common
 

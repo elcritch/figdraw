@@ -4,11 +4,7 @@ when not defined(emscripten):
 
 import chronicles
 
-when defined(useNativeDynlib):
-  import figdraw/dynlib
-else:
-  import figdraw
-  import figdraw/windowing/siwinshim
+import figdraw
 
 logScope:
   scope = "siwin_drawable_beziers"

@@ -2,11 +2,7 @@ when defined(emscripten):
   import std/[times, unicode, strutils]
 else:
   import std/[os, times, unicode, strutils]
-when defined(useNativeDynlib):
-  import figdraw/dynlib
-else:
-  import figdraw
-  import figdraw/windowing/siwinshim
+import figdraw
 when not UseMetalBackend:
   import figdraw/utils/glutils
 

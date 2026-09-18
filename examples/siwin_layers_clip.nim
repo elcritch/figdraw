@@ -2,11 +2,7 @@ import std/times
 import std/strutils
 when not defined(emscripten):
   import std/os
-when defined(useNativeDynlib):
-  import figdraw/dynlib
-else:
-  import figdraw
-  import figdraw/windowing/siwinshim
+import figdraw
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 
