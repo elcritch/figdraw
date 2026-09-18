@@ -41,9 +41,7 @@ else:
 
   when defined(features.figdraw.siwin):
     import figdraw/windowing/siwinshim
-    export siwinshim except
-      Window, MouseButton, Key, KeyModifier, MouseEvent, ScrollEventPhase, ScrollEvent,
-      KeyEvent
+    export siwinshim
   when defined(features.figdraw.windy):
     import figdraw/windowing/windyshim
     export windyshim
