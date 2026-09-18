@@ -38,6 +38,12 @@ suite "native dynlib API":
       doAssert typeof(default(Fig).selectionRange) is Slice[int16]
       doAssert DirectionCorners is figdraw_native_abi.DirectionCorners
       doAssert CornerRadii is array[DirectionCorners, uint16]
+      doAssert Window is figdraw_native_abi.Window
+      doAssert Key is figdraw_native_abi.Key
+      doAssert ModifierKey is figdraw_native_abi.ModifierKey
+      doAssert KeyEvent is figdraw_native_abi.KeyEvent
+      doAssert MouseButtonEvent is figdraw_native_abi.MouseButtonEvent
+      doAssert ScrollEvent is figdraw_native_abi.ScrollEvent
       doAssert not declared(IntSlice)
       doAssert not declared(FigSelectionRange)
       doAssert not declared(toNativeVec2)
@@ -174,7 +180,6 @@ suite "native dynlib API":
       for line in generatedAbi.splitLines():
         if line.startsWith("import "):
           check "siwin" notin line
-      doAssert Window is figdraw_native_abi.Window
       doAssert WindowEventsHandler is figdraw_native_abi.WindowEventsHandler
       doAssert PopupPlacement is figdraw_native_abi.PopupPlacement
       doAssert not declared(NativeWindowSize)

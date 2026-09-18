@@ -26,6 +26,16 @@ export figdraw_native_abi except
   generateGlyphImages, hash, getContentHash, findSystemTypeface, findSystemFontFile,
   systemDefaultFontNames, FillKind, FillGradientAxis
 
+export
+  MouseButton, ModifierKey, Key, TouchDeviceKind, Edge, CursorKind, BuiltinCursor,
+  MouseMoveKind, ScrollDeviceKind, StateBoolChangedEventKind, PopupDismissReason,
+  WindowBackdropKind, WindowBackdropMaterial, PopupConstraintAdjustment,
+  WindowVisualCapability, Window, WindowEventsHandler, AnyWindowEvent, CloseEvent,
+  RenderEvent, TickEvent, ResizeEvent, WindowMoveEvent, MouseMoveEvent,
+  MouseButtonEvent, ScrollEvent, ClickEvent, KeyEvent, TextInputEvent, TouchEvent,
+  TouchMoveEvent, TouchPressureChangedEvent, StateBoolChangedEvent, PopupEvent,
+  DropEvent, WindowBackdropConfig, WindowVisualRegion, PopupPlacement
+
 proc fontRef*(font: sink FigFont): FontRef {.inline.} =
   newNativeFontRef(font)
 
