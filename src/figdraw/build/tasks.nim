@@ -104,7 +104,7 @@ when defined(macosx):
     @[
       "-framework", "AppKit", "-framework", "CoreFoundation", "-framework",
       "CoreGraphics", "-framework", "Foundation", "-framework", "Metal", "-framework",
-      "QuartzCore", "-framework", "Security", "-lobjc",
+      "QuartzCore", "-framework", "Security", "-lobjc", "-lc++",
     ]
 elif defined(linux):
   nativeBuild.linkerArgs = pkgConfigFlags(
@@ -130,4 +130,3 @@ proc runNativeNim*(arguments: openArray[string]) =
   var command = @[nativeBuild.compiler]
   command.add arguments
   exec nativeCommand(command)
-

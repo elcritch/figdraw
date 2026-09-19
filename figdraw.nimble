@@ -1,4 +1,4 @@
-version = "0.40.0"
+version = "0.40.1"
 author = "Jaremy Creechley"
 description = "UI Engine for Nim"
 license = "MIT"
@@ -45,7 +45,7 @@ feature "vulkan":
 feature "metal":
   requires "https://github.com/elcritch/metalx#head"
 feature "sharedlib":
-  requires "gh:elcritch/binny >= 0.5.17"
+  requires "gh:elcritch/binny >= 0.5.21"
 
 import std/os
 when fileExists("src/figdraw/build/tasks.nim"):
