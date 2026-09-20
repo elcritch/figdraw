@@ -414,8 +414,21 @@ proc loadImage*[T](id: ImageId, image: T) {.inline.} =
 proc replaceImage*[T](id: ImageId, image: T) {.inline.} =
   figdraw_native_abi.replaceImage(id, image.toImage())
 
-proc imageStyle*(image: ImageRef): ImageStyle =
-  ImageStyle(id: image.id, fill: fill(rgba(255, 255, 255, 255)))
+proc imageStyle*(
+    id: ImageId, imageFill: Fill = fill(rgba(255, 255, 255, 255))
+): ImageStyle =
+  ImageStyle(id: id, fill: imageFill)
+
+proc imageStyle*(
+    image: ImageRef, imageFill: Fill = fill(rgba(255, 255, 255, 255))
+): ImageStyle =
+  imageStyle(image.id, imageFill)
+
+proc zlevel*(cursor: RenderCursor): ZLevel {.inline.} =
+  nativeRenderCursorZLevel(cursor)
+
+proc index*(cursor: RenderCursor): FigIdx {.inline.} =
+  nativeRenderCursorIndex(cursor)
 
 proc drawableDashedRoundedRectBorderOps*(
     box: bumpy.Rect,
