@@ -139,6 +139,11 @@ proc runNativeNim*(arguments: openArray[string]) =
   exec nativeCommand(command)
 
 proc buildAndStageNativeDynlib*() =
+  # A force build must not reuse orphaned BIF files from another compiler or
+  # dependency checkout; Binny scans the producer cache when generating bindings.
+  let buildDir = nativeBuild.nativeBuildDir()
+  if dirExists(buildDir):
+    rmDir(buildDir)
   nativeBuild.buildNativeDynlib()
   withDir figdrawProjectDir:
     nativeBuild.stageNativeDynlib("bin")
