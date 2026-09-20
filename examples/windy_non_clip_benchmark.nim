@@ -3,7 +3,7 @@ import std/[algorithm, math, monotimes, strformat, times]
 const Windowed {.booldefine: "figdraw.bench.windowed".} = false
 
 when Windowed:
-  import figdraw/windyshim
+  import figdraw/windowing
 
 import figdraw/commons
 import figdraw/fignodes

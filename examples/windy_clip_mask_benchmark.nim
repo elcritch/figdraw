@@ -1,6 +1,6 @@
 import std/[algorithm, math, monotimes, strformat, times]
 
-import figdraw/windyshim
+import figdraw/windowing
 
 import figdraw/commons
 import figdraw/fignodes
