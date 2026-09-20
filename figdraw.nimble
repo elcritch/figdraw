@@ -47,20 +47,21 @@ feature "metal":
 feature "sharedlib":
   requires "gh:elcritch/binny >= 0.5.21"
 
-import std/os
-when fileExists("src/figdraw/build/tasks.nim"):
-  import src/figdraw/build/tasks
-else:
-  import figdraw/build/tasks
+when defined(feature.figdraw.sharedlib):
+  import std/os
+  when fileExists("src/figdraw/build/tasks.nim"):
+    import src/figdraw/build/tasks
+  else:
+    import figdraw/build/tasks
 
-task build_dynlib, "Stage native Nim dynlib artifacts in bin":
-  buildAndStageNativeDynlib()
+  task build_dynlib, "Stage native Nim dynlib artifacts in bin":
+    buildAndStageNativeDynlib()
 
-task native_shared_example, "Stage the native dynlib and build the siwin example":
-  buildAndStageNativeDynlib()
-  runNativeNim(
-    [
-      "c", "-d:release", "--mm:arc", "-d:useMalloc", "--path:bin",
-      "--out:examples/siwin_shared_native", "examples/siwin_shared_native.nim",
-    ]
-  )
+  task native_shared_example, "Stage the native dynlib and build the siwin example":
+    buildAndStageNativeDynlib()
+    runNativeNim(
+      [
+        "c", "-d:release", "--mm:arc", "-d:useMalloc", "--path:bin",
+        "--out:examples/siwin_shared_native", "examples/siwin_shared_native.nim",
+      ]
+    )

@@ -1,9 +1,11 @@
-import std/[compilesettings, os, strutils]
-
-import binny/native_dynlib/build
-export build
+import std/[os, strutils]
 
 const figdrawProjectDir* = currentSourcePath.parentDir.parentDir.parentDir.parentDir
+
+when defined(feature.figdraw.sharedlib):
+  import std/compilesettings
+  import binny/native_dynlib/build
+  export build
 
 when defined(linux):
   const
@@ -22,138 +24,139 @@ when defined(linux):
             result.add ' '
           result.add flags
 
-proc requestedDefine(name: string): tuple[found: bool, value: string] =
-  let prefixes = ["-d:" & name, "--define:" & name]
-  for index in 0 ..< paramCount():
-    let argument = paramStr(index)
-    for prefix in prefixes:
-      if argument == prefix:
-        return (true, "true")
-      if argument.startsWith(prefix & "="):
-        return (true, argument[(prefix.len + 1) .. ^1])
+when defined(feature.figdraw.sharedlib):
+  proc requestedDefine(name: string): tuple[found: bool, value: string] =
+    let prefixes = ["-d:" & name, "--define:" & name]
+    for index in 0 ..< paramCount():
+      let argument = paramStr(index)
+      for prefix in prefixes:
+        if argument == prefix:
+          return (true, "true")
+        if argument.startsWith(prefix & "="):
+          return (true, argument[(prefix.len + 1) .. ^1])
 
-  # NIMFLAGS is used by Atlas and by a few local build scripts. NimScript's
-  # parameter list contains command-line switches, but not flags injected
-  # through this environment variable.
-  for argument in getEnv("NIMFLAGS").splitWhitespace():
-    for prefix in prefixes:
-      if argument == prefix:
-        return (true, "true")
-      if argument.startsWith(prefix & "="):
-        return (true, argument[(prefix.len + 1) .. ^1])
+    # NIMFLAGS is used by Atlas and by a few local build scripts. NimScript's
+    # parameter list contains command-line switches, but not flags injected
+    # through this environment variable.
+    for argument in getEnv("NIMFLAGS").splitWhitespace():
+      for prefix in prefixes:
+        if argument == prefix:
+          return (true, "true")
+        if argument.startsWith(prefix & "="):
+          return (true, argument[(prefix.len + 1) .. ^1])
 
-proc addProducerDefine(
-    args: var seq[string], name: string, configured, defaultValue: bool
-): bool =
-  let requested = requestedDefine(name)
-  if requested.found:
-    try:
-      result = requested.value.parseBool()
-    except ValueError as exc:
-      quit "invalid value for " & name & ": " & exc.msg
-    args.add("-d:" & name & "=" & requested.value)
-  elif configured:
-    # A bare define supplied by a parent config has no value available to
-    # NimScript. It has Nim's normal true semantics.
-    result = true
-    args.add("-d:" & name & "=true")
-  else:
-    result = defaultValue
-
-let
-  nativeBackend = getEnv("FIGDRAW_NATIVE_BACKEND", "c").strip().toLowerAscii()
-  nativeProducer = figdrawProjectDir / "src/figdraw/bindings/native_bindings.nim"
-  nativeBindings = figdrawProjectDir / "bin/figdraw_native_abi.nim"
-
-var nativeBuild* = initNativeDynlibBuildConfig(
-  nativeProducer,
-  "libfigdraw_native",
-  buildRoot = figdrawProjectDir / ".nimcache/native_figdraw",
-  bindingsPath = nativeBindings,
-  exportConfigPath = figdrawProjectDir / "src/figdraw/bindings/native_dynlib.json",
-  backend = nativeBackend,
-)
-
-nativeBuild.nimArgs =
-  @["--mm:arc", "-d:useMalloc", "-d:release", "--path:" & (figdrawProjectDir / "src")]
-# Preserve the active compiler's package resolution in Binny's nested builds.
-for searchPath in querySettingSeq(MultipleValueSetting.searchPaths):
-  let pathArgument = "--path:" & searchPath
-  if pathArgument notin nativeBuild.nimArgs:
-    nativeBuild.nimArgs.add pathArgument
-
-let
-  defaultMetal = defined(macosx)
-  defaultVulkan = defined(bsd) or defined(linux) or defined(windows)
-  defaultOpenGl =
-    when defined(linux) or defined(cpu32):
-      true
+  proc addProducerDefine(
+      args: var seq[string], name: string, configured, defaultValue: bool
+  ): bool =
+    let requested = requestedDefine(name)
+    if requested.found:
+      try:
+        result = requested.value.parseBool()
+      except ValueError as exc:
+        quit "invalid value for " & name & ": " & exc.msg
+      args.add("-d:" & name & "=" & requested.value)
+    elif configured:
+      # A bare define supplied by a parent config has no value available to
+      # NimScript. It has Nim's normal true semantics.
+      result = true
+      args.add("-d:" & name & "=true")
     else:
-      not (defined(macosx) or defined(bsd) or defined(windows))
-  producerMetal = nativeBuild.nimArgs.addProducerDefine(
-    "figdraw.metal", defined(figdraw.metal), defaultMetal
-  )
-  producerVulkan = nativeBuild.nimArgs.addProducerDefine(
-    "figdraw.vulkan", defined(figdraw.vulkan), defaultVulkan
-  )
-  producerOpenGl = nativeBuild.nimArgs.addProducerDefine(
-    "figdraw.opengl", defined(figdraw.opengl), defaultOpenGl
-  )
-discard nativeBuild.nimArgs.addProducerDefine(
-  "figdraw.openglFallback",
-  defined(figdraw.openglFallback),
-  (producerMetal or producerVulkan) and not producerOpenGl,
-)
-nativeBuild.libraryNameStrdefine = true
+      result = defaultValue
 
-when defined(macosx):
-  nativeBuild.linkerArgs =
-    @[
-      "-framework", "AppKit", "-framework", "CoreFoundation", "-framework",
-      "CoreGraphics", "-framework", "Foundation", "-framework", "Metal", "-framework",
-      "QuartzCore", "-framework", "Security", "-lobjc", "-lc++",
-    ]
-elif defined(linux):
-  nativeBuild.linkerArgs = pkgConfigFlags(
-      "libs",
-      XorgDependencies.splitWhitespace() & WaylandDependencies.splitWhitespace() &
-        AuxDependencies.splitWhitespace(),
+  let
+    nativeBackend = getEnv("FIGDRAW_NATIVE_BACKEND", "c").strip().toLowerAscii()
+    nativeProducer = figdrawProjectDir / "src/figdraw/bindings/native_bindings.nim"
+    nativeBindings = figdrawProjectDir / "bin/figdraw_native_abi.nim"
+
+  var nativeBuild* = initNativeDynlibBuildConfig(
+    nativeProducer,
+    "libfigdraw_native",
+    buildRoot = figdrawProjectDir / ".nimcache/native_figdraw",
+    bindingsPath = nativeBindings,
+    exportConfigPath = figdrawProjectDir / "src/figdraw/bindings/native_dynlib.json",
+    backend = nativeBackend,
+  )
+
+  nativeBuild.nimArgs =
+    @["--mm:arc", "-d:useMalloc", "-d:release", "--path:" & (figdrawProjectDir / "src")]
+  # Preserve the active compiler's package resolution in Binny's nested builds.
+  for searchPath in querySettingSeq(MultipleValueSetting.searchPaths):
+    let pathArgument = "--path:" & searchPath
+    if pathArgument notin nativeBuild.nimArgs:
+      nativeBuild.nimArgs.add pathArgument
+
+  let
+    defaultMetal = defined(macosx)
+    defaultVulkan = defined(bsd) or defined(linux) or defined(windows)
+    defaultOpenGl =
+      when defined(linux) or defined(cpu32):
+        true
+      else:
+        not (defined(macosx) or defined(bsd) or defined(windows))
+    producerMetal = nativeBuild.nimArgs.addProducerDefine(
+      "figdraw.metal", defined(figdraw.metal), defaultMetal
     )
-    .splitWhitespace()
-  if producerVulkan and not producerOpenGl:
-    nativeBuild.linkerArgs.add pkgConfigFlags("libs", ["vulkan"]).splitWhitespace()
-  when defined(figdraw.harfbuzz):
-    nativeBuild.linkerArgs.add(
-      pkgConfigFlags("libs", ["harfbuzz", "fribidi"]).splitWhitespace()
+    producerVulkan = nativeBuild.nimArgs.addProducerDefine(
+      "figdraw.vulkan", defined(figdraw.vulkan), defaultVulkan
     )
+    producerOpenGl = nativeBuild.nimArgs.addProducerDefine(
+      "figdraw.opengl", defined(figdraw.opengl), defaultOpenGl
+    )
+  discard nativeBuild.nimArgs.addProducerDefine(
+    "figdraw.openglFallback",
+    defined(figdraw.openglFallback),
+    (producerMetal or producerVulkan) and not producerOpenGl,
+  )
+  nativeBuild.libraryNameStrdefine = true
 
-proc nativeCommand*(arguments: openArray[string]): string =
-  for index, argument in arguments:
-    if index > 0:
-      result.add ' '
-    result.add argument.quoteShell()
+  when defined(macosx):
+    nativeBuild.linkerArgs =
+      @[
+        "-framework", "AppKit", "-framework", "CoreFoundation", "-framework",
+        "CoreGraphics", "-framework", "Foundation", "-framework", "Metal", "-framework",
+        "QuartzCore", "-framework", "Security", "-lobjc", "-lc++",
+      ]
+  elif defined(linux):
+    nativeBuild.linkerArgs = pkgConfigFlags(
+        "libs",
+        XorgDependencies.splitWhitespace() & WaylandDependencies.splitWhitespace() &
+          AuxDependencies.splitWhitespace(),
+      )
+      .splitWhitespace()
+    if producerVulkan and not producerOpenGl:
+      nativeBuild.linkerArgs.add pkgConfigFlags("libs", ["vulkan"]).splitWhitespace()
+    when defined(figdraw.harfbuzz):
+      nativeBuild.linkerArgs.add(
+        pkgConfigFlags("libs", ["harfbuzz", "fribidi"]).splitWhitespace()
+      )
 
-proc runNativeNim*(arguments: openArray[string]) =
-  var command = @[nativeBuild.compiler]
-  command.add arguments
-  exec nativeCommand(command)
+  proc nativeCommand*(arguments: openArray[string]): string =
+    for index, argument in arguments:
+      if index > 0:
+        result.add ' '
+      result.add argument.quoteShell()
 
-proc buildAndStageNativeDynlib*() =
-  # A force build must not reuse orphaned BIF files from another compiler or
-  # dependency checkout; Binny scans the producer cache when generating bindings.
-  let buildDir = nativeBuild.nativeBuildDir()
-  if dirExists(buildDir):
-    rmDir(buildDir)
-  nativeBuild.buildNativeDynlib()
-  withDir figdrawProjectDir:
-    nativeBuild.stageNativeDynlib("bin")
+  proc runNativeNim*(arguments: openArray[string]) =
+    var command = @[nativeBuild.compiler]
+    command.add arguments
+    exec nativeCommand(command)
 
-proc stagedNativeDynlibPath*(): string =
-  figdrawProjectDir / "bin" / nativeBuild.libraryName
+  proc buildAndStageNativeDynlib*() =
+    # A force build must not reuse orphaned BIF files from another compiler or
+    # dependency checkout; Binny scans the producer cache when generating bindings.
+    let buildDir = nativeBuild.nativeBuildDir()
+    if dirExists(buildDir):
+      rmDir(buildDir)
+    nativeBuild.buildNativeDynlib()
+    withDir figdrawProjectDir:
+      nativeBuild.stageNativeDynlib("bin")
 
-proc nativeDynlibIsBuilt*(): bool =
-  fileExists(nativeBindings) and fileExists(stagedNativeDynlibPath())
+  proc stagedNativeDynlibPath*(): string =
+    figdrawProjectDir / "bin" / nativeBuild.libraryName
 
-proc ensureNativeDynlib*() =
-  if not nativeDynlibIsBuilt():
-    buildAndStageNativeDynlib()
+  proc nativeDynlibIsBuilt*(): bool =
+    fileExists(nativeBindings) and fileExists(stagedNativeDynlibPath())
+
+  proc ensureNativeDynlib*() =
+    if not nativeDynlibIsBuilt():
+      buildAndStageNativeDynlib()

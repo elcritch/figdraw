@@ -155,14 +155,15 @@ task test_emscripten, "build emscripten examples":
     if name.startsWith("windy_") and name.endsWith(".nim"):
       nimExec("c", file, "-d:emscripten")
 
-task build_dynlib, "Stage native Nim dynlib artifacts in bin":
-  buildAndStageNativeDynlib()
+when defined(feature.figdraw.sharedlib):
+  task build_dynlib, "Stage native Nim dynlib artifacts in bin":
+    buildAndStageNativeDynlib()
 
-task native_shared_example, "Stage the native dynlib and build the siwin example":
-  buildAndStageNativeDynlib()
-  runNativeNim(
-    [
-      "c", "-d:release", "--mm:arc", "-d:useMalloc", "--path:bin",
-      "--out:examples/siwin_shared_native", "examples/siwin_shared_native.nim",
-    ]
-  )
+  task native_shared_example, "Stage the native dynlib and build the siwin example":
+    buildAndStageNativeDynlib()
+    runNativeNim(
+      [
+        "c", "-d:release", "--mm:arc", "-d:useMalloc", "--path:bin",
+        "--out:examples/siwin_shared_native", "examples/siwin_shared_native.nim",
+      ]
+    )
