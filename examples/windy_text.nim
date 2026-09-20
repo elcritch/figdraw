@@ -8,7 +8,7 @@ import pkg/pixie/fonts
 when defined(useWindex):
   import windex
 else:
-  import figdraw/windowing
+  import figdraw/windowing/windyshim
 
 import figdraw/commons
 import figdraw/fignodes

@@ -6,7 +6,7 @@ else:
 import chroma
 
 import figdraw
-import figdraw/windowing
+import figdraw/windowing/windyshim
 import figdraw/figrender
 
 import renderlist_100_common

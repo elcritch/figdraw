@@ -4,7 +4,7 @@ else:
   import std/[os, strutils]
 
 import figdraw
-import figdraw/windowing
+import figdraw/windowing/windyshim
 
 import renderfragments_common
 
