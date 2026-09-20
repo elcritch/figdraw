@@ -21,20 +21,26 @@ export
   FillKind, FillGradientAxis, Linear2, Linear3, sampleColor, centerColorRgba,
   centerColor
 export figdraw_native_abi except
-  placeGlyphs, newSiwinWindow, newFigRenderer, `[]`, Hash, getFigFont,
-  getTypefaceSource, getTypefaceInfo, typeset, typesetForMeasurement, generateGlyph,
-  generateGlyphImages, hash, getContentHash, findSystemTypeface, findSystemFontFile,
-  systemDefaultFontNames, FillKind, FillGradientAxis
+  placeGlyphs, newSiwinWindow, newFigRenderer, `[]`, Hash, RootObj, MonoTime, Window,
+  ScrollEvent, KeyEvent, getFigFont, getTypefaceSource, getTypefaceInfo, typeset,
+  typesetForMeasurement, generateGlyph, generateGlyphImages, hash, getContentHash,
+  findSystemTypeface, findSystemFontFile, systemDefaultFontNames, FillKind,
+  FillGradientAxis
 
 export
   MouseButton, ModifierKey, Key, TouchDeviceKind, Edge, CursorKind, BuiltinCursor,
   MouseMoveKind, ScrollDeviceKind, StateBoolChangedEventKind, PopupDismissReason,
   WindowBackdropKind, WindowBackdropMaterial, PopupConstraintAdjustment,
-  WindowVisualCapability, Window, WindowEventsHandler, AnyWindowEvent, CloseEvent,
-  RenderEvent, TickEvent, ResizeEvent, WindowMoveEvent, MouseMoveEvent,
-  MouseButtonEvent, ScrollEvent, ClickEvent, KeyEvent, TextInputEvent, TouchEvent,
-  TouchMoveEvent, TouchPressureChangedEvent, StateBoolChangedEvent, PopupEvent,
-  DropEvent, WindowBackdropConfig, WindowVisualRegion, PopupPlacement
+  WindowVisualCapability, WindowEventsHandler, AnyWindowEvent, CloseEvent, RenderEvent,
+  TickEvent, ResizeEvent, WindowMoveEvent, MouseMoveEvent, MouseButtonEvent, ClickEvent,
+  TextInputEvent, TouchEvent, TouchMoveEvent, TouchPressureChangedEvent,
+  StateBoolChangedEvent, PopupEvent, DropEvent, WindowBackdropConfig,
+  WindowVisualRegion, PopupPlacement
+
+type
+  NativeWindow* = figdraw_native_abi.Window
+  NativeScrollEvent* = figdraw_native_abi.ScrollEvent
+  NativeKeyEvent* = figdraw_native_abi.KeyEvent
 
 proc fontRef*(font: sink FigFont): FontRef {.inline.} =
   newNativeFontRef(font)
@@ -173,7 +179,8 @@ const figdrawTextBackend* {.strdefine.} =
     "pixie"
 
 type
-  ImageRef* = ImageId
+  AtlasUsage* = NativeAtlasUsage
+  ImageRef* = NativeImageRef
 
   CornerRadii2D*[T] = object
     x*, y*: array[DirectionCorners, T]
@@ -193,6 +200,10 @@ converter toSiwinRenderer*(renderer: FigRenderer[SiwinRenderBackend]): SiwinRend
 converter nilToImageRef*(value: typeof(nil)): ImageRef =
   discard value
   default(ImageRef)
+
+func id*(image: ImageRef): ImageId {.inline.} =
+  ## The image ID owned by this handle.
+  image.imageId()
 
 converter toCursor*(value: BuiltinCursor): Cursor {.inline.} =
   Cursor(kind: CursorKind.builtin, builtin: value)
@@ -404,7 +415,14 @@ proc `[]`*(image: Image, x, y: int): chroma.ColorRGBA {.inline.} =
   figdraw_native_abi.`[]`(image, x, y).rgba()
 
 proc loadImageRef*(filePath: string): ImageRef =
-  loadFigImage(filePath)
+  newNativeImageRef(loadFigImage(filePath))
+
+proc imageRef*(id: ImageId): ImageRef {.inline.} =
+  newNativeImageRef(id)
+
+proc imageRef*(id: ImageId, image: sink Image): ImageRef =
+  figdraw_native_abi.loadImage(id, ensureMove image)
+  imageRef(id)
 
 proc loadImage*[T](id: ImageId, image: T) {.inline.} =
   figdraw_native_abi.loadImage(id, image.toImage())
@@ -413,7 +431,46 @@ proc replaceImage*[T](id: ImageId, image: T) {.inline.} =
   figdraw_native_abi.replaceImage(id, image.toImage())
 
 proc imageStyle*(image: ImageRef): ImageStyle =
-  ImageStyle(id: image, fill: fill(rgba(255, 255, 255, 255)))
+  ImageStyle(id: image.id, fill: fill(rgba(255, 255, 255, 255)))
+
+proc atlasUsage*(renderer: FigRenderer[SiwinRenderBackend]): AtlasUsage {.inline.} =
+  nativeAtlasUsage(renderer.native)
+
+func usedRatio*(usage: AtlasUsage): float32 {.inline.} =
+  if usage.atlasArea <= 0:
+    return 0.0'f32
+  usage.usedArea.float32 / usage.atlasArea.float32
+
+func packedRatio*(usage: AtlasUsage): float32 {.inline.} =
+  if usage.atlasArea <= 0:
+    return 0.0'f32
+  usage.packedArea.float32 / usage.atlasArea.float32
+
+proc atlasGeneration*(renderer: FigRenderer[SiwinRenderBackend]): uint64 {.inline.} =
+  nativeAtlasGeneration(renderer.native)
+
+proc ensureImage*(
+    renderer: FigRenderer[SiwinRenderBackend], id: ImageId, image: Image
+): bool {.discardable, inline.} =
+  nativeEnsureImage(renderer.native, id, image)
+
+proc rebuildImageAtlas*(
+    renderer: FigRenderer[SiwinRenderBackend], minimumSize = 0
+) {.inline.} =
+  nativeRebuildImageAtlas(renderer.native, minimumSize)
+
+proc processImageMessages*(renderer: FigRenderer[SiwinRenderBackend]) {.inline.} =
+  nativeProcessImageMessages(renderer.native)
+
+proc replayImageMessages*(renderer: FigRenderer[SiwinRenderBackend]) {.inline.} =
+  nativeReplayImageMessages(renderer.native)
+
+proc retainAtlasResources*(
+    renderer: FigRenderer[SiwinRenderBackend],
+    fontIds: openArray[FontId],
+    imageIds: openArray[ImageId],
+) {.inline.} =
+  nativeRetainAtlasResources(renderer.native, fontIds, imageIds)
 
 proc newFigRenderer*(
     atlasSize: int, backendState: SiwinRenderBackend, pixelScale = 1.0'f32

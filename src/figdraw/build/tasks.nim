@@ -1,7 +1,9 @@
-import std/[os, strutils]
+import std/[compilesettings, os, strutils]
 
 import binny/native_dynlib/build
 export build
+
+const figdrawProjectDir* = currentSourcePath.parentDir.parentDir.parentDir.parentDir
 
 when defined(linux):
   const
@@ -60,20 +62,25 @@ proc addProducerDefine(
 
 let
   nativeBackend = getEnv("FIGDRAW_NATIVE_BACKEND", "c").strip().toLowerAscii()
-  nativeProducer = "src/figdraw/bindings/native_bindings.nim"
-  nativeBindings = "bin/figdraw_native_abi.nim"
+  nativeProducer = figdrawProjectDir / "src/figdraw/bindings/native_bindings.nim"
+  nativeBindings = figdrawProjectDir / "bin/figdraw_native_abi.nim"
 
 var nativeBuild* = initNativeDynlibBuildConfig(
   nativeProducer,
   "libfigdraw_native",
-  buildRoot = ".nimcache/native_figdraw",
+  buildRoot = figdrawProjectDir / ".nimcache/native_figdraw",
   bindingsPath = nativeBindings,
-  exportConfigPath = "src/figdraw/bindings/native_dynlib.json",
+  exportConfigPath = figdrawProjectDir / "src/figdraw/bindings/native_dynlib.json",
   backend = nativeBackend,
 )
 
 nativeBuild.nimArgs =
-  @["--mm:arc", "-d:useMalloc", "-d:release", "--path:src", "--path:deps/siwin/src"]
+  @["--mm:arc", "-d:useMalloc", "-d:release", "--path:" & (figdrawProjectDir / "src")]
+# Preserve the active compiler's package resolution in Binny's nested builds.
+for searchPath in querySettingSeq(MultipleValueSetting.searchPaths):
+  let pathArgument = "--path:" & searchPath
+  if pathArgument notin nativeBuild.nimArgs:
+    nativeBuild.nimArgs.add pathArgument
 
 let
   defaultMetal = defined(macosx)
@@ -130,3 +137,18 @@ proc runNativeNim*(arguments: openArray[string]) =
   var command = @[nativeBuild.compiler]
   command.add arguments
   exec nativeCommand(command)
+
+proc buildAndStageNativeDynlib*() =
+  nativeBuild.buildNativeDynlib()
+  withDir figdrawProjectDir:
+    nativeBuild.stageNativeDynlib("bin")
+
+proc stagedNativeDynlibPath*(): string =
+  figdrawProjectDir / "bin" / nativeBuild.libraryName
+
+proc nativeDynlibIsBuilt*(): bool =
+  fileExists(nativeBindings) and fileExists(stagedNativeDynlibPath())
+
+proc ensureNativeDynlib*() =
+  if not nativeDynlibIsBuilt():
+    buildAndStageNativeDynlib()

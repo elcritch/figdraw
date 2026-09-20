@@ -54,12 +54,10 @@ else:
   import figdraw/build/tasks
 
 task build_dynlib, "Stage native Nim dynlib artifacts in bin":
-  nativeBuild.buildNativeDynlib()
-  nativeBuild.stageNativeDynlib("bin")
+  buildAndStageNativeDynlib()
 
 task native_shared_example, "Stage the native dynlib and build the siwin example":
-  nativeBuild.buildNativeDynlib()
-  nativeBuild.stageNativeDynlib("bin")
+  buildAndStageNativeDynlib()
   runNativeNim(
     [
       "c", "-d:release", "--mm:arc", "-d:useMalloc", "--path:bin",
