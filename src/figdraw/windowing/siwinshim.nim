@@ -8,6 +8,7 @@ import siwin/platforms
 import ../commons
 import ../fignodes
 import ../figrender
+import ../renderfragments
 
 const UseSiwinOpenGL = not (UseMetalBackend or UseVulkanBackend)
 const NeedSiwinOpenGLContext = UseSiwinOpenGL or UseOpenGlFallback
@@ -932,9 +933,9 @@ proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   else:
     discard
 
-proc renderFrame*(
+proc renderFrameImpl[Input: RenderInput](
     renderer: FigRenderer[SiwinRenderBackend],
-    nodes: var Renders,
+    nodes: var Input,
     frameSize: Vec2,
     clearMain = true,
     clearColor: Color = whiteColor,
@@ -977,3 +978,21 @@ proc renderFrame*(
       clearColor = clearColor,
       allowOpenGlFallback = not renderer.backendState.dedicatedRender,
     )
+
+proc renderFrame*(
+    renderer: FigRenderer[SiwinRenderBackend],
+    nodes: var Renders,
+    frameSize: Vec2,
+    clearMain = true,
+    clearColor: Color = whiteColor,
+) =
+  renderer.renderFrameImpl(nodes, frameSize, clearMain, clearColor)
+
+proc renderFrame*(
+    renderer: FigRenderer[SiwinRenderBackend],
+    nodes: var RenderFragments,
+    frameSize: Vec2,
+    clearMain = true,
+    clearColor: Color = whiteColor,
+) =
+  renderer.renderFrameImpl(nodes, frameSize, clearMain, clearColor)

@@ -6,10 +6,12 @@ import pkg/pixie as pixie
 
 import figdraw/commons
 import figdraw/common/fonttypes
+import figdraw/fignodes
 import figdraw/figrender
 import figdraw/windowing/siwinshim
 from figdraw/common/typefaces import nil
 from figdraw/common/imgutils import nil
+from figdraw/renderfragments import nil
 
 type SiwinRenderer* = FigRenderer[SiwinRenderBackend]
 
@@ -125,6 +127,12 @@ proc nativeReplayImageMessages*(renderer: SiwinRenderer) =
   renderer.ctx.ensureImageMessageSubscription()
   imgutils.replayImageMessages(renderer.ctx.imageMessages)
   figrender.processImageMessages(renderer)
+
+proc nativeRenderCursorZLevel*(cursor: renderfragments.RenderCursor): ZLevel =
+  cursor.zlevel
+
+proc nativeRenderCursorIndex*(cursor: renderfragments.RenderCursor): FigIdx =
+  cursor.index
 
 proc nativeRetainAtlasResources*(
     renderer: SiwinRenderer, fontIds: openArray[FontId], imageIds: openArray[ImageId]

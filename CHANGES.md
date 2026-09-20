@@ -1,5 +1,13 @@
 # Changes
 
+## 0.40.2
+
+- Export producer-owned `RenderFragments`, fragment handles, cursors, and their
+  mutation/query API through the native dynamic-library facade. Render fragment
+  trees can now be rendered directly through `figdraw/windowing`.
+- Add the `imageStyle(ImageId, Fill)` overload to the native facade and preserve
+  custom fills for both image IDs and image references.
+
 ## 0.39.0
 
 - Expose `resetFontCache` and font/source/metadata lookups through the regular

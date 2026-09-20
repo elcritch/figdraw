@@ -171,6 +171,15 @@ proc renderFrame*(
 ) =
   figdraw_native_abi.renderFrame(renderer.native, renders, size, clearMain, clearColor)
 
+proc renderFrame*(
+    renderer: FigRenderer[SiwinRenderBackend],
+    renders: var RenderFragments,
+    size: vmath.Vec2,
+    clearMain = true,
+    clearColor = whiteColor,
+) =
+  figdraw_native_abi.renderFrame(renderer.native, renders, size, clearMain, clearColor)
+
 proc siwinWindowTitle*(suffix = "Siwin RenderList"): string =
   "figdraw: " & siwinBackendName() & " + " & suffix
 

@@ -1,6 +1,7 @@
 {
   "includeProcs": [
     {"source": "native_bindings.nim", "name": "*"},
+    {"source": "../renderfragments.nim", "name": "*"},
     {"source": "$pkg/siwin/platforms/any/window.nim", "name": "closed"},
     {"source": "$pkg/siwin/platforms/any/window.nim", "name": "opened"},
     {"source": "$pkg/siwin/platforms/any/window.nim", "name": "close"},
@@ -267,7 +268,7 @@
     {"name": "FillKind", "module": "figdraw/common/filltypes", "source": "../common/filltypes.nim"},
     {"name": "FillGradientAxis", "module": "figdraw/common/filltypes", "source": "../common/filltypes.nim"},
     {"name": "SystemTypefaceFile", "module": "figdraw/extras/systemfonttypes", "source": "../extras/systemfonttypes.nim"},
-    {"name": "SystemTypeface", "module": "figdraw/extras/systemfonttypes", "source": "../extras/systemfonttypes.nim"},
+    {"name": "SystemTypeface", "module": "figdraw/extras/systemfonttypes", "source": "../extras/systemfonttypes.nim"}
   ],
   "opaqueTypes": [
     {"name": "SiwinRenderer", "source": "native_bindings.nim"},
@@ -275,7 +276,10 @@
     {"name": "SiwinPresentationTarget", "source": "../windowing/siwinshim.nim"},
     {"name": "FontRef", "source": "native_bindings.nim"},
     {"name": "NativeImageRef", "source": "native_bindings.nim"},
-    {"name": "ImageMessageSubscription", "source": "native_bindings.nim"}
+    {"name": "ImageMessageSubscription", "source": "native_bindings.nim"},
+    {"name": "RenderFragments", "source": "../renderfragments.nim"},
+    {"name": "RenderFragmentHandle", "source": "../renderfragments.nim"},
+    {"name": "RenderCursor", "source": "../renderfragments.nim"}
   ],
   "requireMatches": true
 }
