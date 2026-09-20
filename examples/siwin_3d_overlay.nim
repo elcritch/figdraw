@@ -4,6 +4,7 @@ else:
   import std/[os, times, math, strformat, strutils]
 
 import figdraw
+import figdraw/windowing
 
 import figdraw/utils/glutils
 import pkg/opengl

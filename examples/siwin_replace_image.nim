@@ -3,6 +3,7 @@ import std/[math, os, strformat, times]
 import pkg/pixie as pix
 
 import figdraw
+import figdraw/windowing
 
 const
   RunOnce {.booldefine: "figdraw.runOnce".}: bool = false

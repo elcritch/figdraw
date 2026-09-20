@@ -3,6 +3,7 @@ import std/strutils
 when not defined(emscripten):
   import std/os
 import figdraw
+import figdraw/windowing
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 

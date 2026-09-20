@@ -1,4 +1,4 @@
-version = "0.40.0"
+version = "0.40.1"
 author = "Jaremy Creechley"
 description = "UI Engine for Nim"
 license = "MIT"
@@ -45,10 +45,23 @@ feature "vulkan":
 feature "metal":
   requires "https://github.com/elcritch/metalx#head"
 feature "sharedlib":
-  requires "gh:elcritch/binny >= 0.5.16"
+  requires "gh:elcritch/binny >= 0.5.21"
 
-import std/os
+when defined(feature.figdraw.sharedlib):
+  import std/os
+  when fileExists("src/figdraw/build/tasks.nim"):
+    import src/figdraw/build/tasks
+  else:
+    import figdraw/build/tasks
 
-task build_dynlib, "Build and stage the native Nim dynamic library":
-  let compiler = getEnv("FIGDRAW_NATIVE_NIM", getHomeDir() & "/projs/nims/Nim/bin/nim")
-  exec compiler.quoteShell & " build_dynlib"
+  task build_dynlib, "Stage native Nim dynlib artifacts in bin":
+    buildAndStageNativeDynlib()
+
+  task native_shared_example, "Stage the native dynlib and build the siwin example":
+    buildAndStageNativeDynlib()
+    runNativeNim(
+      [
+        "c", "-d:release", "--mm:arc", "-d:useMalloc", "--path:bin",
+        "--out:examples/siwin_shared_native", "examples/siwin_shared_native.nim",
+      ]
+    )

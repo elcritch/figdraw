@@ -6,6 +6,7 @@ import std/[math, strutils, times]
 import chronicles
 
 import figdraw
+import figdraw/windowing
 
 logScope:
   scope = "siwin_scripture_shaping"

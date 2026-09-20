@@ -9,6 +9,7 @@ import pkg/sdfy
 import pkg/sdfy/msdfgenSvg
 
 import figdraw
+import figdraw/windowing
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 

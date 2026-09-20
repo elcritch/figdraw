@@ -8,8 +8,6 @@ when defined(useNativeDynlib):
 else:
   import chroma, bumpy, vmath
   import pkg/pixie as pixie
-  from pkg/pixie import
-    Image, newImage, opaqueBounds, `[]`, `[]=`, fill, copy, decodeImage, writeFile
   from pkg/pixie/fileformats/png import encodePng
   import figdraw/commons
   import figdraw/common/fontglyphs
@@ -24,8 +22,8 @@ else:
   export bumpy
   export vmath
   export
-    Image, newImage, opaqueBounds, `[]`, `[]=`, fill, copy, decodeImage, writeFile,
-    encodePng
+    pixie.Image, pixie.newImage, pixie.opaqueBounds, pixie.`[]`, pixie.`[]=`,
+    pixie.fill, pixie.copy, pixie.decodeImage, pixie.writeFile, encodePng
 
   proc readPixieImage*(filePath: string): Image {.inline.} =
     pixie.readImage(filePath)
@@ -38,10 +36,3 @@ else:
   export renderfragments
   export figrenderer
   export drawutils
-
-  when defined(features.figdraw.siwin):
-    import figdraw/windowing/siwinshim
-    export siwinshim
-  when defined(features.figdraw.windy):
-    import figdraw/windowing/windyshim
-    export windyshim

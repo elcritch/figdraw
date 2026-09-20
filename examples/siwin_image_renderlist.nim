@@ -4,6 +4,7 @@ else:
   import std/[os, times, strutils]
 
 import figdraw
+import figdraw/windowing
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 

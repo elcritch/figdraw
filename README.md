@@ -1038,6 +1038,23 @@ generated ABI module, then compile an example with `-d:useNativeDynlib`:
 ../Nim/bin/nim c -r -d:useNativeDynlib examples/siwin_renderlist.nim
 ```
 
+Applications use the same primary import in static and dynamic-library builds:
+
+```nim
+import figdraw
+```
+
+Windowed applications add the windowing facade:
+
+```nim
+import figdraw/windowing
+```
+
+With `-d:useNativeDynlib`, `figdraw` selects the generated core facade and
+`figdraw/windowing` selects its native windowing facade. Otherwise, `figdraw`
+exports the normal renderer and scene API while `figdraw/windowing` exports the
+configured Siwin or Windy shim.
+
 The native build task forwards explicit backend defines to the producer, so a
 platform-specific library can be selected with the same flags as a static
 build, for example `-d:figdraw.vulkan=on -d:figdraw.opengl=off`.

@@ -2,12 +2,11 @@ import std/unittest
 when defined(linux) or defined(bsd):
   import std/os
 
+import figdraw
+import figdraw/windowing
+
 when defined(useNativeDynlib):
-  import figdraw
   from figdraw_native_abi import nil
-else:
-  import figdraw
-  import figdraw/windowing/siwinshim
 
 proc renderTree(size: Vec2): Renders =
   result = newRenders()

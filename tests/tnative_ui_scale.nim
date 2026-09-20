@@ -4,6 +4,7 @@ when defined(linux) or defined(bsd):
 
 when defined(useNativeDynlib):
   import figdraw
+  import figdraw/windowing
   from pkg/vmath import ivec2, x, y
 
 suite "native dynlib UI scale":

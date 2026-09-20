@@ -4,6 +4,7 @@ else:
   import std/[os, times, math]
 
 import figdraw
+import figdraw/windowing
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const FontName {.strdefine: "figdraw.defaultfont".}: string = "Ubuntu.ttf"

@@ -21,20 +21,39 @@ export
   FillKind, FillGradientAxis, Linear2, Linear3, sampleColor, centerColorRgba,
   centerColor
 export figdraw_native_abi except
-  placeGlyphs, newSiwinWindow, newFigRenderer, `[]`, Hash, getFigFont,
+  placeGlyphs, newSiwinWindow, newSiwinPopupWindow, newFigRenderer, setupBackend,
+  drawableDashedRoundedRectBorderOps, drawableDottedRoundedRectBorderOps,
+  figDashedRoundedRectBorder, figRoundedRectBorder, figDottedRoundedRectBorder, `[]`,
+  Hash, RootObj, MonoTime, MouseButton, ModifierKey, Key, TouchDeviceKind, Edge,
+  CursorKind, BuiltinCursor, MouseMoveKind, ScrollDeviceKind, StateBoolChangedEventKind,
+  PopupDismissReason, WindowBackdropKind, WindowBackdropMaterial,
+  PopupConstraintAdjustment, WindowVisualCapability, SiwinRenderer, SiwinRenderBackend,
+  SiwinPresentationTarget, ClipboardContentKind, ClipboardContentChangedEvent,
+  Clipboard, PixelBuffer, Touch, Mouse, Keyboard, TouchScreen, Cursor, ImageCursor,
+  Screen, Window, WindowEventsHandler, AnyWindowEvent, CloseEvent, RenderEvent,
+  TickEvent, ResizeEvent, WindowMoveEvent, MouseMoveEvent, MouseButtonEvent,
+  ScrollEvent, ClickEvent, KeyEvent, TextInputEvent, TouchEvent, TouchMoveEvent,
+  TouchPressureChangedEvent, StateBoolChangedEvent, PopupEvent, DropEvent,
+  WindowBackdropConfig, WindowVisualRegion, PopupPlacement, newFigSiwinApp, closed,
+  opened, close, redraw, firstStep, step, makeCurrent, size, `size=`, pos, `pos=`,
+  `title=`, visible, `visible=`, focused, fullscreen, `fullscreen=`, maximized,
+  `maximized=`, minimized, `minimized=`, resizable, `resizable=`, frameless,
+  `frameless=`, transparent, customTitlebar, `customTitlebar=`, supportsCustomTitlebar,
+  `vsync=`, separateTouch, `separateTouch=`, canBecomeKeyWindow, `canBecomeKeyWindow=`,
+  canBecomeMainWindow, `canBecomeMainWindow=`, minSize, `minSize=`, maxSize, `maxSize=`,
+  setTitleRegion, setInputRegion, setBorderWidth, cursor, `cursor=`,
+  startInteractiveMove, startInteractiveResize, showWindowMenu, `icon=`, isPopup,
+  popupGrab, popupOpen, placement, `placement=`, reposition, parentWindow,
+  visualCapabilities, supports, backdrop, trySetBackdrop, clearBackdrop, setBackdrop,
+  initWindowBackdrop, clipboard, selectionClipboard, dragndropClipboard, uiScale,
+  preservesContentDuringLiveResize, `preservesContentDuringLiveResize=`, text, `text=`,
+  files, `files=`, presentationTarget, updatePresentationTarget,
+  backendSupportsDedicatedRenderThread, supportsDedicatedRenderThread,
+  useDedicatedRenderThread, beginFrame, renderFrame, endFrame, configureUiScale,
+  refreshUiScale, presentNow, siwinBackendName, siwinDisplayServerName, getFigFont,
   getTypefaceSource, getTypefaceInfo, typeset, typesetForMeasurement, generateGlyph,
   generateGlyphImages, hash, getContentHash, findSystemTypeface, findSystemFontFile,
   systemDefaultFontNames, FillKind, FillGradientAxis
-
-export
-  MouseButton, ModifierKey, Key, TouchDeviceKind, Edge, CursorKind, BuiltinCursor,
-  MouseMoveKind, ScrollDeviceKind, StateBoolChangedEventKind, PopupDismissReason,
-  WindowBackdropKind, WindowBackdropMaterial, PopupConstraintAdjustment,
-  WindowVisualCapability, Window, WindowEventsHandler, AnyWindowEvent, CloseEvent,
-  RenderEvent, TickEvent, ResizeEvent, WindowMoveEvent, MouseMoveEvent,
-  MouseButtonEvent, ScrollEvent, ClickEvent, KeyEvent, TextInputEvent, TouchEvent,
-  TouchMoveEvent, TouchPressureChangedEvent, StateBoolChangedEvent, PopupEvent,
-  DropEvent, WindowBackdropConfig, WindowVisualRegion, PopupPlacement
 
 proc fontRef*(font: sink FigFont): FontRef {.inline.} =
   newNativeFontRef(font)
@@ -173,42 +192,18 @@ const figdrawTextBackend* {.strdefine.} =
     "pixie"
 
 type
-  ImageRef* = ImageId
+  ImageRef* = NativeImageRef
 
   CornerRadii2D*[T] = object
     x*, y*: array[DirectionCorners, T]
-
-  FigRenderer*[BackendState] = ref object
-    atlasSize: int
-    pixelScale: float32
-    backendState: BackendState
-    native: SiwinRenderer
-    window: Window
-    autoScale: bool
-
-converter toSiwinRenderer*(renderer: FigRenderer[SiwinRenderBackend]): SiwinRenderer =
-  ## Exposes the typed renderer for direct native renderer operations.
-  renderer.native
 
 converter nilToImageRef*(value: typeof(nil)): ImageRef =
   discard value
   default(ImageRef)
 
-converter toCursor*(value: BuiltinCursor): Cursor {.inline.} =
-  Cursor(kind: CursorKind.builtin, builtin: value)
-
-converter toOptionalPosition*(value: vmath.Vec2): Option[vmath.Vec2] {.inline.} =
-  some(value)
-
-converter toPixelBuffer*(image: Image): PixelBuffer {.inline.} =
-  ## Borrows the image's premultiplied pixels; keep the image alive while using
-  ## the returned buffer. Nil or empty images yield an empty buffer.
-  if not image.isNil and image.data.len > 0:
-    result = PixelBuffer(
-      data: image.data[0].addr,
-      size: ivec2(image.width.int32, image.height.int32),
-      format: rgbx_32bit,
-    )
+func id*(image: ImageRef): ImageId {.inline.} =
+  ## The image ID owned by this handle.
+  image.imageId()
 
 converter toRuneSequence*(runes: figdraw_native_abi.Utf8Runes): seq[unicode.Rune] =
   runes.toRunes()
@@ -404,7 +399,14 @@ proc `[]`*(image: Image, x, y: int): chroma.ColorRGBA {.inline.} =
   figdraw_native_abi.`[]`(image, x, y).rgba()
 
 proc loadImageRef*(filePath: string): ImageRef =
-  loadFigImage(filePath)
+  newNativeImageRef(loadFigImage(filePath))
+
+proc imageRef*(id: ImageId): ImageRef {.inline.} =
+  newNativeImageRef(id)
+
+proc imageRef*(id: ImageId, image: sink Image): ImageRef =
+  figdraw_native_abi.loadImage(id, ensureMove image)
+  imageRef(id)
 
 proc loadImage*[T](id: ImageId, image: T) {.inline.} =
   figdraw_native_abi.loadImage(id, image.toImage())
@@ -413,101 +415,59 @@ proc replaceImage*[T](id: ImageId, image: T) {.inline.} =
   figdraw_native_abi.replaceImage(id, image.toImage())
 
 proc imageStyle*(image: ImageRef): ImageStyle =
-  ImageStyle(id: image, fill: fill(rgba(255, 255, 255, 255)))
+  ImageStyle(id: image.id, fill: fill(rgba(255, 255, 255, 255)))
 
-proc newFigRenderer*(
-    atlasSize: int, backendState: SiwinRenderBackend, pixelScale = 1.0'f32
-): FigRenderer[SiwinRenderBackend] =
-  FigRenderer[SiwinRenderBackend](
-    atlasSize: atlasSize, pixelScale: pixelScale, backendState: backendState
+proc drawableDashedRoundedRectBorderOps*(
+    box: bumpy.Rect,
+    corners: array[DirectionCorners, uint16],
+    dashLength, gapLength: float32,
+    offset = 0.0'f32,
+): seq[DrawableOp] =
+  figdraw_native_abi.drawableDashedRoundedRectBorderOps(
+    box, corners, dashLength, gapLength, offset
   )
 
-proc newSiwinWindow*(
-    size = ivec2(1280, 720),
-    fullscreen = false,
-    title = "FigDraw",
-    vsync = true,
-    msaa = 0'i32,
-    resizable = true,
-    frameless = false,
-    transparent = false,
-): Window =
-  ## Creates the producer's platform window without importing Siwin locally.
-  figdraw_native_abi.newSiwinWindow(
-    size, fullscreen, title, vsync, msaa, resizable, frameless, transparent
+proc drawableDottedRoundedRectBorderOps*(
+    box: bumpy.Rect,
+    corners: array[DirectionCorners, uint16],
+    dotRadius, gapLength: float32,
+    offset = 0.0'f32,
+): seq[DrawableOp] =
+  figdraw_native_abi.drawableDottedRoundedRectBorderOps(
+    box, corners, dotRadius, gapLength, offset
   )
 
-proc newPopupWindow*(
-    parent: Window, placement: PopupPlacement, transparent = true, grab = true
-): Window =
-  figdraw_native_abi.newSiwinPopupWindow(parent, placement, transparent, grab)
-
-proc setupBackend*(renderer: FigRenderer[SiwinRenderBackend], window: Window) =
-  let native = figdraw_native_abi.newFigRenderer(
-    renderer.atlasSize, renderer.backendState, renderer.pixelScale
+proc figDashedRoundedRectBorder*(
+    box: bumpy.Rect,
+    corners: CornerRadii,
+    fill: Fill,
+    weight, dashLength, gapLength: float32,
+    offset = 0.0'f32,
+    cap = scButt,
+    zlevel = 0.ZLevel,
+): Fig =
+  figdraw_native_abi.figDashedRoundedRectBorder(
+    box, corners, fill, weight, dashLength, gapLength, offset, cap, zlevel
   )
-  figdraw_native_abi.setupBackend(native, window)
-  let autoScale = figdraw_native_abi.configureUiScale(window, "HDI")
-  renderer.native = native
-  renderer.window = window
-  renderer.backendState = default(SiwinRenderBackend)
-  renderer.autoScale = autoScale
 
-proc newSiwinWindow*(
-    renderer: FigRenderer[SiwinRenderBackend],
-    size = ivec2(1280, 720),
-    fullscreen = false,
-    title = "FigDraw",
-    vsync = true,
-    msaa = 0'i32,
-    resizable = true,
-    frameless = false,
-    transparent = false,
-): Window =
-  result = newSiwinWindow(
-    size, fullscreen, title, vsync, msaa, resizable, frameless, transparent
+proc figRoundedRectBorder*(
+    box: bumpy.Rect,
+    corners: CornerRadii,
+    fill: Fill,
+    weight: float32,
+    cap = scButt,
+    zlevel = 0.ZLevel,
+): Fig =
+  figdraw_native_abi.figRoundedRectBorder(box, corners, fill, weight, cap, zlevel)
+
+proc figDottedRoundedRectBorder*(
+    box: bumpy.Rect,
+    corners: CornerRadii,
+    fill: Fill,
+    weight, gapLength: float32,
+    offset = 0.0'f32,
+    zlevel = 0.ZLevel,
+): Fig =
+  figdraw_native_abi.figDottedRoundedRectBorder(
+    box, corners, fill, weight, gapLength, offset, zlevel
   )
-  renderer.setupBackend(result)
-
-proc nativeWindowKey*(window: Window): pointer {.inline.} =
-  cast[pointer](window)
-
-proc `icon=`*(window: Window, image: Image) {.inline.} =
-  ## Converts image icons while preserving Siwin's distinct clear-icon call.
-  if image.isNil or image.data.len == 0:
-    figdraw_native_abi.`icon=`(window, nil)
-  else:
-    figdraw_native_abi.`icon=`(window, image.toPixelBuffer())
-
-template `vsync=`*(window: Window, value: bool) =
-  figdraw_native_abi.`vsync=`(window, value, false)
-
-template firstStep*(window: Window) =
-  figdraw_native_abi.firstStep(window, true)
-
-template configureUiScale*(window: Window): bool =
-  figdraw_native_abi.configureUiScale(window, "HDI")
-
-proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
-  renderer.window.refreshUiScale(renderer.autoScale)
-  figdraw_native_abi.beginFrame(renderer.native)
-
-proc renderFrame*(
-    renderer: FigRenderer[SiwinRenderBackend],
-    renders: var Renders,
-    size: vmath.Vec2,
-    clearMain = true,
-    clearColor = whiteColor,
-) =
-  figdraw_native_abi.renderFrame(renderer.native, renders, size, clearMain, clearColor)
-
-proc siwinWindowTitle*(suffix = "Siwin RenderList"): string =
-  "figdraw: " & siwinBackendName() & " + " & suffix
-
-proc siwinWindowTitle*(
-    renderer: FigRenderer[SiwinRenderBackend],
-    window: Window,
-    suffix = "Siwin RenderList",
-): string =
-  discard window
-  "figdraw: " & renderer.backendName() & " + " & suffix

@@ -1,4 +1,5 @@
 import figdraw
+import figdraw/windowing
 
 import renderfragments_common
 
