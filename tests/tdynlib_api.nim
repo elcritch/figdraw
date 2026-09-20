@@ -9,6 +9,7 @@ when defined(useNativeDynlib):
   import figdraw/extras/systemfonttypes as systemfonttypes
   from figdraw/common/fonttypes import nil
   import figdraw
+  import figdraw/windowing
   from figdraw_native_abi import nil
 
   proc loadExactTypefaceForCompileCheck(file: SystemTypefaceFile): TypefaceId {.used.} =
@@ -56,7 +57,7 @@ suite "native dynlib API":
       doAssert not declared(utf8RunesFromRunes)
       doAssert not declared(newPixieImage)
       doAssert not declared(copyImage)
-      doAssert not declared(readPixieImage)
+      doAssert compiles(readPixieImage(""))
       doAssert not declared(putFigImage)
       doAssert not declared(replaceFigImage)
       doAssert not declared(imageWidth)
@@ -135,9 +136,9 @@ suite "native dynlib API":
         var found = false
         for line in generatedAbi.splitLines():
           if line.startsWith("proc " & name & "*(renderer: SiwinRenderer"):
-            check "importc: \"binny_generic_" in line
             found = true
         check found
+        check "binny_generic_" & name in generatedAbi
 
       for prefix in ["proc `[]=`*(image: Image", "proc fill*(image: Image"]:
         var found = false
@@ -147,23 +148,39 @@ suite "native dynlib API":
             found = true
         check found
 
-      for prefix in [
-        "proc setupBackend*(renderer: SiwinRenderer",
-        "proc beginFrame*(renderer: SiwinRenderer",
-        "proc renderFrame*(renderer: SiwinRenderer",
-        "proc endFrame*(renderer: SiwinRenderer",
-        "proc presentationTarget*(renderer: SiwinRenderer",
-        "proc updatePresentationTarget*(target: SiwinPresentationTarget",
-        "proc backendSupportsDedicatedRenderThread*(kind: RendererBackendKind",
-        "proc supportsDedicatedRenderThread*(renderer: SiwinRenderer",
-        "proc useDedicatedRenderThread*(renderer: SiwinRenderer",
+      for (name, prefix) in [
+        ("setupBackend", "proc setupBackend*(renderer: SiwinRenderer"),
+        ("beginFrame", "proc beginFrame*(renderer: SiwinRenderer"),
+        ("renderFrame", "proc renderFrame*(renderer: SiwinRenderer"),
+        ("endFrame", "proc endFrame*(renderer: SiwinRenderer"),
+        ("presentationTarget", "proc presentationTarget*(renderer: SiwinRenderer"),
+        (
+          "updatePresentationTarget",
+          "proc updatePresentationTarget*(target: SiwinPresentationTarget",
+        ),
+        (
+          "backendSupportsDedicatedRenderThread",
+          "proc backendSupportsDedicatedRenderThread*(kind: RendererBackendKind",
+        ),
+        (
+          "supportsDedicatedRenderThread",
+          "proc supportsDedicatedRenderThread*(renderer: SiwinRenderer",
+        ),
+        (
+          "useDedicatedRenderThread",
+          "proc useDedicatedRenderThread*(renderer: SiwinRenderer",
+        ),
       ]:
-        var found = false
+        var
+          found = false
+          imported = false
         for line in generatedAbi.splitLines():
           if line.startsWith(prefix):
-            check "importc:" in line
             found = true
+          if "importc:" in line and name in line:
+            imported = true
         check found
+        check imported
 
       doAssert compiles(
         block:

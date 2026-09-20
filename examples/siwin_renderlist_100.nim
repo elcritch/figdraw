@@ -4,6 +4,7 @@ else:
   import std/[os, times, monotimes, strformat, strutils]
 
 import figdraw
+import figdraw/windowing
 
 import renderlist_100_common
 

@@ -1,6 +1,7 @@
 import std/[os, times]
 
 import figdraw
+import figdraw/windowing
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
 const LeftWindowDelaySec = 0.2

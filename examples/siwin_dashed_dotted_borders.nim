@@ -4,6 +4,7 @@ when not defined(emscripten):
 import chronicles
 
 import figdraw
+import figdraw/windowing
 
 logScope:
   scope = "siwin_dashed_dotted_borders"

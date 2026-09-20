@@ -3,6 +3,7 @@ when defined(emscripten):
 else:
   import std/[os, times, unicode, strutils]
 import figdraw
+import figdraw/windowing
 when not UseMetalBackend:
   import figdraw/utils/glutils
 
