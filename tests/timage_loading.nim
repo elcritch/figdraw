@@ -124,6 +124,13 @@ proc retainImageOnThread(id: ImageId) {.thread.} =
   var owned = imageRef(id)
   discard owned.id
 
+when not defined(useMalloc):
+  proc createUnreadSubscription() =
+    let subscription = newImageMessageSubscription()
+    doAssert not subscription.isNil
+    # Leave the replayed image in the inbox so subscription teardown must
+    # release both the ring storage and its managed payload.
+
 suite "image loading":
   test "load png via figDataDir fallback":
     setFigDataDir(getCurrentDir() / "data")
@@ -265,6 +272,33 @@ suite "image loading":
     clearImage(id)
     ctx.drainImages()
     late.drainImages()
+
+  test "image replacement exercises the bounded RChan ring":
+    clearImageCache()
+    let
+      id = imgId("tests/timage_loading/rchan-ring")
+      subscription = newImageMessageSubscription()
+      frameCount = 4300
+    for frame in 0 ..< frameCount:
+      var image = newImage(1, 1)
+      image[0, 0] = rgba(uint8(frame mod 251), 20, 30, 255)
+      if frame == 0:
+        loadImage(id, image)
+      else:
+        replaceImage(id, image)
+
+    var
+      message: ImageMsg
+      received = 0
+      lastRed: uint8
+    while subscription.tryRecvImageMsg(message):
+      if message.id == id and message.kind in {ImkPutPixie, ImkReplacePixie}:
+        lastRed = message.pimg[0, 0].r
+        inc received
+
+    check received > 0
+    check lastRed == uint8((frameCount - 1) mod 251)
+    clearImage(id)
 
   test "replaceImage replays the newest frame after an atlas rebuild":
     let
@@ -578,6 +612,20 @@ suite "image loading":
     check replay.pimg[0, 0] == rgba(10, 20, 30, 255)
 
     clearImage(id)
+
+  when not defined(useMalloc):
+    test "subscription teardown releases its inbox and unread image replay":
+      clearImageCache()
+      let id = imgId("tests/timage_loading/subscription-cleanup")
+      loadImage(id, newImage(64, 64))
+      # Warm up the subscriber table before comparing live allocations.
+      createUnreadSubscription()
+      let before = getOccupiedMem()
+      for _ in 0 ..< 100:
+        createUnreadSubscription()
+      let growth = getOccupiedMem() - before
+      check growth == 0
+      clearImage(id)
 
   test "a full renderer subscription does not block resource publishers":
     clearImageCache()

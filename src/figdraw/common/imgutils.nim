@@ -4,7 +4,7 @@ import std/[isolation, locks, times]
 import pkg/pixie
 import chronicles
 
-import ./rchannels
+import sigils/rchannels
 import ./formatflippy
 import ./fonttypes
 import ./shared
