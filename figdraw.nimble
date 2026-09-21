@@ -1,4 +1,4 @@
-version = "0.40.2"
+version = "0.41.0"
 author = "Jaremy Creechley"
 description = "UI Engine for Nim"
 license = "MIT"
@@ -6,6 +6,7 @@ srcDir = "src"
 
 # Dependencies
 requires "nim >= 2.2"
+requires "https://github.com/elcritch/sigils#feat/rchannels"
 requires "pixie >= 5.0.1"
 requires "chroma >= 0.2.7"
 requires "bumpy"

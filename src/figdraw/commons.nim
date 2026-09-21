@@ -1,6 +1,6 @@
 import common/shared
 import common/uimaths
-import common/rchannels
+import sigils/rchannels
 import common/fontutils
 import common/imgutils
 import extras/systemfonts

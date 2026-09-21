@@ -1,5 +1,19 @@
 # Changes
 
+## 0.41.0
+
+- Move the ownership-safe fixed-ring RChan implementation and its regression
+  suite to Sigils 0.31.0; keep a compatibility import for existing FigDraw
+  callers and exercise image-message replacement through the shared channel.
+
+- Store `RChan` messages in a fixed typed ring, transferring isolated values
+  with `swap` under the lock. Remove per-message allocations and send rollback;
+  preserve `tryTake` sources on failure and receive isolated values directly.
+  Initialize vacant slots without constructing payload field defaults.
+- Release image-message subscription channels and all ring storage. Run payload
+  hooks outside channel locks and reject reentrant operations during teardown.
+- Add Linux/macOS RSS regressions covering both `tryRecv` and blocking `recv`.
+
 ## 0.40.2
 
 - Export producer-owned `RenderFragments`, fragment handles, cursors, and their
