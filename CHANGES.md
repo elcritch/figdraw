@@ -1,5 +1,13 @@
 # Changes
 
+## 0.41.0
+
+- Fix managed-value ownership in `RChan` by storing queued values in typed
+  storage, including overwritten ring-buffer entries and unread messages.
+- Release image-message subscription channels and run payload destructors
+  outside the channel lock, including the `tryTake` commit-race rollback.
+- Add Linux/macOS RSS regressions covering both `tryRecv` and blocking `recv`.
+
 ## 0.40.2
 
 - Export producer-owned `RenderFragments`, fragment handles, cursors, and their

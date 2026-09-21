@@ -108,10 +108,14 @@ imageCachedLock.initLock()
 ownerTokenLock.initLock()
 imageSubscriberLock.initLock()
 
-proc `=destroy`(subscription: ImageMessageSubscriptionHandle) =
+proc `=destroy`(subscription: var ImageMessageSubscriptionHandle) =
   if subscription.id != 0'u64:
     withLock imageSubscriberLock:
       imageSubscribers.del(subscription.id)
+  # This custom destructor replaces the compiler-generated field cleanup.
+  # Release the subscription's channel owner after removing the table owner;
+  # queued ImageMsg values then get destroyed by RChan's final-owner cleanup.
+  `=destroy`(subscription.inbox)
 
 proc `==`*(a, b: ImageId): bool {.borrow.}
 proc `==`*(a, b: OwnerToken): bool {.borrow.}

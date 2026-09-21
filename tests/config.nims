@@ -1,2 +1,3 @@
 --path:"../src"
 --define:"figdraw.vulkanReadback"
+--define:"figdrawRChanTests"

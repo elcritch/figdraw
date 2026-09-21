@@ -26,7 +26,7 @@
 ##
 ## The `RChan` type represents a generic fixed-size channel object that internally manages
 ## the underlying resources and synchronization. It has to be initialized using
-## the `newChan` proc. Sending and receiving operations are provided by the
+## the `newRChan` proc. Sending and receiving operations are provided by the
 ## blocking `send` and `recv` procs, and non-blocking `trySend` and `tryRecv`
 ## procs. For ring buffer behavior, use the `push` proc rather than `send`.
 ## Send operations add messages to the channel, receiving operations remove them,
@@ -46,7 +46,7 @@ runnableExamples("--threads:on --gc:orc"):
   # Channels are generic, and they include support for passing objects between
   # threads.
   # Note that isolated data passed through channels is moved around.
-  var RChan = newChan[string]()
+  var RChan = newRChan[string]()
 
   block example_blocking:
     # This proc will be run in another thread.
@@ -100,7 +100,7 @@ runnableExamples("--threads:on --gc:orc"):
     assert messages.len >= 2
 
   block example_non_blocking_overwrite:
-    var chanRingBuffer = newChan[string](elements = 1)
+    var chanRingBuffer = newRChan[string](elements = 1)
     chanRingBuffer.push("Hello")
     chanRingBuffer.push("World")
     var msg = ""
@@ -113,187 +113,213 @@ when not (defined(gcArc) or defined(gcOrc) or defined(gcAtomicArc) or defined(ni
       "This module requires one of --mm:arc / --mm:atomicArc / --mm:orc compilation flags"
   .}
 
-import std/[locks, isolation, atomics]
+import std/[atomics, deques, isolation, locks]
 
 # Channel
 # ------------------------------------------------------------------------------
 
 type
-  ChannelRaw = ptr ChannelObj
-  ChannelObj = object
+  RChanItemData[T] = object
+    value: T
+
+  RChanItem[T] = ptr RChanItemData[T]
+
+  RChanData[T] = object
     lock: Lock
     spaceAvailableCV, dataAvailableCV: Cond
-    slots: int ## Number of item slots in the buffer
-    head: Atomic[int] ## Write/enqueue/send index
-    tail: Atomic[int] ## Read/dequeue/receive index
+    items: Deque[RChanItem[T]]
+    capacity: int
+    pendingSends: int
     atomicCounter: Atomic[int]
-    buffer: ptr UncheckedArray[byte]
 
-# ------------------------------------------------------------------------------
+  RChan*[T] = object ## Typed channel
+    d: ptr RChanData[T]
 
-proc getTail(RChan: ChannelRaw, order: MemoryOrder = moRelaxed): int {.inline.} =
-  RChan.tail.load(order)
+when defined(figdrawRChanTests):
+  var rchanLiveItems*: Atomic[int]
 
-proc getHead(RChan: ChannelRaw, order: MemoryOrder = moRelaxed): int {.inline.} =
-  RChan.head.load(order)
+# The old implementation stored values in an untyped byte buffer and used
+# copyMem to move them. That is not valid for managed values: the compiler never
+# sees the slot's references, so overwriting or receiving a value cannot destroy
+# the old owner. Keep the queue's entries as pointers to individually owned,
+# typed values. Pointer operations are safe under the lock; each pointed-to
+# value is constructed and destroyed outside the lock so user destructors can
+# call back into the channel.
 
-proc setTail(RChan: ChannelRaw, value: int, order: MemoryOrder = moRelaxed) {.inline.} =
-  RChan.tail.store(value, order)
+proc allocItem[T](value: var Isolated[T]): RChanItem[T] =
+  result = cast[RChanItem[T]](allocShared0(sizeof(RChanItemData[T])))
+  when defined(figdrawRChanTests):
+    discard rchanLiveItems.fetchAdd(1, moRelaxed)
+  try:
+    result[].value = extract(value)
+  except:
+    try:
+      `=destroy`(result[].value)
+    finally:
+      deallocShared(result)
+      when defined(figdrawRChanTests):
+        discard rchanLiveItems.fetchSub(1, moRelaxed)
+    raise
 
-proc setHead(RChan: ChannelRaw, value: int, order: MemoryOrder = moRelaxed) {.inline.} =
-  RChan.head.store(value, order)
+proc freeItem[T](item: RChanItem[T]) =
+  if item.isNil:
+    return
+  try:
+    `=destroy`(item[].value)
+  finally:
+    deallocShared(item)
+    when defined(figdrawRChanTests):
+      discard rchanLiveItems.fetchSub(1, moRelaxed)
 
-proc setAtomicCounter(
-    RChan: ChannelRaw, value: int, order: MemoryOrder = moRelaxed
-) {.inline.} =
-  RChan.atomicCounter.store(value, order)
+proc allocChannel[T](n: Positive): ptr RChanData[T] =
+  result = cast[ptr RChanData[T]](allocShared0(sizeof(RChanData[T])))
+  result[].items = initDeque[RChanItem[T]]()
+  result[].capacity = n
+  result[].atomicCounter.store(1, moRelaxed)
+  initLock(result[].lock)
+  initCond(result[].spaceAvailableCV)
+  initCond(result[].dataAvailableCV)
 
-proc numItems(RChan: ChannelRaw): int {.inline.} =
-  result = RChan.getHead() - RChan.getTail()
-  if result < 0:
-    inc(result, 2 * RChan.slots)
-
-  assert result <= RChan.slots
-
-template isFull(RChan: ChannelRaw): bool =
-  abs(RChan.getHead() - RChan.getTail()) == RChan.slots
-
-template isEmpty(RChan: ChannelRaw): bool =
-  RChan.getHead() == RChan.getTail()
-
-# Channels memory ops
-# ------------------------------------------------------------------------------
-
-proc allocChannel(size, n: int): ChannelRaw =
-  result = cast[ChannelRaw](allocShared(sizeof(ChannelObj)))
-
-  # To buffer n items, we allocate for n
-  result.buffer = cast[ptr UncheckedArray[byte]](allocShared(n * size))
-
-  initLock(result.lock)
-  initCond(result.spaceAvailableCV)
-  initCond(result.dataAvailableCV)
-
-  result.slots = n
-  result.setHead(0)
-  result.setTail(0)
-  result.setAtomicCounter(0)
-
-proc freeChannel(RChan: ChannelRaw) =
-  if RChan.isNil:
+proc freeChannel[T](channel: ptr RChanData[T]) =
+  if channel.isNil:
     return
 
-  if not RChan.buffer.isNil:
-    deallocShared(RChan.buffer)
+  # RChanData lives in shared raw storage, so its managed queue field and every
+  # pointed-to managed value need explicit destruction before the allocation is
+  # released. No channel lock is held while payload destructors run.
+  # Detach the queue first: a payload destructor is allowed to re-enter the
+  # channel, and must not be able to receive an item that teardown is already
+  # destroying.
+  var items = channel[].items
+  channel[].items = initDeque[RChanItem[T]]()
+  for item in items.items:
+    freeItem(item)
+  deinitCond(channel[].spaceAvailableCV)
+  deinitCond(channel[].dataAvailableCV)
+  deinitLock(channel[].lock)
+  deallocShared(channel)
 
-  deinitLock(RChan.lock)
-  deinitCond(RChan.spaceAvailableCV)
-  deinitCond(RChan.dataAvailableCV)
-
-  deallocShared(RChan)
-
-# MPMC Channels (Multi-Producer Multi-Consumer)
-# ------------------------------------------------------------------------------
-
-template incrWriteIndex(RChan: ChannelRaw) =
-  atomicInc(RChan.head)
-  if RChan.getHead() == 2 * RChan.slots:
-    RChan.setHead(0)
-
-template incrReadIndex(RChan: ChannelRaw) =
-  atomicInc(RChan.tail)
-  if RChan.getTail() == 2 * RChan.slots:
-    RChan.setTail(0)
-
-proc channelSend(
-    RChan: ChannelRaw, data: pointer, size: int, blocking: static bool, overwrite: bool
+proc channelSend[T](
+    channel: ptr RChanData[T],
+    value: var Isolated[T],
+    blocking: static bool,
+    overwrite: static bool,
 ): bool =
-  assert not RChan.isNil
-  assert not data.isNil
+  assert not channel.isNil
 
-  when not blocking:
-    if RChan.isFull() and not overwrite:
-      return false
-
-  acquire(RChan.lock)
-
-  # check for when another thread was faster to fill
-  when blocking:
-    if RChan.isFull():
-      if overwrite:
-        incrReadIndex(RChan)
-      else:
-        while RChan.isFull():
-          wait(RChan.spaceAvailableCV, RChan.lock)
+  when overwrite:
+    let overwriteItem = allocItem(value)
+    var dropped: RChanItem[T]
+    var overwriteEnqueued = false
+    try:
+      acquire(channel[].lock)
+      try:
+        if channel[].items.len == channel[].capacity:
+          # Move the old owner out while holding the lock, but free its value
+          # after the lock is released. User destructors may call back into the
+          # channel.
+          dropped = channel[].items.popFirst()
+        channel[].items.addLast(overwriteItem)
+        overwriteEnqueued = true
+        signal(channel[].dataAvailableCV)
+      finally:
+        release(channel[].lock)
+    except:
+      if not overwriteEnqueued:
+        freeItem(overwriteItem)
+      freeItem(dropped)
+      raise
+    freeItem(dropped)
+    return true
   else:
-    if RChan.isFull():
-      release(RChan.lock)
-      return false
-
-  assert not RChan.isFull()
-
-  let writeIdx =
-    if RChan.getHead() < RChan.slots:
-      RChan.getHead()
+    acquire(channel[].lock)
+    if blocking:
+      while channel[].items.len + channel[].pendingSends >= channel[].capacity:
+        wait(channel[].spaceAvailableCV, channel[].lock)
     else:
-      RChan.getHead() - RChan.slots
+      if channel[].items.len + channel[].pendingSends >= channel[].capacity:
+        release(channel[].lock)
+        return false
+    inc channel[].pendingSends
 
-  copyMem(RChan.buffer[writeIdx * size].addr, data, size)
+    release(channel[].lock)
+    var item: RChanItem[T]
+    try:
+      item = allocItem(value)
+    except:
+      acquire(channel[].lock)
+      dec channel[].pendingSends
+      signal(channel[].spaceAvailableCV)
+      release(channel[].lock)
+      raise
 
-  incrWriteIndex(RChan)
+    var commitRejected = false
+    var sendEnqueued = false
+    try:
+      acquire(channel[].lock)
+      try:
+        dec channel[].pendingSends
+        if not blocking:
+          if channel[].items.len == channel[].capacity:
+            commitRejected = true
+        else:
+          while channel[].items.len == channel[].capacity:
+            wait(channel[].spaceAvailableCV, channel[].lock)
+        if not commitRejected:
+          channel[].items.addLast(item)
+          sendEnqueued = true
+          signal(channel[].dataAvailableCV)
+      finally:
+        release(channel[].lock)
+    except:
+      if not sendEnqueued:
+        freeItem(item)
+      raise
 
-  signal(RChan.dataAvailableCV)
-  release(RChan.lock)
-  result = true
+    if commitRejected:
+      try:
+        value = unsafeIsolate(move item[].value)
+      finally:
+        freeItem(item)
+      return false
+    result = true
 
-proc channelReceive(
-    RChan: ChannelRaw, data: pointer, size: int, blocking: static bool
+proc channelReceive[T](
+    channel: ptr RChanData[T], value: var T, blocking: static bool
 ): bool =
-  assert not RChan.isNil
-  assert not data.isNil
+  assert not channel.isNil
 
-  when not blocking:
-    if RChan.isEmpty():
-      return false
-
-  acquire(RChan.lock)
-
-  # check for when another thread was faster to empty
+  var received: RChanItem[T]
+  acquire(channel[].lock)
   when blocking:
-    while RChan.isEmpty():
-      wait(RChan.dataAvailableCV, RChan.lock)
+    while channel[].items.len == 0:
+      wait(channel[].dataAvailableCV, channel[].lock)
   else:
-    if RChan.isEmpty():
-      release(RChan.lock)
+    if channel[].items.len == 0:
+      release(channel[].lock)
       return false
 
-  assert not RChan.isEmpty()
-
-  let readIdx =
-    if RChan.getTail() < RChan.slots:
-      RChan.getTail()
-    else:
-      RChan.getTail() - RChan.slots
-
-  copyMem(data, RChan.buffer[readIdx * size].addr, size)
-
-  incrReadIndex(RChan)
-
-  signal(RChan.spaceAvailableCV)
-  release(RChan.lock)
+  # Move the owner out while holding the lock, but assign it to the caller's
+  # destination after unlocking. That assignment destroys any value already
+  # owned by the destination; T's destructor could call back into the channel.
+  received = channel[].items.popFirst()
+  signal(channel[].spaceAvailableCV)
+  release(channel[].lock)
+  try:
+    value = move received[].value
+  finally:
+    freeItem(received)
   result = true
 
 # Public API
 # ------------------------------------------------------------------------------
 
-type RChan*[T] = object ## Typed channel
-  d: ChannelRaw
-
 template frees(c) =
   if c.d != nil:
     # this `fetchSub` returns current val then subs
-    # so count == 0 means we're the last
-    if c.d.atomicCounter.fetchSub(1, moAcquireRelease) == 0:
+    # fetchSub returns the count before decrementing, so one means this is the
+    # final owner.
+    if c.d.atomicCounter.fetchSub(1, moAcquireRelease) == 1:
       freeChannel(c.d)
 
 when defined(nimAllowNonVarDestructor):
@@ -332,7 +358,7 @@ proc trySend*[T](c: RChan[T], src: sink Isolated[T]): bool {.inline.} =
   ##
   ## Returns `false` if the message was not sent because the number of pending
   ## messages in the channel exceeded its capacity.
-  result = channelSend(c.d, src.addr, sizeof(T), false, false)
+  result = channelSend(c.d, src, false, false)
   if result:
     wasMoved(src)
 
@@ -360,7 +386,7 @@ proc tryTake*[T](c: RChan[T], src: var Isolated[T]): bool {.inline.} =
   ##
   ## Returns `false` if the message was not sent because the number of pending
   ## messages in the channel exceeded its capacity.
-  result = channelSend(c.d, src.addr, sizeof(T), false, false)
+  result = channelSend(c.d, src, false, false)
   if result:
     wasMoved(src)
 
@@ -374,8 +400,8 @@ proc tryRecv*[T](c: RChan[T], dst: var T): bool {.inline.} =
   ##    backoff strategy to reduce contention and improve the success rate of
   ##    operations.
   ##
-  ## Returns `false` and does not change `dist` if no message was received.
-  channelReceive(c.d, dst.addr, sizeof(T), false)
+  ## Returns `false` and does not change `dst` if no message was received.
+  channelReceive(c.d, dst, false)
 
 proc send*[T](c: RChan[T], src: sink Isolated[T]) {.inline.} =
   ## Sends the message `src` to the channel `c`.
@@ -387,7 +413,7 @@ proc send*[T](c: RChan[T], src: sink Isolated[T]) {.inline.} =
   ## messages from the channel are removed.
   when defined(gcOrc) and defined(nimSafeOrcSend):
     GC_runOrc()
-  discard channelSend(c.d, src.addr, sizeof(T), true, false)
+  discard channelSend(c.d, src, true, false)
   wasMoved(src)
 
 template send*[T](c: RChan[T], src: T) =
@@ -402,7 +428,7 @@ proc push*[T](c: RChan[T], src: sink Isolated[T]) {.inline.} =
   ## The memory of `src` is moved, not copied.
   when defined(gcOrc) and defined(nimSafeOrcSend):
     GC_runOrc()
-  discard channelSend(c.d, src.addr, sizeof(T), true, overwrite = true)
+  discard channelSend(c.d, src, false, true)
   wasMoved(src)
 
 template push*[T](c: RChan[T], src: T) =
@@ -417,21 +443,25 @@ proc recv*[T](c: RChan[T], dst: var T) {.inline.} =
   ##
   ## If the channel does not contain any messages this will block the thread until
   ## a message get sent to the channel.
-  discard channelReceive(c.d, dst.addr, sizeof(T), true)
+  discard channelReceive(c.d, dst, true)
 
 proc recv*[T](c: RChan[T]): T {.inline.} =
   ## Receives a message from the channel.
   ## A version of `recv`_ that returns the message.
-  discard channelReceive(c.d, result.addr, sizeof(T), true)
+  discard channelReceive(c.d, result, true)
 
 proc recvIso*[T](c: RChan[T]): Isolated[T] {.inline.} =
   ## Receives a message from the channel.
   ## A version of `recv`_ that returns the message and isolates it.
-  discard channelReceive(c.d, result.addr, sizeof(T), true)
+  var value: T
+  discard channelReceive(c.d, value, true)
+  result = unsafeIsolate(move value)
 
 proc peek*[T](c: RChan[T]): int {.inline.} =
   ## Returns an estimation of the current number of messages held by the channel.
-  numItems(c.d)
+  acquire(c.d[].lock)
+  result = c.d[].items.len
+  release(c.d[].lock)
 
 proc newRChan*[T](elements: Positive = 30): RChan[T] =
   ## An initialization procedure, necessary for acquiring resources and
@@ -439,4 +469,4 @@ proc newRChan*[T](elements: Positive = 30): RChan[T] =
   ##
   ## `elements` is the capacity of the channel and thus how many messages it can hold
   ## before it refuses to accept any further messages.
-  result = RChan[T](d: allocChannel(sizeof(T), elements))
+  result = RChan[T](d: allocChannel[T](elements))
