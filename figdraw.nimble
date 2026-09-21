@@ -6,7 +6,7 @@ srcDir = "src"
 
 # Dependencies
 requires "nim >= 2.2"
-requires "https://github.com/elcritch/sigils#feat/rchannels"
+requires "sigils >= 0.31.0"
 requires "pixie >= 5.0.1"
 requires "chroma >= 0.2.7"
 requires "bumpy"
