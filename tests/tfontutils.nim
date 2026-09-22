@@ -1,6 +1,9 @@
 import std/[hashes, options, os, tables, tempfiles, unicode, unittest]
 
 import figdraw
+when figdrawTextBackend == "pixie":
+  import figdraw/common/textbackends/pixie as pixieBackend
+  import pkg/pixie/fonts as pixieFonts
 
 proc resetFontState() =
   resetFontCache(clearStaticTypefaces = true)
@@ -479,6 +482,11 @@ suite "fontutils":
     check source.runeIndexAtOrBeforeByte(6) == 3
     check source.runeIndexAtOrAfterByte(6) == 4
 
+    when not defined(useNativeDynlib):
+      let missing: Utf8Runes = nil
+      expect ValueError:
+        discard missing.bytes
+
     expect ValueError:
       discard typesetSourceSpans(
         box,
@@ -572,6 +580,90 @@ suite "fontutils":
     check transformed.arrangedGlyphs[1].source.byteStart == 2
 
   when figdrawTextBackend == "pixie":
+    test "legacy Pixie proc signatures remain assignable":
+      type
+        LegacyPixieTypeset = proc(
+          box: Rect,
+          uiSpans: openArray[(FontStyle, string)],
+          hAlign: FontHorizontal,
+          vAlign: FontVertical,
+          minContent, wrap, rasterize: bool,
+        ): GlyphArrangement
+        LegacyConvertArrangement = proc(
+          arrangement: pixieFonts.Arrangement,
+          box: Rect,
+          uiSpans: openArray[(FontStyle, string)],
+          hAlign: FontHorizontal,
+          vAlign: FontVertical,
+          gfonts: seq[GlyphFont],
+          minContent, wrap: bool,
+        ): GlyphArrangement
+
+      let
+        legacyTypeset: LegacyPixieTypeset = pixieBackend.typeset
+        legacyConvert: LegacyConvertArrangement = convertArrangement
+      check not legacyTypeset.isNil
+      check not legacyConvert.isNil
+
+    test "source runs retain visible styles around filtered control spans":
+      let
+        fontData = readFile(figDataDir() / "Ubuntu.ttf")
+        typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+        source = initUtf8Runes("A\tB")
+        first = fs(
+          FigFont(typefaceId: typefaceId, size: 18.0'f32), fill(rgba(255, 0, 0, 255))
+        )
+        hidden = fs(
+          FigFont(typefaceId: typefaceId, size: 20.0'f32), fill(rgba(0, 255, 0, 255))
+        )
+        last = fs(
+          FigFont(typefaceId: typefaceId, size: 22.0'f32), fill(rgba(0, 0, 255, 255))
+        )
+        box = rect(0, 0, 240, 90)
+        borrowed = typesetSourceSpansForMeasurement(
+          box,
+          source,
+          [
+            StyledTextRun(
+              byteStart: 0,
+              byteEnd: 1,
+              runeStart: 0,
+              runeEnd: 1,
+              styleId: TextStyleId(0),
+            ),
+            StyledTextRun(
+              byteStart: 1,
+              byteEnd: 2,
+              runeStart: 1,
+              runeEnd: 2,
+              styleId: TextStyleId(1),
+            ),
+            StyledTextRun(
+              byteStart: 2,
+              byteEnd: 3,
+              runeStart: 2,
+              runeEnd: 3,
+              styleId: TextStyleId(2),
+            ),
+          ],
+          [first, hidden, last],
+          minContent = false,
+          wrap = false,
+        )
+        owned = typesetForMeasurement(
+          box,
+          [(first, "A"), (hidden, "\t"), (last, "B")],
+          minContent = false,
+          wrap = false,
+        )
+      for arrangement in [borrowed, owned]:
+        check arrangement.spans.len == 2
+        check arrangement.fonts.len == 2
+        check arrangement.spanColors == @[first.color, last.color]
+        check arrangement.fonts[0].size == 18.0'f32
+        check arrangement.fonts[1].size == 22.0'f32
+      check borrowed.arrangedGlyphs[1].source.byteStart == 2
+
     test "source runs map around controls removed by Pixie":
       let
         fontData = readFile(figDataDir() / "Ubuntu.ttf")

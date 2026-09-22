@@ -9,6 +9,9 @@
   Harfbuzzy shapes normal-case ranges without keeping a string per styled run.
 - Expose sparse rune/byte position lookup on `Utf8Runes` so callers can create
   byte ranges without a dense index.
+- Preserve the existing Pixie typesetting and arrangement-conversion proc
+  signatures, keep fonts and colors aligned when Pixie filters a whole control
+  span, and raise `ValueError` when borrowing bytes from a nil `Utf8Runes`.
 
 ## 0.41.0
 

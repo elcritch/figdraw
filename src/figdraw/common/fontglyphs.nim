@@ -257,6 +257,15 @@ proc matchesDisplayRunes(source: Utf8Runes, display: openArray[Rune]): bool =
     inc index
   true
 
+proc pixieHasDisplayRune(text: string): bool =
+  ## Match Pixie's control filtering so style metadata uses the same spans.
+  var byteIndex = 0
+  var rune: Rune
+  while byteIndex < text.len:
+    fastRuneAt(text, byteIndex, rune, true)
+    if rune.uint32 >= 32 or rune == Rune(10):
+      return true
+
 proc mapPixieSourceRanges(
     glyphs: var seq[ArrangedGlyph], source: Utf8Runes, runs: openArray[StyledTextRun]
 ) =
@@ -287,28 +296,36 @@ proc mapPixieSourceRanges(
   if glyphIndex != glyphs.len:
     raise newException(ValueError, "Pixie display runes differ from source runs")
 
-proc convertArrangement*(
+proc convertArrangementImpl(
     arrangement: Arrangement,
     box: Rect,
     uiSpans: openArray[(FontStyle, string)],
     hAlign: FontHorizontal,
     vAlign: FontVertical,
     gfonts: seq[GlyphFont],
-    minContent = false,
-    wrap = false,
-    sourceRunes: Utf8Runes = nil,
-    sourceRuns: openArray[StyledTextRun] = [],
+    minContent, wrap: bool,
+    sourceRunes: Utf8Runes,
+    sourceRuns: openArray[StyledTextRun],
 ): GlyphArrangement =
   var
     lines = newSeqOfCap[Slice[int]](arrangement.lines.len())
     spanSlices = newSeqOfCap[Slice[int]](arrangement.spans.len())
     selectionRects = newSeqOfCap[Rect](arrangement.selectionRects.len())
+    visibleFonts = newSeqOfCap[GlyphFont](arrangement.spans.len())
+    visibleColors = newSeqOfCap[Fill](arrangement.spans.len())
   for line in arrangement.lines:
     lines.add line[0] .. line[1]
   for span in arrangement.spans:
     spanSlices.add span[0] .. span[1]
   for rect in arrangement.selectionRects:
     selectionRects.add rect
+  for index, (style, text) in uiSpans:
+    if index < gfonts.len and text.pixieHasDisplayRune():
+      visibleFonts.add gfonts[index]
+      visibleColors.add style.color
+  if visibleFonts.len != arrangement.spans.len:
+    visibleFonts = gfonts
+    visibleColors = uiSpans.mapIt(it[0].color)
 
   let displayRunes =
     if sourceRunes.matchesDisplayRunes(arrangement.runes):
@@ -316,7 +333,7 @@ proc convertArrangement*(
     else:
       initArrangementRunes(arrangement.runes)
   var arrangedGlyphs = buildArrangedGlyphs(
-    displayRunes, arrangement.positions, selectionRects, spanSlices, gfonts
+    displayRunes, arrangement.positions, selectionRects, spanSlices, visibleFonts
   )
   if not sourceRunes.isNil:
     arrangedGlyphs.mapPixieSourceRanges(sourceRunes, sourceRuns)
@@ -329,11 +346,41 @@ proc convertArrangement*(
       !$h,
     lines: lines,
     spans: spanSlices,
-    fonts: gfonts,
-    spanColors: uiSpans.mapIt(it[0].color),
+    fonts: visibleFonts,
+    spanColors: visibleColors,
     sourceRunes: (if sourceRunes.isNil: displayRunes else: sourceRunes),
     arrangedGlyphs: arrangedGlyphs,
     runes: displayRunes,
     positions: arrangement.positions,
     selectionRects: selectionRects,
+  )
+
+proc convertArrangement*(
+    arrangement: Arrangement,
+    box: Rect,
+    uiSpans: openArray[(FontStyle, string)],
+    hAlign: FontHorizontal,
+    vAlign: FontVertical,
+    gfonts: seq[GlyphFont],
+    minContent = false,
+    wrap = false,
+): GlyphArrangement =
+  convertArrangementImpl(
+    arrangement, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap, nil, []
+  )
+
+proc convertArrangementWithSource*(
+    arrangement: Arrangement,
+    box: Rect,
+    uiSpans: openArray[(FontStyle, string)],
+    hAlign: FontHorizontal,
+    vAlign: FontVertical,
+    gfonts: seq[GlyphFont],
+    minContent, wrap: bool,
+    sourceRunes: Utf8Runes,
+    sourceRuns: openArray[StyledTextRun],
+): GlyphArrangement =
+  convertArrangementImpl(
+    arrangement, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap, sourceRunes,
+    sourceRuns,
   )

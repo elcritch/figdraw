@@ -10,16 +10,16 @@ import ../shared
 import ../typefaces
 import ./common
 
-proc typeset*(
+proc typesetWithSource(
     box: Rect,
     uiSpans: openArray[(FontStyle, string)],
-    hAlign = FontHorizontal.Left,
-    vAlign = FontVertical.Top,
+    hAlign: FontHorizontal,
+    vAlign: FontVertical,
     minContent: bool,
     wrap: bool,
     rasterize: bool,
-    sourceRunes: Utf8Runes = nil,
-    sourceRuns: openArray[StyledTextRun] = [],
+    sourceRunes: Utf8Runes,
+    sourceRuns: openArray[StyledTextRun],
 ): GlyphArrangement =
   ## Typesets with Pixie, then converts to FigDraw's backend-neutral data.
   threadEffects:
@@ -71,7 +71,7 @@ proc typeset*(
 
   let arrangement =
     pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
-  result = convertArrangement(
+  result = convertArrangementWithSource(
     arrangement, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap, sourceRunes,
     sourceRuns,
   )
@@ -87,7 +87,7 @@ proc typeset*(
     let arr = pixie.typeset(
       spans, bounds = wh, hAlign = LeftAlign, vAlign = TopAlign, wrap = wrap
     )
-    let minResult = convertArrangement(
+    let minResult = convertArrangementWithSource(
       arr, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap, sourceRunes,
       sourceRuns,
     )
@@ -105,7 +105,7 @@ proc typeset*(
       let wh = vec2(wh.x, minContentSize.bounding.h)
       let minAdjusted =
         pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
-      result = convertArrangement(
+      result = convertArrangementWithSource(
         minAdjusted, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap,
         sourceRunes, sourceRuns,
       )
@@ -130,6 +130,20 @@ proc typeset*(
   if rasterize:
     result.generateGlyphImages()
 
+proc typeset*(
+    box: Rect,
+    uiSpans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+    rasterize: bool,
+): GlyphArrangement =
+  ## Typesets with Pixie, then converts to FigDraw's backend-neutral data.
+  threadEffects:
+    AppMainThread
+  typesetWithSource(box, uiSpans, hAlign, vAlign, minContent, wrap, rasterize, nil, [])
+
 proc typesetSourceSpans*(
     box: Rect,
     source: Utf8Runes,
@@ -148,4 +162,6 @@ proc typesetSourceSpans*(
         source.bytes[int(run.byteStart) ..< int(run.byteEnd)],
       )
     )
-  typeset(box, spans, hAlign, vAlign, minContent, wrap, rasterize, source, runs)
+  typesetWithSource(
+    box, spans, hAlign, vAlign, minContent, wrap, rasterize, source, runs
+  )

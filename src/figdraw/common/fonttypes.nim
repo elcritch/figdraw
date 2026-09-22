@@ -213,6 +213,9 @@ func stringValue*(runes: Utf8Runes): string =
 
 func bytes*(runes: Utf8Runes): lent string =
   ## Borrows the immutable UTF-8 bytes for the lifetime of `runes`.
+  ## Raises ValueError for a nil source, which cannot supply a borrowed string.
+  if runes.isNil:
+    raise newException(ValueError, "cannot borrow bytes from nil Utf8Runes")
   runes.text
 
 func byteLength*(runes: Utf8Runes): int =
