@@ -74,6 +74,11 @@ type
     font*: FigFont
     color*: Fill
 
+  TextSourceSpan* = object ## A styled byte range in one immutable UTF-8 source.
+    style*: FontStyle
+    byteStart*: int
+    byteEnd*: int
+
   GlyphSourceRange* = object
     byteStart*: int ## Inclusive source byte index.
     byteEnd*: int ## Exclusive source byte index.
@@ -201,6 +206,16 @@ func stringValue*(runes: Utf8Runes): string =
   ## Returns the UTF-8 representation.
   if runes.isNil: "" else: runes.text
 
+func bytes*(runes: Utf8Runes): lent string =
+  ## Borrows the immutable UTF-8 bytes for the lifetime of `runes`.
+  runes.text
+
+func byteLength*(runes: Utf8Runes): int =
+  if runes.isNil: 0 else: runes.text.len
+
+func runeCheckpointCount*(runes: Utf8Runes): int =
+  if runes.isNil: 0 else: runes.runeByteOffsets.len
+
 proc toRunes*(runes: Utf8Runes): seq[Rune] =
   ## Materializes decoded runes for APIs that specifically require a sequence.
   runes.stringValue().toRunes()
@@ -221,7 +236,7 @@ proc copyUtf8Runes*(runes: Utf8Runes): Utf8Runes =
   for index, byteOffset in runes.runeByteOffsets:
     result.runeByteOffsets[index] = byteOffset
 
-proc byteOffsetForRune(runes: Utf8Runes, index: int): int =
+proc byteOffsetForRune*(runes: Utf8Runes, index: int): int =
   if index < 0 or index > runes.len:
     raise newException(IndexDefect, "UTF-8 rune index out of bounds")
   if runes.len == 0:
@@ -235,6 +250,36 @@ proc byteOffsetForRune(runes: Utf8Runes, index: int): int =
     byteOffset += runes.text.utf8RuneWidth(byteOffset)
     inc runeIndex
   byteOffset
+
+proc runeIndexAtOrBeforeByte*(runes: Utf8Runes, byteOffset: int): int =
+  ## Returns the rune containing this byte, or the rune at a byte boundary.
+  if byteOffset < 0 or byteOffset > runes.byteLength:
+    raise newException(IndexDefect, "UTF-8 byte index out of bounds")
+  if runes.isNil:
+    return 0
+  var
+    lo = 0
+    hi = runes.runeByteOffsets.len
+  while lo + 1 < hi:
+    let mid = (lo + hi) div 2
+    if int(runes.runeByteOffsets[mid]) <= byteOffset:
+      lo = mid
+    else:
+      hi = mid
+  result = lo * Utf8RuneIndexStride
+  var currentByte = int(runes.runeByteOffsets[lo])
+  while currentByte < byteOffset and result < runes.len:
+    let nextByte = currentByte + runes.text.utf8RuneWidth(currentByte)
+    if nextByte > byteOffset:
+      break
+    currentByte = nextByte
+    inc result
+
+proc runeIndexAtOrAfterByte*(runes: Utf8Runes, byteOffset: int): int =
+  ## Returns the next rune when the byte is inside a UTF-8 sequence.
+  result = runes.runeIndexAtOrBeforeByte(byteOffset)
+  if runes.byteOffsetForRune(result) < byteOffset:
+    inc result
 
 proc byteRangeForRune*(runes: Utf8Runes, index: int): tuple[start, stop: int] =
   ## Returns the UTF-8 byte range for one rune.

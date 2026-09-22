@@ -164,6 +164,9 @@ suite "fontutils":
     check arrangement.runes == sourceRunes
     check materialized == sourceRunes
     check legacyRuneCount(runes) == runes.len
+    var nilRunes: Utf8Runes
+    check nilRunes.runeIndexAtOrBeforeByte(0) == 0
+    check nilRunes.runeIndexAtOrAfterByte(0) == 0
 
   test "UTF-8 glyph builder preserves source byte ranges":
     let
@@ -436,6 +439,93 @@ suite "fontutils":
       check font.size == uiFont.size
       check font.underline
       check font.strikethrough
+
+  test "source spans retain one UTF-8 source across styles and newlines":
+    let
+      fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+      source = initUtf8Runes("éA\n中")
+      firstStyle = fs(uiFont, fill(rgba(255, 0, 0, 255)))
+      secondStyle = fs(uiFont, fill(rgba(0, 0, 255, 255)))
+      spans = [
+        TextSourceSpan(style: firstStyle, byteStart: 0, byteEnd: 2),
+        TextSourceSpan(style: secondStyle, byteStart: 2, byteEnd: 7),
+      ]
+      box = rect(0, 0, 240, 90)
+      borrowed =
+        typesetSourceSpans(box, source, spans, minContent = false, wrap = false)
+      owned = typeset(
+        box,
+        [(firstStyle, "é"), (secondStyle, "A\n中")],
+        minContent = false,
+        wrap = false,
+      )
+    check cast[pointer](borrowed.sourceRunes) == cast[pointer](source)
+    check borrowed.sourceRunes == owned.sourceRunes
+    check borrowed.arrangedGlyphs.len == owned.arrangedGlyphs.len
+    check borrowed.lines.len == owned.lines.len
+    for index, glyph in borrowed.arrangedGlyphs:
+      check glyph.source == owned.arrangedGlyphs[index].source
+    check source.byteOffsetForRune(3) == 4
+    check source.runeIndexAtOrBeforeByte(6) == 3
+    check source.runeIndexAtOrAfterByte(6) == 4
+
+    expect ValueError:
+      discard typesetSourceSpans(
+        box,
+        source,
+        [TextSourceSpan(style: firstStyle, byteStart: 0, byteEnd: 3)],
+        minContent = false,
+        wrap = false,
+      )
+
+    expect ValueError:
+      discard typesetSourceSpans(
+        box,
+        source,
+        [
+          TextSourceSpan(style: firstStyle, byteStart: 0, byteEnd: 1),
+          TextSourceSpan(style: secondStyle, byteStart: 1, byteEnd: 7),
+        ],
+        minContent = false,
+        wrap = false,
+      )
+
+  test "source spans preserve empty and case-transformed layouts":
+    let
+      fontData = readFile(figDataDir() / "Ubuntu.ttf")
+      typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+      plain = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+      uppercase = FigFont(typefaceId: typefaceId, size: 18.0'f32, fontCase: UpperCase)
+      emptySource = initUtf8Runes("")
+      caseSource = initUtf8Runes("abé")
+      plainStyle = fs(plain, fill(rgba(255, 0, 0, 255)))
+      caseStyle = fs(uppercase, fill(rgba(255, 0, 0, 255)))
+      box = rect(0, 0, 240, 90)
+      empty = typesetSourceSpansForMeasurement(
+        box,
+        emptySource,
+        [TextSourceSpan(style: plainStyle, byteStart: 0, byteEnd: 0)],
+        minContent = false,
+        wrap = false,
+      )
+      transformed = typesetSourceSpansForMeasurement(
+        box,
+        caseSource,
+        [TextSourceSpan(style: caseStyle, byteStart: 0, byteEnd: 4)],
+        minContent = false,
+        wrap = false,
+      )
+      owned = typesetForMeasurement(
+        box, [(caseStyle, "abé")], minContent = false, wrap = false
+      )
+    check cast[pointer](empty.sourceRunes) == cast[pointer](emptySource)
+    check empty.sourceRunes.len == 0
+    check cast[pointer](transformed.sourceRunes) == cast[pointer](caseSource)
+    check transformed.arrangedGlyphs.len == owned.arrangedGlyphs.len
+    for index, glyph in transformed.arrangedGlyphs:
+      check glyph.source == owned.arrangedGlyphs[index].source
 
   test "getTypesetImpl returns consistent hashes and generated glyph images":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")

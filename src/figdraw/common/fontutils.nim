@@ -65,6 +65,51 @@ proc typesetForMeasurement*(
   ## Typesets without generating or publishing glyph images.
   textBackend.typeset(box, uiSpans, hAlign, vAlign, minContent, wrap, false)
 
+proc validateSourceSpans(source: Utf8Runes, spans: openArray[TextSourceSpan]) =
+  if source.isNil or spans.len == 0:
+    raise newException(ValueError, "text source and spans are required")
+  var nextByte = 0
+  for span in spans:
+    if span.byteStart != nextByte or span.byteEnd < span.byteStart or
+        span.byteEnd > source.byteLength or
+        source.byteOffsetForRune(source.runeIndexAtOrBeforeByte(span.byteEnd)) !=
+        span.byteEnd:
+      raise newException(ValueError, "text spans must cover whole UTF-8 runes in order")
+    nextByte = span.byteEnd
+  if nextByte != source.byteLength:
+    raise newException(ValueError, "text spans must cover the whole source")
+
+proc typesetSourceSpans*(
+    box: Rect,
+    source: Utf8Runes,
+    spans: openArray[TextSourceSpan],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+): GlyphArrangement =
+  ## Typesets styled ranges from one shared immutable UTF-8 source.
+  ## Spans must be ordered and cover every source byte exactly once.
+  source.validateSourceSpans(spans)
+  textBackend.typesetSourceSpans(
+    box, source, spans, hAlign, vAlign, minContent, wrap, true
+  )
+
+proc typesetSourceSpansForMeasurement*(
+    box: Rect,
+    source: Utf8Runes,
+    spans: openArray[TextSourceSpan],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+): GlyphArrangement =
+  ## Measures styled ranges without publishing glyph images.
+  source.validateSourceSpans(spans)
+  textBackend.typesetSourceSpans(
+    box, source, spans, hAlign, vAlign, minContent, wrap, false
+  )
+
 proc typesetStyled*(
     box: Rect,
     uiSpans: openArray[(FontStyle, string)],

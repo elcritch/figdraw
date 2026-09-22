@@ -19,6 +19,7 @@ const
 type
   DecodedSource = object
     runes: Utf8Runes
+    directSource: bool
     displayByteStarts: seq[int]
     displayByteEnds: seq[int]
     sourceByteStarts: seq[int]
@@ -29,6 +30,9 @@ type
   ShapedSpan = object
     style: FontStyle
     text: string
+    source: Utf8Runes
+    byteStart: int
+    byteEnd: int
     byteOffset: int
 
   Paragraph = object
@@ -188,6 +192,61 @@ proc splitParagraphs(spans: openArray[(FontStyle, string)]): seq[Paragraph] =
 
     byteOffset += text.len
 
+proc splitSourceParagraphs(
+    source: Utf8Runes, spans: openArray[TextSourceSpan]
+): seq[Paragraph] =
+  result.add Paragraph(byteStart: 0)
+  for span in spans:
+    if not result[^1].hasLineStyle:
+      result[^1].lineStyle = span.style
+      result[^1].hasLineStyle = true
+    var
+      partStart = span.byteStart
+      byteIndex = span.byteStart
+    while byteIndex < span.byteEnd:
+      let ch = source.bytes[byteIndex]
+      if ch == '\n' or ch == '\r':
+        if byteIndex > partStart:
+          result[^1].spans.add ShapedSpan(
+            style: span.style,
+            source: source,
+            byteStart: partStart,
+            byteEnd: byteIndex,
+            byteOffset: partStart,
+          )
+        var breakLen = 1
+        if ch == '\r' and byteIndex + 1 < span.byteEnd and
+            source.bytes[byteIndex + 1] == '\n':
+          breakLen = 2
+        byteIndex += breakLen
+        partStart = byteIndex
+        result.add Paragraph(
+          byteStart: byteIndex, lineStyle: span.style, hasLineStyle: true
+        )
+      else:
+        inc byteIndex
+    if partStart < span.byteEnd:
+      result[^1].spans.add ShapedSpan(
+        style: span.style,
+        source: source,
+        byteStart: partStart,
+        byteEnd: span.byteEnd,
+        byteOffset: partStart,
+      )
+
+func spanByteLength(span: ShapedSpan): int =
+  if span.source.isNil:
+    span.text.len
+  else:
+    span.byteEnd - span.byteStart
+
+proc appendSpanText(output: var string, span: ShapedSpan) =
+  if span.source.isNil:
+    output.add span.text
+  else:
+    for byteIndex in span.byteStart ..< span.byteEnd:
+      output.add span.source.bytes[byteIndex]
+
 proc shapingGroups(paragraph: Paragraph): seq[ShapedGroup] =
   for span in paragraph.spans:
     if result.len > 0 and result[^1].style.font == span.style.font:
@@ -196,8 +255,11 @@ proc shapingGroups(paragraph: Paragraph): seq[ShapedGroup] =
       result.add ShapedGroup(style: span.style, spans: @[span])
 
 proc text(group: ShapedGroup): string =
+  if group.spans.len == 1 and not group.spans[0].source.isNil:
+    let span = group.spans[0]
+    return span.source.bytes[span.byteStart ..< span.byteEnd]
   for span in group.spans:
-    result.add span.text
+    result.appendSpanText(span)
 
 proc byteOffset(group: ShapedGroup): int =
   if group.spans.len > 0:
@@ -205,13 +267,20 @@ proc byteOffset(group: ShapedGroup): int =
 
 proc fillForByte(group: ShapedGroup, byteOffset: int): Fill =
   for span in group.spans:
-    if byteOffset >= span.byteOffset and byteOffset < span.byteOffset + span.text.len:
+    if byteOffset >= span.byteOffset and
+        byteOffset < span.byteOffset + span.spanByteLength:
       return span.style.color
   result = group.style.color
 
 proc runeRangeForBytes(
     decoded: DecodedSource, byteStart, byteEnd: int
 ): GlyphSourceRange =
+  if decoded.directSource:
+    result.byteStart = byteStart
+    result.byteEnd = byteEnd
+    result.runeStart = decoded.runes.runeIndexAtOrBeforeByte(byteStart)
+    result.runeEnd = decoded.runes.runeIndexAtOrAfterByte(byteEnd)
+    return
   result.byteStart = high(int)
   result.byteEnd = 0
   result.runeStart = decoded.runes.len
@@ -231,6 +300,12 @@ proc runeRangeForBytes(
 proc sourceInsertionForDisplayByte(
     decoded: DecodedSource, byteOffset: int
 ): GlyphSourceRange =
+  if decoded.directSource:
+    result.byteStart = byteOffset
+    result.byteEnd = byteOffset
+    result.runeStart = decoded.runes.runeIndexAtOrBeforeByte(byteOffset)
+    result.runeEnd = result.runeStart
+    return
   for i in 0 ..< decoded.displayByteStarts.len:
     if decoded.displayByteStarts[i] >= byteOffset:
       result.byteStart = decoded.sourceByteStarts[i]
@@ -759,12 +834,12 @@ proc appendShapedGroup(
     arrangement: var GlyphArrangement,
     decoded: DecodedSource,
     group: ShapedGroup,
+    groupText: string,
     pen: var Vec2,
     safeBreakAfter: var seq[bool],
     glyphText: var string,
 ) =
   let
-    groupText = group.text()
     groupByteOffset = group.byteOffset()
     fontInfos = initHarfbuzzFontInfos(group.style.font)
     paragraph = fontInfos.shapeParagraph(group.style.font, groupText)
@@ -826,36 +901,19 @@ proc appendShapedGroup(
 
       pen += advance
 
-proc typeset*(
+proc typesetPrepared(
     box: Rect,
-    uiSpans: openArray[(FontStyle, string)],
-    hAlign = FontHorizontal.Left,
-    vAlign = FontVertical.Top,
-    minContent: bool,
-    wrap: bool,
-    rasterize: bool,
+    decoded: DecodedSource,
+    paragraphs: seq[Paragraph],
+    fontSizes: openArray[float],
+    contentHash: Hash,
+    hAlign: FontHorizontal,
+    vAlign: FontVertical,
+    minContent, wrap, rasterize: bool,
 ): GlyphArrangement =
-  ## Typesets with Harfbuzzy and converts shaped glyph ids into FigDraw data.
   threadEffects:
     AppMainThread
-
-  var shapedSpans = newSeqOfCap[(FontStyle, string)](uiSpans.len)
-  for (style, text) in uiSpans:
-    shapedSpans.add((style, text.applyFontCase(style.font.fontCase)))
-
-  let decoded = decodeSource(uiSpans, shapedSpans)
-  let fontSizes = shapedSpans.mapIt(it[0].font.size.float)
-
-  result = GlyphArrangement(
-    contentHash: block:
-      var h = Hash(0)
-      h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign, minContent, wrap)
-      h = h !& hash(figUiScale())
-      !$h,
-    sourceRunes: decoded.runes,
-  )
-
-  let paragraphs = splitParagraphs(shapedSpans)
+  result = GlyphArrangement(contentHash: contentHash, sourceRunes: decoded.runes)
   var
     pen = vec2(0, 0)
     glyphText = newStringOfCap(decoded.runes.len)
@@ -867,13 +925,16 @@ proc typeset*(
     for sourceGroup in paragraph.shapingGroups():
       var group = sourceGroup
       if group.spans.len > 0:
-        group.style.font = group.style.font.resolveFallbacks(group.text())
+        let groupText = group.text()
+        group.style.font = group.style.font.resolveFallbacks(groupText)
         resolvedFonts.add group.style.font
         let groupGlyphFont = glyphFontFor(group.style.font).glyph
         let baseline = groupGlyphFont.descentAdj
         if result.arrangedGlyphs.len == 0:
           pen.y = baseline
-        result.appendShapedGroup(decoded, group, pen, safeBreakAfter, glyphText)
+        result.appendShapedGroup(
+          decoded, group, groupText, pen, safeBreakAfter, glyphText
+        )
 
     if result.arrangedGlyphs.len == glyphStart and paragraphs.len > 1 and
         paragraph.hasLineStyle:
@@ -909,3 +970,74 @@ proc typeset*(
   when figdrawTextBackend == "hybrid":
     if rasterize:
       result.generateGlyphImages()
+
+proc typeset*(
+    box: Rect,
+    uiSpans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+    rasterize: bool,
+): GlyphArrangement =
+  ## Typesets with Harfbuzzy and converts shaped glyph ids into FigDraw data.
+  threadEffects:
+    AppMainThread
+
+  var shapedSpans = newSeqOfCap[(FontStyle, string)](uiSpans.len)
+  for (style, text) in uiSpans:
+    shapedSpans.add((style, text.applyFontCase(style.font.fontCase)))
+  let
+    decoded = decodeSource(uiSpans, shapedSpans)
+    paragraphs = splitParagraphs(shapedSpans)
+    fontSizes = shapedSpans.mapIt(it[0].font.size.float)
+    contentHash = block:
+      var h = Hash(0)
+      h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign, minContent, wrap)
+      h = h !& hash(figUiScale())
+      !$h
+  typesetPrepared(
+    box, decoded, paragraphs, fontSizes, contentHash, hAlign, vAlign, minContent, wrap,
+    rasterize,
+  )
+
+proc typesetSourceSpans*(
+    box: Rect,
+    source: Utf8Runes,
+    spans: openArray[TextSourceSpan],
+    hAlign: FontHorizontal,
+    vAlign: FontVertical,
+    minContent, wrap, rasterize: bool,
+): GlyphArrangement =
+  ## Shapes normal-case text directly from shared source ranges.
+  threadEffects:
+    AppMainThread
+
+  for span in spans:
+    if span.style.font.fontCase != NormalCase:
+      var owned = newSeqOfCap[(FontStyle, string)](spans.len)
+      for item in spans:
+        owned.add((item.style, source.bytes[item.byteStart ..< item.byteEnd]))
+      result = typeset(box, owned, hAlign, vAlign, minContent, wrap, rasterize)
+      result.sourceRunes = source
+      return
+
+  let
+    decoded = DecodedSource(runes: source, directSource: true)
+    paragraphs = splitSourceParagraphs(source, spans)
+    fontSizes = spans.mapIt(it.style.font.size.float)
+    contentHash = block:
+      var h = Hash(0)
+      h = h !& hash(box.wh)
+      h = h !& hash(source.bytes)
+      h = h !& hash(spans)
+      h = h !& hash(hAlign)
+      h = h !& hash(vAlign)
+      h = h !& hash(minContent)
+      h = h !& hash(wrap)
+      h = h !& hash(figUiScale())
+      !$h
+  typesetPrepared(
+    box, decoded, paragraphs, fontSizes, contentHash, hAlign, vAlign, minContent, wrap,
+    rasterize,
+  )

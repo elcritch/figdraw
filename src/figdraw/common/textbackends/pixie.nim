@@ -103,6 +103,7 @@ proc typeset*(
       result = convertArrangement(
         minAdjusted, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap
       )
+
       let contentAdjusted = result.calcMinMaxContent()
       result.minSize = contentAdjusted.minSize
       result.maxSize = contentAdjusted.maxSize
@@ -122,3 +123,18 @@ proc typeset*(
   result.addFontSizePadding(sz)
   if rasterize:
     result.generateGlyphImages()
+
+proc typesetSourceSpans*(
+    box: Rect,
+    source: Utf8Runes,
+    sourceSpans: openArray[TextSourceSpan],
+    hAlign: FontHorizontal,
+    vAlign: FontVertical,
+    minContent, wrap, rasterize: bool,
+): GlyphArrangement =
+  ## Pixie requires owned span strings. Share the retained source in the result.
+  var spans = newSeqOfCap[(FontStyle, string)](sourceSpans.len)
+  for span in sourceSpans:
+    spans.add((span.style, source.bytes[span.byteStart ..< span.byteEnd]))
+  result = typeset(box, spans, hAlign, vAlign, minContent, wrap, rasterize)
+  result.sourceRunes = source
