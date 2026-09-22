@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 0.42.0
 
 - Add `typesetSourceSpans` and its measurement variant for compact
   `StyledTextRun` ranges and a separate `FontStyle` table. Layouts retain the

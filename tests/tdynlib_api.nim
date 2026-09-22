@@ -325,6 +325,34 @@ suite "native dynlib API":
       check supportedFontFileExtensions().len > 0
       check storage.copyUtf8Runes().stringValue() == source
 
+    test "typesets compact source spans through the native binding":
+      let
+        fontData = readFile(figDataDir() / "Ubuntu.ttf")
+        typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+        font = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+        source = figdraw_native_abi.initUtf8Runes("éA")
+        styles = [fs(font, fill(rgba(255, 0, 0, 255)))]
+        runs = [
+          StyledTextRun(
+            byteStart: 0, byteEnd: 3, runeStart: 0, runeEnd: 2, styleId: TextStyleId(0)
+          )
+        ]
+        arrangement = figdraw_native_abi.typesetSourceSpansForMeasurement(
+          bumpy.rect(0, 0, 240, 90),
+          source,
+          runs,
+          styles,
+          FontHorizontal.Left,
+          FontVertical.Top,
+          false,
+          false,
+        )
+
+      check source.byteOffsetForRune(1) == 2
+      check source.runeIndexAtOrBeforeByte(2) == 1
+      check cast[pointer](arrangement.sourceRunes) == cast[pointer](source)
+      check arrangement.arrangedGlyphs.len == 2
+
     test "uses direct UTF-8 constructors with shared Rune and sink string arguments":
       let
         source = "A λ 😀"
