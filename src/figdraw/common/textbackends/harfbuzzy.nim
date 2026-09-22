@@ -193,44 +193,45 @@ proc splitParagraphs(spans: openArray[(FontStyle, string)]): seq[Paragraph] =
     byteOffset += text.len
 
 proc splitSourceParagraphs(
-    source: Utf8Runes, spans: openArray[TextSourceSpan]
+    source: Utf8Runes, runs: openArray[StyledTextRun], styles: openArray[FontStyle]
 ): seq[Paragraph] =
   result.add Paragraph(byteStart: 0)
-  for span in spans:
+  for run in runs:
+    let
+      style = styles[int(uint32(run.styleId))]
+      runStart = int(run.byteStart)
+      runEnd = int(run.byteEnd)
     if not result[^1].hasLineStyle:
-      result[^1].lineStyle = span.style
+      result[^1].lineStyle = style
       result[^1].hasLineStyle = true
     var
-      partStart = span.byteStart
-      byteIndex = span.byteStart
-    while byteIndex < span.byteEnd:
+      partStart = runStart
+      byteIndex = runStart
+    while byteIndex < runEnd:
       let ch = source.bytes[byteIndex]
       if ch == '\n' or ch == '\r':
         if byteIndex > partStart:
           result[^1].spans.add ShapedSpan(
-            style: span.style,
+            style: style,
             source: source,
             byteStart: partStart,
             byteEnd: byteIndex,
             byteOffset: partStart,
           )
         var breakLen = 1
-        if ch == '\r' and byteIndex + 1 < span.byteEnd and
-            source.bytes[byteIndex + 1] == '\n':
+        if ch == '\r' and byteIndex + 1 < runEnd and source.bytes[byteIndex + 1] == '\n':
           breakLen = 2
         byteIndex += breakLen
         partStart = byteIndex
-        result.add Paragraph(
-          byteStart: byteIndex, lineStyle: span.style, hasLineStyle: true
-        )
+        result.add Paragraph(byteStart: byteIndex, lineStyle: style, hasLineStyle: true)
       else:
         inc byteIndex
-    if partStart < span.byteEnd:
+    if partStart < runEnd:
       result[^1].spans.add ShapedSpan(
-        style: span.style,
+        style: style,
         source: source,
         byteStart: partStart,
-        byteEnd: span.byteEnd,
+        byteEnd: runEnd,
         byteOffset: partStart,
       )
 
@@ -1004,7 +1005,8 @@ proc typeset*(
 proc typesetSourceSpans*(
     box: Rect,
     source: Utf8Runes,
-    spans: openArray[TextSourceSpan],
+    runs: openArray[StyledTextRun],
+    styles: openArray[FontStyle],
     hAlign: FontHorizontal,
     vAlign: FontVertical,
     minContent, wrap, rasterize: bool,
@@ -1013,24 +1015,30 @@ proc typesetSourceSpans*(
   threadEffects:
     AppMainThread
 
-  for span in spans:
-    if span.style.font.fontCase != NormalCase:
-      var owned = newSeqOfCap[(FontStyle, string)](spans.len)
-      for item in spans:
-        owned.add((item.style, source.bytes[item.byteStart ..< item.byteEnd]))
+  for candidate in runs:
+    if styles[int(uint32(candidate.styleId))].font.fontCase != NormalCase:
+      var owned = newSeqOfCap[(FontStyle, string)](runs.len)
+      for run in runs:
+        owned.add(
+          (
+            styles[int(uint32(run.styleId))],
+            source.bytes[int(run.byteStart) ..< int(run.byteEnd)],
+          )
+        )
       result = typeset(box, owned, hAlign, vAlign, minContent, wrap, rasterize)
       result.sourceRunes = source
       return
 
   let
     decoded = DecodedSource(runes: source, directSource: true)
-    paragraphs = splitSourceParagraphs(source, spans)
-    fontSizes = spans.mapIt(it.style.font.size.float)
+    paragraphs = splitSourceParagraphs(source, runs, styles)
+    fontSizes = runs.mapIt(styles[int(uint32(it.styleId))].font.size.float)
     contentHash = block:
       var h = Hash(0)
       h = h !& hash(box.wh)
       h = h !& hash(source.bytes)
-      h = h !& hash(spans)
+      h = h !& hash(runs)
+      h = h !& hash(styles)
       h = h !& hash(hAlign)
       h = h !& hash(vAlign)
       h = h !& hash(minContent)

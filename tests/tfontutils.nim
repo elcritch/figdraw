@@ -440,7 +440,8 @@ suite "fontutils":
       check font.underline
       check font.strikethrough
 
-  test "source spans retain one UTF-8 source across styles and newlines":
+  test "source runs retain one UTF-8 source across styles and newlines":
+    check sizeof(StyledTextRun) == 20
     let
       fontData = readFile(figDataDir() / "Ubuntu.ttf")
       typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
@@ -448,13 +449,18 @@ suite "fontutils":
       source = initUtf8Runes("éA\n中")
       firstStyle = fs(uiFont, fill(rgba(255, 0, 0, 255)))
       secondStyle = fs(uiFont, fill(rgba(0, 0, 255, 255)))
-      spans = [
-        TextSourceSpan(style: firstStyle, byteStart: 0, byteEnd: 2),
-        TextSourceSpan(style: secondStyle, byteStart: 2, byteEnd: 7),
+      styles = [firstStyle, secondStyle]
+      runs = [
+        StyledTextRun(
+          byteStart: 0, byteEnd: 2, runeStart: 0, runeEnd: 1, styleId: TextStyleId(0)
+        ),
+        StyledTextRun(
+          byteStart: 2, byteEnd: 7, runeStart: 1, runeEnd: 4, styleId: TextStyleId(1)
+        ),
       ]
       box = rect(0, 0, 240, 90)
       borrowed =
-        typesetSourceSpans(box, source, spans, minContent = false, wrap = false)
+        typesetSourceSpans(box, source, runs, styles, minContent = false, wrap = false)
       owned = typeset(
         box,
         [(firstStyle, "é"), (secondStyle, "A\n中")],
@@ -462,6 +468,8 @@ suite "fontutils":
         wrap = false,
       )
     check cast[pointer](borrowed.sourceRunes) == cast[pointer](source)
+    when figdrawTextBackend == "pixie":
+      check cast[pointer](borrowed.runes) == cast[pointer](source)
     check borrowed.sourceRunes == owned.sourceRunes
     check borrowed.arrangedGlyphs.len == owned.arrangedGlyphs.len
     check borrowed.lines.len == owned.lines.len
@@ -475,7 +483,12 @@ suite "fontutils":
       discard typesetSourceSpans(
         box,
         source,
-        [TextSourceSpan(style: firstStyle, byteStart: 0, byteEnd: 3)],
+        [
+          StyledTextRun(
+            byteStart: 0, byteEnd: 3, runeStart: 0, runeEnd: 2, styleId: TextStyleId(0)
+          )
+        ],
+        styles,
         minContent = false,
         wrap = false,
       )
@@ -485,48 +498,108 @@ suite "fontutils":
         box,
         source,
         [
-          TextSourceSpan(style: firstStyle, byteStart: 0, byteEnd: 1),
-          TextSourceSpan(style: secondStyle, byteStart: 1, byteEnd: 7),
+          StyledTextRun(
+            byteStart: 0, byteEnd: 7, runeStart: 0, runeEnd: 4, styleId: TextStyleId(2)
+          )
         ],
+        styles,
         minContent = false,
         wrap = false,
       )
 
-  test "source spans preserve empty and case-transformed layouts":
+    expect ValueError:
+      discard typesetSourceSpans(
+        box,
+        source,
+        [
+          StyledTextRun(
+            byteStart: 0, byteEnd: 1, runeStart: 0, runeEnd: 1, styleId: TextStyleId(0)
+          ),
+          StyledTextRun(
+            byteStart: 1, byteEnd: 7, runeStart: 1, runeEnd: 4, styleId: TextStyleId(1)
+          ),
+        ],
+        styles,
+        minContent = false,
+        wrap = false,
+      )
+
+  test "source runs preserve empty and width-changing case conversions":
     let
       fontData = readFile(figDataDir() / "Ubuntu.ttf")
       typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
       plain = FigFont(typefaceId: typefaceId, size: 18.0'f32)
       uppercase = FigFont(typefaceId: typefaceId, size: 18.0'f32, fontCase: UpperCase)
       emptySource = initUtf8Runes("")
-      caseSource = initUtf8Runes("abé")
+      caseSource = initUtf8Runes("ıA")
       plainStyle = fs(plain, fill(rgba(255, 0, 0, 255)))
       caseStyle = fs(uppercase, fill(rgba(255, 0, 0, 255)))
       box = rect(0, 0, 240, 90)
       empty = typesetSourceSpansForMeasurement(
         box,
         emptySource,
-        [TextSourceSpan(style: plainStyle, byteStart: 0, byteEnd: 0)],
+        [StyledTextRun(styleId: TextStyleId(0))],
+        [plainStyle],
         minContent = false,
         wrap = false,
       )
       transformed = typesetSourceSpansForMeasurement(
         box,
         caseSource,
-        [TextSourceSpan(style: caseStyle, byteStart: 0, byteEnd: 4)],
+        [
+          StyledTextRun(
+            byteStart: 0, byteEnd: 3, runeStart: 0, runeEnd: 2, styleId: TextStyleId(0)
+          )
+        ],
+        [caseStyle],
         minContent = false,
         wrap = false,
       )
       owned = typesetForMeasurement(
-        box, [(caseStyle, "abé")], minContent = false, wrap = false
+        box, [(caseStyle, "ıA")], minContent = false, wrap = false
       )
     check cast[pointer](empty.sourceRunes) == cast[pointer](emptySource)
     check empty.sourceRunes.len == 0
     check cast[pointer](transformed.sourceRunes) == cast[pointer](caseSource)
+    check transformed.sourceRunes.byteLength == 3
+    when figdrawTextBackend == "pixie":
+      check transformed.runes.stringValue() == "IA"
     check transformed.arrangedGlyphs.len == owned.arrangedGlyphs.len
-    for index, glyph in transformed.arrangedGlyphs:
-      check glyph.source == owned.arrangedGlyphs[index].source
+    when figdrawTextBackend != "pixie":
+      for index, glyph in transformed.arrangedGlyphs:
+        check glyph.source == owned.arrangedGlyphs[index].source
+    check transformed.arrangedGlyphs[0].source.byteEnd == 2
+    check transformed.arrangedGlyphs[1].source.byteStart == 2
 
+  when figdrawTextBackend == "pixie":
+    test "source runs map around controls removed by Pixie":
+      let
+        fontData = readFile(figDataDir() / "Ubuntu.ttf")
+        typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
+        uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
+        source = initUtf8Runes("A\tB")
+        style = fs(uiFont)
+        arrangement = typesetSourceSpansForMeasurement(
+          rect(0, 0, 240, 90),
+          source,
+          [
+            StyledTextRun(
+              byteStart: 0,
+              byteEnd: 3,
+              runeStart: 0,
+              runeEnd: 3,
+              styleId: TextStyleId(0),
+            )
+          ],
+          [style],
+          minContent = false,
+          wrap = false,
+        )
+      check cast[pointer](arrangement.sourceRunes) == cast[pointer](source)
+      check arrangement.runes.stringValue() == "AB"
+      check arrangement.arrangedGlyphs.len == 2
+      check arrangement.arrangedGlyphs[0].source.byteStart == 0
+      check arrangement.arrangedGlyphs[1].source.byteStart == 2
   test "getTypesetImpl returns consistent hashes and generated glyph images":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
     let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)

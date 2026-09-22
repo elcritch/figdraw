@@ -74,10 +74,15 @@ type
     font*: FigFont
     color*: Fill
 
-  TextSourceSpan* = object ## A styled byte range in one immutable UTF-8 source.
-    style*: FontStyle
-    byteStart*: int
-    byteEnd*: int
+  TextStyleId* = distinct uint32
+
+  StyledTextRun* = object
+    ## Source range and compact style-table index for one borrowed text run.
+    byteStart*: uint32
+    byteEnd*: uint32
+    runeStart*: uint32
+    runeEnd*: uint32
+    styleId*: TextStyleId
 
   GlyphSourceRange* = object
     byteStart*: int ## Inclusive source byte index.

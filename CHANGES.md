@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-- Add `typesetSourceSpans` and its measurement variant for styled byte ranges
-  in a shared `Utf8Runes` source. Layouts retain that source, while Harfbuzzy
-  shapes normal-case ranges without keeping a string for each styled run.
+- Add `typesetSourceSpans` and its measurement variant for compact
+  `StyledTextRun` ranges and a separate `FontStyle` table. Layouts retain the
+  shared `Utf8Runes` source. Pixie reuses it for display text when unchanged
+  and maps converted or filtered glyphs back to original source byte ranges.
+  Harfbuzzy shapes normal-case ranges without keeping a string per styled run.
 - Expose sparse rune/byte position lookup on `Utf8Runes` so callers can create
   byte ranges without a dense index.
 

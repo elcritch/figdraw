@@ -252,27 +252,29 @@ proc typesetForMeasurement*(
 proc typesetSourceSpans*(
     box: bumpy.Rect,
     source: Utf8Runes,
-    spans: openArray[TextSourceSpan],
+    runs: openArray[StyledTextRun],
+    styles: openArray[FontStyle],
     hAlign = FontHorizontal.Left,
     vAlign = FontVertical.Top,
     minContent = false,
     wrap = true,
 ): GlyphArrangement {.inline.} =
   figdraw_native_abi.typesetSourceSpans(
-    box, source, spans, hAlign, vAlign, minContent, wrap
+    box, source, runs, styles, hAlign, vAlign, minContent, wrap
   )
 
 proc typesetSourceSpansForMeasurement*(
     box: bumpy.Rect,
     source: Utf8Runes,
-    spans: openArray[TextSourceSpan],
+    runs: openArray[StyledTextRun],
+    styles: openArray[FontStyle],
     hAlign = FontHorizontal.Left,
     vAlign = FontVertical.Top,
     minContent = false,
     wrap = true,
 ): GlyphArrangement {.inline.} =
   figdraw_native_abi.typesetSourceSpansForMeasurement(
-    box, source, spans, hAlign, vAlign, minContent, wrap
+    box, source, runs, styles, hAlign, vAlign, minContent, wrap
   )
 
 proc typeset*[T: FigFont | FontRef](

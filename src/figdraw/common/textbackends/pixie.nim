@@ -18,6 +18,8 @@ proc typeset*(
     minContent: bool,
     wrap: bool,
     rasterize: bool,
+    sourceRunes: Utf8Runes = nil,
+    sourceRuns: openArray[StyledTextRun] = [],
 ): GlyphArrangement =
   ## Typesets with Pixie, then converts to FigDraw's backend-neutral data.
   threadEffects:
@@ -70,7 +72,8 @@ proc typeset*(
   let arrangement =
     pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
   result = convertArrangement(
-    arrangement, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap
+    arrangement, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap, sourceRunes,
+    sourceRuns,
   )
 
   let content = result.calcMinMaxContent()
@@ -84,8 +87,10 @@ proc typeset*(
     let arr = pixie.typeset(
       spans, bounds = wh, hAlign = LeftAlign, vAlign = TopAlign, wrap = wrap
     )
-    let minResult =
-      convertArrangement(arr, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap)
+    let minResult = convertArrangement(
+      arr, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap, sourceRunes,
+      sourceRuns,
+    )
 
     let minContentSize = minResult.calcMinMaxContent()
     trace "minContent:",
@@ -101,7 +106,8 @@ proc typeset*(
       let minAdjusted =
         pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
       result = convertArrangement(
-        minAdjusted, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap
+        minAdjusted, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap,
+        sourceRunes, sourceRuns,
       )
 
       let contentAdjusted = result.calcMinMaxContent()
@@ -127,14 +133,19 @@ proc typeset*(
 proc typesetSourceSpans*(
     box: Rect,
     source: Utf8Runes,
-    sourceSpans: openArray[TextSourceSpan],
+    runs: openArray[StyledTextRun],
+    styles: openArray[FontStyle],
     hAlign: FontHorizontal,
     vAlign: FontVertical,
     minContent, wrap, rasterize: bool,
 ): GlyphArrangement =
-  ## Pixie requires owned span strings. Share the retained source in the result.
-  var spans = newSeqOfCap[(FontStyle, string)](sourceSpans.len)
-  for span in sourceSpans:
-    spans.add((span.style, source.bytes[span.byteStart ..< span.byteEnd]))
-  result = typeset(box, spans, hAlign, vAlign, minContent, wrap, rasterize)
-  result.sourceRunes = source
+  ## Pixie requires owned span strings, but layout retains the source directly.
+  var spans = newSeqOfCap[(FontStyle, string)](runs.len)
+  for run in runs:
+    spans.add(
+      (
+        styles[int(uint32(run.styleId))],
+        source.bytes[int(run.byteStart) ..< int(run.byteEnd)],
+      )
+    )
+  typeset(box, spans, hAlign, vAlign, minContent, wrap, rasterize, source, runs)
