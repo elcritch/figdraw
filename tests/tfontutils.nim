@@ -1,6 +1,7 @@
 import std/[hashes, options, os, tables, tempfiles, unicode, unittest]
 
 import figdraw
+import threading/smartptrs
 when figdrawTextBackend == "pixie":
   import figdraw/common/textbackends/pixie as pixieBackend
   import pkg/pixie/fonts as pixieFonts
@@ -188,6 +189,91 @@ suite "fontutils":
     check arranged[1].source.byteEnd == 5
     check arranged[2].source.byteStart == 5
     check arranged[2].source.byteEnd == 7
+
+  test "frozen glyph views share source and geometry across line slices":
+    let
+      source = initArrangementRunes("a🙂b")
+      fontId = FontId(Hash(17))
+      glyphFont = GlyphFont(fontId: fontId, lineHeight: 14, descentAdj: 10)
+      positions = @[vec2(0, 0), vec2(10, 0), vec2(20, 0)]
+      rects = @[rect(0, 0, 10, 14), rect(10, 0, 10, 14), rect(20, 0, 10, 14)]
+    var layout = GlyphArrangement(
+      lines: @[0 .. 2],
+      spans: @[0 .. 2],
+      fonts: @[glyphFont],
+      sourceRunes: source,
+      runes: source,
+      positions: positions,
+      selectionRects: rects,
+      arrangedGlyphs:
+        buildArrangedGlyphs(source, positions, rects, @[0 .. 2], @[glyphFont]),
+    )
+
+    let owner = shareGlyphArrangement(layout)
+    check owner[].positions.len == 0
+    check owner[].selectionRects.len == 0
+    check owner[].sourceRunes.sameUtf8Runes(owner[].runes)
+    check not owner[].sourceRunes.sameUtf8Runes(source)
+
+    let view = owner.glyphArrangementView(1 .. 2)
+    check view.isGlyphView()
+    check view.glyphCount() == 2
+    check view.arrangedGlyphs.len == 0
+    check view.runes.isNil
+    check view.sourceRuneRange(0) == 1 .. 1
+    check view.glyphRangeForRawBytes(1 .. 4) == 0 .. 0
+    var sourceText: string
+    for rune in view.sourceRunes(0):
+      sourceText.add rune
+    check sourceText == "🙂"
+    var glyphBytes: seq[int]
+    for glyph in view.glyphs():
+      glyphBytes.add glyph.source.byteStart
+    check glyphBytes == @[1, 5]
+
+    layout.arrangedGlyphs[1].pos.x = 999
+    check view.arrangedGlyph(0).pos.x == 10
+    expect ValueError:
+      discard owner.glyphArrangementView(0 .. 3)
+
+  test "frozen layout keeps distinct equal buffers and legacy slices":
+    let
+      source = initArrangementRunes("abc")
+      display = initArrangementRunes("abc")
+      fontId = FontId(Hash(18))
+      font = GlyphFont(fontId: fontId, lineHeight: 12)
+      positions = @[vec2(0, 0), vec2(8, 0), vec2(16, 0)]
+      rects = @[rect(0, 0, 8, 12), rect(8, 0, 8, 12), rect(16, 0, 8, 12)]
+      modern = GlyphArrangement(
+        spans: @[0 .. 2],
+        fonts: @[font],
+        sourceRunes: source,
+        runes: display,
+        arrangedGlyphs:
+          buildArrangedGlyphs(display, positions, rects, @[0 .. 2], @[font]),
+      )
+      modernOwner = shareGlyphArrangement(modern)
+    check modernOwner[].sourceRunes == modernOwner[].runes
+    check not modernOwner[].sourceRunes.sameUtf8Runes(modernOwner[].runes)
+
+    let legacyOwner = shareGlyphArrangement(
+      GlyphArrangement(
+        spans: @[0 .. 2],
+        fonts: @[font],
+        runes: display,
+        positions: positions,
+        selectionRects: rects,
+      )
+    )
+    let legacyView = legacyOwner.glyphArrangementView(1 .. 2)
+    check not legacyView.isGlyphView()
+    check legacyView.runes.stringValue() == "bc"
+    check legacyView.positions.len == 2
+    var count = 0
+    for glyph in legacyView.glyphs():
+      check glyph.rect.w == 8
+      inc count
+    check count == 2
 
   test "load typeface from buffer":
     let fontData = readFile(figDataDir() / "Ubuntu.ttf")
