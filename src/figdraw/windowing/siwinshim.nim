@@ -10,7 +10,10 @@ import ../fignodes
 import ../figrender
 import ../renderfragments
 
-const UseSiwinOpenGL = not (UseMetalBackend or UseVulkanBackend)
+when UseQuartzBackend:
+  import ../quartz/quartz_context
+
+const UseSiwinOpenGL = not (UseMetalBackend or UseVulkanBackend or UseQuartzBackend)
 const NeedSiwinOpenGLContext = UseSiwinOpenGL or UseOpenGlFallback
 
 when defined(macosx):
@@ -147,6 +150,16 @@ proc newSiwinWindow*(
           )
       elif UseMetalBackend and not NeedSiwinOpenGLContext:
         newMetalWindowCocoa(
+          size = size,
+          title = title,
+          resizable = resizable,
+          frameless = frameless,
+          transparent = transparent,
+        )
+      elif UseQuartzBackend:
+        # Quartz renders into a CPU bitmap. Use Siwin's software image view so
+        # the bitmap can be presented without creating an OpenGL drawable.
+        siCocoaWindow.newSoftwareRenderingWindowCocoa(
           size = size,
           title = title,
           resizable = resizable,
@@ -731,6 +744,8 @@ func backendSupportsDedicatedRenderThread*(kind: RendererBackendKind): bool =
     when UseVulkanBackend: true else: false
   of rbOpenGL:
     false
+  of rbQuartz:
+    false
 
 proc supportsDedicatedRenderThread*(renderer: FigRenderer[SiwinRenderBackend]): bool =
   ## Whether the configured presentation backend can be detached from its
@@ -754,6 +769,8 @@ proc supportsDedicatedRenderThread*(renderer: FigRenderer[SiwinRenderBackend]): 
     else:
       discard
   of rbOpenGL:
+    discard
+  of rbQuartz:
     discard
 
 proc useDedicatedRenderThread*(renderer: FigRenderer[SiwinRenderBackend]) =
@@ -924,9 +941,56 @@ proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
       else:
         renderer.backendState.window.makeCurrent()
 
+when UseQuartzBackend and defined(macosx):
+  proc presentQuartzFrame(renderer: FigRenderer[SiwinRenderBackend]) =
+    let window = renderer.backendState.window
+    if window.isNil or not (window of siCocoaWindow.WindowCocoaSoftwareRendering):
+      return
+
+    let target = window.pixelBuffer()
+    if target.data.isNil:
+      return
+
+    let source = QuartzContext(renderer.ctx).captureImage()
+    if source.isNil or source.data.len == 0:
+      return
+
+    let targetWidth = target.size.x.int
+    let targetHeight = target.size.y.int
+    if source.width == targetWidth and source.height == targetHeight:
+      copyMem(
+        target.data, source.data[0].addr, source.data.len * sizeof(source.data[0])
+      )
+    else:
+      # A caller may choose an explicit FigDraw scale that differs from the
+      # window's backing scale. Keep that frame visible with a nearest-neighbor
+      # copy instead of dropping it when the dimensions do not match.
+      let destination = cast[ptr UncheckedArray[byte]](target.data)
+      for y in 0 ..< targetHeight:
+        let sourceY = min(source.height - 1, (y * source.height) div targetHeight)
+        for x in 0 ..< targetWidth:
+          let sourceX = min(source.width - 1, (x * source.width) div targetWidth)
+          let pixel = source.data[sourceY * source.width + sourceX]
+          let offset = (y * targetWidth + x) * 4
+          destination[offset + 0] = pixel.r
+          destination[offset + 1] = pixel.g
+          destination[offset + 2] = pixel.b
+          destination[offset + 3] = pixel.a
+
+    # serviceWindow calls the same invalidation after onRender. Keeping this
+    # here also makes an explicit renderFrame/endFrame pair visible when it is
+    # driven outside of Siwin's render callback.
+    let view = cast[NSView](WindowCocoa(window).nativeViewHandle())
+    if not view.isNil:
+      view.setNeedsDisplay(true)
+
 proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
-  ## Siwin OpenGL windows swap after onRender. A fallback context attached to
-  ## a Vulkan/software window must be presented explicitly.
+  ## Siwin OpenGL windows swap after onRender. CPU-backed Quartz frames and a
+  ## fallback context attached to a Vulkan/software window need explicit
+  ## presentation.
+  when UseQuartzBackend and defined(macosx):
+    if renderer.backendKind() == rbQuartz:
+      renderer.presentQuartzFrame()
   when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd)):
     if renderer.backendKind() == rbOpenGL:
       renderer.presentOpenGlFallback()

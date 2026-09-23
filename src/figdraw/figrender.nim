@@ -34,6 +34,8 @@ elif UseMetalBackend:
   import metalx/[metal, cametal]
 elif UseVulkanBackend:
   import ./vulkan/vulkan_context
+elif UseQuartzBackend:
+  import ./quartz/quartz_context
 else:
   import pkg/opengl
   import ./utils/glutils
@@ -278,6 +280,10 @@ proc initRendererContext[BackendState](
       newContext(atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale)
   elif UseVulkanBackend:
     renderer.ctx = vulkan_context.newContext(
+      atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale
+    )
+  elif UseQuartzBackend:
+    renderer.ctx = quartz_context.newContext(
       atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale
     )
   else:

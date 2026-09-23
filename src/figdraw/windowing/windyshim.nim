@@ -3,7 +3,7 @@ import unicode, vmath, windy/common
 import ../commons
 import ../figrender
 
-const UseWindyOpenGL = not (UseMetalBackend or UseVulkanBackend)
+const UseWindyOpenGL = not (UseMetalBackend or UseVulkanBackend or UseQuartzBackend)
 const NeedWindyOpenGLContext = UseWindyOpenGL or UseOpenGlFallback
 
 when defined(emscripten):

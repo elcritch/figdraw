@@ -1,5 +1,14 @@
 # Changes
 
+## Unreleased
+
+- Add an opt-in macOS Quartz 2D backend for FigDraw rendering. The
+  initial subset covers filled and stroked rectangles with independent corner
+  radii, circles, ellipses, lines, quadratic Béziers, bitmap images, masks,
+  transforms, PNG capture, and presentation through Siwin's macOS software
+  window. SDF shadows, backdrop blur, and MSDF decoding remain deferred while
+  the backend is established.
+
 ## 0.41.0
 
 - Allocate Metal backdrop and rect-mask storage on first use, release optional

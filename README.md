@@ -80,8 +80,37 @@ https://github.com/user-attachments/assets/aca4783c-86c6-4e52-9a16-0a8556ad1300
 ## Status
 
 This repo is still under development but the core support for SDF is running! 
-OpenGL backend is the only supported renderer right now
-(`src/figdraw/opengl/`). However there's some work toward supporting Vulkan.
+OpenGL, Metal, and Vulkan backends are available depending on the target and
+build flags. A small macOS Quartz 2D backend is also available as an opt-in
+experimental backend.
+
+### Quartz 2D backend (macOS)
+
+Build with `-d:figdraw.quartz=on` to select Quartz 2D instead of Metal. The
+backend renders into a Core Graphics bitmap context. It can present that bitmap
+through Siwin's macOS software-rendering window and can also be used directly
+for deterministic image captures:
+
+```sh
+nim r -d:figdraw.quartz=on examples/quartz_capture.nim \
+  --output=/tmp/figdraw-quartz.png
+```
+
+The backend currently covers solid and linear-filled rectangles with circular
+or elliptical rounded corners, circles, ellipses, lines, quadratic and
+piecewise Bézier strokes, clipping, transforms, and PNG readback through the
+existing `FigRenderer` API. `CGPath` is used for the geometry rather than
+trying to reproduce the Metal SDF shaders.
+
+Shadows, backdrop blur, and MSDF decoding are intentionally left for follow-up
+work. Image nodes and glyph bitmaps use the bitmap context path, with tinting
+currently limited to opacity.
+
+The focused offscreen test is:
+
+```sh
+nim r --mm:arc -d:figdraw.quartz=on tests/tquartz_backend.nim
+```
 
 Future directions may include adding support for SDF textures for text rendering using Valve's SDF-text mapping technique. Other directions in that area would be supporting vector images rasterized to SDF textures as well. 
 
