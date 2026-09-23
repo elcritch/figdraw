@@ -88,8 +88,8 @@ experimental backend.
 
 Build with `-d:figdraw.quartz=on` to select Quartz 2D instead of Metal. The
 backend renders into a Core Graphics bitmap context. It can present that bitmap
-through Siwin's macOS software-rendering window and can also be used directly
-for deterministic image captures:
+through a Core Animation layer in a Siwin macOS window and can also be used
+directly for deterministic image captures:
 
 ```sh
 nim r -d:figdraw.quartz=on examples/quartz_capture.nim \

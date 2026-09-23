@@ -267,30 +267,37 @@ proc releaseContext(ctx: QuartzContext) =
   ctx.backing = nil
 
 proc beginBitmap(ctx: QuartzContext, frameSize: Vec2) =
-  ctx.releaseContext()
   let
     width = max(1, round(frameSize.x).int)
     height = max(1, round(frameSize.y).int)
-  ctx.backing = newImage(width, height)
-  let colorSpace = CGColorSpaceCreateDeviceRGB()
-  if colorSpace.isNil:
-    raise newException(ValueError, "Quartz could not create an RGB color space")
-  try:
-    const bitmapInfo =
-      uint32(kCGBitmapByteOrder32Big.ord) or uint32(kCGImageAlphaPremultipliedLast.ord)
-    ctx.context = CGBitmapContextCreate(
-      ctx.backing.data[0].addr,
-      width.csize_t,
-      height.csize_t,
-      8,
-      (width * 4).csize_t,
-      colorSpace,
-      bitmapInfo,
-    )
-  finally:
-    release(cast[CFObject](colorSpace))
-  if ctx.context.isNil:
-    raise newException(ValueError, "Quartz could not create a bitmap context")
+  let reuseBitmap =
+    not ctx.context.isNil and not ctx.backing.isNil and ctx.backing.width == width and
+    ctx.backing.height == height
+
+  if not reuseBitmap:
+    ctx.releaseContext()
+    ctx.backing = newImage(width, height)
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    if colorSpace.isNil:
+      raise newException(ValueError, "Quartz could not create an RGB color space")
+    try:
+      const bitmapInfo =
+        uint32(kCGBitmapByteOrder32Big.ord) or uint32(
+          kCGImageAlphaPremultipliedLast.ord
+        )
+      ctx.context = CGBitmapContextCreate(
+        ctx.backing.data[0].addr,
+        width.csize_t,
+        height.csize_t,
+        8,
+        (width * 4).csize_t,
+        colorSpace,
+        bitmapInfo,
+      )
+    finally:
+      release(cast[CFObject](colorSpace))
+    if ctx.context.isNil:
+      raise newException(ValueError, "Quartz could not create a bitmap context")
 
   ctx.frameSize = vec2(width.float32, height.float32)
   ctx.savedBaseState = true
@@ -698,6 +705,12 @@ method readPixels*(ctx: QuartzContext, frame: Rect, readFront: bool): Image =
 
 proc captureImage*(ctx: QuartzContext, frame: Rect = rect(0, 0, 0, 0)): Image =
   ctx.readPixels(frame, readFront = true)
+
+proc presentationImage*(ctx: QuartzContext): CGImage =
+  ## Return a retained image for a Core Animation layer without copying the
+  ## bitmap through a Pixie Image first.
+  if not ctx.context.isNil:
+    result = ctx.context.createImage()
 
 proc writeCapture*(ctx: QuartzContext, path: string, frame: Rect = rect(0, 0, 0, 0)) =
   ctx.captureImage(frame).writeFile(path)

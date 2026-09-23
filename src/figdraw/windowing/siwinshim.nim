@@ -18,7 +18,9 @@ const NeedSiwinOpenGLContext = UseSiwinOpenGL or UseOpenGlFallback
 
 when defined(macosx):
   import darwin/app_kit/[nscolor, nsview, nswindow]
+  import darwin/core_graphics/cgimage
   import darwin/objc/runtime
+  import darwin/quartz_core/calayer
   import siwin/platforms/cocoa/window as siCocoaWindow
   when UseMetalBackend or UseVulkanBackend:
     import ./siwinmetal as siwinmetal
@@ -157,15 +159,25 @@ proc newSiwinWindow*(
           transparent = transparent,
         )
       elif UseQuartzBackend:
-        # Quartz renders into a CPU bitmap. Use Siwin's software image view so
-        # the bitmap can be presented without creating an OpenGL drawable.
-        siCocoaWindow.newSoftwareRenderingWindowCocoa(
+        # Quartz presents a CGImage through a plain Core Animation layer. The
+        # Metal-shaped Siwin host avoids the software image view's per-frame
+        # bitmap display allocations while retaining the normal Cocoa window
+        # event and resize handling.
+        let quartzWindow = siCocoaWindow.newMetalWindowCocoa(
           size = size,
           title = title,
           resizable = resizable,
           frameless = frameless,
           transparent = transparent,
         )
+        let view = cast[NSView](WindowCocoa(quartzWindow).nativeViewHandle())
+        if not view.isNil:
+          view.setWantsLayer(true)
+          let layer = CALayer.alloc().init()
+          if not layer.isNil:
+            view.setLayer(layer)
+            layer.release()
+        quartzWindow
       else:
         newOpenglWindowCocoa(
           size = size,
@@ -942,47 +954,29 @@ proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
         renderer.backendState.window.makeCurrent()
 
 when UseQuartzBackend and defined(macosx):
+  proc layer(view: NSView): CALayer {.objc: "layer".}
+
+  proc setContents(layer: CALayer, contents: ID) {.objc: "setContents:".}
+
   proc presentQuartzFrame(renderer: FigRenderer[SiwinRenderBackend]) =
     let window = renderer.backendState.window
-    if window.isNil or not (window of siCocoaWindow.WindowCocoaSoftwareRendering):
+    if window.isNil or not (window of siCocoaWindow.WindowCocoaMetal):
       return
 
-    let target = window.pixelBuffer()
-    if target.data.isNil:
+    let image = QuartzContext(renderer.ctx).presentationImage()
+    if image.isNil:
       return
-
-    let source = QuartzContext(renderer.ctx).captureImage()
-    if source.isNil or source.data.len == 0:
-      return
-
-    let targetWidth = target.size.x.int
-    let targetHeight = target.size.y.int
-    if source.width == targetWidth and source.height == targetHeight:
-      copyMem(
-        target.data, source.data[0].addr, source.data.len * sizeof(source.data[0])
-      )
-    else:
-      # A caller may choose an explicit FigDraw scale that differs from the
-      # window's backing scale. Keep that frame visible with a nearest-neighbor
-      # copy instead of dropping it when the dimensions do not match.
-      let destination = cast[ptr UncheckedArray[byte]](target.data)
-      for y in 0 ..< targetHeight:
-        let sourceY = min(source.height - 1, (y * source.height) div targetHeight)
-        for x in 0 ..< targetWidth:
-          let sourceX = min(source.width - 1, (x * source.width) div targetWidth)
-          let pixel = source.data[sourceY * source.width + sourceX]
-          let offset = (y * targetWidth + x) * 4
-          destination[offset + 0] = pixel.r
-          destination[offset + 1] = pixel.g
-          destination[offset + 2] = pixel.b
-          destination[offset + 3] = pixel.a
-
-    # serviceWindow calls the same invalidation after onRender. Keeping this
-    # here also makes an explicit renderFrame/endFrame pair visible when it is
-    # driven outside of Siwin's render callback.
     let view = cast[NSView](WindowCocoa(window).nativeViewHandle())
-    if not view.isNil:
-      view.setNeedsDisplay(true)
+    let targetLayer =
+      if view.isNil:
+        nil
+      else:
+        view.layer()
+    if targetLayer.isNil:
+      image.release()
+      return
+    targetLayer.setContents(cast[ID](image))
+    image.release()
 
 proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   ## Siwin OpenGL windows swap after onRender. CPU-backed Quartz frames and a
