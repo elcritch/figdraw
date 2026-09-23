@@ -51,7 +51,8 @@ export figdraw_native_abi except
   backendSupportsDedicatedRenderThread, supportsDedicatedRenderThread,
   useDedicatedRenderThread, beginFrame, renderFrame, endFrame, configureUiScale,
   refreshUiScale, presentNow, siwinBackendName, siwinDisplayServerName, getFigFont,
-  getTypefaceSource, getTypefaceInfo, typeset, typesetForMeasurement, generateGlyph,
+  getTypefaceSource, getTypefaceInfo, typeset, typesetForMeasurement,
+  typesetSourceSpans, typesetSourceSpansForMeasurement, generateGlyph,
   generateGlyphImages, hash, getContentHash, findSystemTypeface, findSystemFontFile,
   systemDefaultFontNames, FillKind, FillGradientAxis
 
@@ -246,6 +247,34 @@ proc typesetForMeasurement*(
 ): GlyphArrangement {.inline.} =
   figdraw_native_abi.typesetStyledForMeasurement(
     box, spans, hAlign, vAlign, minContent, wrap
+  )
+
+proc typesetSourceSpans*(
+    box: bumpy.Rect,
+    source: Utf8Runes,
+    runs: openArray[StyledTextRun],
+    styles: openArray[FontStyle],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent = false,
+    wrap = true,
+): GlyphArrangement {.inline.} =
+  figdraw_native_abi.typesetSourceSpans(
+    box, source, runs, styles, hAlign, vAlign, minContent, wrap
+  )
+
+proc typesetSourceSpansForMeasurement*(
+    box: bumpy.Rect,
+    source: Utf8Runes,
+    runs: openArray[StyledTextRun],
+    styles: openArray[FontStyle],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent = false,
+    wrap = true,
+): GlyphArrangement {.inline.} =
+  figdraw_native_abi.typesetSourceSpansForMeasurement(
+    box, source, runs, styles, hAlign, vAlign, minContent, wrap
   )
 
 proc typeset*[T: FigFont | FontRef](

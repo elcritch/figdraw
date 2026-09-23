@@ -10,14 +10,16 @@ import ../shared
 import ../typefaces
 import ./common
 
-proc typeset*(
+proc typesetWithSource(
     box: Rect,
     uiSpans: openArray[(FontStyle, string)],
-    hAlign = FontHorizontal.Left,
-    vAlign = FontVertical.Top,
+    hAlign: FontHorizontal,
+    vAlign: FontVertical,
     minContent: bool,
     wrap: bool,
     rasterize: bool,
+    sourceRunes: Utf8Runes,
+    sourceRuns: openArray[StyledTextRun],
 ): GlyphArrangement =
   ## Typesets with Pixie, then converts to FigDraw's backend-neutral data.
   threadEffects:
@@ -69,8 +71,9 @@ proc typeset*(
 
   let arrangement =
     pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
-  result = convertArrangement(
-    arrangement, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap
+  result = convertArrangementWithSource(
+    arrangement, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap, sourceRunes,
+    sourceRuns,
   )
 
   let content = result.calcMinMaxContent()
@@ -84,8 +87,10 @@ proc typeset*(
     let arr = pixie.typeset(
       spans, bounds = wh, hAlign = LeftAlign, vAlign = TopAlign, wrap = wrap
     )
-    let minResult =
-      convertArrangement(arr, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap)
+    let minResult = convertArrangementWithSource(
+      arr, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap, sourceRunes,
+      sourceRuns,
+    )
 
     let minContentSize = minResult.calcMinMaxContent()
     trace "minContent:",
@@ -100,9 +105,11 @@ proc typeset*(
       let wh = vec2(wh.x, minContentSize.bounding.h)
       let minAdjusted =
         pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)
-      result = convertArrangement(
-        minAdjusted, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap
+      result = convertArrangementWithSource(
+        minAdjusted, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap,
+        sourceRunes, sourceRuns,
       )
+
       let contentAdjusted = result.calcMinMaxContent()
       result.minSize = contentAdjusted.minSize
       result.maxSize = contentAdjusted.maxSize
@@ -122,3 +129,39 @@ proc typeset*(
   result.addFontSizePadding(sz)
   if rasterize:
     result.generateGlyphImages()
+
+proc typeset*(
+    box: Rect,
+    uiSpans: openArray[(FontStyle, string)],
+    hAlign = FontHorizontal.Left,
+    vAlign = FontVertical.Top,
+    minContent: bool,
+    wrap: bool,
+    rasterize: bool,
+): GlyphArrangement =
+  ## Typesets with Pixie, then converts to FigDraw's backend-neutral data.
+  threadEffects:
+    AppMainThread
+  typesetWithSource(box, uiSpans, hAlign, vAlign, minContent, wrap, rasterize, nil, [])
+
+proc typesetSourceSpans*(
+    box: Rect,
+    source: Utf8Runes,
+    runs: openArray[StyledTextRun],
+    styles: openArray[FontStyle],
+    hAlign: FontHorizontal,
+    vAlign: FontVertical,
+    minContent, wrap, rasterize: bool,
+): GlyphArrangement =
+  ## Pixie requires owned span strings, but layout retains the source directly.
+  var spans = newSeqOfCap[(FontStyle, string)](runs.len)
+  for run in runs:
+    spans.add(
+      (
+        styles[int(uint32(run.styleId))],
+        source.bytes[int(run.byteStart) ..< int(run.byteEnd)],
+      )
+    )
+  typesetWithSource(
+    box, spans, hAlign, vAlign, minContent, wrap, rasterize, source, runs
+  )

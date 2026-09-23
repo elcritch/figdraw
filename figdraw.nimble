@@ -1,4 +1,4 @@
-version = "0.41.0"
+version = "0.42.0"
 author = "Jaremy Creechley"
 description = "UI Engine for Nim"
 license = "MIT"
@@ -7,6 +7,7 @@ srcDir = "src"
 # Dependencies
 requires "nim >= 2.2"
 requires "sigils >= 0.31.0"
+requires "threading >= 0.2.1"
 requires "pixie >= 5.0.1"
 requires "chroma >= 0.2.7"
 requires "bumpy"

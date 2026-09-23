@@ -1,5 +1,21 @@
 # Changes
 
+## 0.42.0
+
+- Add immutable shared glyph arrangements and glyph-range views for line render
+  nodes. Frozen arrangements discard redundant position and selection arrays
+  when arranged glyphs contain the same geometry.
+- Add `typesetSourceSpans` and its measurement variant for compact
+  `StyledTextRun` ranges and a separate `FontStyle` table. Layouts retain the
+  shared `Utf8Runes` source. Pixie reuses it for display text when unchanged
+  and maps converted or filtered glyphs back to original source byte ranges.
+  Harfbuzzy shapes normal-case ranges without keeping a string per styled run.
+- Expose sparse rune/byte position lookup on `Utf8Runes` so callers can create
+  byte ranges without a dense index.
+- Preserve the existing Pixie typesetting and arrangement-conversion proc
+  signatures, keep fonts and colors aligned when Pixie filters a whole control
+  span, and raise `ValueError` when borrowing bytes from a nil `Utf8Runes`.
+
 ## 0.41.0
 
 - Allocate Metal backdrop and rect-mask storage on first use, release optional

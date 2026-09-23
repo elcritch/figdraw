@@ -786,6 +786,37 @@ let layout = typeset(
 )
 ```
 
+For text that is already stored as one UTF-8 buffer, `typesetSourceSpans`
+accepts styled byte ranges and keeps that source in the returned layout:
+
+```nim
+let
+  source = initUtf8Runes("Hello שלום")
+  styles = [fs(bodyFont, fill(rgba(30, 34, 40, 255)))]
+  runs = [StyledTextRun(
+    byteStart: 0, byteEnd: source.byteLength.uint32,
+    runeStart: 0, runeEnd: source.len.uint32,
+    styleId: TextStyleId(0),
+  )]
+let layout = typesetSourceSpans(
+  rect(0, 0, 520, 120),
+  source,
+  runs,
+  styles,
+  minContent = false,
+  wrap = true,
+)
+```
+
+Ranges must cover the source in order, match their rune indexes, and refer to
+valid entries in the style table.
+`typesetSourceSpansForMeasurement` follows the same contract without publishing
+glyph images. Harfbuzzy shapes normal-case text with temporary strings for each
+shaping group; Pixie currently materializes strings for its span API. Both
+backends retain the original `Utf8Runes` as `sourceRunes`. Pixie also shares it
+as `runes` when display runes match the source. Case conversion and filtered
+controls require separate display runes, with glyph ranges mapped to source.
+
 Typeface metadata is parsed once when a face is registered and is available
 through the same API with every text backend:
 
