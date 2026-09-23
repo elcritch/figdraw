@@ -84,6 +84,8 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   offscreenTexture: ObjcOwned[MTLTexture]
   backdropTexture: ObjcOwned[MTLTexture]
   backdropBlurTempTexture: ObjcOwned[MTLTexture]
+  backdropUsedThisFrame: bool
+  backdropUnusedFrames: int
   atlasTexture: ObjcOwned[MTLTexture]
   maskTextures: seq[ObjcOwned[MTLTexture]]
   maskTextureWrite: int ## Index of active mask stack (0 means no mask).
@@ -106,7 +108,7 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   pixelScale*: float32
 
   # Buffer data mirrored on CPU and uploaded each flush.
-  indices: tuple[buffer: ObjcOwned[MTLBuffer], data: seq[uint16]]
+  indices: ObjcOwned[MTLBuffer]
   positions: CpuBuffer[float32]
   colors: CpuBuffer[uint8]
   fillMidColors: CpuBuffer[uint8]
@@ -764,6 +766,15 @@ proc setRectMaskVert4(ctx: MetalContext, offset: int, params, radii, matX, matY:
     ctx.rectMaskMatX.data.setVert4(offset + i, matX)
     ctx.rectMaskMatY.data.setVert4(offset + i, matY)
 
+proc ensureRectMaskBuffers(ctx: MetalContext) =
+  if ctx.rectMaskParams.data.len > 0:
+    return
+  let vertexComponents = 4 * ctx.maxQuads * 4
+  ctx.rectMaskParams.data = newSeq[float32](vertexComponents)
+  ctx.rectMaskRadii.data = newSeq[float32](vertexComponents)
+  ctx.rectMaskMatX.data = newSeq[float32](vertexComponents)
+  ctx.rectMaskMatY.data = newSeq[float32](vertexComponents)
+
 proc setDisabledRectMaskVerts(ctx: MetalContext, firstVertex, vertexCount: int) =
   let
     params = vec4(0.0'f32, 0.0'f32, -1.0'f32, -1.0'f32)
@@ -797,6 +808,7 @@ proc setRectMaskVert4(ctx: MetalContext, offset: int) =
         break
 
   if hasRectMask:
+    ctx.ensureRectMaskBuffers()
     if not ctx.batchHasRectMask:
       ctx.setDisabledRectMaskVerts(0, offset)
       ctx.batchHasRectMask = true
@@ -1616,6 +1628,7 @@ method drawBackdropBlur*(
     return
 
   ctx.ensureBackdropTexture(ctx.frameSize)
+  ctx.backdropUsedThisFrame = true
   ctx.blitToTexture(ctx.offscreenTexture.borrow, ctx.backdropTexture.borrow)
   ctx.runBackdropSeparableBlur(blurRadius)
 
@@ -1785,20 +1798,30 @@ proc beginFrame*(
   ctx.maskTextureWrite = 0
   ctx.rectMaskStack.setLen(0)
   ctx.batchHasRectMask = false
+  ctx.backdropUsedThisFrame = false
 
   ctx.proj = proj
   ctx.frameSize = frameSize
 
   ctx.ensureOffscreen(frameSize)
-  ctx.ensureBackdropTexture(frameSize)
-  # Resize any existing mask textures > 0.
+  # Release mismatched optional textures; recreate them only when used.
+  let frameWidth = max(1, frameSize.x.int)
+  let frameHeight = max(1, frameSize.y.int)
+  if not ctx.backdropTexture.isNil and (
+    ctx.backdropTexture.borrow.width.int != frameWidth or
+    ctx.backdropTexture.borrow.height.int != frameHeight
+  ):
+    ctx.backdropTexture.clear()
+  if not ctx.backdropBlurTempTexture.isNil and (
+    ctx.backdropBlurTempTexture.borrow.width.int != frameWidth or
+    ctx.backdropBlurTempTexture.borrow.height.int != frameHeight
+  ):
+    ctx.backdropBlurTempTexture.clear()
   for i in 1 ..< ctx.maskTextures.len:
     let cur = ctx.maskTextures[i]
-    if cur.isNil or cur.borrow.width.int != frameSize.x.int or
-        cur.borrow.height.int != frameSize.y.int:
-      ctx.maskTextures[i].resetRetained(
-        ctx.createMaskTexture(frameSize.x.int, frameSize.y.int)
-      )
+    if not cur.isNil and
+        (cur.borrow.width.int != frameWidth or cur.borrow.height.int != frameHeight):
+      ctx.maskTextures[i].clear()
 
   ctx.commandBuffer.resetBorrowed(commandBuffer(ctx.queue.borrow))
   if ctx.commandBuffer.isNil:
@@ -1866,6 +1889,14 @@ method endFrame*(ctx: MetalContext) =
   inFlight.arenaIndex = ctx.activeArena
   ctx.inFlightFrames.add(inFlight)
   ctx.activeArena = -1
+
+  if ctx.backdropUsedThisFrame:
+    ctx.backdropUnusedFrames = 0
+  elif not ctx.backdropTexture.isNil or not ctx.backdropBlurTempTexture.isNil:
+    inc ctx.backdropUnusedFrames
+    if ctx.backdropUnusedFrames >= maxFramesInFlight:
+      ctx.backdropTexture.clear()
+      ctx.backdropBlurTempTexture.clear()
 
   ctx.commandBuffer.clear()
   ctx.frameAutoreleasePool.stop()
@@ -1939,15 +1970,15 @@ proc readPixels*(ctx: MetalContext, frame: Rect = rect(0, 0, 0, 0)): Image =
   h = clamp(h, 0, texH - y)
 
   result = newImage(w, h)
-  var tmp = newSeq[uint8](w * h * 4)
+  static:
+    doAssert sizeof(ColorRGBX) == 4
   ctx.offscreenTexture.borrow.getBytes(
-    tmp[0].addr, NSUInteger(w * 4), mtlRegion2D(x, y, w, h), 0
+    result.data[0].addr, NSUInteger(w * 4), mtlRegion2D(x, y, w, h), 0
   )
 
   # Offscreen is BGRA8; Pixie expects RGBA.
-  for i in 0 ..< w * h:
-    let bi = i * 4
-    result.data[i] = rgbx(tmp[bi + 2], tmp[bi + 1], tmp[bi + 0], tmp[bi + 3])
+  for pixel in result.data.mitems:
+    swap(pixel.r, pixel.b)
 
 proc ensureFlushBufferCapacity(
     ctx: MetalContext,
@@ -2137,14 +2168,21 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   setFragmentTexture(enc, ctx.atlasTexture.borrow, 0)
   let maskIndex = clamp(maskTextureRead, 0, ctx.maskTextures.high)
   setFragmentTexture(enc, ctx.maskTextures[maskIndex].borrow, 1)
-  setFragmentTexture(enc, ctx.backdropTexture.borrow, 2)
+  setFragmentTexture(
+    enc,
+    if not ctx.backdropUsedThisFrame or ctx.backdropTexture.isNil:
+      ctx.atlasTexture.borrow
+    else:
+      ctx.backdropTexture.borrow,
+    2,
+  )
 
   drawIndexedPrimitives(
     enc,
     MTLPrimitiveTypeTriangle,
     NSUInteger(indexCount),
     MTLIndexTypeUInt16,
-    ctx.indices.buffer.borrow,
+    ctx.indices.borrow,
     0,
   )
 
@@ -2203,29 +2241,25 @@ proc newContext*(
     result.sdfRadii.data = newSeq[float32](4 * maxQuads * 4)
     result.sdfModeAttr.data = newSeq[SdfModeData](1 * maxQuads * 4)
     result.sdfFactors.data = newSeq[float32](2 * maxQuads * 4)
-    result.rectMaskParams.data = newSeq[float32](4 * maxQuads * 4)
-    result.rectMaskRadii.data = newSeq[float32](4 * maxQuads * 4)
-    result.rectMaskMatX.data = newSeq[float32](4 * maxQuads * 4)
-    result.rectMaskMatY.data = newSeq[float32](4 * maxQuads * 4)
     result.rectMaskStack = @[]
 
     # Indices are static.
-    result.indices.data = newSeq[uint16](maxQuads * 6)
+    var indices = newSeq[uint16](maxQuads * 6)
     for i in 0 ..< maxQuads:
       let offset = i * 4
       let base = i * 6
-      result.indices.data[base + 0] = (offset + 3).uint16
-      result.indices.data[base + 1] = (offset + 0).uint16
-      result.indices.data[base + 2] = (offset + 1).uint16
-      result.indices.data[base + 3] = (offset + 2).uint16
-      result.indices.data[base + 4] = (offset + 3).uint16
-      result.indices.data[base + 5] = (offset + 1).uint16
+      indices[base + 0] = (offset + 3).uint16
+      indices[base + 1] = (offset + 0).uint16
+      indices[base + 2] = (offset + 1).uint16
+      indices[base + 3] = (offset + 2).uint16
+      indices[base + 4] = (offset + 3).uint16
+      indices[base + 5] = (offset + 1).uint16
 
-    result.indices.buffer.resetRetained(
+    result.indices.resetRetained(
       newBufferWithBytes(
         result.device.borrow,
-        result.indices.data[0].addr,
-        NSUInteger(result.indices.data.len * sizeof(uint16)),
+        indices[0].addr,
+        NSUInteger(indices.len * sizeof(uint16)),
         MTLResourceOptions(0),
       )
     )

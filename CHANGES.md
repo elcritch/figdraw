@@ -18,6 +18,10 @@
 
 ## 0.41.0
 
+- Allocate Metal backdrop and rect-mask storage on first use, release optional
+  textures on resize or after three frames without blur, and avoid duplicate CPU
+  index and screenshot buffers.
+
 - Move the ownership-safe fixed-ring RChan implementation and its regression
   suite to Sigils 0.31.0; keep a compatibility import for existing FigDraw
   callers and exercise image-message replacement through the shared channel.
