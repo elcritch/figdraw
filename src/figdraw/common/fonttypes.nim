@@ -1,4 +1,5 @@
-import std/[hashes, unicode]
+import std/[hashes, isolation, unicode]
+import threading/smartptrs
 import uimaths
 import filltypes
 
@@ -120,6 +121,9 @@ type
 
 type
   GlyphArrangement* = object
+    shared*: ConstPtr[GlyphArrangement] ## Immutable owner for a glyph-range view.
+    viewGlyphStart*: uint32 ## Inclusive glyph offset in `shared`.
+    viewGlyphEnd*: uint32 ## Exclusive glyph offset in `shared`.
     contentHash*: Hash
     lines*: seq[Slice[int]] ## The (start, stop) of the lines of text.
     spans*: seq[Slice[int]] ## The (start, stop) of the spans in the text.
@@ -350,6 +354,10 @@ func `==`*(a: openArray[Rune], b: Utf8Runes): bool =
 func utf8RunesEqual*(a, b: Utf8Runes): bool =
   a == b
 
+func sameUtf8Runes*(a, b: Utf8Runes): bool {.inline.} =
+  ## Checks buffer identity; `==` compares UTF-8 contents instead.
+  system.`==`(a, b)
+
 func utf8RunesEqualRunes*(a: Utf8Runes, b: openArray[Rune]): bool =
   a == b
 
@@ -360,6 +368,71 @@ proc initArrangementRunes*(text: sink string): ArrangementRunes =
 proc initArrangementRunes*(runes: openArray[Rune]): ArrangementRunes =
   ## Creates storage suitable for `GlyphArrangement` rune fields.
   initUtf8Runes(runes)
+
+proc copiedSequence[T](values: openArray[T]): seq[T] =
+  result = newSeqOfCap[T](values.len)
+  for value in values:
+    result.add value
+
+proc shareGlyphArrangement*(layout: sink GlyphArrangement): ConstPtr[GlyphArrangement] =
+  ## Freeze one complete layout for read-only sharing across render threads.
+  ## The copy detaches any arrays or UTF-8 buffers also retained by the caller.
+  var owned = move layout
+  if not owned.shared.isNil:
+    raise newException(ValueError, "cannot freeze a glyph-range view")
+  owned.lines = copiedSequence(owned.lines)
+  owned.spans = copiedSequence(owned.spans)
+  owned.fonts = copiedSequence(owned.fonts)
+  owned.spanColors = copiedSequence(owned.spanColors)
+  owned.arrangedGlyphs = copiedSequence(owned.arrangedGlyphs)
+  if owned.arrangedGlyphs.len > 0:
+    # ArrangedGlyph already owns both geometry values. Frozen layouts use it.
+    owned.positions = @[]
+    owned.selectionRects = @[]
+  else:
+    owned.positions = copiedSequence(owned.positions)
+    owned.selectionRects = copiedSequence(owned.selectionRects)
+  let sameText = owned.sourceRunes.sameUtf8Runes(owned.runes)
+  owned.sourceRunes = owned.sourceRunes.copyUtf8Runes()
+  if sameText:
+    owned.runes = owned.sourceRunes
+  else:
+    owned.runes = owned.runes.copyUtf8Runes()
+  newConstPtr(unsafeIsolate(move owned))
+
+func glyphCount*(arrangement: GlyphArrangement): int
+
+proc glyphArrangementView*(
+    owner: ConstPtr[GlyphArrangement], glyphRange: Slice[int]
+): GlyphArrangement =
+  ## Borrows an inclusive glyph range from a complete arrangement.
+  ## Legacy layouts without arranged glyph records use owned slices.
+  if owner.isNil or not owner[].shared.isNil or glyphRange.a < 0 or
+      glyphRange.b < glyphRange.a or glyphRange.b >= owner[].glyphCount() or
+      glyphRange.b >= high(uint32).int:
+    raise newException(ValueError, "invalid glyph arrangement view range")
+  let count = glyphRange.b - glyphRange.a + 1
+  result.lines = @[0 .. count - 1]
+  result.maxSize = owner[].maxSize
+  result.minSize = owner[].minSize
+  result.bounding = owner[].bounding
+  if owner[].arrangedGlyphs.len > 0:
+    result.shared = owner
+    result.viewGlyphStart = glyphRange.a.uint32
+    result.viewGlyphEnd = (glyphRange.b + 1).uint32
+  else:
+    # Legacy layouts without ArrangedGlyph records retain the owned slice path.
+    result.runes = owner[].runes[glyphRange]
+    result.positions = owner[].positions[glyphRange]
+    result.selectionRects = owner[].selectionRects[glyphRange]
+  for spanIndex, span in owner[].spans:
+    let first = max(span.a, glyphRange.a)
+    let last = min(span.b, glyphRange.b)
+    if first <= last:
+      result.spans.add first - glyphRange.a .. last - glyphRange.a
+      result.fonts.add owner[].fonts[spanIndex]
+      if spanIndex < owner[].spanColors.len:
+        result.spanColors.add owner[].spanColors[spanIndex]
 
 func textBackend*(): string =
   ## Text backend compiled into FigDraw.
@@ -426,29 +499,48 @@ func syntheticFontGlyphId*(fontId: FontId, rune: Rune): FontGlyphId {.inline.} =
   discard fontId
   FontGlyphId(rune.uint32)
 
+func arrangedGlyph*(arrangement: GlyphArrangement, glyphIndex: int): ArrangedGlyph =
+  ## Return a glyph from a complete layout or a shared range view.
+  if arrangement.shared.isNil:
+    arrangement.arrangedGlyphs[glyphIndex]
+  else:
+    arrangement.shared[].arrangedGlyphs[int(arrangement.viewGlyphStart) + glyphIndex]
+
+func isGlyphView*(arrangement: GlyphArrangement): bool =
+  not arrangement.shared.isNil
+
+func displayRune*(arrangement: GlyphArrangement, glyphIndex: int): Rune =
+  if arrangement.shared.isNil:
+    arrangement.runes[glyphIndex]
+  else:
+    arrangement.shared[].runes[int(arrangement.viewGlyphStart) + glyphIndex]
+
+func glyphSource(
+  arrangement: GlyphArrangement, glyphIndex: int
+): GlyphSourceRange {.inline.}
+
 func sourceRune*(arrangement: GlyphArrangement, glyphIndex: int): Rune {.inline.} =
   ## Returns the cheap representative source rune for a glyph.
-  if arrangement.arrangedGlyphs.len > 0:
-    arrangement.arrangedGlyphs[glyphIndex].rune
-  else:
+  if arrangement.shared.isNil and arrangement.arrangedGlyphs.len == 0:
     arrangement.runes[glyphIndex]
+  else:
+    arrangement.arrangedGlyph(glyphIndex).rune
 
 func sourceRuneRange*(
     arrangement: GlyphArrangement, glyphIndex: int
 ): Slice[int] {.inline.} =
   ## Returns the inclusive source-rune range for a glyph.
-  let source =
-    if arrangement.arrangedGlyphs.len > 0:
-      arrangement.arrangedGlyphs[glyphIndex].source
-    else:
-      GlyphSourceRange(runeStart: glyphIndex, runeEnd: glyphIndex + 1)
+  let source = arrangement.glyphSource(glyphIndex)
   result = source.runeStart .. source.runeEnd - 1
 
 iterator sourceRunes*(arrangement: GlyphArrangement, glyphIndex: int): Rune =
   ## Iterates the source runes mapped to a glyph.
   let sourceRange = arrangement.sourceRuneRange(glyphIndex)
   if sourceRange.a <= sourceRange.b:
-    if arrangement.sourceRunes.len > 0:
+    if not arrangement.shared.isNil:
+      for i in sourceRange:
+        yield arrangement.shared[].sourceRunes[i]
+    elif arrangement.sourceRunes.len > 0:
       for i in sourceRange:
         yield arrangement.sourceRunes[i]
     else:
@@ -468,8 +560,8 @@ func byteSourceIntersects(
 func glyphSource(
     arrangement: GlyphArrangement, glyphIndex: int
 ): GlyphSourceRange {.inline.} =
-  if arrangement.arrangedGlyphs.len > 0:
-    arrangement.arrangedGlyphs[glyphIndex].source
+  if not arrangement.shared.isNil or arrangement.arrangedGlyphs.len > 0:
+    arrangement.arrangedGlyph(glyphIndex).source
   else:
     GlyphSourceRange(
       runeStart: glyphIndex,
@@ -489,11 +581,7 @@ func glyphRangeFor*(
   let
     runeStart = max(sourceRange.a, 0)
     runeEnd = sourceRange.b + 1
-    glyphCount =
-      if arrangement.arrangedGlyphs.len > 0:
-        arrangement.arrangedGlyphs.len
-      else:
-        arrangement.runes.len
+    glyphCount = arrangement.glyphCount()
 
   result = 0 .. -1
   for glyphIndex in 0 ..< glyphCount:
@@ -514,11 +602,7 @@ func glyphRangeForRawBytes*(
   let
     byteStart = max(byteRange.a, 0)
     byteEnd = byteRange.b + 1
-    glyphCount =
-      if arrangement.arrangedGlyphs.len > 0:
-        arrangement.arrangedGlyphs.len
-      else:
-        arrangement.runes.len
+    glyphCount = arrangement.glyphCount()
 
   result = 0 .. -1
   for glyphIndex in 0 ..< glyphCount:
@@ -530,14 +614,16 @@ func glyphRangeForRawBytes*(
 
 func glyphCount*(arrangement: GlyphArrangement): int =
   ## Returns the number of visual glyphs in the arrangement.
-  if arrangement.arrangedGlyphs.len > 0:
+  if not arrangement.shared.isNil:
+    int(arrangement.viewGlyphEnd - arrangement.viewGlyphStart)
+  elif arrangement.arrangedGlyphs.len > 0:
     arrangement.arrangedGlyphs.len
   else:
     arrangement.runes.len
 
 func rectForGlyph(arrangement: GlyphArrangement, glyphIndex: int): Rect {.inline.} =
-  if arrangement.arrangedGlyphs.len > 0:
-    arrangement.arrangedGlyphs[glyphIndex].rect
+  if not arrangement.shared.isNil or arrangement.arrangedGlyphs.len > 0:
+    arrangement.arrangedGlyph(glyphIndex).rect
   else:
     arrangement.selectionRects[glyphIndex]
 
@@ -887,13 +973,7 @@ func containsPoint(rect: Rect, point: Vec2): bool {.inline.} =
 
 func glyphIndexAt*(arrangement: GlyphArrangement, point: Vec2): int =
   ## Returns the glyph index at a local text-layout point, or `-1`.
-  let glyphCount =
-    if arrangement.arrangedGlyphs.len > 0:
-      arrangement.arrangedGlyphs.len
-    else:
-      arrangement.selectionRects.len
-
-  for glyphIndex in 0 ..< glyphCount:
+  for glyphIndex in 0 ..< arrangement.glyphCount():
     if arrangement.rectForGlyph(glyphIndex).containsPoint(point):
       return glyphIndex
   -1
@@ -907,6 +987,8 @@ func sourceRuneRangeAt*(arrangement: GlyphArrangement, point: Vec2): Slice[int] 
 
 func sourceRuneCount*(arrangement: GlyphArrangement): int =
   ## Returns the number of source runes represented by the arrangement.
+  if not arrangement.shared.isNil:
+    return arrangement.shared[].sourceRuneCount()
   if arrangement.sourceRunes.len > 0:
     arrangement.sourceRunes.len
   else:

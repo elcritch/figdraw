@@ -2,6 +2,9 @@
 
 ## 0.42.0
 
+- Add immutable shared glyph arrangements and glyph-range views for line render
+  nodes. Frozen arrangements discard redundant position and selection arrays
+  when arranged glyphs contain the same geometry.
 - Add `typesetSourceSpans` and its measurement variant for compact
   `StyledTextRun` ranges and a separate `FontStyle` table. Layouts retain the
   shared `Utf8Runes` source. Pixie reuses it for display text when unchanged

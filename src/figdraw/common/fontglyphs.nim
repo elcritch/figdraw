@@ -177,11 +177,7 @@ proc buildArrangedGlyphs*(
 
 iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
   var idx = 0
-  let arrangedGlyphCount =
-    if arrangement.arrangedGlyphs.len > 0:
-      arrangement.arrangedGlyphs.len
-    else:
-      arrangement.runes.len
+  let arrangedGlyphCount = arrangement.glyphCount()
 
   block:
     for i, span in arrangement.spans:
@@ -200,8 +196,8 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
           fill(rgba(0, 0, 0, 255))
       while idx < arrangedGlyphCount and idx in span:
         let arranged =
-          if arrangement.arrangedGlyphs.len > 0:
-            arrangement.arrangedGlyphs[idx]
+          if arrangement.isGlyphView() or arrangement.arrangedGlyphs.len > 0:
+            arrangement.arrangedGlyph(idx)
           else:
             let rune = arrangement.runes[idx]
             ArrangedGlyph(
