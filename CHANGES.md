@@ -1,5 +1,17 @@
 # Changes
 
+## Unreleased
+
+- Mark recursive fragment and diagnostic render trees acyclic; rely on Nim
+  inference for other render data. Document the downward ownership contract.
+- Add cross-thread ARC/ORC render-data coverage and fragment-cycle rejection
+  regressions.
+- Borrow the host window in the Siwin renderer and its OpenGL fallback state,
+  breaking the window/callback/renderer cycle. Callers keep the window alive
+  through rendering and renderer cleanup.
+- Add `finishPendingFrames` to wait for submitted Metal, Vulkan, or OpenGL work
+  before releasing a presentation target. Renderer types remain cycle-capable.
+
 ## 0.42.0
 
 - Add immutable shared glyph arrangements and glyph-range views for line render

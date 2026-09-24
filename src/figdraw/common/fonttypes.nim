@@ -121,6 +121,7 @@ type
 
 type
   GlyphArrangement* = object
+    ## Views retain immutable complete layouts; owners never retain their views.
     shared*: ConstPtr[GlyphArrangement] ## Immutable owner for a glyph-range view.
     viewGlyphStart*: uint32 ## Inclusive glyph offset in `shared`.
     viewGlyphEnd*: uint32 ## Exclusive glyph offset in `shared`.

@@ -362,6 +362,26 @@ suite "RenderFragments APIs":
     check reorderedRoot == first
     check fragments.rootCursors(0.ZLevel).mapIt(fragments[it].nodeId()) == @[10, 20]
 
+  test "self and descendant attachment cannot create an ownership cycle":
+    let fragments = newRenderFragments()
+    let root = fragments.addRoot(0.ZLevel, testFig(10))
+    var parentContents = RenderList()
+    discard parentContents.addRoot(testFig(20))
+    let parent = fragments.attachChildFragment(0.ZLevel, root, 0, move parentContents)
+    let parentRoot = fragments.fragmentRoots(parent)[0]
+    var childContents = RenderList()
+    discard childContents.addRoot(testFig(30))
+    let child = fragments.attachChildFragment(parentRoot, 0, move childContents)
+    let childRoot = fragments.fragmentRoots(child)[0]
+    expect RenderFragmentError:
+      discard fragments.moveFragment(parent, parentRoot, 0)
+    expect RenderFragmentError:
+      discard fragments.moveFragment(parent, childRoot, 0)
+    check fragments.isValid(parent)
+    check fragments.isValid(child)
+    check fragments.childIds(parentRoot) == @[30]
+    check fragments.materialize()[0.ZLevel].nodes.len == 3
+
   test "moves an empty fragment slot before restoring its contents":
     let fragments = newRenderFragments()
     let root = fragments.addRoot(0.ZLevel, testFig(10))

@@ -1,7 +1,9 @@
 import std/[math, sequtils]
 import ../fignodes
 
-type RenderTree* = ref object
+type RenderTree* {.acyclic.} = ref object
+  ## Diagnostic tree with downward-only child ownership. Callers must not insert
+  ## the tree itself or an ancestor into `children`.
   id*: int
   children*: seq[RenderTree]
 

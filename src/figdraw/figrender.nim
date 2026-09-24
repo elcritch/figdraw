@@ -75,6 +75,12 @@ proc activateContext*[BackendState](renderer: FigRenderer[BackendState]) =
   if not renderer.contextActivation.isNil and renderer.backendKind() == rbOpenGL:
     renderer.contextActivation(renderer)
 
+proc finishPendingFrames*[BackendState](renderer: FigRenderer[BackendState]) =
+  ## Waits for submitted frames on the renderer's owning thread. The host window
+  ## must remain alive until this returns and renderer cleanup has finished.
+  renderer.activateContext()
+  renderer.ctx.finishPendingFrames()
+
 proc atlasUsage*[BackendState](renderer: FigRenderer[BackendState]): AtlasUsage =
   ## Returns current backend atlas usage.
   ##

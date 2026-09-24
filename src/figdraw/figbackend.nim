@@ -633,6 +633,12 @@ method beginFrame*(
 method endFrame*(impl: BackendContext) {.base.} =
   raise newException(ValueError, "Backend endFrame unavailable")
 
+method finishPendingFrames*(impl: BackendContext) {.base.} =
+  ## Waits for submitted GPU work before a presentation target is released.
+  ## Call on the owning render thread, after ending the last frame. Backends
+  ## that submit asynchronous work must override this operation.
+  discard
+
 method translate*(impl: BackendContext, v: Vec2) {.base.} =
   raise newException(ValueError, "Backend translate unavailable")
 

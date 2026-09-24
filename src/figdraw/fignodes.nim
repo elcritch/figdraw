@@ -43,11 +43,13 @@ type
   RenderShadows* = array[ShadowCount, RenderShadow]
 
   Renders* = ref object
+    ## Owns value-only render lists. Nodes must never retain their render owner.
     layers*: OrderedTable[ZLevel, RenderList]
 
   FigIdx* = distinct int16
 
   Fig* = object
+    ## Render payloads are acyclic. Parent links are indexes, not owning refs.
     zlevel*: ZLevel
     parent*: FigIdx = (-1).FigIdx
     flags*: set[FigFlags]

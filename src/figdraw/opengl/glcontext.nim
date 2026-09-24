@@ -2055,6 +2055,9 @@ proc beginFrameDefaultProj(ctx: OpenGlContext, frameSize: Vec2) =
     ctx, frameSize, ortho[float32](0.0, frameSize.x, frameSize.y, 0, -1000.0, 1000.0)
   )
 
+method finishPendingFrames*(ctx: OpenGlContext) =
+  glFinish()
+
 method endFrame*(ctx: OpenGlContext) =
   ## Ends a frame.
   assert ctx.frameBegun == true, "ctx.beginFrame was not called first."
