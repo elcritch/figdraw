@@ -8,9 +8,18 @@ when compiles(
 ):
   import x11/xlib as x11Api
   import x11/xutil as x11VisualApi
+
+  proc x11XcbConnection*(
+    display: pointer
+  ): pointer {.cdecl, dynlib: "libX11-xcb.so.1", importc: "XGetXCBConnection".}
+
 else:
   import siwin/platforms/x11/x11api as x11Api
   import siwin/platforms/x11/x11api as x11VisualApi
+
+  proc x11XcbConnection*(display: pointer): pointer =
+    if x11Api.x11XcbAvailable():
+      x11Api.XGetXCBConnection(cast[x11Api.PDisplay](display))
 
 type SiwinGlxDisplay* = x11Api.PDisplay
 type SiwinGlxVisualInfo = x11VisualApi.PXVisualInfo
