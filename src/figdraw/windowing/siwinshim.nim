@@ -27,9 +27,9 @@ when defined(linux) or defined(bsd):
     privateAccess siWaylandWindow.WindowWayland
     when UseOpenGlFallback:
       import x11/x as x11Types except Window
-      import x11/[xlib, xutil]
       import siwin/platforms/x11/glx as siX11Glx
       import siwin/platforms/x11/windowOpengl as siX11OpenGlWindow
+      from ./siwinx11compat import SiwinGlxDisplay, getX11VisualInfo, freeX11VisualInfo
       import siwin/platforms/wayland/egl as siWaylandEgl
       from siwin/platforms/wayland/protocol import Wl_surface, commit
       import siwin/platforms/wayland/windowOpengl as siWaylandOpenGlWindow
@@ -467,7 +467,7 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
       initialized: bool
       case kind: SiwinOpenGlFallbackKind
       of sogfX11:
-        x11Display: PDisplay
+        x11Display: SiwinGlxDisplay
         x11Drawable: x11Types.Drawable
         x11Context: siX11Glx.GlxContext
       of sogfWayland:
@@ -578,7 +578,7 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
       let
         fallback = SiwinOpenGlFallbackState(window: window, kind: sogfX11)
         x11Window = siX11Window.WindowX11(window)
-        display = cast[PDisplay](x11Window.nativeDisplayHandle())
+        display = cast[SiwinGlxDisplay](x11Window.nativeDisplayHandle())
         drawable = x11Types.Drawable(x11Window.nativeWindowHandle())
       renderer.backendState.openGlFallback = fallback
       fallback.x11Display = display
@@ -627,21 +627,9 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
     of sogfX11:
       let initializeOpenGl = not fallback.initialized
       if initializeOpenGl:
-        var attributes: XWindowAttributes
-        if fallback.x11Display.XGetWindowAttributes(
-          fallback.x11Drawable, attributes.addr
-        ) == 0:
-          raise newException(ValueError, "Failed to query X11 window visual")
-        var
-          visualTemplate = XVisualInfo(visualid: XVisualIDFromVisual(attributes.visual))
-          visualCount: cint
-        let visualInfos = fallback.x11Display.XGetVisualInfo(
-          VisualIDMask.clong, visualTemplate.addr, visualCount.addr
-        )
-        if visualInfos.isNil or visualCount <= 0:
-          raise newException(ValueError, "Failed to resolve X11 visual for OpenGL")
+        let visualInfos = fallback.x11Display.getX11VisualInfo(fallback.x11Drawable)
         defer:
-          discard XFree(visualInfos)
+          freeX11VisualInfo(visualInfos)
         fallback.x11Context = fallback.x11Display.newGlxContext(visualInfos)
         fallback.initialized = true
       fallback.x11Display.makeCurrent(fallback.x11Drawable, fallback.x11Context)
