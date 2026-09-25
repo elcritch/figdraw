@@ -463,7 +463,7 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
 
     SiwinOpenGlFallbackState = ref SiwinOpenGlFallbackStateObj
     SiwinOpenGlFallbackStateObj = object
-      window: Window
+      window {.cursor.}: Window
       initialized: bool
       case kind: SiwinOpenGlFallbackKind
       of sogfX11:
@@ -490,15 +490,13 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
           state.waylandContext.destroy()
     except Exception:
       discard
-    try:
-      `=destroy`(state.window)
-    except Exception:
-      discard
 
 type
   SiwinRenderBackend* = object
     ## Opaque per-window backend state used by siwin + FigDraw integration.
-    window*: Window
+    window* {.cursor.}: Window
+      ## Borrowed from the caller, which must keep the window alive while using
+      ## the renderer. Window callbacks may therefore own the renderer safely.
     dedicatedRender*: bool
     presentationReady: bool
     resizeClearColor: Color
@@ -787,6 +785,8 @@ proc activateRendererContext(renderer: FigRenderer[SiwinRenderBackend]) =
 
 proc setupBackend*(renderer: FigRenderer, window: Window) =
   ## One-time backend hookup between a siwin window and FigDraw renderer.
+  ## The caller owns `window` and keeps it alive until rendering and renderer
+  ## cleanup finish. Dedicated rendering clears this borrow before transfer.
   renderer.backendState.window = window
   renderer.contextActivation = activateRendererContext
   renderer.backendState.dedicatedRender = false

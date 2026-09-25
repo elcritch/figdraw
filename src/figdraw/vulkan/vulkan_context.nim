@@ -3757,6 +3757,10 @@ method beginFrame*(
     clearMainColor = clearMainColor,
   )
 
+method finishPendingFrames*(ctx: VulkanContext) =
+  if ctx.device != vkNullDevice:
+    checkVkResult ctx.vk.vkDeviceWaitIdle(ctx.device)
+
 method endFrame*(ctx: VulkanContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame was not called first."
   assert ctx.maskDepth == 0, "Not all masks have been popped."

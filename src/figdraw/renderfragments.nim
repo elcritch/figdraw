@@ -107,7 +107,9 @@ type
     parent: FigIdx
     position: int
 
-  RenderFragment = ref object
+  RenderFragment {.acyclic.} = ref object
+    # Owns descendant fragments only. Parent attachments are temporary values;
+    # moveFragment rejects attachment beneath this fragment or a descendant.
     id: uint64
     list: RenderList
     entries: RenderEntries
@@ -121,6 +123,8 @@ type
     ##
     ## Fragment edges are stored separately from physical `RenderList` nodes, so
     ## replacement does not change indexes in the surrounding lists.
+    ## Owning edges point downwards. Handles/cursors retain this tree, but the
+    ## tree never retains handles/cursors or parent links.
     base: Renders
     layerEntries: OrderedTable[ZLevel, RenderEntries]
     layerGenerations: Table[ZLevel, uint64]
@@ -1284,7 +1288,7 @@ proc appendMaterializedEntry(
   owner: RenderFragment,
   entry: RenderChild,
   parent: FigIdx,
-)
+) {.gcsafe.}
 
 proc appendMaterializedNode(
     fragments: RenderFragments,

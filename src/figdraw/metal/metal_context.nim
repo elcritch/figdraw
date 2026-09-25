@@ -1901,6 +1901,12 @@ method endFrame*(ctx: MetalContext) =
   ctx.commandBuffer.clear()
   ctx.frameAutoreleasePool.stop()
 
+method finishPendingFrames*(ctx: MetalContext) =
+  # All submissions use one command queue, so its last buffer covers earlier
+  # frames too. Waiting must precede destruction of the presentation layer.
+  if not ctx.lastCommitted.isNil:
+    waitUntilCompleted(ctx.lastCommitted.borrow)
+
 method translate*(ctx: MetalContext, v: Vec2) =
   ctx.mat = ctx.mat * translate(vec3(v))
 

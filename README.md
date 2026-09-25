@@ -17,6 +17,9 @@ Features:
 - Fast Gaussian 2-pass node operation for fast background blurs.
 - Clipping and layering support.
 
+See [render ownership](docs/render_ownership.md) for the acyclic render-data
+contract and ARC/ORC thread-transfer requirements.
+
 ## Quick Start
 
 This part works best with a recent Atlas (>= 0.9.6) version:
