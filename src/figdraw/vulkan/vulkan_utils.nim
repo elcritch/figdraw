@@ -52,6 +52,12 @@ type
     transferSrcEnabled*: bool
 
 when defined(linux) or defined(bsd):
+  when defined(features.figdraw.siwin):
+    import ../windowing/siwinx11compat as siwinX11Compat
+
+    proc x11XcbConnection*(display: pointer): pointer =
+      siwinX11Compat.x11XcbConnection(display)
+
   type VkXlibSurfaceCreateInfoKHRNative* {.bycopy.} = object
     sType*: VkStructureType
     pNext*: pointer
@@ -80,9 +86,10 @@ when defined(linux) or defined(bsd):
     pSurface: ptr VkSurfaceKHR,
   ): VkResult {.cdecl.}
 
-  proc XGetXCBConnection*(
-    display: pointer
-  ): pointer {.cdecl, dynlib: "libX11-xcb.so.1", importc.}
+  when not defined(features.figdraw.siwin):
+    proc x11XcbConnection*(
+      display: pointer
+    ): pointer {.cdecl, dynlib: "libX11-xcb.so.1", importc: "XGetXCBConnection".}
 
 proc findGraphicsQueueFamily*(vk: VulkanDispatch, device: VkPhysicalDevice): int =
   let families = vk.getQueueFamilyProperties(device)

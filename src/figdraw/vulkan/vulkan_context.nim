@@ -421,10 +421,10 @@ proc createPresentSurface(ctx: VulkanContext) =
         let fnPtr = vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXcbSurfaceKHR")
         if fnPtr.isNil:
           raise newException(ValueError, "vkCreateXcbSurfaceKHR unavailable")
-        let xcbConn = XGetXCBConnection(ctx.presentXlibDisplay)
+        let xcbConn = x11XcbConnection(ctx.presentXlibDisplay)
         if xcbConn.isNil:
           raise newException(
-            ValueError, "XGetXCBConnection returned nil for Vulkan XCB surface"
+            ValueError, "X11-XCB connection unavailable for Vulkan XCB surface"
           )
         let vkCreateXcbSurfaceKHRNative = cast[VkCreateXcbSurfaceKHRNativeProc](fnPtr)
         var createInfo = VkXcbSurfaceCreateInfoKHRNative(
