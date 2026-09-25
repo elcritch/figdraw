@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Accept Siwin's optional-library X11 types in the OpenGL fallback while
+  retaining compatibility with earlier Siwin releases.
 - Mark recursive fragment and diagnostic render trees acyclic; rely on Nim
   inference for other render data. Document the downward ownership contract.
 - Add cross-thread ARC/ORC render-data coverage and fragment-cycle rejection
