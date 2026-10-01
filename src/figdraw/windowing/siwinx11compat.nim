@@ -19,7 +19,7 @@ else:
 
   proc x11XcbConnection*(display: pointer): pointer =
     if x11Api.x11XcbAvailable():
-      x11Api.XGetXCBConnection(cast[x11Api.PDisplay](display))
+      result = x11Api.XGetXCBConnection(cast[x11Api.PDisplay](display))
 
 type SiwinGlxDisplay* = x11Api.PDisplay
 type SiwinGlxVisualInfo = x11VisualApi.PXVisualInfo
