@@ -28,8 +28,7 @@ when defined(linux) or defined(bsd):
     when UseOpenGlFallback:
       import siwin/platforms/x11/glx as siX11Glx
       import siwin/platforms/x11/windowOpengl as siX11OpenGlWindow
-      from ./siwinx11compat import
-        SiwinGlxDisplay, SiwinGlxDrawable, getX11VisualInfo, freeX11VisualInfo
+      import siwin/platforms/x11/x11api as siX11Api
       import siwin/platforms/wayland/egl as siWaylandEgl
       from siwin/platforms/wayland/protocol import Wl_surface, commit
       import siwin/platforms/wayland/windowOpengl as siWaylandOpenGlWindow
@@ -467,8 +466,8 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
       initialized: bool
       case kind: SiwinOpenGlFallbackKind
       of sogfX11:
-        x11Display: SiwinGlxDisplay
-        x11Drawable: SiwinGlxDrawable
+        x11Display: siX11Api.PDisplay
+        x11Drawable: siX11Api.Drawable
         x11Context: siX11Glx.GlxContext
       of sogfWayland:
         waylandNativeDisplay: pointer
@@ -578,8 +577,8 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
       let
         fallback = SiwinOpenGlFallbackState(window: window, kind: sogfX11)
         x11Window = siX11Window.WindowX11(window)
-        display = cast[SiwinGlxDisplay](x11Window.nativeDisplayHandle())
-        drawable = SiwinGlxDrawable(x11Window.nativeWindowHandle())
+        display = cast[siX11Api.PDisplay](x11Window.nativeDisplayHandle())
+        drawable = siX11Api.Drawable(x11Window.nativeWindowHandle())
       renderer.backendState.openGlFallback = fallback
       fallback.x11Display = display
       fallback.x11Drawable = drawable
@@ -627,10 +626,8 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
     of sogfX11:
       let initializeOpenGl = not fallback.initialized
       if initializeOpenGl:
-        let visualInfos = fallback.x11Display.getX11VisualInfo(fallback.x11Drawable)
-        defer:
-          freeX11VisualInfo(visualInfos)
-        fallback.x11Context = fallback.x11Display.newGlxContext(visualInfos)
+        var visualInfo = fallback.x11Display.getWindowVisualInfo(fallback.x11Drawable)
+        fallback.x11Context = fallback.x11Display.newGlxContext(visualInfo.addr)
         fallback.initialized = true
       fallback.x11Display.makeCurrent(fallback.x11Drawable, fallback.x11Context)
       if siX11Glx.cGlxCurrentContext().isNil:

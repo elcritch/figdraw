@@ -6,8 +6,7 @@ import figdraw/windowing/siwinshim
 
 when defined(linux) or defined(bsd):
   import siwin/platforms/x11/x11api as xlib
-  from figdraw/windowing/siwinx11compat import nil
-  from figdraw/vulkan/vulkan_utils import x11XcbConnection
+  from figdraw/vulkan/vulkan_utils import nil
 
 suite "Siwin OpenGL fallback window selection":
   test "forced OpenGL always creates an OpenGL window":
@@ -39,7 +38,7 @@ suite "Siwin OpenGL fallback window selection":
       defer:
         xlib.XGetXCBConnection = original
       xlib.XGetXCBConnection = nil
-      check x11XcbConnection(nil) == nil
+      check vulkan_utils.x11XcbConnection(nil) == nil
     else:
       skip()
 
@@ -54,13 +53,12 @@ suite "Siwin OpenGL fallback window selection":
         else:
           defer:
             discard xlib.XCloseDisplay(display)
-          let visual =
-            siwinx11compat.getX11VisualInfo(display, xlib.XRootWindow(display, 0))
-          require visual != nil
-          siwinx11compat.freeX11VisualInfo(visual)
+          let visual = xlib.getWindowVisualInfo(display, xlib.XRootWindow(display, 0))
+          check visual.visual != nil
+          check visual.depth > 0
           if xlib.x11XcbAvailable():
-            check x11XcbConnection(cast[pointer](display)) != nil
+            check vulkan_utils.x11XcbConnection(cast[pointer](display)) != nil
           else:
-            check x11XcbConnection(cast[pointer](display)) == nil
+            check vulkan_utils.x11XcbConnection(cast[pointer](display)) == nil
     else:
       skip()

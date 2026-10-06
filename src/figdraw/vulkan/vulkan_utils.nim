@@ -53,10 +53,10 @@ type
 
 when defined(linux) or defined(bsd):
   when defined(features.figdraw.siwin):
-    import ../windowing/siwinx11compat as siwinX11Compat
+    import siwin/platforms/x11/x11api as siX11Api
 
     proc x11XcbConnection*(display: pointer): pointer =
-      siwinX11Compat.x11XcbConnection(display)
+      siX11Api.x11XcbConnection(cast[siX11Api.PDisplay](display))
 
   type VkXlibSurfaceCreateInfoKHRNative* {.bycopy.} = object
     sType*: VkStructureType

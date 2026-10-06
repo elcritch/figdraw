@@ -41,8 +41,8 @@ feature "surfer":
   requires "xkb#b4d50f4cccad1cd9e39d2f5a5e1fef2710edcc31"
   # TODO: Put this in surfer's manifest.
 feature "siwin":
-  # Merged optional platform libraries and C ABI fixes (Siwin #56 and #57).
-  requires "gh:levovix0/siwin#dd39b781df68ecee4ab34b55bab1f9e771fcb23f"
+  # X11 helpers on top of the merged platform ABI fixes: Siwin #58.
+  requires "gh:elcritch/siwin#fix/export-x11-drawable"
 feature "vulkan":
   requires "https://github.com/planetis-m/vulkan#b223dc9"
 feature "metal":
