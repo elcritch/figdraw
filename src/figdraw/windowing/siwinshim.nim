@@ -834,7 +834,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
           vkCtx.setPresentMetalLayer(renderer.backendState.vulkanMetalLayer.layer)
           hasPresentTarget = true
         elif defined(linux) or defined(bsd):
-          var surface: pointer = nil
+          let surface = cast[uint64](window.vulkanSurface())
           if window of siX11Window.WindowX11SoftwareRendering:
             siX11Window.WindowX11SoftwareRendering(window).setSoftwarePresentEnabled(
               false
@@ -842,8 +842,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
           if window of siWaylandWindow.WindowWaylandSoftwareRendering:
             siWaylandWindow.WindowWaylandSoftwareRendering(window).softwarePresentEnabled =
               false
-          surface = window.vulkanSurface()
-          if not surface.isNil:
+          if surface != 0:
             if window of siWaylandWindow.WindowWayland:
               vkCtx.setExternalSurface(
                 surface, presentTargetWayland, ownedByContext = true
@@ -855,18 +854,18 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
               )
               hasPresentTarget = true
         elif defined(windows):
-          let surface = window.vulkanSurface()
-          if not surface.isNil:
+          let surface = cast[uint64](window.vulkanSurface())
+          if surface != 0:
             vkCtx.setExternalSurface(surface, presentTargetWin32, ownedByContext = true)
             hasPresentTarget = true
         when defined(linux) or defined(bsd):
-          if surface.isNil and window of siX11Window.WindowX11:
+          if surface == 0 and window of siX11Window.WindowX11:
             let x11Window = siX11Window.WindowX11(window)
             vkCtx.setPresentXlibTarget(
               x11Window.nativeDisplayHandle(), x11Window.nativeWindowHandle()
             )
             hasPresentTarget = true
-          elif surface.isNil and window of siWaylandWindow.WindowWayland:
+          elif surface == 0 and window of siWaylandWindow.WindowWayland:
             let waylandWindow = siWaylandWindow.WindowWayland(window)
             vkCtx.setPresentWaylandTarget(
               waylandWindow.nativeWaylandDisplayHandle(),
