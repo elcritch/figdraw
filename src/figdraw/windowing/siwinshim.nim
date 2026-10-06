@@ -26,10 +26,10 @@ when defined(linux) or defined(bsd):
     import std/importutils
     privateAccess siWaylandWindow.WindowWayland
     when UseOpenGlFallback:
-      import x11/x as x11Types except Window
       import siwin/platforms/x11/glx as siX11Glx
       import siwin/platforms/x11/windowOpengl as siX11OpenGlWindow
-      from ./siwinx11compat import SiwinGlxDisplay, getX11VisualInfo, freeX11VisualInfo
+      from ./siwinx11compat import
+        SiwinGlxDisplay, SiwinGlxDrawable, getX11VisualInfo, freeX11VisualInfo
       import siwin/platforms/wayland/egl as siWaylandEgl
       from siwin/platforms/wayland/protocol import Wl_surface, commit
       import siwin/platforms/wayland/windowOpengl as siWaylandOpenGlWindow
@@ -468,7 +468,7 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
       case kind: SiwinOpenGlFallbackKind
       of sogfX11:
         x11Display: SiwinGlxDisplay
-        x11Drawable: x11Types.Drawable
+        x11Drawable: SiwinGlxDrawable
         x11Context: siX11Glx.GlxContext
       of sogfWayland:
         waylandNativeDisplay: pointer
@@ -579,7 +579,7 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
         fallback = SiwinOpenGlFallbackState(window: window, kind: sogfX11)
         x11Window = siX11Window.WindowX11(window)
         display = cast[SiwinGlxDisplay](x11Window.nativeDisplayHandle())
-        drawable = x11Types.Drawable(x11Window.nativeWindowHandle())
+        drawable = SiwinGlxDrawable(x11Window.nativeWindowHandle())
       renderer.backendState.openGlFallback = fallback
       fallback.x11Display = display
       fallback.x11Drawable = drawable

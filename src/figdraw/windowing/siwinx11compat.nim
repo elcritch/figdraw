@@ -1,16 +1,18 @@
 ## Use Siwin's optional X11 entry points and the types paired with its GLX API.
-import x11/x as x11Types except Window
 import siwin/platforms/x11/x11api as x11Api
 
-type SiwinGlxDisplay* = x11Api.PDisplay
-type SiwinGlxVisualInfo = x11Api.PXVisualInfo
+type
+  SiwinGlxDisplay* = x11Api.PDisplay
+  # x11api does not re-export Drawable; derive its XID type from the API.
+  SiwinGlxDrawable* = typeof(x11Api.XRootWindow(nil, 0))
+  SiwinGlxVisualInfo = x11Api.PXVisualInfo
 
 proc x11XcbConnection*(display: pointer): pointer =
   if x11Api.x11XcbAvailable():
     result = x11Api.XGetXCBConnection(cast[x11Api.PDisplay](display))
 
 proc getX11VisualInfo*(
-    display: SiwinGlxDisplay, drawable: x11Types.Drawable
+    display: SiwinGlxDisplay, drawable: SiwinGlxDrawable
 ): SiwinGlxVisualInfo =
   var attributes: x11Api.XWindowAttributes
   if x11Api.XGetWindowAttributes(display, drawable, attributes.addr) == 0:
