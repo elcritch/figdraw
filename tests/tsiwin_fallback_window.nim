@@ -5,8 +5,8 @@ import figdraw/figrender
 import figdraw/windowing/siwinshim
 
 when defined(linux) or defined(bsd):
-  import std/dynlib
-  import x11/xlib as xlib
+  import siwin/platforms/x11/x11api as xlib
+  from figdraw/windowing/siwinx11compat import nil
   from figdraw/vulkan/vulkan_utils import x11XcbConnection
 
 suite "Siwin OpenGL fallback window selection":
@@ -33,20 +33,34 @@ suite "Siwin OpenGL fallback window selection":
     else:
       skip()
 
-  test "XCB bridge resolves an existing Xlib display":
+  test "a missing optional XCB bridge returns nil":
+    when (defined(linux) or defined(bsd)) and defined(features.figdraw.siwin):
+      let original = xlib.XGetXCBConnection
+      defer:
+        xlib.XGetXCBConnection = original
+      xlib.XGetXCBConnection = nil
+      check x11XcbConnection(nil) == nil
+    else:
+      skip()
+
+  test "Siwin visual queries and XCB bridge accept an existing Xlib display":
     when defined(linux) or defined(bsd):
-      let bridge = loadLib("libX11-xcb.so.1")
-      if bridge == nil:
+      if not xlib.x11Available():
         skip()
       else:
-        defer:
-          unloadLib(bridge)
         let display = xlib.XOpenDisplay(nil)
         if display == nil:
           skip()
         else:
           defer:
             discard xlib.XCloseDisplay(display)
-          check x11XcbConnection(cast[pointer](display)) != nil
+          let visual =
+            siwinx11compat.getX11VisualInfo(display, xlib.XRootWindow(display, 0))
+          require visual != nil
+          siwinx11compat.freeX11VisualInfo(visual)
+          if xlib.x11XcbAvailable():
+            check x11XcbConnection(cast[pointer](display)) != nil
+          else:
+            check x11XcbConnection(cast[pointer](display)) == nil
     else:
       skip()

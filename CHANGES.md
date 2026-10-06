@@ -2,9 +2,10 @@
 
 ## Unreleased
 
-- Accept Siwin's optional-library X11 types in the OpenGL fallback while
-  retaining compatibility with earlier Siwin releases.
-- Use Siwin's optional X11-XCB bridge for Vulkan XCB surfaces when available.
+- Pin the Siwin feature to the merged platform ABI and optional-library fixes.
+  Use its X11 loader for OpenGL fallback and the optional X11-XCB bridge.
+- Accept Siwin's `uint64` Vulkan surfaces without losing their upper bits;
+  retain pointer inputs for other window backends.
 - Mark recursive fragment and diagnostic render trees acyclic; rely on Nim
   inference for other render data. Document the downward ownership contract.
 - Add cross-thread ARC/ORC render-data coverage and fragment-cycle rejection
