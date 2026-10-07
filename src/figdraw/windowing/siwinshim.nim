@@ -26,10 +26,9 @@ when defined(linux) or defined(bsd):
     import std/importutils
     privateAccess siWaylandWindow.WindowWayland
     when UseOpenGlFallback:
-      import x11/x as x11Types except Window
-      import x11/[xlib, xutil]
       import siwin/platforms/x11/glx as siX11Glx
       import siwin/platforms/x11/windowOpengl as siX11OpenGlWindow
+      import siwin/platforms/x11/x11api as siX11Api
       import siwin/platforms/wayland/egl as siWaylandEgl
       from siwin/platforms/wayland/protocol import Wl_surface, commit
       import siwin/platforms/wayland/windowOpengl as siWaylandOpenGlWindow
@@ -467,8 +466,8 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
       initialized: bool
       case kind: SiwinOpenGlFallbackKind
       of sogfX11:
-        x11Display: PDisplay
-        x11Drawable: x11Types.Drawable
+        x11Display: siX11Api.PDisplay
+        x11Drawable: siX11Api.Drawable
         x11Context: siX11Glx.GlxContext
       of sogfWayland:
         waylandNativeDisplay: pointer
@@ -578,8 +577,8 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
       let
         fallback = SiwinOpenGlFallbackState(window: window, kind: sogfX11)
         x11Window = siX11Window.WindowX11(window)
-        display = cast[PDisplay](x11Window.nativeDisplayHandle())
-        drawable = x11Types.Drawable(x11Window.nativeWindowHandle())
+        display = cast[siX11Api.PDisplay](x11Window.nativeDisplayHandle())
+        drawable = siX11Api.Drawable(x11Window.nativeWindowHandle())
       renderer.backendState.openGlFallback = fallback
       fallback.x11Display = display
       fallback.x11Drawable = drawable
@@ -627,22 +626,8 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
     of sogfX11:
       let initializeOpenGl = not fallback.initialized
       if initializeOpenGl:
-        var attributes: XWindowAttributes
-        if fallback.x11Display.XGetWindowAttributes(
-          fallback.x11Drawable, attributes.addr
-        ) == 0:
-          raise newException(ValueError, "Failed to query X11 window visual")
-        var
-          visualTemplate = XVisualInfo(visualid: XVisualIDFromVisual(attributes.visual))
-          visualCount: cint
-        let visualInfos = fallback.x11Display.XGetVisualInfo(
-          VisualIDMask.clong, visualTemplate.addr, visualCount.addr
-        )
-        if visualInfos.isNil or visualCount <= 0:
-          raise newException(ValueError, "Failed to resolve X11 visual for OpenGL")
-        defer:
-          discard XFree(visualInfos)
-        fallback.x11Context = fallback.x11Display.newGlxContext(visualInfos)
+        var visualInfo = fallback.x11Display.getWindowVisualInfo(fallback.x11Drawable)
+        fallback.x11Context = fallback.x11Display.newGlxContext(visualInfo.addr)
         fallback.initialized = true
       fallback.x11Display.makeCurrent(fallback.x11Drawable, fallback.x11Context)
       if siX11Glx.cGlxCurrentContext().isNil:
@@ -846,7 +831,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
           vkCtx.setPresentMetalLayer(renderer.backendState.vulkanMetalLayer.layer)
           hasPresentTarget = true
         elif defined(linux) or defined(bsd):
-          var surface: pointer = nil
+          let surface = cast[uint64](window.vulkanSurface())
           if window of siX11Window.WindowX11SoftwareRendering:
             siX11Window.WindowX11SoftwareRendering(window).setSoftwarePresentEnabled(
               false
@@ -854,8 +839,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
           if window of siWaylandWindow.WindowWaylandSoftwareRendering:
             siWaylandWindow.WindowWaylandSoftwareRendering(window).softwarePresentEnabled =
               false
-          surface = window.vulkanSurface()
-          if not surface.isNil:
+          if surface != 0:
             if window of siWaylandWindow.WindowWayland:
               vkCtx.setExternalSurface(
                 surface, presentTargetWayland, ownedByContext = true
@@ -867,18 +851,18 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
               )
               hasPresentTarget = true
         elif defined(windows):
-          let surface = window.vulkanSurface()
-          if not surface.isNil:
+          let surface = cast[uint64](window.vulkanSurface())
+          if surface != 0:
             vkCtx.setExternalSurface(surface, presentTargetWin32, ownedByContext = true)
             hasPresentTarget = true
         when defined(linux) or defined(bsd):
-          if surface.isNil and window of siX11Window.WindowX11:
+          if surface == 0 and window of siX11Window.WindowX11:
             let x11Window = siX11Window.WindowX11(window)
             vkCtx.setPresentXlibTarget(
               x11Window.nativeDisplayHandle(), x11Window.nativeWindowHandle()
             )
             hasPresentTarget = true
-          elif surface.isNil and window of siWaylandWindow.WindowWayland:
+          elif surface == 0 and window of siWaylandWindow.WindowWayland:
             let waylandWindow = siWaylandWindow.WindowWayland(window)
             vkCtx.setPresentWaylandTarget(
               waylandWindow.nativeWaylandDisplayHandle(),

@@ -421,10 +421,10 @@ proc createPresentSurface(ctx: VulkanContext) =
         let fnPtr = vkGetInstanceProcAddrNative(ctx.instance, "vkCreateXcbSurfaceKHR")
         if fnPtr.isNil:
           raise newException(ValueError, "vkCreateXcbSurfaceKHR unavailable")
-        let xcbConn = XGetXCBConnection(ctx.presentXlibDisplay)
+        let xcbConn = x11XcbConnection(ctx.presentXlibDisplay)
         if xcbConn.isNil:
           raise newException(
-            ValueError, "XGetXCBConnection returned nil for Vulkan XCB surface"
+            ValueError, "X11-XCB connection unavailable for Vulkan XCB surface"
           )
         let vkCreateXcbSurfaceKHRNative = cast[VkCreateXcbSurfaceKHRNativeProc](fnPtr)
         var createInfo = VkXcbSurfaceCreateInfoKHRNative(
@@ -1814,12 +1814,11 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     vendorId = ctx.driverInfo.vendorId,
     swapchainProfile = $ctx.activeSwapchainProfile
 
-  var queueCreateInfos =
-    @[
-      newVkDeviceQueueCreateInfo(
-        queueFamilyIndex = ctx.queueFamily, queuePriorities = [1.0'f32]
-      )
-    ]
+  var queueCreateInfos = @[
+    newVkDeviceQueueCreateInfo(
+      queueFamilyIndex = ctx.queueFamily, queuePriorities = [1.0'f32]
+    )
+  ]
   if ctx.presentQueueFamily != ctx.queueFamily:
     queueCreateInfos.add(
       newVkDeviceQueueCreateInfo(
@@ -4209,12 +4208,12 @@ proc instanceHandle*(ctx: VulkanContext): pointer =
 
 proc setExternalSurface*(
     ctx: VulkanContext,
-    surface: pointer,
+    surface: pointer | uint64,
     target: PresentTargetKind,
     ownedByContext = false,
 ) =
-  if surface.isNil:
-    raise newException(ValueError, "External Vulkan surface pointer is nil")
+  if cast[uint64](surface) == 0:
+    raise newException(ValueError, "External Vulkan surface handle is zero")
   ctx.clearPresentTarget()
   ctx.presentTargetKind = target
   ctx.instanceSurfaceHint = ctx.presentTargetKind

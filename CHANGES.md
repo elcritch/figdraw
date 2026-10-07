@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Use Siwin's platform ABI fixes and reusable X11 visual/XCB helpers.
+  Pin upstream Siwin with merged [#58](https://github.com/levovix0/siwin/pull/58).
+- Accept Siwin's `uint64` Vulkan surfaces without losing their upper bits;
+  retain pointer inputs for other window backends.
 - Mark recursive fragment and diagnostic render trees acyclic; rely on Nim
   inference for other render data. Document the downward ownership contract.
 - Add cross-thread ARC/ORC render-data coverage and fragment-cycle rejection

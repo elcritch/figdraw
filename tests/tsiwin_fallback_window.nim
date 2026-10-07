@@ -4,6 +4,10 @@ import siwin/platforms
 import figdraw/figrender
 import figdraw/windowing/siwinshim
 
+when defined(linux) or defined(bsd):
+  import siwin/platforms/x11/x11api as xlib
+  from figdraw/vulkan/vulkan_utils import nil
+
 suite "Siwin OpenGL fallback window selection":
   test "forced OpenGL always creates an OpenGL window":
     check usesOpenGlWindowForVulkanFallback(Platform.x11, true)
@@ -25,5 +29,36 @@ suite "Siwin OpenGL fallback window selection":
           discard
             newSiwinLayerSurfaceWindow(renderer, size = ivec2(320, 32), config = config)
       )
+    else:
+      skip()
+
+  test "a missing optional XCB bridge returns nil":
+    when (defined(linux) or defined(bsd)) and defined(features.figdraw.siwin):
+      let original = xlib.XGetXCBConnection
+      defer:
+        xlib.XGetXCBConnection = original
+      xlib.XGetXCBConnection = nil
+      check vulkan_utils.x11XcbConnection(nil) == nil
+    else:
+      skip()
+
+  test "Siwin visual queries and XCB bridge accept an existing Xlib display":
+    when defined(linux) or defined(bsd):
+      if not xlib.x11Available():
+        skip()
+      else:
+        let display = xlib.XOpenDisplay(nil)
+        if display == nil:
+          skip()
+        else:
+          defer:
+            discard xlib.XCloseDisplay(display)
+          let visual = xlib.getWindowVisualInfo(display, xlib.XRootWindow(display, 0))
+          check visual.visual != nil
+          check visual.depth > 0
+          if xlib.x11XcbAvailable():
+            check vulkan_utils.x11XcbConnection(cast[pointer](display)) != nil
+          else:
+            check vulkan_utils.x11XcbConnection(cast[pointer](display)) == nil
     else:
       skip()

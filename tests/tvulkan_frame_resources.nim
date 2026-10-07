@@ -60,6 +60,22 @@ when UseVulkanBackend:
     copyMem(result.addr, mapped, 4)
     ctx.vk.unmapMemory(ctx.device, buffer.allocation)
 
+  suite "Vulkan external surfaces":
+    test "accepts integer and pointer handles without losing their upper bits":
+      let ctx = newContext(atlasSize = 64, maxQuads = 8)
+      defer:
+        ctx.clearPresentTarget()
+      when sizeof(VkSurfaceKHR) == 8:
+        let handle = 0x123456789ABCDEF0'u64
+        ctx.setExternalSurface(handle, presentTargetXlib)
+        check cast[uint64](ctx.surface) == handle
+        ctx.setExternalSurface(cast[pointer](handle), presentTargetWayland)
+        check cast[uint64](ctx.surface) == handle
+      expect ValueError:
+        ctx.setExternalSurface(0'u64, presentTargetXlib)
+      expect ValueError:
+        ctx.setExternalSurface(nil, presentTargetXlib)
+
   suite "Vulkan atlas packing":
     test "Vulkan failures remain exceptions in every build mode":
       expect VulkanError:
