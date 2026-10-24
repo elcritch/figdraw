@@ -13,7 +13,7 @@ requires "chroma >= 0.2.7"
 requires "bumpy"
 requires "stack_strings"
 requires "chronicles >= 0.10.3"
-requires "sdfy >= 0.8.2"
+requires "sdfy >= 0.8.5"
 requires "nimsimd >= 1.2.5"
 requires "variant"
 requires "patty"
@@ -27,7 +27,7 @@ when defined(linux) or defined(bsd) or defined(windows):
   requires "https://github.com/planetis-m/vulkan#b223dc9"
 
 feature "harfbuzz":
-  requires "gh:elcritch/harfbuzzy >= 0.3.0"
+  requires "gh:elcritch/harfbuzzy ~= 0.3.0"
 feature "textBackendHarfbuzzy":
   discard
 feature "lottie":
@@ -45,6 +45,8 @@ feature "surfer":
 feature "siwin":
   # Merged platform ABI fixes and X11 helpers: Siwin #56, #57, and #58.
   requires "gh:levovix0/siwin#78bb49c7fd7e5e14590f567e1ccbb07eb5ab6739"
+feature "uirelays":
+  requires "gh:elcritch/uirelays#feat/hidpi-rgba"
 feature "vulkan":
   requires "https://github.com/planetis-m/vulkan#b223dc9"
 feature "metal":

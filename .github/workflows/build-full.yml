@@ -100,6 +100,17 @@ jobs:
           'HKLM\SOFTWARE\Khronos\Vulkan\Drivers'
         echo "C:/swiftshader" >> "$GITHUB_PATH"
 
+    - name: Use Ubuntu archive mirror
+      if: runner.os == 'Linux'
+      run: |
+        for source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+          if [[ -f "$source" ]]; then
+            sudo sed -i \
+              's@https\?://azure.archive.ubuntu.com/ubuntu@https://archive.ubuntu.com/ubuntu@g' \
+              "$source"
+          fi
+        done
+
     - name: Setup software OpenGL/Vulkan (Mesa) + Xvfb (X11)
       if: runner.os == 'Linux' && matrix.display == 'x11'
       timeout-minutes: 15
@@ -248,7 +259,8 @@ jobs:
         nim -v
 
     - name: Install Deps
-      run: atlas install -t:8 --features:windy,sdl2,siwin,harfbuzz
+      # Cached checkouts can predate new tags or updates to branch-pinned deps.
+      run: atlas install --update -t:8 --features:windy,sdl2,siwin,harfbuzz,uirelays
 
     # - name: Build Surfer Examples
     #   if: runner.os == 'Linux' && matrix.display == 'wayland'
@@ -319,6 +331,12 @@ jobs:
       if: runner.os == 'macOS'
       run: |
         nim test
+
+    - name: Test software rendering build switches
+      if: runner.os == 'macOS'
+      run: |
+        nim r -d:figdraw.threadedSdfy=off tests/tsoftware_workers.nim
+        nim r -d:figdraw.sdfySimd=off tests/tsoftware_workers.nim
 
     - name: Test static HarfBuzz shaping and rasterization
       if: runner.os == 'macOS'

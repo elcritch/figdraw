@@ -128,6 +128,8 @@ task test, "run unit test":
     elif name.startsWith("siwin_") and name.endsWith(".nim"):
       if name == "siwin_shared_native.nim":
         echo "Skipping native shared example (run: nim native_shared_example)"
+      elif name == "siwin_uirelays.nim" and not defined(features.figdraw.uirelays):
+        echo "Skipping uirelays example (enable the Atlas uirelays feature)"
       else:
         nimExec("c", file)
     elif name.startsWith("sdl2_") and name.endsWith(".nim"):

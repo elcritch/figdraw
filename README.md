@@ -107,6 +107,125 @@ The most stable entry points today are:
 - Scene graph nodes: `import figdraw/fignodes`
 - OpenGL backend: `import figdraw/figrender`
 
+### Experimental software rendering with uirelays or Siwin
+
+The software backend renders ordinary FigDraw scenes into Pixie images using
+sdfy. It supports elliptical rounded corners, two- and three-stop gradients,
+strokes, shadows, nested clips, affine transforms, curves, MSDF/MTSDF images,
+and backdrop blur. It keeps `typeset`, `placeGlyphs`, glyph IDs, selection
+geometry, font fallback, and image/font cache invalidation.
+
+Rounded fills, strokes, shadows, and clip masks render directly into framebuffer
+rows through sdfy's span API. SSE2/NEON accelerate affine coordinates, circular
+or elliptical distances, solid and two-/three-stop/four-corner gradients,
+coverage, mask multiplication, and premultiplied blending. Backdrop-blur
+boundaries use distance packets with FigDraw's image sampler. Partial batches
+and unsupported CPUs use scalar code. `-d:figdraw.sdfySimd=off` forces the scalar
+software path for comparison; `-d:sdfyNoSimd` also disables sdfy's SIMD paths.
+No temporary shape image or additional resampling is needed.
+
+Sigils worker pools are internal and automatic. `newSoftwareContext()`,
+`newUirelaysContext()`, and `newUirelaysRenderer()` lazily use up to four workers
+for large rounded draws. No scheduler setup or shutdown is required. Contexts
+with the same worker count share a runtime pool, which stops at process exit.
+Use `workers = 1` to force inline rendering, or `workers = 4` to request an
+explicit count (the default `workers = 0` selects up to four available CPUs).
+
+Rounded draws covering at least 262,144 framebuffer pixels dispatch disjoint
+row tiles to separate Sigils actors. `parallelThreshold` adjusts that cutoff;
+small draws stay inline. Every draw waits for all its tiles, preserving layering,
+mask nesting, resize safety, and synchronous capture/presentation. Windows,
+scene traversal, font caches, and image ownership stay on the calling thread.
+Workers receive immutable value parameters and borrowed pixel-buffer pointers,
+and worker failures are reported after all submitted tiles finish.
+
+`-d:figdraw.threadedSdfy=off` compiles out worker dispatch while retaining SIMD.
+`-d:figdraw.sdfySimd=off` disables sdfy SIMD while retaining worker dispatch.
+Both options can be disabled together. Run
+`nim r -d:release tests/bench_software_workers.nim` and repeat with
+`-d:figdraw.sdfySimd=off` to compare all four configurations.
+
+```sh
+atlas install --keepFeatures --feature=figdraw.uirelays
+
+# Capture a scene without opening a window:
+nim r examples/software_capture.nim
+
+# Use Siwin's native software window, without uirelays or GPU presentation:
+atlas install --keepFeatures --feature=figdraw.siwin --feature=figdraw.harfbuzz
+nim r examples/siwin_software.nim
+
+# Use a native uirelays window:
+nim r examples/uirelays_renderlist.nim
+
+# Or use uirelays' siwin / Windy window driver:
+atlas install --keepFeatures --feature=figdraw.uirelays --feature=figdraw.siwin --feature=figdraw.harfbuzz
+nim r examples/siwin_uirelays.nim  # siwin + Harfbuzzy by default
+atlas install --keepFeatures --feature=figdraw.uirelays --feature=figdraw.windy
+nim r -d:features.uirelays.figDrawWindy examples/uirelays_renderlist.nim
+
+# Keep the siwin / Windy window and event APIs directly:
+nim r examples/software_window.nim
+nim r -d:figdraw.softwareWindow=windy examples/software_window.nim
+```
+
+This feature requires released [sdfy 0.8.5](https://github.com/elcritch/sdfy/tree/v0.8.5)
+and tracks the uirelays changes in
+[PR #62](https://github.com/nim-lang/uirelays/pull/62) for full-resolution image
+presentation and preservation of Cocoa content during live resizing.
+
+For an offscreen renderer, pass `newSoftwareContext()` to `newFigRenderer`.
+`takeOneFrameScreenshot()` returns an independent Pixie image. A custom
+`FramePresenter` callback can deliver finished images to an application-owned
+window or another image consumer.
+
+For an existing Siwin software window, import `figdraw/software/siwin` and call
+`newSiwinSoftwareRenderer(window)` or `newSiwinSoftwareContext(window)`. Create
+the window with Siwin's `newSoftwareRenderingWindow`. Inside `onRender`, call
+`configureSiwinSoftwareScale(window)` before layout and pass its logical frame
+size to `renderFrame`. The presenter reacquires the native buffer each frame,
+copies at backing resolution without resampling, and converts RGBA/BGRA formats.
+Pixie composites over the background for opaque windows; transparent buffers
+retain premultiplied alpha. The adapter uses the same automatic worker pool and
+sdfy SIMD paths as uirelays. It creates no GPU context or texture upload and does
+not require the uirelays feature. See `examples/siwin_software.nim` for events and
+shutdown, including releasing event closures before closing the window.
+
+Applications using siwin or Windy directly can keep an existing window renderer
+as a dedicated image presenter. Import `figdraw/software/windowing`, then call
+`presentSoftwareFrame(windowRenderer, image)` from the CPU context's presenter
+callback. Keep the usual window `beginFrame()` and `endFrame()` around the
+software renderer's `renderFrame()` call. The helper uploads/replaces one image
+and submits the window backend frame; it does not own the window or events.
+
+For uirelays, initialize its driver and create its window, then use
+`newUirelaysRenderer()`. `renderFrame` presents the image at `endFrame`; call
+uirelays `refresh()` after drawing. Its siwin and Windy drivers retain their
+regular GPU renderer for the image upload, while FigDraw's scene is rasterized
+on the CPU. The application owns events, refresh, and shutdown, all on the
+window thread. Before building or updating scene layouts, call
+`configureUirelaysScale(layout)` and use its returned scene size for
+`renderFrame`. It combines display density with UI enlargement so glyphs and
+shapes rasterize at backing resolution. A 560×360-point Retina window receives
+a 1120×720 image, while native overlays keep their normal logical coordinates.
+Repeat this after a resize or monitor change. The examples retain their fonts
+and scene until their size or scale changes, avoiding per-frame font lookup.
+
+System font families resolve through `loadTypeface`, with the normal FigDraw
+glyph rasterizer preserving shaped layouts. Native font-engine text is also
+available through uirelays `openFont` / `drawText` after the software frame;
+the window example demonstrates both paths. Native text overlays follow
+uirelays' layout and clipping, rather than the scene's glyph selection or
+transform geometry: the relay API does not expose shaped glyph IDs.
+
+This is a CPU prototype, with scalar distance sampling and full-frame
+presentation. Perspective transforms and LCD/subpixel glyph rendering are not
+supported. Elliptical distance fields use the same approximation as FigDraw's
+GPU shaders. Presentation composites transparency against an explicit opaque
+background because uirelays' image relays ignore alpha. Drivers without
+`drawRGBA` fall back to `blitRGBA` at matching dimensions; unsupported
+high-density drawing reports an error.
+
 ### OpenGL windows and atlas updates
 
 Create the native window before its renderer, then call `setupBackend(window)`.

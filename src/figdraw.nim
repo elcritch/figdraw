@@ -36,3 +36,9 @@ else:
   export renderfragments
   export figrenderer
   export drawutils
+
+  when defined(features.figdraw.uirelays):
+    import figdraw/uirelays
+    import figdraw/software/windowing as softwareWindowing
+    export uirelays
+    export softwareWindowing

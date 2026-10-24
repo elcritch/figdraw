@@ -17,12 +17,14 @@ type RendererBackendKind* {.pure.} = enum
   rbOpenGL
   rbMetal
   rbVulkan
+  rbSoftware
 
 proc backendName*(kind: RendererBackendKind): string =
   case kind
   of rbMetal: "Metal"
   of rbVulkan: "Vulkan"
   of rbOpenGL: "OpenGL"
+  of rbSoftware: "Software (sdfy)"
 
 when UseMetalBackend:
   const PreferredBackendKind* = rbMetal

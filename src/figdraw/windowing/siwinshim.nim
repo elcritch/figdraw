@@ -714,6 +714,8 @@ func backendSupportsDedicatedRenderThread*(kind: RendererBackendKind): bool =
     when UseVulkanBackend: true else: false
   of rbOpenGL:
     false
+  of rbSoftware:
+    false
 
 proc supportsDedicatedRenderThread*(renderer: FigRenderer[SiwinRenderBackend]): bool =
   ## Whether the configured presentation backend can be detached from its
@@ -737,6 +739,8 @@ proc supportsDedicatedRenderThread*(renderer: FigRenderer[SiwinRenderBackend]): 
     else:
       discard
   of rbOpenGL:
+    discard
+  of rbSoftware:
     discard
 
 proc useDedicatedRenderThread*(renderer: FigRenderer[SiwinRenderBackend]) =
