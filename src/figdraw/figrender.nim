@@ -65,6 +65,10 @@ template entries*(ctx: BackendContext): untyped =
 proc backendKind*[BackendState](
     renderer: FigRenderer[BackendState]
 ): RendererBackendKind =
+  when defined(windows) and UseVulkanBackend and UseOpenGlFallback:
+    when compiles(renderer.backendState.pendingOpenGlFallbackReason):
+      if renderer.ctx.isNil:
+        return rbVulkan
   renderer.ctx.kind()
 
 proc backendName*[BackendState](renderer: FigRenderer[BackendState]): string =
@@ -152,30 +156,42 @@ proc setTextLcdFiltering*[BackendState](
     renderer: FigRenderer[BackendState], enabled: bool
 ) =
   renderer.textLcdFilteringDesired = enabled
-  renderer.ctx.setTextLcdFilteringEnabled(enabled)
+  if not renderer.ctx.isNil:
+    renderer.ctx.setTextLcdFilteringEnabled(enabled)
 
 proc textLcdFiltering*[BackendState](renderer: FigRenderer[BackendState]): bool =
-  renderer.ctx.textLcdFilteringEnabled()
+  if renderer.ctx.isNil:
+    renderer.textLcdFilteringDesired
+  else:
+    renderer.ctx.textLcdFilteringEnabled()
 
 proc setTextSubpixelPositioning*[BackendState](
     renderer: FigRenderer[BackendState], enabled: bool
 ) =
   renderer.textSubpixelPositioningDesired = enabled
-  renderer.ctx.setTextSubpixelPositioningEnabled(enabled)
+  if not renderer.ctx.isNil:
+    renderer.ctx.setTextSubpixelPositioningEnabled(enabled)
 
 proc textSubpixelPositioning*[BackendState](renderer: FigRenderer[BackendState]): bool =
-  renderer.ctx.textSubpixelPositioningEnabled()
+  if renderer.ctx.isNil:
+    renderer.textSubpixelPositioningDesired
+  else:
+    renderer.ctx.textSubpixelPositioningEnabled()
 
 proc setTextSubpixelGlyphVariants*[BackendState](
     renderer: FigRenderer[BackendState], enabled: bool
 ) =
   renderer.textSubpixelGlyphVariantsDesired = enabled
-  renderer.ctx.setTextSubpixelGlyphVariantsEnabled(enabled)
+  if not renderer.ctx.isNil:
+    renderer.ctx.setTextSubpixelGlyphVariantsEnabled(enabled)
 
 proc textSubpixelGlyphVariants*[BackendState](
     renderer: FigRenderer[BackendState]
 ): bool =
-  renderer.ctx.textSubpixelGlyphVariantsEnabled()
+  if renderer.ctx.isNil:
+    renderer.textSubpixelGlyphVariantsDesired
+  else:
+    renderer.ctx.textSubpixelGlyphVariantsEnabled()
 
 proc runtimeForceOpenGlRequested*(): bool =
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
@@ -273,12 +289,19 @@ proc initRendererContext[BackendState](
         "Runtime OpenGL override requested; deferring backend swap to setupBackend"
       )
     try:
+      when defined(windows) and UseVulkanBackend and
+          defined(figdrawTestVulkanInitFailure):
+        raise newException(ValueError, "Injected Vulkan initialization failure")
       renderer.ctx = preferred_backend.newContext(
         atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale
       )
       logBackend("Done setting up preferred backend")
     except CatchableError as exc:
-      renderer.useOpenGlFallback(exc.msg)
+      when defined(windows) and UseVulkanBackend and
+          compiles(renderer.backendState.pendingOpenGlFallbackReason):
+        renderer.backendState.pendingOpenGlFallbackReason = exc.msg
+      else:
+        renderer.useOpenGlFallback(exc.msg)
   elif UseMetalBackend:
     renderer.ctx =
       newContext(atlasSize = atlasSize, pixelate = pixelate, pixelScale = pixelScale)
@@ -352,7 +375,7 @@ proc selectionScreenRect*(nodeBox: Rect, selectionRect: Rect): Rect {.inline.} =
     selectionRect.w,
     selectionRect.h,
   )
-  .scaled()
+    .scaled()
 
 proc selectionLocalRectInverted*(
     layoutBounds: Rect, selectionRect: Rect

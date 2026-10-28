@@ -395,6 +395,16 @@ jobs:
         read -r -a nim_flags <<< "$NIMFLAGS"
         nim r "${nim_flags[@]}" tests/trender_image_msdf_invert.nim
 
+    - name: Test Windows Vulkan fallback
+      if: runner.os == 'Windows' && matrix.renderer == 'vulkan'
+      env:
+        NIMFLAGS: ${{ matrix.nimflags }}
+        FIGDRAW_FORCE_OPENGL: '0'
+      run: |
+        read -r -a nim_flags <<< "$NIMFLAGS"
+        nim r "${nim_flags[@]}" -d:figdraw.openglFallback=on -d:figdrawTestVulkanInitFailure tests/tsiwin_windows_fallback.nim
+        nim r "${nim_flags[@]}" -d:figdraw.openglFallback=on -d:vulkanCrashTest tests/tsiwin_windows_fallback.nim
+
     - name: Upload Test Output (on failure)
       if: failure()
       uses: actions/upload-artifact@v4

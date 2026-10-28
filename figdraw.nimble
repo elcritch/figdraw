@@ -44,8 +44,8 @@ feature "surfer":
   requires "xkb#b4d50f4cccad1cd9e39d2f5a5e1fef2710edcc31"
   # TODO: Put this in surfer's manifest.
 feature "siwin":
-  # Merged platform ABI fixes and X11 helpers: Siwin #56, #57, and #58.
-  requires "gh:levovix0/siwin#78bb49c7fd7e5e14590f567e1ccbb07eb5ab6739"
+  # Includes native Win32 handles and the software-present toggle.
+  requires "gh:levovix0/siwin#5827ee9dadb5e2597db85375e0e87b8a2272174b"
 feature "uirelays":
   requires "gh:elcritch/uirelays#feat/rgba-alpha"
 feature "vulkan":

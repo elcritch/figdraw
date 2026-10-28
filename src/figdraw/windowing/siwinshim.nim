@@ -32,6 +32,20 @@ when defined(linux) or defined(bsd):
       import siwin/platforms/wayland/egl as siWaylandEgl
       from siwin/platforms/wayland/protocol import Wl_surface, commit
       import siwin/platforms/wayland/windowOpengl as siWaylandOpenGlWindow
+when defined(windows) and UseVulkanBackend:
+  import std/importutils
+  import siwin/platforms/winapi/window as siWinapiWindow
+  import siwin/platforms/winapi/winapi as siWinapi
+  when UseOpenGlFallback:
+    import siwin/platforms/winapi/windowOpengl as siWinapiOpenGl
+  privateAccess siWinapiWindow.WindowWinapiObj
+
+  proc nativeWin32InstanceHandle(): pointer =
+    cast[pointer](siWinapi.hInstance)
+
+  proc nativeWin32WindowHandle(window: siWinapiWindow.WindowWinapi): pointer =
+    cast[pointer](window.handle)
+
 when UseVulkanBackend:
   import siwin/windowVulkan as siWindowVulkan
   import ../vulkan/vulkan_context
@@ -300,7 +314,7 @@ proc newSiwinWindow*[BackendState](
   let forceOpenGl = runtimeForceOpenGlRequested() or renderer.forceOpenGlByEnv()
   when UseVulkanBackend:
     if not forceOpenGl and renderer.backendKind() == rbVulkan:
-      when defined(macosx):
+      when defined(macosx) or defined(windows):
         return newSiwinWindow(
           size = size,
           fullscreen = fullscreen,
@@ -500,8 +514,14 @@ type
     presentationReady: bool
     resizeClearColor: Color
     resizeClearColorSet: bool
-    when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd)):
-      openGlFallback: SiwinOpenGlFallbackState
+    when defined(windows) and UseVulkanBackend and UseOpenGlFallback:
+      pendingOpenGlFallbackReason*: string
+    when UseVulkanBackend and UseOpenGlFallback and
+        (defined(linux) or defined(bsd) or defined(windows)):
+      when defined(windows):
+        openGlFallback: siWinapiOpenGl.WinapiOpenGlFallback
+      else:
+        openGlFallback: SiwinOpenGlFallbackState
       openGlFallbackReady: bool
       openGlFallbackError: string
     when UseMetalBackend and defined(macosx):
@@ -667,6 +687,45 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
       fallback.waylandContext.swapBuffers()
       fallback.waylandSurface.commit()
 
+when UseVulkanBackend and UseOpenGlFallback and defined(windows):
+  proc prepareOpenGlFallback(
+      renderer: FigRenderer[SiwinRenderBackend], window: Window
+  ) =
+    renderer.backendState.openGlFallback = nil
+    renderer.backendState.openGlFallbackReady = window of siWinapiWindow.WindowWinapi
+    renderer.backendState.openGlFallbackError = ""
+    if not renderer.backendState.openGlFallbackReady:
+      raise newException(ValueError, "Siwin window cannot host a Win32 OpenGL context")
+    if window of siWinapiWindow.WindowWinapiSoftwareRendering:
+      siWinapiWindow.WindowWinapiSoftwareRendering(window).setSoftwarePresentEnabled(
+        false
+      )
+
+  proc activateOpenGlFallback(renderer: FigRenderer[SiwinRenderBackend]) =
+    if not renderer.backendState.openGlFallbackReady:
+      raise newException(
+        ValueError,
+        "OpenGL fallback context is unavailable: " &
+          renderer.backendState.openGlFallbackError,
+      )
+    let window = renderer.backendState.window
+    if window of siWinapiOpenGl.WindowWinapiOpengl:
+      window.makeCurrent()
+    else:
+      let initializeOpenGl = renderer.backendState.openGlFallback.isNil
+      if initializeOpenGl:
+        renderer.backendState.openGlFallback =
+          siWinapiOpenGl.newWinapiOpenGlFallback(siWinapiWindow.WindowWinapi(window))
+      renderer.backendState.openGlFallback.makeCurrent()
+      if initializeOpenGl:
+        startOpenGL(openglVersion)
+
+  proc presentOpenGlFallback(renderer: FigRenderer[SiwinRenderBackend]) =
+    if not renderer.backendState.openGlFallback.isNil:
+      renderer.backendState.openGlFallback.swapBuffers()
+
+when UseVulkanBackend and UseOpenGlFallback and
+    (defined(linux) or defined(bsd) or defined(windows)):
   proc usePreparedOpenGlFallback(
       renderer: FigRenderer[SiwinRenderBackend], reason: string
   ) =
@@ -674,7 +733,7 @@ when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd))
     if oldKind == rbOpenGL:
       return
     when UseVulkanBackend:
-      if oldKind == rbVulkan:
+      if oldKind == rbVulkan and not renderer.ctx.isNil:
         try:
           renderer.ctx.VulkanContext.releaseBackendResources()
         except CatchableError as exc:
@@ -752,7 +811,8 @@ proc useDedicatedRenderThread*(renderer: FigRenderer[SiwinRenderBackend]) =
     raise newException(
       ValueError, "the active siwin backend cannot render on a dedicated thread"
     )
-  when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd)):
+  when UseVulkanBackend and UseOpenGlFallback and
+      (defined(linux) or defined(bsd) or defined(windows)):
     renderer.backendState.openGlFallback = nil
     renderer.backendState.openGlFallbackReady = false
   renderer.backendState.dedicatedRender = true
@@ -767,7 +827,8 @@ when UseVulkanBackend:
 
 proc activateRendererContext(renderer: FigRenderer[SiwinRenderBackend]) =
   when NeedSiwinOpenGLContext:
-    when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd)):
+    when UseVulkanBackend and UseOpenGlFallback and
+        (defined(linux) or defined(bsd) or defined(windows)):
       renderer.activateOpenGlFallback()
     else:
       renderer.backendState.window.makeCurrent()
@@ -781,26 +842,39 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
   renderer.backendState.dedicatedRender = false
   renderer.backendState.presentationReady = false
   renderer.backendState.resizeClearColorSet = false
-  when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd)):
+  when UseVulkanBackend and UseOpenGlFallback and
+      (defined(linux) or defined(bsd) or defined(windows)):
     renderer.backendState.openGlFallback = nil
     renderer.backendState.openGlFallbackReady = false
     renderer.backendState.openGlFallbackError = ""
   renderer.configureTransparentPresentation(window)
+  when defined(windows) and UseVulkanBackend and UseOpenGlFallback:
+    if renderer.ctx.isNil:
+      renderer.prepareOpenGlFallback(window)
+      renderer.usePreparedOpenGlFallback(
+        renderer.backendState.pendingOpenGlFallbackReason
+      )
+      renderer.backendState.pendingOpenGlFallbackReason = ""
+      return
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     if renderer.forceOpenGlByEnv():
-      when NeedSiwinOpenGLContext:
-        window.makeCurrent()
-      when UseVulkanBackend and (defined(linux) or defined(bsd)):
-        renderer.backendState.openGlFallbackReady = true
-      try:
-        # Prefer switching immediately so setup-time backend queries/title reflect
-        # the forced backend. If context is not fully ready yet, beginFrame() will
-        # retry.
-        discard renderer.applyRuntimeBackendOverride()
-      except CatchableError:
-        # Defer actual backend swap to beginFrame(). Wayland OpenGL contexts can
-        # still require the first render-cycle entry.
-        return
+      when defined(windows) and UseVulkanBackend:
+        renderer.prepareOpenGlFallback(window)
+        renderer.usePreparedOpenGlFallback("OpenGL requested by environment")
+      else:
+        when NeedSiwinOpenGLContext:
+          window.makeCurrent()
+        when UseVulkanBackend and (defined(linux) or defined(bsd) or defined(windows)):
+          renderer.backendState.openGlFallbackReady = true
+        try:
+          # Prefer switching immediately so setup-time backend queries/title reflect
+          # the forced backend. If context is not fully ready yet, beginFrame() will
+          # retry.
+          discard renderer.applyRuntimeBackendOverride()
+        except CatchableError:
+          # Defer actual backend swap to beginFrame(). Wayland OpenGL contexts can
+          # still require the first render-cycle entry.
+          return
   when UseMetalBackend and defined(macosx):
     if renderer.backendKind() == rbMetal:
       try:
@@ -815,7 +889,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
           raise exc
   when UseVulkanBackend:
     if renderer.backendKind() == rbVulkan:
-      when UseOpenGlFallback and (defined(linux) or defined(bsd)):
+      when UseOpenGlFallback and (defined(linux) or defined(bsd) or defined(windows)):
         try:
           renderer.prepareOpenGlFallback(window)
         except CatchableError as exc:
@@ -856,8 +930,21 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
               hasPresentTarget = true
         elif defined(windows):
           let surface = cast[uint64](window.vulkanSurface())
+          if window of siWinapiWindow.WindowWinapiSoftwareRendering:
+            let softwareWindow = siWinapiWindow.WindowWinapiSoftwareRendering(window)
+            # Older Siwin revisions always BitBlt the software buffer.
+            when compiles(softwareWindow.setSoftwarePresentEnabled(false)):
+              softwareWindow.setSoftwarePresentEnabled(false)
           if surface != 0:
             vkCtx.setExternalSurface(surface, presentTargetWin32, ownedByContext = true)
+            hasPresentTarget = true
+          elif window of siWinapiWindow.WindowWinapi:
+            # Windows created without a Vulkan instance have no Siwin surface.
+            # Present directly to the native window instead.
+            vkCtx.setPresentWin32Target(
+              nativeWin32InstanceHandle(),
+              nativeWin32WindowHandle(siWinapiWindow.WindowWinapi(window)),
+            )
             hasPresentTarget = true
         when defined(linux) or defined(bsd):
           if surface == 0 and window of siX11Window.WindowX11:
@@ -881,7 +968,7 @@ proc setupBackend*(renderer: FigRenderer, window: Window) =
         renderer.backendState.presentationReady = true
       except CatchableError as exc:
         when UseOpenGlFallback:
-          when defined(linux) or defined(bsd):
+          when defined(linux) or defined(bsd) or defined(windows):
             renderer.usePreparedOpenGlFallback(exc.msg)
           else:
             renderer.useOpenGlFallback(exc.msg)
@@ -894,9 +981,12 @@ proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   ## Per-frame pre-render backend maintenance.
   when UseOpenGlFallback and (UseMetalBackend or UseVulkanBackend):
     if renderer.forceOpenGlByEnv() and renderer.backendKind() != rbOpenGL:
-      when NeedSiwinOpenGLContext:
-        renderer.backendState.window.makeCurrent()
-      discard renderer.applyRuntimeBackendOverride()
+      when defined(windows) and UseVulkanBackend:
+        renderer.usePreparedOpenGlFallback("OpenGL requested by environment")
+      else:
+        when NeedSiwinOpenGLContext:
+          renderer.backendState.window.makeCurrent()
+        discard renderer.applyRuntimeBackendOverride()
   when UseMetalBackend and defined(macosx):
     if not renderer.backendState.dedicatedRender and renderer.backendKind() == rbMetal:
       let window = renderer.backendState.window
@@ -907,7 +997,8 @@ proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
       renderer.backendState.vulkanMetalLayer.updateMetalLayer(window)
   when NeedSiwinOpenGLContext:
     if renderer.backendKind() == rbOpenGL:
-      when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd)):
+      when UseVulkanBackend and UseOpenGlFallback and
+          (defined(linux) or defined(bsd) or defined(windows)):
         renderer.activateOpenGlFallback()
       else:
         renderer.backendState.window.makeCurrent()
@@ -915,7 +1006,8 @@ proc beginFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
 proc endFrame*(renderer: FigRenderer[SiwinRenderBackend]) =
   ## Siwin OpenGL windows swap after onRender. A fallback context attached to
   ## a Vulkan/software window must be presented explicitly.
-  when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd)):
+  when UseVulkanBackend and UseOpenGlFallback and
+      (defined(linux) or defined(bsd) or defined(windows)):
     if renderer.backendKind() == rbOpenGL:
       renderer.presentOpenGlFallback()
   else:
@@ -935,7 +1027,8 @@ proc renderFrameImpl[Input: RenderInput](
       renderer.backendState.resizeClearColorSet = true
     else:
       renderer.syncResizeBackgroundColor(clearColor)
-  when UseVulkanBackend and UseOpenGlFallback and (defined(linux) or defined(bsd)):
+  when UseVulkanBackend and UseOpenGlFallback and
+      (defined(linux) or defined(bsd) or defined(windows)):
     try:
       figrender.renderFrame(
         renderer,
