@@ -23,9 +23,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import pkg/vulkan
-import pkg/vulkan/wrapper except checkVkResult
-export wrapper except checkVkResult
+import std/[dynlib, locks]
+
+import ./vk14_compat
+export vk14_compat
 
 template checkVkResult*(call: untyped) =
   # Allocation/submission failures must remain checked in danger builds too.
@@ -33,7 +34,7 @@ template checkVkResult*(call: untyped) =
   if status != VkSuccess:
     raiseVkError(astToStr(call) & " returned " & $status, status)
 
-const VulkanDynLib* =
+const VulkanDynLib* {.strdefine: "figdrawVulkanDynlib".} =
   when defined(windows):
     "vulkan-1.dll"
   elif defined(macosx):
@@ -41,9 +42,31 @@ const VulkanDynLib* =
   else:
     "libvulkan.so.1"
 
-proc vkGetInstanceProcAddrNative*(
-  instance: VkInstance, pName: cstring
-): pointer {.stdcall, dynlib: VulkanDynLib, importc: "vkGetInstanceProcAddr".}
+type VulkanGetInstanceProcAddr =
+  proc(instance: VkInstance, pName: cstring): pointer {.stdcall.}
+
+var
+  vulkanLoaderLock: Lock
+  vulkanLibrary: LibHandle
+  vulkanGetInstanceProcAddr: VulkanGetInstanceProcAddr
+
+initLock(vulkanLoaderLock)
+
+proc vkGetInstanceProcAddrNative*(instance: VkInstance, pName: cstring): pointer =
+  var getProc: VulkanGetInstanceProcAddr
+  withLock vulkanLoaderLock:
+    if vulkanGetInstanceProcAddr.isNil:
+      let library = loadLib(VulkanDynLib)
+      if library.isNil:
+        raise newException(LibraryError, "could not load: " & VulkanDynLib)
+      let address = symAddr(library, "vkGetInstanceProcAddr")
+      if address.isNil:
+        unloadLib(library)
+        raise newException(LibraryError, "Vulkan loader lacks vkGetInstanceProcAddr")
+      vulkanLibrary = library
+      vulkanGetInstanceProcAddr = cast[VulkanGetInstanceProcAddr](address)
+    getProc = vulkanGetInstanceProcAddr
+  getProc(instance, pName)
 
 type VulkanDispatch* = ref object
   vkAcquireNextImageKHR*: typeof(vkAcquireNextImageKHR)
