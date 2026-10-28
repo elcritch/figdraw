@@ -9,7 +9,7 @@ import ./textbackends/state as backendState
 export fontfallbacks
 
 when not runtimeTextBackends and figdrawTextBackend != "harfbuzzy" and
-    figdrawTextBackend != "hybrid":
+    figdrawTextBackend notin ["hybrid", "uirelays"]:
   import pkg/pixie/fonts
 
 import ./shared
@@ -33,6 +33,8 @@ when runtimeTextBackends:
   import ./textbackends/runtime as textBackend
 elif figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
   import ./textbackends/harfbuzzy as textBackend
+elif figdrawTextBackend == "uirelays":
+  import ./textbackends/uirelays as textBackend
 else:
   import ./textbackends/pixie as textBackend
 
@@ -45,6 +47,8 @@ proc textBackendAvailable*(backend: TextBackendKind): bool =
       true
     of TextBackendKind.Harfbuzzy, TextBackendKind.Hybrid:
       backendState.harfbuzzyAvailable()
+    of TextBackendKind.Uirelays:
+      false
   else:
     backend == selectedTextBackend()
 
@@ -247,7 +251,7 @@ proc placeGlyphs*(
     return
 
   when not runtimeTextBackends and figdrawTextBackend != "harfbuzzy" and
-      figdrawTextBackend != "hybrid":
+      figdrawTextBackend notin ["hybrid", "uirelays"]:
     let fontInfo = glyphFontFor(style.font)
     let cachedFont = (font: fontInfo.font, glyph: fontInfo.glyph)
 
@@ -260,7 +264,7 @@ proc placeGlyphs*(
   for glyphIndex, (rune, pos) in glyphs:
     let resolved =
       when runtimeTextBackends or figdrawTextBackend == "harfbuzzy" or
-          figdrawTextBackend == "hybrid":
+          figdrawTextBackend in ["hybrid", "uirelays"]:
         textBackend.resolvePlacedGlyph(style.font, rune)
       else:
         (
