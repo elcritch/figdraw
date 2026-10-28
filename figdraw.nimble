@@ -5,7 +5,7 @@ license = "MIT"
 srcDir = "src"
 
 # Dependencies
-requires "nim >= 2.2"
+requires "nim >= 2.2.4"
 requires "sigils >= 0.31.0"
 requires "threading >= 0.2.1"
 requires "pixie >= 5.0.1"
@@ -25,7 +25,7 @@ requires "vmath"
 when defined(macosx):
   requires "https://github.com/elcritch/metalx >= 0.4.2 "
 when defined(linux) or defined(bsd) or defined(windows):
-  requires "https://github.com/planetis-m/vulkan#b223dc9"
+  requires "https://github.com/treeform/vk14#183cf440d6460d97c6b35d6346079d9982f8cd57"
 
 feature "harfbuzz":
   discard # Kept for compatibility with existing Atlas configurations.
@@ -49,7 +49,7 @@ feature "siwin":
 feature "uirelays":
   requires "gh:elcritch/uirelays#feat/rgba-alpha"
 feature "vulkan":
-  requires "https://github.com/planetis-m/vulkan#b223dc9"
+  requires "https://github.com/treeform/vk14#183cf440d6460d97c6b35d6346079d9982f8cd57"
 feature "metal":
   requires "https://github.com/elcritch/metalx#head"
 feature "sharedlib":

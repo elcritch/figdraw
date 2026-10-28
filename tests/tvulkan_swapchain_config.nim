@@ -3,13 +3,15 @@ import std/unittest
 import figdraw/commons
 
 when UseVulkanBackend:
-  import pkg/vulkan
+  import figdraw/vulkan/vk14_compat
   import figdraw/vulkan/vulkan_utils
 
   proc surfaceSupport(
       minImages = 2'u32,
       maxImages = 0'u32,
-      usage = VkImageUsageFlags{ColorAttachmentBit, TransferSrcBit},
+      usage = VkImageUsageFlags(
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT or VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+      ),
   ): SwapChainSupportDetails =
     SwapChainSupportDetails(
       capabilities: VkSurfaceCapabilitiesKHR(
@@ -18,7 +20,9 @@ when UseVulkanBackend:
         currentExtent: newVkExtent2D(width = 0xFFFFFFFF'u32, height = 0xFFFFFFFF'u32),
         minImageExtent: newVkExtent2D(width = 16, height = 16),
         maxImageExtent: newVkExtent2D(width = 4096, height = 4096),
-        supportedCompositeAlpha: VkCompositeAlphaFlagsKHR{OpaqueBit, PreMultipliedBit},
+        supportedCompositeAlpha: VkCompositeAlphaFlagsKHR(
+          VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR or VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR
+        ),
         supportedUsageFlags: usage,
       ),
       formats: @[
@@ -58,7 +62,7 @@ when UseVulkanBackend:
       check config.extent.width == 800
       check config.extent.height == 600
       check config.transferSrcEnabled
-      check TransferSrcBit in config.imageUsage
+      check VK_IMAGE_USAGE_TRANSFER_SRC_BIT in config.imageUsage
 
     test "throughput profile clamps image count to the surface maximum":
       let support = surfaceSupport(minImages = 2, maxImages = 3)
@@ -73,7 +77,8 @@ when UseVulkanBackend:
       check config.imageCount == 3
 
     test "custom preferences select supported format and present mode":
-      var support = surfaceSupport(usage = VkImageUsageFlags{ColorAttachmentBit})
+      var support =
+        surfaceSupport(usage = VkImageUsageFlags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
       support.formats = @[
         VkSurfaceFormatKHR(
           format: VK_FORMAT_UNDEFINED, colorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
@@ -97,7 +102,7 @@ when UseVulkanBackend:
       check config.presentMode == VK_PRESENT_MODE_IMMEDIATE_KHR
       check config.imageCount == 3
       check not config.transferSrcEnabled
-      check TransferSrcBit notin config.imageUsage
+      check VK_IMAGE_USAGE_TRANSFER_SRC_BIT notin config.imageUsage
 else:
   suite "vulkan swapchain configuration":
     test "vulkan backend not enabled":

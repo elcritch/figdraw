@@ -23,9 +23,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import pkg/vulkan
-import pkg/vulkan/wrapper except checkVkResult
-export wrapper except checkVkResult
+import ./vk14_compat
+export vk14_compat
 
 template checkVkResult*(call: untyped) =
   # Allocation/submission failures must remain checked in danger builds too.

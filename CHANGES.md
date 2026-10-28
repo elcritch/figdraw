@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Switch the Vulkan renderer to vk14 while keeping context-local dispatch and
+  Vulkan 1.0 fallback. The vk14 backend requires a 64-bit target and Nim 2.2.4
+  or newer.
 - Select Harfbuzzy automatically when HarfBuzz and FriBidi are available at
   runtime, falling back to Pixie otherwise. Existing layouts retain their
   rasterizer when the selected backend changes.
