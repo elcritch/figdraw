@@ -25,7 +25,7 @@ requires "vmath"
 when defined(macosx):
   requires "https://github.com/elcritch/metalx >= 0.4.2 "
 when defined(linux) or defined(bsd) or defined(windows):
-  requires "https://github.com/planetis-m/vulkan#b223dc9"
+  requires "https://github.com/elcritch/vulkan#0fc8dd2"
 
 feature "harfbuzz":
   discard # Kept for compatibility with existing Atlas configurations.
@@ -49,7 +49,7 @@ feature "siwin":
 feature "uirelays":
   requires "gh:elcritch/uirelays#feat/rgba-alpha"
 feature "vulkan":
-  requires "https://github.com/planetis-m/vulkan#b223dc9"
+  requires "https://github.com/elcritch/vulkan#0fc8dd2"
 feature "metal":
   requires "https://github.com/elcritch/metalx#head"
 feature "sharedlib":
