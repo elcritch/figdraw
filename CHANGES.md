@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Load Vulkan lazily so a missing loader can fall back to OpenGL.
+
 - Select Harfbuzzy automatically when HarfBuzz and FriBidi are available at
   runtime, falling back to Pixie otherwise. Existing layouts retain their
   rasterizer when the selected backend changes.
