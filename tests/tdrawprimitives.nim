@@ -17,6 +17,22 @@ suite "Drawable primitive nodes":
     check ellipse.drawOps[0].ellipseRadii == vec2(10, 5)
     check circle.drawOps[0].center == vec2(10, 5)
     check circle.drawOps[0].radius == 5
+    check ellipse.drawOps[0].strokeBounds == rect(-1, -1, 22, 12)
+    check circle.drawOps[0].strokeBounds == rect(4, -1, 12, 12)
+
+  test "stroke bounds reject other drawable kinds":
+    var line = drawableLine(vec2(0), vec2(1))
+    expect ValueError:
+      discard line.strokeBounds
+    expect ValueError:
+      line.strokeBounds = rect(0, 0, 1, 1)
+
+  test "refresh bounds after changing stroke or geometry":
+    var node = figEllipse(rect(3, 4, 20, 10), fill(rgba(0, 0, 0, 0)))
+    node.drawStroke.weight = 6
+    node.drawOps[0].ellipseRadii = vec2(8, 3)
+    node.prepareDrawableStroke()
+    check node.drawOps[0].strokeBounds == rect(-1, -1, 22, 12)
 
 import pkg/pixie
 import figdraw/figrender

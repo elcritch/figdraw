@@ -14,6 +14,11 @@
 - Add reusable figEllipse, figCircle, figLine, figDashedLine and stroke geometry
   helpers. Center new ellipse/circle helper strokes while preserving existing
   raw drawable behavior, and scale software distance fields like GPU fields.
+- Prepare centered stroke bounds in CPU constructors and pack band half-widths
+  on the CPU. Select explicit GPU band modes to remove per-fragment placement
+  comparisons; refresh edited nodes with prepareDrawableStroke.
+- Decode packed GPU ellipse radii without rounding full elliptical corners to
+  zero at the float32 precision limit.
 - Retain generated images through FigDraw's thread-local ImageRef ownership API.
 
 - Load Vulkan lazily so a missing loader can fall back to OpenGL.

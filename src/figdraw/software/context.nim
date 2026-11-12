@@ -459,18 +459,22 @@ method drawRoundedRectSdf*(
     factor, spread: float32,
     shapeSize: Vec2,
 ) =
-  if mode == sdfModeAnnularAA and spread > 0 and shapeSize.x > 0 and shapeSize.y > 0:
+  if mode == sdfModeCenteredAnnularAA:
+    if rect.w <= 0 or rect.h <= 0:
+      return
+    let resolvedShapeSize =
+      if shapeSize.x > 0 and shapeSize.y > 0: shapeSize else: rect.wh
     let field = initRoundedBoxField(
-      shapeSize * 0.5'f32,
+      resolvedShapeSize * 0.5'f32,
       cornerVector(radii.x),
       cornerVector(radii.y),
       rect.xy + rect.wh * 0.5'f32,
     )
+    let halfWidth = sdfFactor(mode, factor)
     ctx.rasterize(
       rect,
       proc(p: Vec2, aa: float32): ColorRGBX =
-        let distance =
-          abs(field.distance(p) - spread + factor * 0.5'f32) - factor * 0.5'f32
+        let distance = abs(field.distance(p)) - halfWidth
         withCoverage(sampleFill(fill, (p - rect.xy) / rect.wh), coverage(distance, aa)),
     )
   else:
@@ -485,6 +489,28 @@ method drawRoundedRectSdf*(
     factor, spread: float32,
     shapeSize: Vec2,
 ) =
+  if mode == sdfModeCenteredAnnularAA:
+    if rect.w <= 0 or rect.h <= 0:
+      return
+    let resolvedShapeSize =
+      if shapeSize.x > 0 and shapeSize.y > 0: shapeSize else: rect.wh
+    let
+      field = initRoundedBoxField(
+        resolvedShapeSize * 0.5'f32,
+        cornerVector(radii.x),
+        cornerVector(radii.y),
+        rect.xy + rect.wh * 0.5'f32,
+      )
+      halfWidth = sdfFactor(mode, factor)
+    ctx.rasterize(
+      rect,
+      proc(p: Vec2, aa: float32): ColorRGBX =
+        let distance = abs(field.distance(p)) - halfWidth
+        withCoverage(
+          sampleColors(colors, (p - rect.xy) / rect.wh), coverage(distance, aa)
+        ),
+    )
+    return
   let paint =
     if rect.w > 0 and rect.h > 0:
       initBilinearPaint([colors[3], colors[2], colors[1], colors[0]], rect.xy, rect.wh)

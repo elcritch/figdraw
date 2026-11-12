@@ -32,6 +32,7 @@ const uint sdfModeDropShadowAA = 8u;
 const uint sdfModeInsetShadow = 9u;
 const uint sdfModeAnnular = 11u;
 const uint sdfModeAnnularAA = 12u;
+const uint sdfModeCenteredAnnularAA = 21u;
 const uint sdfModeMsdf = 13u;
 const uint sdfModeMtsdf = 14u;
 const uint sdfModeMsdfAnnular = 15u;
@@ -79,7 +80,7 @@ float sdRoundedCorner(vec2 p, vec2 b, float radius) {
 
 vec2 unpackCornerRadii(float packed, vec2 halfExtents) {
   packed = min(
-    floor(packed + 0.5), packedRadiusAxisMax * (packedRadiusAxisScale + 1.0)
+    floor(packed), packedRadiusAxisMax * (packedRadiusAxisScale + 1.0)
   );
   float qy = floor(packed / packedRadiusAxisScale);
   float qx = packed - qy * packedRadiusAxisScale;
@@ -351,18 +352,18 @@ void main() {
         break;
       }
       case sdfModeAnnular: {
-        float f = sdfFactor * 0.5;
-        float centerOffset = (quadHalfExtents.x > shapeHalfExtents.x ||
-          quadHalfExtents.y > shapeHalfExtents.y) ? f : 0.0;
-        float sd = abs(dist + f - centerOffset) - f;
+        float sd = abs(dist + sdfFactor) - sdfFactor;
         alpha = (sd < 0.0) ? 1.0 : 0.0;
         break;
       }
       case sdfModeAnnularAA: {
-        float f = sdfFactor * 0.5;
-        float centerOffset = (quadHalfExtents.x > shapeHalfExtents.x ||
-          quadHalfExtents.y > shapeHalfExtents.y) ? f : 0.0;
-        float sd = abs(dist + f - centerOffset) - f;
+        float sd = abs(dist + sdfFactor) - sdfFactor;
+        float cl = clamp(uFS.aaFactor * sd + 0.5, 0.0, 1.0);
+        alpha = 1.0 - cl;
+        break;
+      }
+      case sdfModeCenteredAnnularAA: {
+        float sd = abs(dist) - sdfFactor;
         float cl = clamp(uFS.aaFactor * sd + 0.5, 0.0, 1.0);
         alpha = 1.0 - cl;
         break;

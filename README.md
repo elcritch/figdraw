@@ -178,8 +178,12 @@ list.addRoot(oval)
 list.addRoot(line)
 ```
 
-The ellipse/circle helpers center strokes on the supplied path bounds. Existing
-raw drawable constructors retain their inset-stroke behavior. Lower-level
+The ellipse/circle helpers center strokes on the supplied path bounds and prepare
+the drawing bounds on the CPU. After changing a node's stroke width or drawable
+geometry, call `node.prepareDrawableStroke()` to refresh those bounds. Existing
+raw drawable constructors retain their inset-stroke behavior. The CPU selects an
+explicit stroke mode and packs its half-width, so fragment shaders evaluate the
+band directly without inferring placement from the quad dimensions. Lower-level
 `drawableDashedLineOps`, `drawableFilledQuad`, `strokeOutline`, and
 `drawableStrokeOutlineOps` expose reusable geometry. Dashed line operations and
 stroke-outline meshes can overlap: use a combined outline for translucent cap

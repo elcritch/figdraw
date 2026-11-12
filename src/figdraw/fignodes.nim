@@ -22,6 +22,7 @@ type
     of dkCircle:
       center*: Vec2
       radius*: float32
+      circleStrokeBounds: Rect
     of dkRectangle:
       box*: Rect
       corners*: CornerRadii
@@ -37,6 +38,7 @@ type
     of dkEllipse:
       ellipseCenter*: Vec2
       ellipseRadii*: Vec2
+      ellipseStrokeBounds: Rect
     of dkFilledQuad:
       quadVertices*: array[4, Vec2]
 
@@ -95,6 +97,8 @@ type
       discard
 
 static:
+  doAssert sizeof(DrawableOp) <= 40,
+    "DrawableOp should fit its original variant payload"
   {.warning: "Fig node size: " & $sizeof(Fig).}
   doAssert sizeof(Fig) <= 256,
     "FigNode SIZE: should be at most 256 bytes! Got: " & $sizeof(Fig)
@@ -231,6 +235,55 @@ proc remappedNodes(list: RenderList, insertIdx: int, parentIdx: FigIdx): seq[Fig
 proc relevelNodes(nodes: var seq[Fig], lvl: ZLevel) =
   for node in nodes.mitems:
     node.zlevel = lvl
+
+proc strokeBounds*(op: DrawableOp): Rect =
+  ## Prepared local bounds for a centered circle or ellipse stroke.
+  ## Raises ValueError for other drawable kinds.
+  case op.kind
+  of dkCircle:
+    op.circleStrokeBounds
+  of dkEllipse:
+    op.ellipseStrokeBounds
+  else:
+    raise newException(ValueError, "stroke bounds require a circle or ellipse")
+
+proc `strokeBounds=`*(op: var DrawableOp, bounds: Rect) =
+  ## Set prepared local bounds for a centered circle or ellipse stroke.
+  ## Raises ValueError for other drawable kinds.
+  case op.kind
+  of dkCircle:
+    op.circleStrokeBounds = bounds
+  of dkEllipse:
+    op.ellipseStrokeBounds = bounds
+  else:
+    raise newException(ValueError, "stroke bounds require a circle or ellipse")
+
+proc prepareDrawableStroke*(node: var Fig) =
+  ## Refresh centered stroke bounds after changing drawable geometry or stroke weight.
+  ## Raw drawables remain inset unless `centeredStroke` is enabled.
+  if node.kind != nkDrawable:
+    return
+  let halfWidth = max(0.0'f32, node.drawStroke.weight) * 0.5'f32
+  for op in node.drawOps.mitems:
+    if op.centeredStroke:
+      case op.kind
+      of dkCircle:
+        let radius = max(0.0'f32, op.radius) + halfWidth
+        op.strokeBounds =
+          rect(op.center.x - radius, op.center.y - radius, radius * 2, radius * 2)
+      of dkEllipse:
+        let radii = vec2(
+          max(0.0'f32, op.ellipseRadii.x) + halfWidth,
+          max(0.0'f32, op.ellipseRadii.y) + halfWidth,
+        )
+        op.strokeBounds = rect(
+          op.ellipseCenter.x - radii.x,
+          op.ellipseCenter.y - radii.y,
+          radii.x * 2,
+          radii.y * 2,
+        )
+      else:
+        discard
 
 proc drawableLine*(a, b: Vec2): DrawableOp =
   DrawableOp(kind: dkLine, a: a, b: b)

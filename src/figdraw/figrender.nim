@@ -1162,6 +1162,7 @@ proc renderDrawableCircle(
   if op.centeredStroke:
     var ellipse = drawableEllipse(op.center, vec2(radius))
     ellipse.centeredStroke = true
+    ellipse.strokeBounds = op.strokeBounds
     ctx.renderDrawableEllipse(origin, ellipse, fill, stroke)
   else:
     let box = rect(
@@ -1679,21 +1680,19 @@ proc renderDrawableEllipse(
     return
   ctx.renderRoundedShape(box, fill, RenderStroke(), corners)
   if fillAlphaMax(stroke.fill) > 0'u8 and stroke.weight > 0:
-    let
-      halfWidth = stroke.weight * 0.5'f32
-      outer = rect(
-        box.x - halfWidth,
-        box.y - halfWidth,
-        box.w + stroke.weight,
-        box.h + stroke.weight,
-      )
+    let outer = rect(
+      origin.x + op.strokeBounds.x,
+      origin.y + op.strokeBounds.y,
+      op.strokeBounds.w,
+      op.strokeBounds.h,
+    )
     ctx.drawRoundedRectSdf(
       rect = outer.scaled(),
       fill = stroke.fill.toBackendFill(),
       radii = corners.scaledCorners(),
-      mode = figbackend.SdfMode.sdfModeAnnularAA,
+      mode = figbackend.SdfMode.sdfModeCenteredAnnularAA,
       factor = stroke.weight.scaled(),
-      spread = halfWidth.scaled(),
+      spread = 0.0,
       shapeSize = box.wh.scaled(),
     )
 

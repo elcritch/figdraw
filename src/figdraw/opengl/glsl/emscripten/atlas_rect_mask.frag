@@ -34,6 +34,7 @@ const int sdfModeDropShadowAA = 8;
 const int sdfModeInsetShadow = 9;
 const int sdfModeAnnular = 11;
 const int sdfModeAnnularAA = 12;
+const int sdfModeCenteredAnnularAA = 21;
 const int sdfModeMsdf = 13;
 const int sdfModeMtsdf = 14;
 const int sdfModeMsdfAnnular = 15;
@@ -92,7 +93,7 @@ float selectCornerRadius(vec4 radii, vec2 p) {
 }
 
 vec2 decodeEllipticalCornerRadii(vec4 packedRadii, vec2 halfExtents, vec2 p) {
-  float packedValue = floor(selectCornerRadius(packedRadii, p) + 0.5);
+  float packedValue = floor(selectCornerRadius(packedRadii, p));
   return vec2(
     mod(packedValue, 4096.0) * halfExtents.x / 4095.0,
     floor(packedValue / 4096.0) * halfExtents.y / 4095.0
@@ -352,16 +353,14 @@ void main() {
       float cl = clamp(aaFactor * sd + 0.5, 0.0, 1.0);
       alpha = 1.0 - cl;
     } else if (sdfModeInt == sdfModeAnnular) {
-      float f = sdfFactor * 0.5;
-      float centerOffset = (quadHalfExtents.x > shapeHalfExtents.x ||
-          quadHalfExtents.y > shapeHalfExtents.y) ? f : 0.0;
-        float sd = abs(dist + f - centerOffset) - f;
+      float sd = abs(dist + sdfFactor) - sdfFactor;
       alpha = (sd < 0.0) ? 1.0 : 0.0;
     } else if (sdfModeInt == sdfModeAnnularAA) {
-      float f = sdfFactor * 0.5;
-      float centerOffset = (quadHalfExtents.x > shapeHalfExtents.x ||
-          quadHalfExtents.y > shapeHalfExtents.y) ? f : 0.0;
-        float sd = abs(dist + f - centerOffset) - f;
+      float sd = abs(dist + sdfFactor) - sdfFactor;
+      float cl = clamp(aaFactor * sd + 0.5, 0.0, 1.0);
+      alpha = 1.0 - cl;
+    } else if (sdfModeInt == sdfModeCenteredAnnularAA) {
+      float sd = abs(dist) - sdfFactor;
       float cl = clamp(aaFactor * sd + 0.5, 0.0, 1.0);
       alpha = 1.0 - cl;
     } else if (sdfModeInt == sdfModeDropShadow) {

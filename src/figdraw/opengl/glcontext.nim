@@ -1615,9 +1615,9 @@ proc drawRoundedRectSdfOpenGl(
 
   let factors =
     if fillMode == SdfFillSolidOrVertex:
-      vec2(factor, spread)
+      vec2(sdfFactor(mode, factor), spread)
     else:
-      vec2(factor, clamp(fillMidPos, 0.01'f32, 0.99'f32))
+      vec2(sdfFactor(mode, factor), clamp(fillMidPos, 0.01'f32, 0.99'f32))
   ctx.sdfFactors.data.setVert2(offset + 0, factors)
   ctx.sdfFactors.data.setVert2(offset + 1, factors)
   ctx.sdfFactors.data.setVert2(offset + 2, factors)
@@ -1667,7 +1667,9 @@ method drawRoundedRectSdf*(
     shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
 ) =
   if fill.kind == figbackend.bfLinear3 and
-      mode in {sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA}:
+      mode in {
+        sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA, sdfModeCenteredAnnularAA
+      }:
     ctx.drawRoundedRectSdfOpenGl(
       rect = rect,
       colors = [fill.lin3Start, fill.lin3Start, fill.lin3Start, fill.lin3Start],

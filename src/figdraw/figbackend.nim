@@ -52,6 +52,14 @@ type SdfMode* {.pure.} = enum
   sdfModeBezierStrokeAA = 18
   sdfModeBezierStrokeButtAA = 19
   sdfModeBezierStrokeSquareAA = 20
+  sdfModeCenteredAnnularAA = 21
+
+func sdfFactor*(mode: SdfMode, factor: float32): float32 =
+  ## Pack band widths as half-widths while preserving full-width API inputs.
+  if mode in {sdfModeAnnular, sdfModeAnnularAA, sdfModeCenteredAnnularAA}:
+    max(factor, 0'f32) * 0.5'f32
+  else:
+    factor
 
 func bezierStrokeSdfMode*(cap: StrokeCap): SdfMode =
   case cap
