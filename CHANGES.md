@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.47.0
+
+- Import Merenda's SVG parser and ordered drawing layers through `figdraw/svg`.
+  Preserve solid source paints, opacity, transforms, and fill rules using MTSDF
+  fills and vector strokes/circles, with tint and RenderList parent support.
+  Retain generated images through FigDraw's ImageRef ownership API.
+
 - Load Vulkan lazily so a missing loader can fall back to OpenGL.
 
 - Select Harfbuzzy automatically when HarfBuzz and FriBidi are available at

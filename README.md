@@ -106,6 +106,49 @@ The most stable entry points today are:
 - Scene graph nodes: `import figdraw/fignodes`
 - OpenGL backend: `import figdraw/figrender`
 
+### SVG drawing layers
+
+Import `figdraw/svg` to load SVGs as ordered paint layers. This code comes from
+Merenda: complex fills use compact MTSDF images, while circles and line/Bézier
+strokes remain vector drawables. Source colors, inherited paints, opacity,
+transforms, and fill rules are preserved. Ellipse fills and strokes share one
+MTSDF image. The loader supports paths, lines, polylines, polygons, rectangles,
+circles, and ellipses. Gradient fills are unsupported and raise `SvgMtsdfError`.
+It retains Merenda's stroke-width approximation for nonuniform transforms and
+rounds fractional viewBox components to match Pixie's integer viewport parser.
+
+```nim
+import figdraw/svg
+
+# Load once and retain while rendering the resulting nodes.
+let icon = newSvgMtsdfResourceFromFile("data/Yellow_Star_with_rounded_edges.svg")
+var list: RenderList
+list.addSvgMtsdf(rect(16, 16, 128, 128), icon)
+
+# Optional: override every source fill and stroke with one tint.
+list.addSvgMtsdf(rect(160, 16, 128, 128), icon, fill(rgba(40, 120, 220, 255)))
+
+let scene = newRenders()
+scene.setLayer(0.ZLevel, list)
+```
+
+Use `newSvgMtsdfResource(svgText)` for an in-memory document. `longEdge`,
+`minimumShortEdge`, and `pixelRange` control the generated distance fields.
+Each resource exposes its ordered `layers`, document `size` (`Vec2`), and
+`elementCount`. Pass `parent = someFigIdx` to append beneath an existing node.
+Targets stretch the document to the supplied rectangle.
+
+Resources retain ordinary `ImageRef` handles; render nodes borrow their IDs.
+Keep resources on their creating thread and alive for as long as their nodes
+are rendered. Unnamed resources use document contents and field settings as
+cache identities. An explicit `name` selects a shared identity, so use distinct
+names for different resources. Parse, generation, and file-read failures raise
+`SvgMtsdfError`.
+
+Run `nim r examples/svg_layers.nim [input.svg] [output.png]` to render an SVG
+with the software backend. The imported code's licenses and source revision
+are recorded in [SVG source notices](docs/licenses/SVG-SOURCES.md).
+
 ### Experimental software rendering with uirelays or Siwin
 
 The software backend renders ordinary FigDraw scenes into Pixie images using
