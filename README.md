@@ -108,17 +108,20 @@ The most stable entry points today are:
 
 ### SVG drawing layers
 
-Import `figdraw/svg` to load SVGs as ordered paint layers. This code comes from
+Import `figdraw/svgs/svg` to load SVGs as ordered paint layers. This code comes from
 Merenda: complex fills use compact MTSDF images, while circles and line/Bézier
-strokes remain vector drawables. Source colors, inherited paints, opacity,
-transforms, and fill rules are preserved. Ellipse fills and strokes share one
+strokes remain vector drawables. The loader carries solid source paints, simple
+opacity, transforms, and fill rules into FigDraw nodes. Ellipse fills and strokes share one
 MTSDF image. The loader supports paths, lines, polylines, polygons, rectangles,
 circles, and ellipses. Gradient fills are unsupported and raise `SvgMtsdfError`.
 It retains Merenda's stroke-width approximation for nonuniform transforms and
 rounds fractional viewBox components to match Pixie's integer viewport parser.
+The imported subset does not yet implement SVG CSS/currentColor, use/symbol
+instances, clipping/masking, faithful stroke joins/dashes, or isolated group
+opacity. Documents currently require a viewBox.
 
 ```nim
-import figdraw/svg
+import figdraw/svgs/svg
 
 # Load once and retain while rendering the resulting nodes.
 let icon = newSvgMtsdfResourceFromFile("data/Yellow_Star_with_rounded_edges.svg")
@@ -146,7 +149,8 @@ names for different resources. Parse, generation, and file-read failures raise
 `SvgMtsdfError`.
 
 Run `nim r examples/svg_layers.nim [input.svg] [output.png]` to render an SVG
-with the software backend. The imported code's licenses and source revision
+with the software backend. The demo uses the bundled Ghostscript tiger by default
+and writes `svg_layers.png`. The imported code's licenses and source revision
 are recorded in [SVG source notices](docs/licenses/SVG-SOURCES.md).
 
 ### Experimental software rendering with uirelays or Siwin

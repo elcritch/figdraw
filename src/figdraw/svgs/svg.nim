@@ -1,7 +1,7 @@
 ## Draw ordered SVG fill and stroke layers using ordinary FigDraw nodes.
 ## Adapted from Merenda; see docs/licenses/MERENDA.txt (BSD-3-Clause).
 
-import ./fignodes
+import ../fignodes
 import ./svgimages
 
 export fignodes, svgimages

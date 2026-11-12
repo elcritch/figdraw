@@ -1,6 +1,6 @@
 import std/unittest
 import pkg/pixie
-import figdraw/svgpathloader
+import figdraw/svgs/svgpathloader
 
 suite "SVG path loader":
   test "parses paths and inherited paint in document coordinates":

@@ -2,7 +2,8 @@
 ## Run: nim r examples/svg_layers.nim [input.svg] [output.png]
 import std/os
 import pixie
-import figdraw/[svg, figrender]
+import figdraw/svgs/svg
+import figdraw/figrender
 import figdraw/software/context
 
 let
@@ -10,7 +11,7 @@ let
     if paramCount() > 0:
       paramStr(1)
     else:
-      "data/Yellow_Star_with_rounded_edges.svg"
+      "data/Ghostscript_Tiger.svg"
   output =
     if paramCount() > 1:
       paramStr(2)

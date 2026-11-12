@@ -1,5 +1,5 @@
 import std/[math, unittest]
-import figdraw/svg
+import figdraw/svgs/svg
 
 const mixedSvg = """
 <svg viewBox="0 0 80 40">

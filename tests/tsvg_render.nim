@@ -1,6 +1,7 @@
 import std/unittest
 import pkg/pixie
-import figdraw/[svg, figrender]
+import figdraw/svgs/svg
+import figdraw/figrender
 import figdraw/software/context
 
 suite "SVG software rendering":

@@ -6,7 +6,7 @@ import std/[hashes, math]
 import pkg/pixie
 import pkg/sdfy/msdfgen
 
-import ./fignodes
+import ../fignodes
 import ./svgpathloader
 
 const
