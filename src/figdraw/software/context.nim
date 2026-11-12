@@ -29,6 +29,7 @@ type
     pixelScaleValue, aaFactor: float32
     presenter: FramePresenter
     rasterWorkers: RasterWorkers
+    opacityGroups: seq[tuple[backing, mask: Image, opacity: float32]]
 
   PixelSampler = proc(p: Vec2, aaWidth: float32): ColorRGBX {.closure.}
   PixelBatchSampler =
@@ -270,6 +271,8 @@ method clearTypefaceGlyphs*(ctx: SoftwareContext, typefaceId: TypefaceId) =
 method beginFrame*(
     ctx: SoftwareContext, frameSize: Vec2, clearMain: bool, clearMainColor: Color
 ) =
+  if ctx.opacityGroups.len != 0:
+    raise newException(ValueError, "Unbalanced software opacity group stack")
   let
     width = ceil(frameSize.x * ctx.pixelScaleValue).int
     height = ceil(frameSize.y * ctx.pixelScaleValue).int
@@ -281,10 +284,13 @@ method beginFrame*(
   ctx.transforms.setLen(0)
   ctx.mask = nil
   ctx.masks.setLen(0)
+  ctx.opacityGroups.setLen(0)
   if clearMain:
     ctx.backing.fill(clearMainColor)
 
 method endFrame*(ctx: SoftwareContext) =
+  if ctx.opacityGroups.len != 0:
+    raise newException(ValueError, "Unbalanced software opacity group stack")
   if not ctx.presenter.isNil:
     ctx.presenter(ctx.backing)
 
@@ -517,6 +523,28 @@ method drawRoundedRectSdf*(
     else:
       initSolidPaint(colors[0])
   ctx.drawRounded(rect, paint, radii, mode, factor, spread, shapeSize)
+
+method beginOpacityGroup*(ctx: SoftwareContext, opacity: float32) =
+  ctx.opacityGroups.add((ctx.backing, ctx.mask, clamp(opacity, 0'f32, 1'f32)))
+  ctx.backing = newImage(ctx.backing.width, ctx.backing.height)
+  ctx.mask = nil
+
+method endOpacityGroup*(ctx: SoftwareContext) =
+  if ctx.opacityGroups.len == 0:
+    raise newException(ValueError, "Unbalanced software opacity group stack")
+  let layer = ctx.backing
+  let group = ctx.opacityGroups.pop()
+  ctx.backing = group.backing
+  ctx.mask = group.mask
+  let alpha = round(group.opacity * 255).uint8
+  for y in 0 ..< layer.height:
+    for x in 0 ..< layer.width:
+      let mask =
+        if ctx.mask.isNil:
+          alpha
+        else:
+          ((alpha.uint32 * ctx.mask[x, y].a.uint32 + 127) div 255).uint8
+      ctx.backing[x, y] = over(layer[x, y], ctx.backing[x, y], mask)
 
 method beginMask*(ctx: SoftwareContext, clipRect: Rect, radii: CornerRadii2D[float32]) =
   let

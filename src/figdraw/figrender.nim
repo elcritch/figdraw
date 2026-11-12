@@ -1860,6 +1860,11 @@ proc render[Input: RenderInput](
     finally:
       ctx.restoreTransform()
 
+    ifrender node.kind == nkOpacityGroup:
+      ctx.beginOpacityGroup(node.opacity)
+    finally:
+      ctx.endOpacityGroup()
+
     ifrender node.kind == nkRectangle:
       ctx.renderDropShadows(node)
 

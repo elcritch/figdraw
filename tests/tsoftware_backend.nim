@@ -14,6 +14,55 @@ when defined(features.figdraw.uirelays):
     ctx.readPixels(rect(0, 0, 0, 0), false)
 
   suite "software sdfy backend":
+    test "opacity groups composite overlapping and nested content once":
+      let ctx = newSoftwareContext()
+      ctx.begin()
+      ctx.beginMask(rect(0, 0, 40, 40), [0'f32, 0, 0, 0])
+      ctx.endMask()
+      ctx.beginOpacityGroup(0.5)
+      ctx.drawRect(rect(2, 2, 20, 20), color(1, 0, 0, 1))
+      ctx.drawRect(rect(10, 2, 20, 20), color(1, 0, 0, 1))
+      ctx.beginOpacityGroup(0.5)
+      ctx.drawRect(rect(2, 25, 50, 10), color(0, 0, 1, 1))
+      ctx.endOpacityGroup()
+      ctx.endOpacityGroup()
+      ctx.popMask()
+      ctx.drawRect(rect(50, 50, 5, 5), color(0, 1, 0, 1))
+      let image = ctx.capture()
+      check abs(image[5, 5].a.int - 128) <= 1
+      check abs(image[15, 5].a.int - 128) <= 1
+      check abs(image[5, 30].a.int - 64) <= 1
+      check image[45, 30].a == 0
+      check image[52, 52].g == 255
+
+    test "scene opacity group renders children together":
+      let ctx = newSoftwareContext()
+      let renderer = newFigRenderer(ctx)
+      var nodes = newRenders()
+      let group = nodes.addRoot(0.ZLevel, Fig(kind: nkOpacityGroup, opacity: 0.5))
+      discard nodes.addChild(
+        0.ZLevel,
+        group,
+        Fig(
+          kind: nkRectangle,
+          screenBox: rect(2, 2, 20, 20),
+          fill: fill(rgba(255, 0, 0, 255)),
+        ),
+      )
+      discard nodes.addChild(
+        0.ZLevel,
+        group,
+        Fig(
+          kind: nkRectangle,
+          screenBox: rect(10, 2, 20, 20),
+          fill: fill(rgba(255, 0, 0, 255)),
+        ),
+      )
+      renderer.renderFrame(nodes, vec2(64, 64), clearColor = color(0, 0, 0, 0))
+      let image = ctx.capture()
+      check abs(image[5, 5].a.int - 128) <= 1
+      check abs(image[15, 5].a.int - 128) <= 1
+
     test "elliptical corners use both axes in image corner order":
       let ctx = newSoftwareContext()
       ctx.begin()

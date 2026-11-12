@@ -5,6 +5,72 @@ import figdraw/figrender
 import figdraw/software/context
 
 suite "SVG raster compositing":
+  test "opacity groups retain native primitives and isolate raster effects":
+    let resource = newSvgMtsdfResource(
+      """
+<svg viewBox='0 0 64 64'><defs><mask id='m' mask-type='alpha'>
+<rect width='64' height='64' fill='white' opacity='.5'/></mask></defs>
+<g opacity='.5'><rect width='32' height='32' fill='red'/>
+<g opacity='.5'><g mask='url(#m)'><rect x='32' width='32' height='32' fill='blue'/>
+</g></g></g><rect y='32' width='64' height='32' fill='lime'/></svg>
+"""
+    )
+    var kinds: seq[SvgLayerKind]
+    for layer in resource.layers:
+      kinds.add layer.kind
+    check kinds ==
+      @[
+        slkGroupStart, slkRectangle, slkGroupStart, slkRasterGroup, slkGroupEnd,
+        slkGroupEnd, slkRectangle,
+      ]
+    check resource.elementCount == 3
+    var list: RenderList
+    let parent = list.addRoot(Fig(kind: nkFrame))
+    list.addSvgMtsdf(rect(0, 0, 64, 64), resource, parent = parent)
+    check list.rootIds == @[parent]
+    check list.nodes[0].childCount == 2
+    check list.nodes[1].kind == nkOpacityGroup
+    check list.nodes[1].opacity == 0.5
+    var scene = newRenders()
+    scene.setLayer(0.ZLevel, list)
+    let ctx = newSoftwareContext(workers = 1)
+    newFigRenderer(ctx).renderFrame(scene, vec2(64, 64), clearColor = color(0, 0, 0, 0))
+    let image = ctx.readPixels(rect(0, 0, 0, 0), false)
+    check image[8, 8].a in 126'u8 .. 129'u8
+    check image[40, 8].a in 30'u8 .. 34'u8
+    check image[40, 8].b == image[40, 8].a
+    check image[8, 40].g == 255
+
+  test "raster subgroups leave enclosing opacity open for later siblings":
+    let resource = newSvgMtsdfResource(
+      """
+<svg viewBox='0 0 64 64'><defs><mask id='m' mask-type='alpha'>
+<rect width='64' height='64' fill='white' opacity='.5'/></mask>
+<linearGradient id='g'><stop stop-color='red'/><stop offset='1' stop-color='blue'/>
+</linearGradient></defs><g opacity='.5'><g mask='url(#m)'>
+<rect width='32' height='16'/><rect y='16' width='32' height='16'/></g>
+<rect x='32' width='32' height='32' fill='url(#g)'/>
+<rect y='32' width='64' height='32' fill='lime'/></g></svg>
+"""
+    )
+    var kinds: seq[SvgLayerKind]
+    for layer in resource.layers:
+      kinds.add layer.kind
+    check kinds ==
+      @[slkGroupStart, slkRasterGroup, slkRasterGroup, slkRectangle, slkGroupEnd]
+    var list: RenderList
+    list.addSvgMtsdf(rect(0, 0, 64, 64), resource, fill(rgba(255, 0, 0, 255)))
+    var scene = newRenders()
+    scene.setLayer(0.ZLevel, list)
+    let ctx = newSoftwareContext(workers = 1)
+    newFigRenderer(ctx).renderFrame(scene, vec2(64, 64), clearColor = color(0, 0, 0, 0))
+    let image = ctx.readPixels(rect(0, 0, 0, 0), false)
+    check image[8, 8].a in 62'u8 .. 65'u8
+    check image[40, 8].a in 126'u8 .. 129'u8
+    check image[8, 40].a in 126'u8 .. 129'u8
+    check image[8, 40].r == image[8, 40].a
+    check image[8, 40].g == 0
+
   test "group opacity applies once to overlapping shapes":
     let document = parseSvgDocument(
       """

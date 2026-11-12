@@ -164,9 +164,22 @@ proc addSvgMtsdfLayers(
     return (-1).FigIdx
 
   result = (-1).FigIdx
+  var currentParent = parent
+  var parents: seq[FigIdx]
   for svgLayer in svg.layers:
     let fillValue = svgLayer.layerFill(paintOverride)
     case svgLayer.kind
+    of slkGroupStart:
+      parents.add currentParent
+      result = list.addSvgNode(
+        currentParent,
+        Fig(kind: nkOpacityGroup, screenBox: target, opacity: svgLayer.groupOpacity),
+      )
+      currentParent = result
+    of slkGroupEnd:
+      if parents.len == 0:
+        raise newException(SvgMtsdfError, "Unbalanced SVG opacity groups")
+      currentParent = parents.pop()
     of slkMtsdfFill, slkMtsdfStroke:
       if not svgLayer.image.isNil:
         let
@@ -178,7 +191,7 @@ proc addSvgMtsdfLayers(
             else:
               strokeWeight
         result = list.addSvgNode(
-          parent,
+          currentParent,
           Fig(
             kind: nkMtsdfImage,
             screenBox: layerRect,
@@ -198,7 +211,7 @@ proc addSvgMtsdfLayers(
       if requiresUnion:
         let field = svgLayer.meshFallback()
         result = list.addSvgNode(
-          parent,
+          currentParent,
           Fig(
             kind: nkMtsdfImage,
             screenBox: target.svgLayerRect(svg.size, field.frame),
@@ -212,14 +225,14 @@ proc addSvgMtsdfLayers(
         )
       else:
         let transformIndex =
-          list.svgTransformNode(parent, target, svg.size, svgLayer.transform)
+          list.svgTransformNode(currentParent, target, svg.size, svgLayer.transform)
         result = list.addSvgNode(
           transformIndex, target.svgPathNode(svg.size, svgLayer, fillValue)
         )
     of slkStrokeMesh:
       if fillValue.kind == flColor and fillValue.color.a == 255:
         let transformIndex =
-          list.svgTransformNode(parent, target, svg.size, svgLayer.transform)
+          list.svgTransformNode(currentParent, target, svg.size, svgLayer.transform)
         result = list.addSvgNode(
           transformIndex,
           Fig(
@@ -232,7 +245,7 @@ proc addSvgMtsdfLayers(
       else:
         let field = svgLayer.meshFallback()
         result = list.addSvgNode(
-          parent,
+          currentParent,
           Fig(
             kind: nkMtsdfImage,
             screenBox: target.svgLayerRect(svg.size, field.frame),
@@ -253,7 +266,7 @@ proc addSvgMtsdfLayers(
         else:
           fill(rgba(255, 255, 255, 255))
       result = list.addSvgNode(
-        parent,
+        currentParent,
         Fig(
           kind: nkImage,
           screenBox: target.svgLayerRect(svg.size, svgLayer.rasterFrame),
@@ -267,8 +280,11 @@ proc addSvgMtsdfLayers(
         else:
           fill(svgLayer.strokePaint.rgba)
       result = list.svgPrimitiveNodes(
-        parent, target, svg.size, svgLayer, fillValue, strokeFillValue
+        currentParent, target, svg.size, svgLayer, fillValue, strokeFillValue
       )
+
+  if parents.len != 0:
+    raise newException(SvgMtsdfError, "Unbalanced SVG opacity groups")
 
 proc addSvgMtsdf*(
     list: var RenderList,

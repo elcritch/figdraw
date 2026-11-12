@@ -229,3 +229,49 @@ suite "cached software image layers":
     ctx.drawRect(rect(20, 20, 8, 8), color(0, 1, 0, 1))
     check frame.image[4, 4].r == 255
     check frame.image[20, 20].g == 255
+
+  test "opacity groups composite overlaps once and retain nested transforms":
+    let frame = ComposedFrame()
+    let ctx = frame.newContext(native = true)
+    ctx.begin()
+    ctx.beginOpacityGroup(0.5)
+    ctx.drawRect(rect(2, 2, 16, 16), color(1, 0, 0, 1))
+    ctx.drawRect(rect(10, 2, 16, 16), color(1, 0, 0, 1))
+    ctx.saveTransform()
+    ctx.translate(vec2(30, 0))
+    ctx.beginOpacityGroup(0.5)
+    ctx.drawRect(rect(0, 2, 8, 8), color(0, 0, 1, 1))
+    ctx.endOpacityGroup()
+    ctx.restoreTransform()
+    ctx.endOpacityGroup()
+    ctx.endFrame()
+    let image = ctx.readPixels(rect(0, 0, 0, 0), false)
+    check image[4, 4].a == image[12, 4].a
+    check image[4, 4].a in 127'u8 .. 128'u8
+    check image[32, 4].a in 63'u8 .. 64'u8
+
+  test "inherited fractional mask clips overlapping group children once":
+    let frame = ComposedFrame()
+    let ctx = frame.newContext(native = true)
+    proc render(overlap: bool): Image =
+      ctx.begin()
+      ctx.beginMask(rect(5.5, 5.5, 25, 25), radii())
+      ctx.endMask()
+      ctx.beginOpacityGroup(0.5)
+      ctx.drawRect(rect(0, 0, 40, 40), color(1, 0, 0, 1))
+      if overlap:
+        ctx.drawRect(rect(0, 0, 40, 40), color(1, 0, 0, 1))
+      ctx.endOpacityGroup()
+      ctx.popMask()
+      ctx.endFrame()
+      ctx.readPixels(rect(0, 0, 0, 0), false)
+
+    let single = render(false)
+    let overlap = render(true)
+    var fractional = false
+    for y in 0 ..< 40:
+      for x in 0 ..< 40:
+        check single[x, y].a == overlap[x, y].a
+        if single[x, y].a > 0 and single[x, y].a < 127:
+          fractional = true
+    check fractional

@@ -43,8 +43,17 @@ type RectMask = object
   matX: Vec4
   matY: Vec4
 
+type OpacityGroup = object
+  texture: Texture
+  framebuffer: GLuint
+  opacity: float32
+  outerMasks, innerMasks: seq[Texture]
+  outerMaskWrite: int
+  outerRectMasks: seq[RectMask]
+
 type OpenGlContext* = ref object of figbackend.BackendContext
-  mainShader, rectMaskShader, maskShader, blurShader, activeShader: Shader
+  mainShader, rectMaskShader, maskShader, blurShader, compositeShader, activeShader:
+    Shader
   atlasTexture: Texture
   backdropTexture: Texture
   backdropBlurTempTexture: Texture
@@ -63,7 +72,9 @@ type OpenGlContext* = ref object of figbackend.BackendContext
   proj*: Mat4
   frameSize: Vec2 ## Dimensions of the window frame
   vertexArrayId, rectMaskVertexArrayId, maskVertexArrayId, blurVertexArrayId: GLuint
-  maskFramebufferId, blurFramebufferId: GLuint
+  maskFramebufferId, blurFramebufferId, compositeVertexArrayId: GLuint
+  opacityGroups: seq[OpacityGroup]
+  opacityDepth: int
   frameBegun, maskBegun: bool
   batchHasRectMask: bool
   pixelate*: bool ## Makes texture look pixelated, like a pixel game.
@@ -101,6 +112,12 @@ type OpenGlContext* = ref object of figbackend.BackendContext
   blurUvs: Buffer
 
 proc flush(ctx: OpenGlContext, maskTextureRead: int = -1)
+
+proc activeFramebuffer(ctx: OpenGlContext): GLuint =
+  if ctx.opacityDepth > 0:
+    ctx.opacityGroups[ctx.opacityDepth - 1].framebuffer
+  else:
+    0
 
 proc toKey*(h: Hash): Hash =
   h
@@ -264,6 +281,8 @@ proc loadGlslEsShaders(ctx: OpenGlContext) =
   )
   ctx.blurShader =
     newShaderStatic("glsl/emscripten/blur.vert", "glsl/emscripten/blur.frag")
+  ctx.compositeShader =
+    newShaderStatic("glsl/emscripten/blur.vert", "glsl/emscripten/composite.frag")
 
 proc loadDesktopGlslShaders(ctx: OpenGlContext) =
   ctx.maskShader = newShaderStatic("glsl/atlas.vert", "glsl/mask.frag")
@@ -271,6 +290,7 @@ proc loadDesktopGlslShaders(ctx: OpenGlContext) =
   ctx.rectMaskShader =
     newShaderStatic("glsl/atlas_rect_mask.vert", "glsl/atlas_rect_mask.frag")
   ctx.blurShader = newShaderStatic("glsl/blur.vert", "glsl/blur.frag")
+  ctx.compositeShader = newShaderStatic("glsl/blur.vert", "glsl/composite.frag")
 
 proc newContext*(
     atlasSize = 1024,
@@ -527,6 +547,10 @@ proc newContext*(
   glBindVertexArray(result.blurVertexArrayId)
   result.blurShader.bindAttrib("vertexPos", result.blurPositions)
   result.blurShader.bindAttrib("vertexUv", result.blurUvs)
+  glGenVertexArrays(1, result.compositeVertexArrayId.addr)
+  glBindVertexArray(result.compositeVertexArrayId)
+  result.compositeShader.bindAttrib("vertexPos", result.blurPositions)
+  result.compositeShader.bindAttrib("vertexUv", result.blurUvs)
   glBindVertexArray(result.vertexArrayId)
 
   # Create mask framebuffer
@@ -1857,7 +1881,7 @@ proc runBackdropSeparableBlur(ctx: OpenGlContext, blurRadius: float32) =
   ctx.blurShader.bindUniforms()
   glDrawArrays(GL_TRIANGLES, 0, 3)
 
-  glBindFramebuffer(GL_FRAMEBUFFER, 0)
+  glBindFramebuffer(GL_FRAMEBUFFER, ctx.activeFramebuffer())
   glBindVertexArray(ctx.vertexArrayId)
 
   if wasBlendEnabled:
@@ -1881,8 +1905,8 @@ method drawBackdropBlur*(
 
   var canSelectReadBuffer = true
   try:
-    glReadBuffer(GL_BACK)
-    if glGetError() != GL_NO_ERROR:
+    glReadBuffer(if ctx.opacityDepth > 0: GL_COLOR_ATTACHMENT0 else: GL_BACK)
+    if glGetError() != GL_NO_ERROR and ctx.opacityDepth == 0:
       # Wayland/EGL may expose a single-buffer drawable where GL_BACK is invalid.
       glReadBuffer(GL_FRONT)
   except GLerror:
@@ -1902,7 +1926,7 @@ method drawBackdropBlur*(
 
   if canSelectReadBuffer:
     try:
-      glReadBuffer(GL_BACK)
+      glReadBuffer(if ctx.opacityDepth > 0: GL_COLOR_ATTACHMENT0 else: GL_BACK)
     except GLerror:
       discard
 
@@ -1959,7 +1983,80 @@ proc clearMask*(ctx: OpenGlContext) =
   glClearColor(1, 1, 1, 1)
   glClear(GL_COLOR_BUFFER_BIT)
 
-  glBindFramebuffer(GL_FRAMEBUFFER, 0)
+  glBindFramebuffer(GL_FRAMEBUFFER, ctx.activeFramebuffer())
+
+method beginOpacityGroup*(ctx: OpenGlContext, opacity: float32) =
+  assert ctx.frameBegun and not ctx.maskBegun
+  ctx.flush()
+  if ctx.opacityDepth == ctx.opacityGroups.len:
+    var group: OpacityGroup
+    group.texture = ctx.createBackdropTexture(
+      max(1, ctx.frameSize.x.int), max(1, ctx.frameSize.y.int)
+    )
+    glGenFramebuffers(1, group.framebuffer.addr)
+    glBindFramebuffer(GL_FRAMEBUFFER, group.framebuffer)
+    glFramebufferTexture2D(
+      GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, group.texture.textureId, 0
+    )
+    if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
+      glBindFramebuffer(GL_FRAMEBUFFER, ctx.activeFramebuffer())
+      glDeleteFramebuffers(1, group.framebuffer.addr)
+      glDeleteTextures(1, group.texture.textureId.addr)
+      raise newException(ValueError, "Cannot create OpenGL opacity group framebuffer")
+    ctx.opacityGroups.add(group)
+  ctx.opacityGroups[ctx.opacityDepth].opacity = clamp(opacity, 0.0'f32, 1.0'f32)
+  ctx.opacityGroups[ctx.opacityDepth].outerMasks = move(ctx.maskTextures)
+  ctx.opacityGroups[ctx.opacityDepth].outerMaskWrite = ctx.maskTextureWrite
+  ctx.opacityGroups[ctx.opacityDepth].outerRectMasks = move(ctx.rectMaskStack)
+  ctx.maskTextures = move(ctx.opacityGroups[ctx.opacityDepth].innerMasks)
+  ctx.maskTextureWrite = 0
+  if ctx.maskTextures.len == 0:
+    ctx.addMaskTexture(vec2(1, 1))
+  inc ctx.opacityDepth
+  glBindFramebuffer(GL_FRAMEBUFFER, ctx.activeFramebuffer())
+  glClearColor(0, 0, 0, 0)
+  glClear(GL_COLOR_BUFFER_BIT)
+
+method endOpacityGroup*(ctx: OpenGlContext) =
+  assert ctx.opacityDepth > 0 and not ctx.maskBegun
+  ctx.flush()
+  assert ctx.maskTextureWrite == 0 and ctx.rectMaskStack.len == 0,
+    "Masks inside an opacity group must be popped before ending it."
+  dec ctx.opacityDepth
+  ctx.opacityGroups[ctx.opacityDepth].innerMasks = move(ctx.maskTextures)
+  ctx.maskTextures = move(ctx.opacityGroups[ctx.opacityDepth].outerMasks)
+  ctx.maskTextureWrite = ctx.opacityGroups[ctx.opacityDepth].outerMaskWrite
+  ctx.rectMaskStack = move(ctx.opacityGroups[ctx.opacityDepth].outerRectMasks)
+  let group = ctx.opacityGroups[ctx.opacityDepth]
+  glBindFramebuffer(GL_FRAMEBUFFER, ctx.activeFramebuffer())
+  glUseProgram(ctx.compositeShader.programId)
+  glBindVertexArray(ctx.compositeVertexArrayId)
+  glActiveTexture(GL_TEXTURE0)
+  glBindTexture(GL_TEXTURE_2D, group.texture.textureId)
+  ctx.compositeShader.setUniform("srcTex", 0)
+  ctx.compositeShader.setUniform("opacity", group.opacity)
+  ctx.compositeShader.setUniform("windowFrame", ctx.frameSize.x, ctx.frameSize.y)
+  ctx.compositeShader.setUniform("aaFactor", ctx.aaFactor)
+  ctx.compositeShader.setUniform("maskTexEnabled", ctx.maskTextureWrite > 0)
+  if ctx.maskTextureWrite > 0:
+    glActiveTexture(GL_TEXTURE1)
+    glBindTexture(GL_TEXTURE_2D, ctx.maskTextures[ctx.maskTextureWrite].textureId)
+    ctx.compositeShader.setUniform("maskTex", 1)
+  var rectMask = RectMask(params: vec4(0, 0, -1, -1))
+  for mask in ctx.rectMaskStack:
+    if mask.kind == rmkFast:
+      rectMask = mask
+  ctx.compositeShader.setUniform("rectMaskParams", rectMask.params)
+  ctx.compositeShader.setUniform("rectMaskRadii", rectMask.radii)
+  ctx.compositeShader.setUniform("rectMaskMatX", rectMask.matX)
+  ctx.compositeShader.setUniform("rectMaskMatY", rectMask.matY)
+  ctx.compositeShader.bindUniforms()
+  glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
+  glDrawArrays(GL_TRIANGLES, 0, 3)
+  glBlendFuncSeparate(
+    GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA
+  )
+  glBindVertexArray(ctx.vertexArrayId)
 
 method beginMask*(ctx: OpenGlContext, clipRect: Rect, radii: CornerRadii2D[float32]) =
   ## Starts drawing into a mask.
@@ -1998,7 +2095,7 @@ method endMask*(ctx: OpenGlContext) =
   ctx.flush(ctx.maskTextureWrite - 1)
   ctx.maskBegun = false
 
-  glBindFramebuffer(GL_FRAMEBUFFER, 0)
+  glBindFramebuffer(GL_FRAMEBUFFER, ctx.activeFramebuffer())
 
   ctx.activeShader = ctx.mainShader
 
@@ -2033,6 +2130,14 @@ proc beginFrameProj(ctx: OpenGlContext, frameSize: Vec2, proj: Mat4) =
   ctx.rectMaskStack.setLen(0)
   ctx.batchHasRectMask = false
 
+  if ctx.frameSize != frameSize:
+    for group in ctx.opacityGroups.mitems:
+      for mask in group.innerMasks.mitems:
+        glDeleteTextures(1, mask.textureId.addr)
+      glDeleteFramebuffers(1, group.framebuffer.addr)
+      glDeleteTextures(1, group.texture.textureId.addr)
+    ctx.opacityGroups.setLen(0)
+
   ctx.proj = proj
   ctx.frameSize = frameSize
 
@@ -2063,6 +2168,7 @@ method finishPendingFrames*(ctx: OpenGlContext) =
 method endFrame*(ctx: OpenGlContext) =
   ## Ends a frame.
   assert ctx.frameBegun == true, "ctx.beginFrame was not called first."
+  assert ctx.opacityDepth == 0, "Not all opacity groups have been ended."
   assert ctx.maskTextureWrite == 0, "Not all masks have been popped."
   assert ctx.rectMaskStack.len == 0, "Not all rect masks have been popped."
   ctx.frameBegun = false

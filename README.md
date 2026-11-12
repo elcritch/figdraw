@@ -119,10 +119,18 @@ The loader supports solid colors (including RGB and inherited `currentColor`),
 inline styles, fill rules, transformed paths, stroke caps/joins, miter limits,
 dash arrays/offsets, and local `<use>/<symbol>` references. Fractional viewBoxes
 are preserved; documents without a viewBox can use explicit pixel dimensions.
-Nested object/group opacity, basic linear/radial gradients, geometric clip paths,
-and alpha/luminance masks use isolated cached RGBA layers. These compositing
-layers use at least the document's natural resolution, capped at 4096 pixels
-on the long edge; `longEdge` can request more detail within that cap.
+Nested object/group opacity retains native vector children and composites each
+group once using an offscreen GPU texture. Overlapping children receive the
+group opacity once. Basic linear/radial gradients, geometric clip paths, and
+alpha/luminance masks use cached RGBA layers, which can nest inside opacity
+groups. These cached layers use at least the document's natural resolution,
+capped at 4096 pixels on the long edge; `longEdge` can request more detail
+within that cap.
+
+Other callers can create `Fig(kind: nkOpacityGroup, opacity: 0.5)` and append
+children to it. Metal, OpenGL, and Vulkan reuse offscreen targets by nesting
+depth; software backends provide the same compositing semantics. Group targets
+cover the frame, and ordinary draws keep their existing shader path.
 
 This remains an SVG subset. Stylesheets/selectors, text, filters, patterns,
 external references, gradient `href` inheritance, non-pad gradient spread,
@@ -158,8 +166,10 @@ names for different resources. Parse, generation, and file-read failures raise
 `SvgMtsdfError`.
 
 Run `nim r examples/svg_layers.nim [input.svg] [output.png]` to render an SVG
-with the software backend. The demo uses the bundled Ghostscript tiger by default
-and writes `svg_layers.png`. The imported SVG code is covered by FigDraw's MIT license; its source revision
+with the GPU backend and save a screenshot of that frame. The demo uses the
+bundled Ghostscript tiger by default and writes `svg_layers.png`. Metal captures
+an offscreen target; OpenGL and Vulkan create a window for rendering and capture.
+The imported SVG code is covered by FigDraw's MIT license; its source revision
 is recorded in [SVG source history](docs/svg_sources.md).
 
 ### Reusable primitive helpers

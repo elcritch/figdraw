@@ -19,6 +19,10 @@
   comparisons; refresh edited nodes with prepareDrawableStroke.
 - Decode packed GPU ellipse radii without rounding full elliptical corners to
   zero at the float32 precision limit.
+- Composite nested SVG opacity groups on the GPU while retaining native child
+  geometry. Expose nkOpacityGroup for other callers, pool GPU group targets, and
+  preserve inherited clip coverage when overlapping children are composited.
+- Render examples/svg_layers through the GPU and save a screenshot of the frame.
 - Retain generated images through FigDraw's thread-local ImageRef ownership API.
 
 - Load Vulkan lazily so a missing loader can fall back to OpenGL.

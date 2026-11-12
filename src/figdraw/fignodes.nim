@@ -91,6 +91,8 @@ type
       mtsdfImage*: MsdfImageStyle
     of nkBackdropBlur:
       backdropBlur*: BackdropBlurStyle
+    of nkOpacityGroup:
+      opacity*: float32 ## Opacity applied once to the composited children (0 to 1).
     of nkTransform:
       transform*: TransformStyle
     else:

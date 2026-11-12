@@ -27,6 +27,8 @@ type
     slkEllipse
     slkRectangle
     slkRasterGroup
+    slkGroupStart
+    slkGroupEnd
 
   SvgPathSegmentKind* = enum
     spsLine
@@ -64,7 +66,7 @@ type
     frame: Rect
     pixelRange: float32
 
-  SvgLayer* = object ## One ordered SVG paint operation.
+  SvgLayer* = object ## One ordered SVG paint operation or group boundary.
     paint*: Color
     transform*: SvgAffineTransform
     meshCache: SvgMeshCache
@@ -86,6 +88,10 @@ type
     of slkRasterGroup:
       rasterImage*, tintImage*: ImageRef
       rasterFrame*: Rect
+    of slkGroupStart:
+      groupOpacity*: float32 ## Opacity applied once to all layers until its group end.
+    of slkGroupEnd:
+      discard
     of slkCircle, slkEllipse, slkRectangle:
       primitiveBounds*: Rect
       drawsFill*, drawsStroke*: bool
@@ -219,6 +225,25 @@ proc needsRaster(element: ParsedSvgElement): bool =
     element.strokePaintValue.startsWith("url(") or element.clipPathIds.len > 0 or
     element.maskIds.len > 0
 
+proc rasterizeRange(
+    document: ParsedSvgDocument,
+    first, last, skipStarts, keepEnds: int,
+    longEdge: Positive,
+): tuple[image, tintImage: Image, frame: Rect] =
+  ## Isolate a raster subtree from enclosing GPU opacity groups. Preserve
+  ## nested effects within it, but leave ancestor opacity to the renderer.
+  var isolated = ParsedSvgDocument(
+    width: document.width,
+    height: document.height,
+    viewportSize: document.viewportSize,
+    root: document.root,
+    elements: document.elements[first .. last],
+  )
+  isolated.elements[0].compositeGroupStarts =
+    isolated.elements[0].compositeGroupStarts[skipStarts .. ^1]
+  isolated.elements[^1].compositeGroupEnds = keepEnds
+  rasterizeSvgElements(isolated, 0, isolated.elements.high, longEdge)
+
 proc primitiveLayer(element: ParsedSvgElement, kind: static[SvgLayerKind]): SvgLayer =
   SvgLayer(
     kind: kind,
@@ -270,7 +295,8 @@ proc newSvgMtsdfResource*(
   ## Circles, ellipses, rectangles and independent stroke segments use native
   ## drawables. Opaque connected strokes use meshes; translucent strokes and
   ## complex fills use MTSDF images.
-  ## Opacity groups and effects requiring compositing use cached RGBA images.
+  ## Opacity groups retain vector children and composite on the selected backend.
+  ## Gradients, clip paths and masks use cached RGBA images.
   ## Keep the resource alive while rendering its nodes, as with `ImageRef`.
   ## Image handles belong to the creating thread; transfer IDs across threads.
   ## `name` selects a cache identity; use distinct names for distinct resources.
@@ -298,18 +324,31 @@ proc newSvgMtsdfResource*(
     var index = 0
     while index < parsed.elements.len:
       let element = parsed.elements[index]
+      var rasterStart = -1
+      for groupIndex, group in element.compositeGroupStarts:
+        if group.clipPathIds.len > 0 or group.maskIds.len > 0:
+          rasterStart = groupIndex
+          break
+        result.layers.add SvgLayer(kind: slkGroupStart, groupOpacity: group.opacity)
       let firstLayer = result.layers.len
-      if element.compositeGroupStarts.len > 0 or element.needsRaster():
+      if rasterStart >= 0 or element.needsRaster():
         var last = index
-        var depth = element.compositeGroupStarts.len - element.compositeGroupEnds
-        while depth > 0 and last + 1 < parsed.elements.len:
-          inc last
-          depth +=
-            parsed.elements[last].compositeGroupStarts.len -
-            parsed.elements[last].compositeGroupEnds
-        if depth != 0:
-          raiseSvgMtsdfError("Unbalanced SVG opacity groups")
-        let raster = rasterizeSvgElements(parsed, index, last, longEdge)
+        var keepEnds = 0
+        if rasterStart >= 0:
+          var depth = element.compositeGroupStarts.len - rasterStart
+          while true:
+            let closing = parsed.elements[last].compositeGroupEnds
+            if closing >= depth:
+              keepEnds = depth
+              break
+            depth -= closing
+            inc last
+            if last >= parsed.elements.len:
+              raiseSvgMtsdfError("Unbalanced SVG compositing groups")
+            depth += parsed.elements[last].compositeGroupStarts.len
+        let skipStarts =
+          if rasterStart >= 0: rasterStart else: element.compositeGroupStarts.len
+        let raster = parsed.rasterizeRange(index, last, skipStarts, keepEnds, longEdge)
         let key = layerName(resourceName, imageIndex, imageCount)
         result.layers.add SvgLayer(
           kind: slkRasterGroup,
@@ -319,6 +358,8 @@ proc newSvgMtsdfResource*(
         )
         inc imageIndex
         result.elementCount += last - index + 1
+        for closing in keepEnds ..< parsed.elements[last].compositeGroupEnds:
+          result.layers.add SvgLayer(kind: slkGroupEnd)
         index = last + 1
       else:
         let plainPrimitive =
@@ -417,9 +458,11 @@ proc newSvgMtsdfResource*(
                 inc imageIndex
         if result.layers.len > firstLayer:
           inc result.elementCount
+        for closing in 0 ..< element.compositeGroupEnds:
+          result.layers.add SvgLayer(kind: slkGroupEnd)
         inc index
 
-    if result.layers.len == 0:
+    if result.elementCount == 0:
       raiseSvgMtsdfError("SVG contains no supported visible painted elements")
   except CatchableError as error:
     raiseSvgMtsdfError(error.msg)
@@ -440,7 +483,7 @@ proc newSvgMtsdfResourceFromFile*(
   newSvgMtsdfResource(data, name, longEdge, minimumShortEdge, pixelRange)
 
 proc len*(resource: SvgMtsdfResource): int =
-  ## Returns the number of ordered paint layers.
+  ## Returns the number of ordered layers, including opacity-group boundaries.
   resource.layers.len
 
 proc image*(resource: SvgMtsdfResource): ImageRef =

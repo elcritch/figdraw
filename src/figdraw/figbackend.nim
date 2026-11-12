@@ -615,6 +615,15 @@ method drawBackdropBlur*(
 ) {.base.} =
   raise newException(ValueError, "Backend drawBackdropBlur unavailable")
 
+method beginOpacityGroup*(impl: BackendContext, opacity: float32) {.base.} =
+  ## Start an isolated, transparent layer for subsequent drawing. Opacity is
+  ## clamped to 0..1 and applied once when the matching group ends.
+  raise newException(ValueError, "Backend beginOpacityGroup unavailable")
+
+method endOpacityGroup*(impl: BackendContext) {.base.} =
+  ## Composite the current layer over its parent and restore its drawing state.
+  raise newException(ValueError, "Backend endOpacityGroup unavailable")
+
 method beginMask*(
     impl: BackendContext, clipRect: Rect, radii: CornerRadii2D[float32]
 ) {.base.} =

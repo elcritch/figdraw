@@ -672,6 +672,22 @@ fragment float4 fs_blit(
   return src.sample(s, in.uv);
 }
 
+struct OpacityUniforms {
+  float4 params, radii, matX, matY, controls, mask;
+};
+
+fragment float4 fs_opacity(
+    BlitVSOut in [[stage_in]],
+    constant OpacityUniforms& u [[buffer(0)]],
+    texture2d<float> src [[texture(0)]],
+    texture2d<float> maskTex [[texture(1)]]) {
+  float coverage = rectMaskAlpha(in.position.xy, u.params, u.radii, u.matX, u.matY, u.controls.y);
+  if (u.mask.x > 0.5) {
+    coverage *= maskTex.sample(s, in.position.xy / u.controls.zw).r;
+  }
+  return src.sample(s, in.uv) * (u.controls.x * coverage);
+}
+
 fragment float4 fs_blur(
     BlitVSOut in [[stage_in]],
     constant BlurUniforms& u [[buffer(0)]],

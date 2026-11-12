@@ -99,6 +99,19 @@ type
     replacementImage: int
     awaitingFrameFence: bool
 
+  OpacityTarget = object
+    image: VulkanImage
+    framebuffer: VkFramebuffer
+    width, height: uint32
+    format: VkFormat
+    layout: VkImageLayout
+
+  OpacityGroup = object
+    opacity: float32
+    maskDepth: int
+    clipRects: seq[Rect]
+    rectMasks: seq[RectMask]
+
   VulkanContext* = ref object of figbackend.BackendContext
     atlasSize: int
     initialAtlasSize: int
@@ -214,6 +227,9 @@ type
     readbackReady: bool
 
     atlasImage: VulkanImage
+    opacityTargets: seq[OpacityTarget]
+    opacityGroups: seq[OpacityGroup]
+    compositeImage: VulkanImage
     backdropImage: VulkanImage
     backdropBlurTempImage: VulkanImage
     backdropLayoutReady: bool
@@ -686,7 +702,50 @@ proc destroySwapchain(ctx: VulkanContext) =
     ctx.vk.vkDestroySwapchainKHR(ctx.device, ctx.swapchain, nil)
     ctx.swapchain = vkNullSwapchain
 
+proc destroyOpacityTargets(ctx: VulkanContext) =
+  for target in ctx.opacityTargets.mitems:
+    if target.framebuffer != vkNullFramebuffer:
+      ctx.vk.vkDestroyFramebuffer(ctx.device, target.framebuffer, nil)
+      target.framebuffer = vkNullFramebuffer
+    target.image = nil
+  ctx.opacityTargets.setLen(0)
+
+proc ensureOpacityTarget(ctx: VulkanContext, depth: int) =
+  let extent = ctx.swapchainExtent
+  if depth >= ctx.opacityTargets.len:
+    ctx.opacityTargets.setLen(depth + 1)
+  var target = addr ctx.opacityTargets[depth]
+  if not target.image.isNilOrEmpty and target.width == extent.width and
+      target.height == extent.height and target.format == ctx.swapchainFormat:
+    return
+  if target.framebuffer != vkNullFramebuffer:
+    ctx.vk.vkDestroyFramebuffer(ctx.device, target.framebuffer, nil)
+    target.framebuffer = vkNullFramebuffer
+  target.image = ctx.createImage(
+    width = extent.width,
+    height = extent.height,
+    format = ctx.swapchainFormat,
+    tiling = VK_IMAGE_TILING_OPTIMAL,
+    usage = VkImageUsageFlags{SampledBit, ColorAttachmentBit, TransferSrcBit},
+    properties = VkMemoryPropertyFlags{DeviceLocalBit},
+  )
+  target.width = extent.width
+  target.height = extent.height
+  target.format = ctx.swapchainFormat
+  target.layout = VK_IMAGE_LAYOUT_UNDEFINED
+  let info = newVkFramebufferCreateInfo(
+    renderPass = ctx.renderPass,
+    attachments = [target.image.view],
+    width = extent.width,
+    height = extent.height,
+    layers = 1,
+  )
+  checkVkResult ctx.vk.vkCreateFramebuffer(
+    ctx.device, info.addr, nil, target.framebuffer.addr
+  )
+
 proc destroyPipelineObjects(ctx: VulkanContext) =
+  ctx.destroyOpacityTargets()
   if ctx.backdropBlurFramebuffer != vkNullFramebuffer:
     ctx.vk.vkDestroyFramebuffer(ctx.device, ctx.backdropBlurFramebuffer, nil)
     ctx.backdropBlurFramebuffer = vkNullFramebuffer
@@ -727,7 +786,10 @@ proc updateDescriptorSet(ctx: VulkanContext, vsUpload, fsUpload: VulkanUpload) =
   )
   var atlasImageInfo = newVkDescriptorImageInfo(
     sampler = ctx.atlasSampler,
-    imageView = ctx.atlasImage.view,
+    imageView = (
+      if ctx.compositeImage.isNilOrEmpty: ctx.atlasImage.view
+      else: ctx.compositeImage.view
+    ),
     imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
   )
   var backdropImageInfo = newVkDescriptorImageInfo(
@@ -1659,6 +1721,56 @@ proc transitionSwapchain(
     barrier.addr,
   )
 
+proc transitionOpacityTarget(ctx: VulkanContext, index: int, layout: VkImageLayout) =
+  var target = addr ctx.opacityTargets[index]
+  let oldLayout = target.layout
+  let sourceStage =
+    if oldLayout == VK_IMAGE_LAYOUT_UNDEFINED:
+      VkPipelineStageFlags{TopOfPipeBit}
+    elif oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+      VkPipelineStageFlags{FragmentShaderBit}
+    else:
+      VkPipelineStageFlags{ColorAttachmentOutputBit}
+  let sourceAccess =
+    if oldLayout == VK_IMAGE_LAYOUT_UNDEFINED:
+      0.VkAccessFlags
+    elif oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+      VkAccessFlags{ShaderReadBit}
+    else:
+      VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit}
+  let destStage =
+    if layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+      VkPipelineStageFlags{FragmentShaderBit}
+    else:
+      VkPipelineStageFlags{ColorAttachmentOutputBit}
+  let destAccess =
+    if layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+      VkAccessFlags{ShaderReadBit}
+    else:
+      VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit}
+  var barrier = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    srcAccessMask: sourceAccess,
+    dstAccessMask: destAccess,
+    oldLayout: oldLayout,
+    newLayout: layout,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: target.image.handle,
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  ctx.vk.vkCmdPipelineBarrier(
+    ctx.commandBuffer, sourceStage, destStage, 0.VkDependencyFlags, 0, nil, 0, nil, 1,
+    barrier.addr,
+  )
+  target.layout = layout
+
 proc beginRenderPassIfNeeded(ctx: VulkanContext) =
   if not ctx.commandRecording or ctx.swapchain == vkNullSwapchain or ctx.renderPassBegun:
     return
@@ -1667,7 +1779,11 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
     sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
     pNext: nil,
     renderPass: ctx.renderPass,
-    framebuffer: ctx.swapchainFramebuffers[ctx.acquiredImageIndex.int],
+    framebuffer:
+      if ctx.opacityGroups.len == 0:
+        ctx.swapchainFramebuffers[ctx.acquiredImageIndex.int]
+      else:
+        ctx.opacityTargets[ctx.opacityGroups.len - 1].framebuffer,
     renderArea:
       newVkRect2D(offset = newVkOffset2D(x = 0, y = 0), extent = ctx.swapchainExtent),
     clearValueCount: 0,
@@ -2857,6 +2973,74 @@ proc drawUvRect(ctx: VulkanContext, rect, uvRect: Rect, color: Color) =
 proc drawUvRect(ctx: VulkanContext, rect, uvRect: Rect, colors: array[4, ColorRGBA]) =
   ctx.drawUvRect(rect.xy, rect.xy + rect.wh, uvRect.xy, uvRect.xy + uvRect.wh, colors)
 
+method beginOpacityGroup*(ctx: VulkanContext, opacity: float32) =
+  assert ctx.frameBegun and not ctx.maskBegun
+  if not ctx.commandRecording:
+    ctx.opacityGroups.add(
+      OpacityGroup(
+        opacity: opacity,
+        maskDepth: ctx.maskDepth,
+        clipRects: move(ctx.clipRects),
+        rectMasks: move(ctx.rectMaskStack),
+      )
+    )
+    ctx.maskDepth = 0
+    return
+  ctx.flush()
+  ctx.beginRenderPassIfNeeded()
+  ctx.vk.vkCmdEndRenderPass(ctx.commandBuffer)
+  ctx.renderPassBegun = false
+  let depth = ctx.opacityGroups.len
+  ctx.ensureOpacityTarget(depth)
+  ctx.transitionOpacityTarget(depth, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+  ctx.opacityGroups.add(
+    OpacityGroup(
+      opacity: clamp(opacity, 0'f32, 1'f32),
+      maskDepth: ctx.maskDepth,
+      clipRects: move(ctx.clipRects),
+      rectMasks: move(ctx.rectMaskStack),
+    )
+  )
+  ctx.maskDepth = 0
+  ctx.frameNeedsClear = true
+  ctx.frameClearColor = color(0, 0, 0, 0)
+  ctx.beginRenderPassIfNeeded()
+
+method endOpacityGroup*(ctx: VulkanContext) =
+  assert ctx.frameBegun and ctx.opacityGroups.len > 0 and not ctx.maskBegun
+  assert ctx.maskDepth == 0 and ctx.rectMaskStack.len == 0
+  if not ctx.commandRecording:
+    let group = ctx.opacityGroups.pop()
+    ctx.maskDepth = group.maskDepth
+    ctx.clipRects = group.clipRects
+    ctx.rectMaskStack = group.rectMasks
+    return
+  ctx.flush()
+  ctx.beginRenderPassIfNeeded()
+  ctx.vk.vkCmdEndRenderPass(ctx.commandBuffer)
+  ctx.renderPassBegun = false
+  let depth = ctx.opacityGroups.len - 1
+  ctx.transitionOpacityTarget(depth, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+  let group = ctx.opacityGroups.pop()
+  ctx.maskDepth = group.maskDepth
+  ctx.clipRects = group.clipRects
+  ctx.rectMaskStack = group.rectMasks
+  ctx.compositeImage = ctx.opacityTargets[depth].image
+  let savedMat = ctx.mat
+  let savedProj = ctx.proj
+  let savedShift = ctx.textSubpixelShift
+  ctx.mat = mat4()
+  ctx.proj = ortho[float32](0, ctx.frameSize.x, ctx.frameSize.y, 0, -1000, 1000)
+  ctx.textSubpixelShift = 0
+  ctx.drawUvRect(
+    vec2(0, 0), ctx.frameSize, vec2(0, 0), vec2(1, 1), color(1, 1, 1, group.opacity)
+  )
+  ctx.flush()
+  ctx.mat = savedMat
+  ctx.proj = savedProj
+  ctx.textSubpixelShift = savedShift
+  ctx.compositeImage = nil
+
 proc tryGetImageRect(ctx: VulkanContext, imageId: Hash, rect: var Rect): bool =
   if imageId notin ctx.entries:
     warn "missing image in context", imageId = imageId
@@ -3368,7 +3552,11 @@ method drawBackdropBlur*(
     backdropToTransfer.addr,
   )
 
-  let swapchainImage = ctx.swapchainImages[ctx.acquiredImageIndex.int]
+  let swapchainImage =
+    if ctx.opacityGroups.len == 0:
+      ctx.swapchainImages[ctx.acquiredImageIndex.int]
+    else:
+      ctx.opacityTargets[ctx.opacityGroups.len - 1].image.handle
   var swapchainToTransfer = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
@@ -3664,13 +3852,21 @@ proc beginFrame*(
 
   let width = max(1, frameSize.x.int32)
   let height = max(1, frameSize.y.int32)
-  ctx.ensureSwapchain(width, height)
-  if ctx.swapchain == vkNullSwapchain:
-    return
+  # Pipeline and target recreation must wait until the previous frame has
+  # finished using its images and framebuffers.
   checkVkResult ctx.vk.vkWaitForFences(
     ctx.device, 1, ctx.inFlightFence.addr, VkBool32(VkTrue), high(uint64)
   )
+  ctx.ensureSwapchain(width, height)
+  if ctx.swapchain == vkNullSwapchain:
+    return
   ctx.recycleFrameResources()
+  for target in ctx.opacityTargets:
+    if target.width != ctx.swapchainExtent.width or
+        target.height != ctx.swapchainExtent.height or
+        target.format != ctx.swapchainFormat:
+      ctx.destroyOpacityTargets()
+      break
   ctx.destroyRetiredSwapchains(onlyCompleted = true)
   ctx.ensureBackdropImage(
     ctx.swapchainExtent.width.int32, ctx.swapchainExtent.height.int32
@@ -3771,6 +3967,7 @@ method finishPendingFrames*(ctx: VulkanContext) =
 
 method endFrame*(ctx: VulkanContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame was not called first."
+  assert ctx.opacityGroups.len == 0, "Not all opacity groups have been ended."
   assert ctx.maskDepth == 0, "Not all masks have been popped."
   assert ctx.rectMaskStack.len == 0, "Not all rect masks have been popped."
   ctx.frameBegun = false

@@ -87,6 +87,86 @@ when UseOpenGlBackend:
       body
 
   suite "OpenGL atlas isolation":
+    test "opacity groups preserve overlap, nesting and state":
+      withWindow:
+        testWindow.renderer.beginFrame()
+        let ctx = testWindow.ctx
+        ctx.beginFrame(vec2(testWindow.window.backingSize()), true, color(0, 0, 0, 0))
+        ctx.beginMask(rect(0, 0, 40, 40), [0'f32, 0, 0, 0])
+        ctx.endMask()
+        ctx.beginOpacityGroup(0.5)
+        ctx.drawRect(rect(2, 2, 20, 20), color(1, 0, 0, 1))
+        ctx.drawRect(rect(10, 2, 20, 20), color(1, 0, 0, 1))
+        ctx.beginOpacityGroup(0.5)
+        ctx.drawRect(rect(2, 25, 50, 10), color(0, 0, 1, 1))
+        ctx.endOpacityGroup()
+        ctx.endOpacityGroup()
+        ctx.popMask()
+        ctx.drawRect(rect(50, 50, 5, 5), color(0, 1, 0, 1))
+        ctx.endFrame()
+        let image = testWindow.renderer.takeOneFrameScreenshot()
+        check abs(image[5, 5].a.int - 128) <= 2
+        check abs(image[15, 5].a.int - 128) <= 2
+        check abs(image[5, 30].a.int - 64) <= 2
+        check image[45, 30].a == 0
+        check image[52, 52].g == 255
+
+    test "fractional clips apply once to overlapping group children":
+      withWindow:
+        let ctx = testWindow.ctx
+        proc render(overlap, fast: bool): Image =
+          testWindow.renderer.beginFrame()
+          ctx.beginFrame(vec2(testWindow.window.backingSize()), true, color(0, 0, 0, 0))
+          if fast:
+            ctx.beginRectMask(rect(5.5, 5.5, 25, 25), [6'f32, 6, 6, 6])
+          else:
+            ctx.beginMask(rect(5.5, 5.5, 25, 25), [6'f32, 6, 6, 6])
+            ctx.endMask()
+          ctx.beginOpacityGroup(0.5)
+          ctx.drawRect(rect(0, 0, 40, 40), color(1, 0, 0, 1))
+          if overlap:
+            ctx.drawRect(rect(0, 0, 40, 40), color(1, 0, 0, 1))
+          ctx.endOpacityGroup()
+          if fast:
+            ctx.popRectMask()
+          else:
+            ctx.popMask()
+          ctx.endFrame()
+          testWindow.renderer.takeOneFrameScreenshot()
+
+        for fast in [false, true]:
+          let single = render(false, fast)
+          let overlap = render(true, fast)
+          var fractional = false
+          for y in 0 ..< 40:
+            for x in 0 ..< 40:
+              check abs(single[x, y].a.int - overlap[x, y].a.int) <= 1
+              if single[x, y].a > 0 and single[x, y].a < 127:
+                fractional = true
+          check fractional
+
+    test "opacity group targets are reused and released on resize":
+      withWindow:
+        testWindow.renderer.beginFrame()
+        let ctx = testWindow.ctx
+        let size = vec2(testWindow.window.backingSize())
+        ctx.beginFrame(size, true, color(0, 0, 0, 0))
+        ctx.beginOpacityGroup(0.5)
+        let first = glInteger(GL_FRAMEBUFFER_BINDING).GLuint
+        ctx.beginOpacityGroup(0.5)
+        let second = glInteger(GL_FRAMEBUFFER_BINDING).GLuint
+        ctx.endOpacityGroup()
+        ctx.endOpacityGroup()
+        ctx.beginOpacityGroup(0.5)
+        check glInteger(GL_FRAMEBUFFER_BINDING).GLuint == first
+        ctx.endOpacityGroup()
+        ctx.endFrame()
+        ctx.beginFrame(size + vec2(1, 0), true, color(0, 0, 0, 0))
+        check ctx.opacityGroups.len == 0
+        check glIsFramebuffer(first) == GL_FALSE
+        check glIsFramebuffer(second) == GL_FALSE
+        ctx.endFrame()
+
     test "updates recover pixel coordinates in a non-power-of-two atlas":
       withWindowSize(93):
         testWindow.ctx.putImage(1.Hash, solid(255, 0, 0))
