@@ -16,7 +16,7 @@ else:
   import figdraw/fignodes
   import figdraw/renderfragments
   import figdraw/figrender as figrenderer
-  import figdraw/utils/drawutils
+  import figdraw/utils/[drawutils, drawprimitives, drawpaths, drawmeshes]
 
   export chroma
   export bumpy
@@ -35,7 +35,7 @@ else:
   export fignodes
   export renderfragments
   export figrenderer
-  export drawutils
+  export drawutils, drawprimitives, drawpaths, drawmeshes
 
   when defined(features.figdraw.uirelays):
     import figdraw/uirelays

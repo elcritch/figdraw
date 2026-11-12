@@ -1,13 +1,13 @@
-## SVG paint resources adapted from Merenda (BSD-3-Clause).
-## See docs/licenses/MERENDA.txt for the original license.
+## SVG paint resources adapted from Merenda.
+## Covered by FigDraw's MIT license.
 
-import std/[hashes, math]
+import std/[hashes, math, strutils]
 
 import pkg/pixie
-import pkg/sdfy/msdfgen
 
 import ../fignodes
-import ./svgpathloader
+import ../utils/drawmeshes
+import ./[svgpathloader, svgfields, svgstrokes, svgraster]
 
 const
   DefaultSvgMtsdfLongEdge* = 192
@@ -22,7 +22,11 @@ type
     slkMtsdfFill
     slkMtsdfStroke
     slkStrokePath
+    slkStrokeMesh
     slkCircle
+    slkEllipse
+    slkRectangle
+    slkRasterGroup
 
   SvgPathSegmentKind* = enum
     spsLine
@@ -46,21 +50,44 @@ type
   SvgAffineTransform* = object ## A 2D affine transform in SVG document coordinates.
     a*, b*, c*, d*, tx*, ty*: float32
 
+  SvgMeshCache = ref object
+    path: Path
+    sourcePath: Path
+    sourceTransform: SvgAffine
+    width, miterLimit, dashOffset: float32
+    cap: LineCap
+    join: LineJoin
+    dashes: seq[float32]
+    key: string
+    documentScale, requestedRange: float64
+    image: ImageRef
+    frame: Rect
+    pixelRange: float32
+
   SvgLayer* = object ## One ordered SVG paint operation.
     paint*: Color
+    transform*: SvgAffineTransform
+    meshCache: SvgMeshCache
     case kind*: SvgLayerKind
     of slkMtsdfFill, slkMtsdfStroke:
       image*: ImageRef
       frame*: Rect
       pixelRange*: float32
       mtsdfStrokeWidth*: float32
+    of slkStrokeMesh:
+      meshOps*: seq[DrawableOp]
     of slkStrokePath:
       segments*: seq[SvgPathSegment]
       strokeWidth*: float32
       strokeCap*: SvgStrokeCap
       strokeJoin*: SvgStrokeJoin
-    of slkCircle:
-      transform*: SvgAffineTransform
+      dashArray*: seq[float32]
+      dashOffset*: float32
+    of slkRasterGroup:
+      rasterImage*, tintImage*: ImageRef
+      rasterFrame*: Rect
+    of slkCircle, slkEllipse, slkRectangle:
+      primitiveBounds*: Rect
       drawsFill*, drawsStroke*: bool
       strokePaint*: Color
       localStrokeWidth*: float32
@@ -134,30 +161,6 @@ proc toAffine(value: SvgAffine): SvgAffineTransform =
     a: value.a, b: value.b, c: value.c, d: value.d, tx: value.tx, ty: value.ty
   )
 
-proc correctMtsdfSign(
-    image: Image,
-    path: Path,
-    windingRule: WindingRule,
-    fieldScale: float32,
-    fieldTranslation: Vec2,
-) =
-  ## SVG paths can be self-intersecting or use overlapping contours whose
-  ## winding differs from the distance generator's contour orientation. Keep
-  ## its distance magnitude, but use Pixie's SVG fill result for the sign.
-  let mask = newImage(image.width, image.height)
-  mask.fillPath(
-    path,
-    color(1.0, 1.0, 1.0, 1.0),
-    translate(fieldTranslation * fieldScale) * scale(vec2(fieldScale)),
-    windingRule,
-  )
-  for index in 0 ..< image.data.len:
-    let
-      generatedInside = image.data[index].a >= 128
-      rasterInside = mask.data[index].a >= 128
-    if generatedInside != rasterInside:
-      image.data[index].a = 255 - image.data[index].a
-
 proc newMtsdfLayer(
     path: Path,
     windingRule: WindingRule,
@@ -166,50 +169,94 @@ proc newMtsdfLayer(
     imageIndex, imageCount: int,
     documentScale, pixelRange: float64,
 ): SvgLayer =
-  let bounds = path.computeBounds()
-  if bounds.w <= 0.0'f32 or bounds.h <= 0.0'f32:
-    raise newException(PixieError, "SVG path has empty bounds")
-
-  let
-    minimumDimension = int(ceil(pixelRange + 1.0))
-    width =
-      max(minimumDimension, int(ceil(bounds.w.float64 * documentScale + pixelRange)))
-    height =
-      max(minimumDimension, int(ceil(bounds.h.float64 * documentScale + pixelRange)))
-    field = generateMtsdfPath(path, width, height, pixelRange)
-    fieldScale = field.scale.float32
-  field.image.flipVertical()
-  field.image.correctMtsdfSign(
-    path,
-    windingRule,
-    fieldScale,
-    vec2(field.translate.x.float32, field.translate.y.float32),
-  )
-
+  let field = generateSvgField(path, windingRule, documentScale, pixelRange)
   SvgLayer(
     kind: slkMtsdfFill,
     paint: paint,
     image: imageRef(imgId(layerName(name, imageIndex, imageCount)), field.image),
-    frame: rect(
-      (-field.translate.x).float32,
-      (-field.translate.y).float32,
-      width.float32 / fieldScale,
-      height.float32 / fieldScale,
-    ),
-    pixelRange: (field.range * field.scale).float32,
+    frame: field.frame,
+    pixelRange: field.pixelRange,
   )
 
-proc mtsdfStrokeLayer(
-    fillLayer: SvgLayer, strokeWidth: float32, paint: Color
-): SvgLayer =
+proc matrix(value: SvgAffine): Mat3 =
+  result = mat3()
+  result[0, 0] = value.a
+  result[0, 1] = value.b
+  result[1, 0] = value.c
+  result[1, 1] = value.d
+  result[2, 0] = value.tx
+  result[2, 1] = value.ty
+
+proc lineCap(value: svgpathloader.SvgStrokeCap): LineCap =
+  case value
+  of sscButt: ButtCap
+  of sscRound: RoundCap
+  of sscSquare: SquareCap
+
+proc lineJoin(value: svgpathloader.SvgStrokeJoin): LineJoin =
+  case value
+  of ssjMiter: MiterJoin
+  of ssjRound: RoundJoin
+  of ssjBevel: BevelJoin
+
+proc nativeStroke(element: ParsedSvgElement): bool =
+  ## Independent GPU ops are safe for one undashed segment. Rounded
+  ## translucent caps need a union outline to avoid blending more than once.
+  if element.sourceStrokeSegments.len != 1:
+    return false
+  if element.strokeColor.a < 1 and element.strokeCap != sscButt:
+    return false
+  if element.strokeDashArray.len > 0:
+    if element.sourceStrokeSegments[0].kind != sskLine or element.strokeColor.a < 1:
+      return false
+    for dash in element.strokeDashArray:
+      if dash <= 0:
+        return false
+  true
+
+proc needsRaster(element: ParsedSvgElement): bool =
+  element.fillPaintValue.startsWith("url(") or
+    element.strokePaintValue.startsWith("url(") or element.clipPathIds.len > 0 or
+    element.maskIds.len > 0
+
+proc primitiveLayer(element: ParsedSvgElement, kind: static[SvgLayerKind]): SvgLayer =
   SvgLayer(
-    kind: slkMtsdfStroke,
-    paint: paint,
-    image: fillLayer.image,
-    frame: fillLayer.frame,
-    pixelRange: fillLayer.pixelRange,
-    mtsdfStrokeWidth: strokeWidth,
+    kind: kind,
+    paint: element.fillColor,
+    transform: (
+      when kind == slkCircle:
+        element.primitiveTransform.toAffine()
+      else: element.sourceTransform.toAffine()
+    ),
+    primitiveBounds: element.strokePath.computeBounds(),
+    drawsFill: element.hasFill,
+    drawsStroke: element.hasStroke,
+    strokePaint: element.strokeColor,
+    localStrokeWidth: element.primitiveStrokeWidth,
   )
+
+proc meshFallback*(
+    layer: SvgLayer
+): tuple[image: ImageRef, frame: Rect, pixelRange: float32] =
+  ## Lazily create and retain the union field for translucent stroke tints.
+  if layer.kind notin {slkStrokePath, slkStrokeMesh} or layer.meshCache.isNil:
+    raiseSvgMtsdfError("SVG layer has no stroke union fallback")
+  let cache = layer.meshCache
+  if cache.image.isNil:
+    if cache.documentScale <= 0:
+      raiseSvgMtsdfError("SVG MTSDF dimensions must exceed the pixel range")
+    if cache.path.isNil:
+      cache.path = strokeOutline(
+        cache.sourcePath, cache.width, cache.cap, cache.join, cache.miterLimit,
+        cache.dashes, cache.dashOffset,
+      )
+      cache.path.transform(cache.sourceTransform.matrix())
+    let field =
+      generateSvgField(cache.path, NonZero, cache.documentScale, cache.requestedRange)
+    cache.image = imageRef(imgId(cache.key), field.image)
+    cache.frame = field.frame
+    cache.pixelRange = field.pixelRange
+  (cache.image, cache.frame, cache.pixelRange)
 
 proc newSvgMtsdfResource*(
     svgData: string,
@@ -220,10 +267,10 @@ proc newSvgMtsdfResource*(
 ): SvgMtsdfResource =
   ## Parses an SVG into ordered FigDraw vector strokes and MTSDF fill layers.
   ##
-  ## Circles, lines, and Bezier strokes remain vector drawables. Ellipses and
-  ## independently filled complex elements receive separate compact MTSDFs.
-  ## Solid SVG fill and stroke colors, including inherited colors and opacity,
-  ## are kept. Gradient fills are not yet supported.
+  ## Circles, ellipses, rectangles and independent stroke segments use native
+  ## drawables. Opaque connected strokes use meshes; translucent strokes and
+  ## complex fills use MTSDF images.
+  ## Opacity groups and effects requiring compositing use cached RGBA images.
   ## Keep the resource alive while rendering its nodes, as with `ImageRef`.
   ## Image handles belong to the creating thread; transfer IDs across threads.
   ## `name` selects a cache identity; use distinct names for distinct resources.
@@ -233,84 +280,148 @@ proc newSvgMtsdfResource*(
 
   try:
     let parsed = parseSvgDocument(svgData)
-    result.size = vec2(parsed.width.float32, parsed.height.float32)
-    let
-      imageCount = block:
-        var count = 0
-        for element in parsed.elements:
-          if element.kind != sekCircle and element.fillPath.hasArea():
-            inc count
-        count
-      dimensions =
-        fieldDimensions(result.size.x, result.size.y, longEdge, minimumShortEdge)
-      usableWidth = dimensions.width.float64 - pixelRange
-      usableHeight = dimensions.height.float64 - pixelRange
-    if imageCount > 0 and (usableWidth <= 0.0 or usableHeight <= 0.0):
-      raiseSvgMtsdfError("SVG MTSDF dimensions must exceed the pixel range")
-
+    result.size = parsed.viewportSize
+    let dimensions =
+      fieldDimensions(result.size.x, result.size.y, longEdge, minimumShortEdge)
+    let usableWidth = dimensions.width.float64 - pixelRange
+    let usableHeight = dimensions.height.float64 - pixelRange
     let documentScale =
-      if imageCount > 0:
-        min(usableWidth / result.size.x.float64, usableHeight / result.size.y.float64)
-      else:
-        0.0
+      min(usableWidth / result.size.x.float64, usableHeight / result.size.y.float64)
     let resourceName =
       if name.len > 0:
         "figdraw.svg:" & name
       else:
         "figdraw.svg:" & $hash(svgData) & ":" & $longEdge & ":" & $minimumShortEdge & ":" &
           $pixelRange
+    let imageCount = max(2, parsed.elements.len * 2)
     var imageIndex = 0
-
-    for element in parsed.elements:
+    var index = 0
+    while index < parsed.elements.len:
+      let element = parsed.elements[index]
       let firstLayer = result.layers.len
-      if element.kind == sekCircle:
+      if element.compositeGroupStarts.len > 0 or element.needsRaster():
+        var last = index
+        var depth = element.compositeGroupStarts.len - element.compositeGroupEnds
+        while depth > 0 and last + 1 < parsed.elements.len:
+          inc last
+          depth +=
+            parsed.elements[last].compositeGroupStarts.len -
+            parsed.elements[last].compositeGroupEnds
+        if depth != 0:
+          raiseSvgMtsdfError("Unbalanced SVG opacity groups")
+        let raster = rasterizeSvgElements(parsed, index, last, longEdge)
+        let key = layerName(resourceName, imageIndex, imageCount)
         result.layers.add SvgLayer(
-          kind: slkCircle,
-          paint: element.fillColor,
-          transform: element.primitiveTransform.toAffine(),
-          drawsFill: element.hasFill,
-          drawsStroke: element.hasStroke,
-          strokePaint: element.strokeColor,
-          localStrokeWidth: element.primitiveStrokeWidth,
+          kind: slkRasterGroup,
+          rasterImage: imageRef(imgId(key), raster.image),
+          tintImage: imageRef(imgId(key & ":tint"), raster.tintImage),
+          rasterFrame: raster.frame,
         )
-      elif element.kind == sekEllipse:
-        if element.fillPath.hasArea():
-          let mtsdfLayer = newMtsdfLayer(
-            element.fillPath, element.fillRule, element.fillColor, resourceName,
-            imageIndex, imageCount, documentScale, pixelRange,
-          )
-          inc imageIndex
-          if element.hasFill:
-            result.layers.add mtsdfLayer
-          if element.hasStroke:
-            result.layers.add mtsdfLayer.mtsdfStrokeLayer(
-              element.strokeWidth, element.strokeColor
-            )
+        inc imageIndex
+        result.elementCount += last - index + 1
+        index = last + 1
       else:
-        if element.hasFill and element.fillPath.hasArea():
-          result.layers.add newMtsdfLayer(
-            element.fillPath, element.fillRule, element.fillColor, resourceName,
-            imageIndex, imageCount, documentScale, pixelRange,
-          )
-          inc imageIndex
-        if element.hasStroke and element.strokeSegments.len > 0:
-          var segments = newSeqOfCap[SvgPathSegment](element.strokeSegments.len)
-          for segment in element.strokeSegments:
-            segments.add segment.toSegment()
-          result.layers.add SvgLayer(
-            kind: slkStrokePath,
-            paint: element.strokeColor,
-            segments: segments,
-            strokeWidth: element.strokeWidth,
-            strokeCap: element.strokeCap.toStrokeCap(),
-            strokeJoin: element.strokeJoin.toStrokeJoin(),
-          )
-      if result.layers.len > firstLayer:
-        inc result.elementCount
+        let plainPrimitive =
+          element.kind in {sekCircle, sekEllipse} and element.strokeDashArray.len == 0
+        if plainPrimitive:
+          if element.kind == sekCircle:
+            result.layers.add primitiveLayer(element, slkCircle)
+          else:
+            result.layers.add primitiveLayer(element, slkEllipse)
+        else:
+          if element.hasFill and element.fillPath.hasArea():
+            let squareRectangle =
+              element.kind == sekRectangle and 'C' notin $element.strokePath
+            if squareRectangle:
+              result.layers.add SvgLayer(
+                kind: slkRectangle,
+                paint: element.fillColor,
+                transform: element.sourceTransform.toAffine(),
+                primitiveBounds: element.strokePath.computeBounds(),
+                drawsFill: true,
+              )
+            else:
+              if documentScale <= 0:
+                raiseSvgMtsdfError("SVG MTSDF dimensions must exceed the pixel range")
+              result.layers.add newMtsdfLayer(
+                element.fillPath, element.fillRule, element.fillColor, resourceName,
+                imageIndex, imageCount, documentScale, pixelRange,
+              )
+              inc imageIndex
+          if element.hasStroke:
+            if element.nativeStroke():
+              var segments: seq[SvgPathSegment]
+              for segment in element.sourceStrokeSegments:
+                segments.add segment.toSegment()
+              result.layers.add SvgLayer(
+                kind: slkStrokePath,
+                paint: element.strokeColor,
+                transform: element.sourceTransform.toAffine(),
+                segments: segments,
+                strokeWidth: element.sourceStrokeWidth,
+                strokeCap: element.strokeCap.toStrokeCap(),
+                strokeJoin: element.strokeJoin.toStrokeJoin(),
+                dashArray: element.strokeDashArray,
+                dashOffset: element.strokeDashOffset,
+                meshCache: SvgMeshCache(
+                  sourcePath: element.strokePath,
+                  sourceTransform: element.sourceTransform,
+                  width: element.sourceStrokeWidth,
+                  cap: element.strokeCap.lineCap(),
+                  join: element.strokeJoin.lineJoin(),
+                  miterLimit: element.strokeMiterLimit,
+                  dashes: element.strokeDashArray,
+                  dashOffset: element.strokeDashOffset,
+                  key: layerName(resourceName, imageIndex, imageCount),
+                  documentScale: documentScale,
+                  requestedRange: pixelRange,
+                ),
+              )
+              inc imageIndex
+            else:
+              let outline = strokeOutline(
+                element.strokePath,
+                element.sourceStrokeWidth,
+                element.strokeCap.lineCap(),
+                element.strokeJoin.lineJoin(),
+                element.strokeMiterLimit,
+                element.strokeDashArray,
+                element.strokeDashOffset,
+              )
+              if outline.hasArea():
+                if element.strokeColor.a >= 1:
+                  let ops = drawableStrokeOutlineOps(outline)
+                  outline.transform(element.sourceTransform.matrix())
+                  result.layers.add SvgLayer(
+                    kind: slkStrokeMesh,
+                    paint: element.strokeColor,
+                    transform: element.sourceTransform.toAffine(),
+                    meshOps: ops,
+                    meshCache: SvgMeshCache(
+                      path: outline,
+                      key: layerName(resourceName, imageIndex, imageCount),
+                      documentScale: documentScale,
+                      requestedRange: pixelRange,
+                    ),
+                  )
+                else:
+                  outline.transform(element.sourceTransform.matrix())
+                  if documentScale <= 0:
+                    raiseSvgMtsdfError(
+                      "SVG MTSDF dimensions must exceed the pixel range"
+                    )
+                  result.layers.add newMtsdfLayer(
+                    outline, NonZero, element.strokeColor, resourceName, imageIndex,
+                    imageCount, documentScale, pixelRange,
+                  )
+                inc imageIndex
+        if result.layers.len > firstLayer:
+          inc result.elementCount
+        inc index
 
     if result.layers.len == 0:
       raiseSvgMtsdfError("SVG contains no supported visible painted elements")
-  except PixieError as error:
+  except CatchableError as error:
     raiseSvgMtsdfError(error.msg)
 
 proc newSvgMtsdfResourceFromFile*(

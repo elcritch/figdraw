@@ -12,8 +12,10 @@ type
     dkBezier
     dkArc
     dkEllipse
+    dkFilledQuad
 
   DrawableOp* = object
+    centeredStroke*: bool ## Center circle/ellipse strokes; defaults to inset.
     case kind*: DrawableKind
     of dkLine:
       a*, b*: Vec2
@@ -35,6 +37,8 @@ type
     of dkEllipse:
       ellipseCenter*: Vec2
       ellipseRadii*: Vec2
+    of dkFilledQuad:
+      quadVertices*: array[4, Vec2]
 
   RenderList* = object
     nodes*: seq[Fig]
@@ -246,6 +250,10 @@ proc drawableEllipse*(center, radii: Vec2): DrawableOp =
 
 proc drawableEllipse*(x, y, radiusX, radiusY: float32): DrawableOp =
   drawableEllipse(vec2(x, y), vec2(radiusX, radiusY))
+
+proc drawableFilledQuad*(vertices: array[4, Vec2]): DrawableOp =
+  ## Create a filled convex quad with vertices in perimeter order.
+  DrawableOp(kind: dkFilledQuad, quadVertices: vertices)
 
 proc drawableRect*(
     box: Rect, corners: CornerRadii = [0'u16, 0'u16, 0'u16, 0'u16]

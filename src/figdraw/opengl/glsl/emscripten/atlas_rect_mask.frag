@@ -353,11 +353,15 @@ void main() {
       alpha = 1.0 - cl;
     } else if (sdfModeInt == sdfModeAnnular) {
       float f = sdfFactor * 0.5;
-      float sd = abs(dist + f) - f;
+      float centerOffset = (quadHalfExtents.x > shapeHalfExtents.x ||
+          quadHalfExtents.y > shapeHalfExtents.y) ? f : 0.0;
+        float sd = abs(dist + f - centerOffset) - f;
       alpha = (sd < 0.0) ? 1.0 : 0.0;
     } else if (sdfModeInt == sdfModeAnnularAA) {
       float f = sdfFactor * 0.5;
-      float sd = abs(dist + f) - f;
+      float centerOffset = (quadHalfExtents.x > shapeHalfExtents.x ||
+          quadHalfExtents.y > shapeHalfExtents.y) ? f : 0.0;
+        float sd = abs(dist + f - centerOffset) - f;
       float cl = clamp(aaFactor * sd + 0.5, 0.0, 1.0);
       alpha = 1.0 - cl;
     } else if (sdfModeInt == sdfModeDropShadow) {

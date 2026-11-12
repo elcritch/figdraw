@@ -459,7 +459,22 @@ method drawRoundedRectSdf*(
     factor, spread: float32,
     shapeSize: Vec2,
 ) =
-  ctx.drawRounded(rect, spanPaint(fill, rect), radii, mode, factor, spread, shapeSize)
+  if mode == sdfModeAnnularAA and spread > 0 and shapeSize.x > 0 and shapeSize.y > 0:
+    let field = initRoundedBoxField(
+      shapeSize * 0.5'f32,
+      cornerVector(radii.x),
+      cornerVector(radii.y),
+      rect.xy + rect.wh * 0.5'f32,
+    )
+    ctx.rasterize(
+      rect,
+      proc(p: Vec2, aa: float32): ColorRGBX =
+        let distance =
+          abs(field.distance(p) - spread + factor * 0.5'f32) - factor * 0.5'f32
+        withCoverage(sampleFill(fill, (p - rect.xy) / rect.wh), coverage(distance, aa)),
+    )
+  else:
+    ctx.drawRounded(rect, spanPaint(fill, rect), radii, mode, factor, spread, shapeSize)
 
 method drawRoundedRectSdf*(
     ctx: SoftwareContext,
@@ -680,6 +695,8 @@ proc drawDistanceImage(
   let
     image = ctx.images[path]
     dimensions = vec2(image.width.float32, image.height.float32)
+    screenRange =
+      max(pxRange * 0.5'f32 * (size.x / dimensions.x + size.y / dimensions.y), 1'f32)
   ctx.rasterize(
     rect(pos.x, pos.y, size.x, size.y),
     proc(p: Vec2, aa: float32): ColorRGBX =
@@ -687,7 +704,7 @@ proc drawDistanceImage(
       if flipY:
         uv.y = 1'f32 - uv.y
       var distance =
-        -pxRange *
+        -screenRange *
         (sampleDistance(image, uv * dimensions - vec2(0.5'f32), useAlpha) - threshold)
       if strokeWeight > 0:
         distance = abs(distance) - strokeWeight * 0.5'f32

@@ -12,36 +12,36 @@ const mixedSvg = """
 """
 
 suite "SVG drawing layers":
-  test "preserves ordered paints, vector primitives and shared ellipse fields":
+  test "preserves ordered paints, vector primitives and ellipse geometry":
     let svg = newSvgMtsdfResource(mixedSvg, longEdge = 64)
     check svg.size == vec2(80, 40)
     check svg.elementCount == 3
-    check svg.len == 5
+    check svg.len == 4
     check svg.layers[0].kind == slkMtsdfFill
     check svg.layers[0].paint.rgba == rgba(204, 114, 38, 128)
-    check svg.layers[1].kind == slkStrokePath
+    check svg.layers[1].kind == slkStrokeMesh
     check svg.layers[1].paint.rgba == rgba(16, 32, 48, 255)
     check svg.layers[2].kind == slkCircle
-    check svg.layers[3].kind == slkMtsdfFill
-    check svg.layers[4].kind == slkMtsdfStroke
-    check svg.layers[3].image == svg.layers[4].image
+    check svg.layers[3].kind == slkEllipse
     check svg.image == svg.layers[0].image
     check abs(svg.pixelRange - 6) < 0.001
 
     var list: RenderList
     let last = list.addSvgMtsdf(rect(10, 20, 160, 80), svg)
-    check last.int == 5
-    check list.rootIds.len == 5
+    check last.int == 6
+    check list.rootIds.len == 4
     check list.nodes[0].kind == nkMtsdfImage
     check list.nodes[0].mtsdfImage.fill.color == rgba(204, 114, 38, 128)
-    check list.nodes[1].drawStroke.fill.color == rgba(16, 32, 48, 255)
-    check list.nodes[1].drawStroke.weight == 4
-    check list.nodes[2].kind == nkTransform
-    check list.nodes[2].childCount == 1
-    check list.nodes[2].transform.translation == vec2(122, 60)
-    check list.nodes[3].parent == FigIdx(2)
-    check list.nodes[3].drawOps[0].kind == dkCircle
-    check list.nodes[5].mtsdfImage.strokeWeight == 2
+    check list.nodes[1].kind == nkTransform
+    check list.nodes[2].fill.color == rgba(16, 32, 48, 255)
+    check list.nodes[2].drawOps[0].kind == dkFilledQuad
+    check list.nodes[3].kind == nkTransform
+    check list.nodes[3].childCount == 1
+    check list.nodes[3].transform.translation == vec2(122, 60)
+    check list.nodes[4].parent == FigIdx(3)
+    check list.nodes[4].drawOps[0].kind == dkCircle
+    check list.nodes[6].drawOps[0].kind == dkEllipse
+    check list.nodes[6].drawStroke.weight == 1
 
   test "appends tinted layers under an existing parent":
     let svg = newSvgMtsdfResource(mixedSvg, longEdge = 32)
@@ -50,39 +50,41 @@ suite "SVG drawing layers":
     let tint = fill(rgba(10, 20, 30, 255))
     discard list.addSvgMtsdf(rect(0, 0, 80, 40), svg, tint, parent = parent)
     check list.rootIds == @[parent]
-    check list.nodes[0].childCount == 5
+    check list.nodes[0].childCount == 4
     check list.nodes[1].mtsdfImage.fill == tint
-    check list.nodes[2].drawStroke.fill == tint
-    check list.nodes[4].fill == tint
-    check list.nodes[4].drawStroke.fill == tint
-    check list.nodes[5].mtsdfImage.fill == tint
+    check list.nodes[3].fill == tint
+    check list.nodes[5].fill == tint
+    check list.nodes[5].drawStroke.fill == tint
+    check list.nodes[7].fill == tint
+    check list.nodes[7].drawStroke.fill == tint
 
-  test "vector-only resources allocate no image":
-    let svg = newSvgMtsdfResource(
-      """
-<svg viewBox="0 0 40 40">
-  <path d="M2 3 L10 3 Q20 3 20 10 C20 20 30 20 30 30"
-    fill="none" stroke="black" stroke-linecap="round"/>
-</svg>
-"""
+  test "connected strokes use a unified outline and simple lines stay native":
+    let connected = newSvgMtsdfResource(
+      """<svg viewBox="0 0 40 40"><path d="M2 3 L10 3 Q20 3 20 10 C20 20 30 20 30 30"
+      fill="none" stroke="black" stroke-linecap="round"/></svg>"""
     )
-    check svg.len == 1
-    check svg.image.isNil
-    check svg.pixelRange == 0
+    check connected.len == 1
+    check connected.layers[0].kind == slkStrokeMesh
+    check connected.image.isNil
+    let line = newSvgMtsdfResource(
+      """<svg viewBox="0 0 40 40"><line x1="2" y1="3" x2="20" y2="10"
+      stroke="black"/></svg>"""
+    )
+    check line.len == 1
+    check line.layers[0].kind == slkStrokePath
+    check line.image.isNil
     var list: RenderList
-    discard list.addSvgMtsdf(rect(5, 7, 80, 80), svg)
-    check list.nodes[0].drawOps.len == 3
-    check list.nodes[0].drawOps[0].a == vec2(4, 6)
-    check list.nodes[0].drawStroke.cap == scRound
-    check list.nodes[0].drawOps[1].controls.len == 3
-    check list.nodes[0].drawOps[2].controls.len == 4
+    discard list.addSvgMtsdf(rect(5, 7, 80, 80), line)
+    check list.nodes[0].kind == nkTransform
+    check list.nodes[1].drawOps.len == 1
+    check list.nodes[1].drawOps[0].kind == dkLine
 
   test "anonymous resources have distinct image identities":
     let a = newSvgMtsdfResource(
-      "<svg viewBox=\"0 0 10 10\"><rect width=\"8\" height=\"8\"/></svg>"
+      "<svg viewBox=\"0 0 10 10\"><path d=\"M1 1 L9 1 L5 9 Z\"/></svg>"
     )
     let b = newSvgMtsdfResource(
-      "<svg viewBox=\"0 0 10 10\"><circle r=\"4\"/><rect width=\"6\" height=\"6\"/></svg>"
+      "<svg viewBox=\"0 0 10 10\"><circle r=\"4\"/><path d=\"M1 1 L7 1 L4 7 Z\"/></svg>"
     )
     check a.image.id != b.image.id
 

@@ -1,10 +1,10 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 # Imported from Merenda; adapted from sdfy/src/sdfy/msdfgenSvg.nim.
-# See docs/licenses/SVG-SOURCES.md for provenance and license notices.
+# See docs/svg_sources.md for provenance; covered by FigDraw's MIT license.
 
 ## Parses SVG documents into paths and vector stroke metadata.
 
-import std/[math, strutils]
+import std/[math, strutils, strtabs, tables]
 
 import pkg/pixie
 include pixie/fileformats/svg
@@ -41,84 +41,42 @@ type
   SvgAffine* = object
     a*, b*, c*, d*, tx*, ty*: float32
 
+  ParsedSvgCompositeGroup* = object
+    opacity*: float32
+    clipPathIds*, maskIds*: seq[string]
+    clipPathTransforms*, maskTransforms*: seq[SvgAffine]
+    sourceTransform*: SvgAffine
+
   ParsedSvgElement* = object
     kind*: SvgSourceElementKind
     fillPath*: Path
     hasFill*, hasStroke*: bool
     fillColor*, strokeColor*: Color
+    fillOpacity*, strokeOpacity*: float32
     fillRule*: WindingRule
-    strokeSegments*: seq[SvgStrokeSegment]
-    strokeWidth*: float32
+    strokeSegments*, sourceStrokeSegments*: seq[SvgStrokeSegment]
+    strokeWidth*, sourceStrokeWidth*: float32
     strokeCap*: SvgStrokeCap
     strokeJoin*: SvgStrokeJoin
     primitiveTransform*: SvgAffine
     primitiveStrokeWidth*: float32
+    strokePath*: Path
+    strokeDashArray*: seq[float32]
+    strokeDashOffset*, strokeMiterLimit*: float32
+    opacityGroupStarts*: seq[float32]
+    opacityGroupEnds*: int
+    compositeGroupStarts*: seq[ParsedSvgCompositeGroup]
+    compositeGroupEnds*: int
+    fillPaintValue*, strokePaintValue*, currentColor*: string
+    sourceTransform*: SvgAffine
+    clipPathIds*, maskIds*: seq[string]
+    clipPathTransforms*, maskTransforms*: seq[SvgAffine]
 
   ParsedSvgDocument* = object
     width*, height*: int
+    viewportSize*: Vec2
     elements*: seq[ParsedSvgElement]
-
-proc normalizeSvgData(data: string): string =
-  result = data.replace(",", " ")
-  let
-    key = "viewBox=\""
-    start = result.find(key)
-  if start < 0:
-    return
-
-  let
-    valueStart = start + key.len
-    valueEnd = result.find('"', valueStart)
-  if valueEnd < 0:
-    return
-
-  let
-    viewBox = result[valueStart ..< valueEnd]
-    parts = viewBox.splitWhitespace()
-  if parts.len != 4:
-    return
-
-  var
-    fixed = parts
-    updated = false
-  for index in 0 ..< fixed.len:
-    if fixed[index].contains('.'):
-      let value =
-        try:
-          parseFloat(fixed[index])
-        except ValueError:
-          return
-      fixed[index] = $int(round(value))
-      updated = true
-
-  if updated:
-    let normalizedViewBox = fixed.join(" ")
-    result = result[0 ..< valueStart] & normalizedViewBox & result[valueEnd .. ^1]
-
-proc collectElementKinds(node: XmlNode, kinds: var seq[SvgSourceElementKind]) =
-  if node.kind != xnElement:
-    return
-
-  case node.tag
-  of "g":
-    for child in node:
-      collectElementKinds(child, kinds)
-  of "path":
-    kinds.add sekPath
-  of "line":
-    kinds.add sekLine
-  of "polyline":
-    kinds.add sekPolyline
-  of "polygon":
-    kinds.add sekPolygon
-  of "rect":
-    kinds.add sekRectangle
-  of "circle":
-    kinds.add sekCircle
-  of "ellipse":
-    kinds.add sekEllipse
-  else:
-    discard
+    root*: XmlNode
 
 proc affine(matrix: Mat3): SvgAffine =
   SvgAffine(
@@ -626,83 +584,371 @@ proc solidFillColor(properties: SvgProperties): Color =
     raise newException(
       PixieError, "SVG gradient fills are not supported by the MTSDF loader"
     )
-  parseHtmlColor(properties.fill).colorWithOpacity(
-    properties.opacity * properties.fillOpacity
-  )
+  parseHtmlColor(properties.fill).colorWithOpacity(properties.fillOpacity)
 
 proc solidStrokeColor(properties: SvgProperties): Color =
-  properties.stroke.rgba.color.colorWithOpacity(
-    properties.opacity * properties.strokeOpacity
+  properties.stroke.rgba.color.colorWithOpacity(properties.strokeOpacity)
+
+type ElementState = object
+  props: SvgProperties
+  currentColor: string
+  fillValue, strokeValue: string
+  dashOffset: float32
+  clipPathIds, maskIds: seq[string]
+  clipPathTransforms, maskTransforms: seq[SvgAffine]
+
+proc declarations(node: XmlNode): Table[string, string] =
+  if node.attrs != nil:
+    for key, value in node.attrs:
+      result[key] = value.strip()
+  for pair in node.attr("style").split(';'):
+    let colon = pair.find(':')
+    if colon >= 0:
+      result[pair[0 ..< colon].strip()] = pair[colon + 1 .. ^1].strip()
+
+proc resolveState(
+    node: XmlNode, inherited: ElementState
+): tuple[state: ElementState, opacity: float32] =
+  result.state = inherited
+  result.state.clipPathIds = @[]
+  result.state.maskIds = @[]
+  result.state.clipPathTransforms = @[]
+  result.state.maskTransforms = @[]
+  result.opacity = 1
+  let values = node.declarations()
+  var clean = newElement("g")
+  clean.attrs = newStringTable(modeCaseSensitive)
+  for key in [
+    "fill-rule", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin",
+    "stroke-miterlimit", "stroke-dasharray", "transform", "fill-opacity",
+    "stroke-opacity",
+  ]:
+    if key in values and values[key] != "inherit":
+      clean.attrs[key] = values[key]
+  if "color" in values and values["color"] != "inherit":
+    result.state.currentColor = values["color"]
+  if "fill" in clean.attrs:
+    result.state.fillValue = clean.attrs["fill"]
+  if "stroke" in clean.attrs:
+    result.state.strokeValue = clean.attrs["stroke"]
+  clean.attrs["fill"] =
+    if result.state.fillValue == "currentColor":
+      result.state.currentColor
+    else:
+      result.state.fillValue
+  clean.attrs["stroke"] =
+    if result.state.strokeValue == "currentColor":
+      result.state.currentColor
+    else:
+      result.state.strokeValue
+  # Pixie appends inherited dash arrays and invents a stroke for stroke-width.
+  if "stroke-dasharray" in clean.attrs:
+    result.state.props.strokeDashArray.setLen(0)
+    if clean.attrs["stroke-dasharray"] == "none":
+      clean.attrs.del("stroke-dasharray")
+  if "stroke" in clean.attrs and clean.attrs["stroke"].startsWith("url("):
+    clean.attrs["stroke"] = "black"
+  result.state.props = clean.parseSvgProperties(result.state.props)
+  if result.state.strokeValue == "none":
+    result.state.props.stroke = ColorRGBX()
+  if "stroke-dashoffset" in values and values["stroke-dashoffset"] != "inherit":
+    result.state.dashOffset = parseFloat(values["stroke-dashoffset"])
+  if "display" in values and values["display"] == "none":
+    result.state.props.display = false
+  for key in ["clip-path", "mask"]:
+    if key in values and values[key].startsWith("url(#") and values[key].endsWith(")"):
+      let id = values[key][5 .. ^2]
+      if key == "clip-path":
+        result.state.clipPathIds.add id
+        result.state.clipPathTransforms.add result.state.props.transform.affine()
+      else:
+        result.state.maskIds.add id
+        result.state.maskTransforms.add result.state.props.transform.affine()
+  if "opacity" in values:
+    result.opacity = clamp(parseFloat(values["opacity"]), 0, 1)
+  result.state.props.opacity = 1
+
+proc elementKind(tag: string): SvgSourceElementKind =
+  case tag
+  of "path":
+    sekPath
+  of "line":
+    sekLine
+  of "polyline":
+    sekPolyline
+  of "polygon":
+    sekPolygon
+  of "rect":
+    sekRectangle
+  of "circle":
+    sekCircle
+  of "ellipse":
+    sekEllipse
+  else:
+    raise newException(PixieError, "Unsupported SVG tag: " & tag)
+
+proc geometryNode(node: XmlNode): XmlNode =
+  result = newElement(node.tag)
+  result.attrs = newStringTable(modeCaseSensitive)
+  for key in [
+    "d", "x", "y", "x1", "x2", "y1", "y2", "width", "height", "rx", "ry", "r", "cx",
+    "cy", "points",
+  ]:
+    let value = node.attr(key)
+    if value.len > 0:
+      result.attrs[key] =
+        if key == "points":
+          value.replace(',', ' ').splitWhitespace().join(" ")
+        else:
+          value
+
+proc appendElement(
+    document: var ParsedSvgDocument,
+    kind: SvgSourceElementKind,
+    sourcePath: Path,
+    state: ElementState,
+) =
+  let
+    properties = state.props
+    path = sourcePath.normalizePathArcs()
+    hasFill =
+      kind != sekLine and properties.display and properties.fillOpacity > 0 and
+      properties.fill != "none"
+    hasStroke =
+      properties.display and properties.strokeOpacity > 0 and properties.strokeWidth > 0 and
+      (state.strokeValue.startsWith("url(") or properties.stroke != rgbx(0, 0, 0, 0))
+  if not hasFill and not hasStroke:
+    return
+  var element = ParsedSvgElement(
+    kind: kind,
+    hasFill: hasFill,
+    hasStroke: hasStroke,
+    fillColor: (
+      if hasFill and not properties.fill.startsWith("url("): properties.solidFillColor()
+      else: color(0.0, 0.0, 0.0, 0.0)
+    ),
+    strokeColor: (
+      if hasStroke and not state.strokeValue.startsWith("url("):
+      properties.solidStrokeColor()
+      else: color(0.0, 0.0, 0.0, 0.0)
+    ),
+    fillRule: properties.fillRule,
+    fillOpacity: properties.fillOpacity,
+    strokeOpacity: properties.strokeOpacity,
+    strokeWidth: properties.strokeWidth * properties.transform.transformScale(),
+    sourceStrokeWidth: properties.strokeWidth,
+    strokeCap: properties.strokeLineCap.toStrokeCap(),
+    strokeJoin: properties.strokeLineJoin.toStrokeJoin(),
+    strokePath: path,
+    strokeDashArray: properties.strokeDashArray,
+    strokeDashOffset: state.dashOffset,
+    strokeMiterLimit: properties.strokeMiterLimit,
+    primitiveTransform: properties.transform.affine(),
+    sourceTransform: properties.transform.affine(),
+    fillPaintValue: properties.fill,
+    strokePaintValue: (
+      if state.strokeValue == "currentColor": state.currentColor else: state.strokeValue
+    ),
+    currentColor: state.currentColor,
+    clipPathIds: state.clipPathIds,
+    maskIds: state.maskIds,
+    clipPathTransforms: state.clipPathTransforms,
+    maskTransforms: state.maskTransforms,
   )
+  if hasFill or kind == sekEllipse and hasStroke:
+    element.fillPath = path.copy()
+    element.fillPath.transform(properties.transform)
+  if kind == sekCircle:
+    let bounds = path.computeBounds()
+    let radiusX = bounds.w * 0.5'f32
+    let radiusY = bounds.h * 0.5'f32
+    let center = bounds.xy + bounds.wh * 0.5'f32
+    element.primitiveTransform = (
+      properties.transform * translate(center) * scale(vec2(radiusX, radiusY))
+    ).affine()
+    element.primitiveStrokeWidth =
+      if hasStroke and max(radiusX, radiusY) > 0:
+        properties.strokeWidth / max(radiusX, radiusY)
+      else:
+        0.0'f32
+  else:
+    if kind == sekEllipse:
+      element.primitiveStrokeWidth = properties.strokeWidth
+    if hasStroke and kind != sekEllipse:
+      let parsedStroke = path.strokeSegments(properties.transform)
+      if parsedStroke.complete:
+        element.strokeSegments = parsedStroke.segments
+        element.sourceStrokeSegments = path.strokeSegments(mat3()).segments
+  document.elements.add element
+
+proc symbolViewport(symbol, use: XmlNode): Mat3 =
+  let box = symbol.attr("viewBox").replace(',', ' ').splitWhitespace()
+  result = mat3()
+  if box.len == 0:
+    return
+  if box.len != 4:
+    raise newException(PixieError, "Invalid symbol viewBox")
+  let
+    minX = parseFloat(box[0]).float32
+    minY = parseFloat(box[1]).float32
+    boxWidth = parseFloat(box[2]).float32
+    boxHeight = parseFloat(box[3]).float32
+  if boxWidth <= 0 or boxHeight <= 0:
+    raise newException(PixieError, "Invalid symbol viewBox")
+  let
+    width = parseFloat(use.attrOrDefault("width", $boxWidth)).float32
+    height = parseFloat(use.attrOrDefault("height", $boxHeight)).float32
+  if width <= 0 or height <= 0:
+    raise newException(PixieError, "Invalid symbol viewport")
+  let aspect = symbol.attr("preserveAspectRatio").splitWhitespace()
+  let align =
+    if aspect.len == 0:
+      "xMidYMid"
+    else:
+      aspect[0]
+  var sx = width / boxWidth
+  var sy = height / boxHeight
+  var dx, dy: float32
+  if align != "none":
+    if align notin [
+      "xMinYMin", "xMidYMin", "xMaxYMin", "xMinYMid", "xMidYMid", "xMaxYMid",
+      "xMinYMax", "xMidYMax", "xMaxYMax",
+    ] or aspect.len > 2 or (aspect.len == 2 and aspect[1] notin ["meet", "slice"]):
+      raise newException(PixieError, "Invalid preserveAspectRatio")
+    let factor =
+      if aspect.len == 2 and aspect[1] == "slice":
+        max(sx, sy)
+      else:
+        min(sx, sy)
+    sx = factor
+    sy = factor
+    let extraX = width - boxWidth * factor
+    let extraY = height - boxHeight * factor
+    if align.startsWith("xMid"):
+      dx = extraX * 0.5'f32
+    elif align.startsWith("xMax"):
+      dx = extraX
+    if align.endsWith("YMid"):
+      dy = extraY * 0.5'f32
+    elif align.endsWith("YMax"):
+      dy = extraY
+  result = translate(vec2(dx, dy)) * scale(vec2(sx, sy)) * translate(vec2(-minX, -minY))
+
+proc walkSvg(
+    node: XmlNode,
+    inherited: ElementState,
+    document: var ParsedSvgDocument,
+    ids: Table[string, XmlNode],
+    active: seq[string],
+) =
+  if node.kind != xnElement:
+    return
+  let resolved = node.resolveState(inherited)
+  if not resolved.state.props.display or resolved.opacity <= 0:
+    return
+  let first = document.elements.len
+  case node.tag
+  of "svg", "g", "symbol":
+    for child in node:
+      child.walkSvg(resolved.state, document, ids, active)
+  of "use":
+    var reference = node.attr("href")
+    if reference.len == 0:
+      reference = node.attr("xlink:href")
+    if reference.len < 2 or reference[0] != '#' or reference[1 .. ^1] notin ids:
+      raise newException(PixieError, "Missing SVG use reference: " & reference)
+    let id = reference[1 .. ^1]
+    if id in active:
+      raise newException(PixieError, "Cyclic SVG use reference: " & reference)
+    var state = resolved.state
+    state.props.transform =
+      state.props.transform *
+      translate(
+        vec2(
+          parseFloat(node.attrOrDefault("x", "0")),
+          parseFloat(node.attrOrDefault("y", "0")),
+        )
+      )
+    if ids[id].tag == "symbol":
+      state.props.transform = state.props.transform * symbolViewport(ids[id], node)
+    ids[id].walkSvg(state, document, ids, active & @[id])
+  of "defs", "title", "desc", "clipPath", "mask", "linearGradient", "radialGradient":
+    discard
+  of "path", "line", "polyline", "polygon", "rect", "circle", "ellipse":
+    var stack = @[resolved.state.props]
+    let elements = node.geometryNode().parseSvgElement(Svg(), stack)
+    for (path, _) in elements:
+      document.appendElement(node.tag.elementKind(), path, resolved.state)
+  else:
+    raise newException(PixieError, "Unsupported SVG tag: " & node.tag)
+  if document.elements.len > first and (
+    resolved.opacity < 1 or resolved.state.clipPathIds.len > 0 or
+    resolved.state.maskIds.len > 0
+  ):
+    let group = ParsedSvgCompositeGroup(
+      opacity: resolved.opacity,
+      clipPathIds: resolved.state.clipPathIds,
+      maskIds: resolved.state.maskIds,
+      clipPathTransforms: resolved.state.clipPathTransforms,
+      maskTransforms: resolved.state.maskTransforms,
+      sourceTransform: resolved.state.props.transform.affine(),
+    )
+    document.elements[first].compositeGroupStarts.insert(group, 0)
+    inc document.elements[^1].compositeGroupEnds
+  if resolved.opacity < 1 and document.elements.len > first:
+    document.elements[first].opacityGroupStarts.insert(resolved.opacity, 0)
+    inc document.elements[^1].opacityGroupEnds
+
+proc collectIds(node: XmlNode, ids: var Table[string, XmlNode]) =
+  if node.kind == xnElement:
+    let id = node.attr("id")
+    if id.len > 0:
+      ids[id] = node
+    for child in node:
+      child.collectIds(ids)
 
 proc parseSvgDocument*(svgData: string): ParsedSvgDocument =
-  let
-    normalized = normalizeSvgData(svgData)
-    root = parseSvgRoot(normalized)
-    svg = parseSvg(root)
-  result.width = svg.width
-  result.height = svg.height
-
-  var kinds: seq[SvgSourceElementKind]
-  for child in root:
-    collectElementKinds(child, kinds)
-  if kinds.len != svg.elements.len:
-    raise newException(PixieError, "SVG element metadata does not match parsed paths")
-
-  for index, (sourcePath, properties) in svg.elements:
-    let
-      path = sourcePath.normalizePathArcs()
-      kind = kinds[index]
-      hasFill =
-        kind != sekLine and properties.display and properties.opacity > 0 and
-        properties.fillOpacity > 0 and properties.fill != "none"
-      hasStroke =
-        properties.display and properties.opacity > 0 and properties.strokeOpacity > 0 and
-        properties.strokeWidth > 0 and properties.stroke != rgbx(0, 0, 0, 0)
-    if not hasFill and not hasStroke:
-      continue
-
-    var element = ParsedSvgElement(
-      kind: kind,
-      hasFill: hasFill,
-      hasStroke: hasStroke,
-      fillColor:
-        if hasFill:
-          properties.solidFillColor()
-        else:
-          color(0.0, 0.0, 0.0, 0.0),
-      strokeColor:
-        if hasStroke:
-          properties.solidStrokeColor()
-        else:
-          color(0.0, 0.0, 0.0, 0.0),
-      fillRule: properties.fillRule,
-      strokeWidth: properties.strokeWidth * properties.transform.transformScale(),
-      strokeCap: properties.strokeLineCap.toStrokeCap(),
-      strokeJoin: properties.strokeLineJoin.toStrokeJoin(),
-    )
-
-    if kind == sekCircle:
-      let bounds = path.computeBounds()
-      let
-        radiusX = bounds.w * 0.5'f32
-        radiusY = bounds.h * 0.5'f32
-        center = bounds.xy + bounds.wh * 0.5'f32
-        primitiveMatrix =
-          properties.transform * translate(center) * scale(vec2(radiusX, radiusY))
-      element.primitiveTransform = primitiveMatrix.affine()
-      element.primitiveStrokeWidth =
-        if hasStroke and max(radiusX, radiusY) > 0:
-          properties.strokeWidth / max(radiusX, radiusY)
-        else:
-          0.0'f32
+  try:
+    let root = parseSvgRoot(svgData)
+    if root.kind != xnElement or root.tag != "svg":
+      raise newException(PixieError, "Invalid SVG data")
+    let box = root.attr("viewBox").replace(',', ' ').splitWhitespace()
+    var x, y, width, height: float32
+    if box.len == 4:
+      x = parseFloat(box[0])
+      y = parseFloat(box[1])
+      width = parseFloat(box[2])
+      height = parseFloat(box[3])
+    elif box.len == 0:
+      var widthText = root.attr("width")
+      var heightText = root.attr("height")
+      widthText.removeSuffix("px")
+      heightText.removeSuffix("px")
+      width = parseFloat(widthText)
+      height = parseFloat(heightText)
     else:
-      if hasFill or kind == sekEllipse and hasStroke:
-        element.fillPath = path.copy()
-        element.fillPath.transform(properties.transform)
-      if hasStroke and kind != sekEllipse:
-        let parsedStroke = path.strokeSegments(properties.transform)
-        if parsedStroke.complete:
-          element.strokeSegments = parsedStroke.segments
-
-    result.elements.add element
+      raise newException(PixieError, "Invalid SVG viewBox")
+    if width <= 0 or height <= 0 or width.classify in {fcNan, fcInf, fcNegInf} or
+        height.classify in {fcNan, fcInf, fcNegInf} or
+        abs(x).classify in {fcNan, fcInf, fcNegInf} or
+        abs(y).classify in {fcNan, fcInf, fcNegInf} or width > 1_000_000_000 or
+        height > 1_000_000_000:
+      raise newException(PixieError, "Invalid SVG viewport")
+    result.root = root
+    result.viewportSize = vec2(width, height)
+    result.width = int(ceil(width))
+    result.height = int(ceil(height))
+    var state = ElementState(
+      props: initSvgProperties(),
+      currentColor: "black",
+      fillValue: "black",
+      strokeValue: "none",
+    )
+    state.props.transform = translate(vec2(-x, -y))
+    var ids: Table[string, XmlNode]
+    root.collectIds(ids)
+    root.walkSvg(state, result, ids, @[])
+  except PixieError:
+    raise
+  except CatchableError as error:
+    raise newException(PixieError, error.msg)

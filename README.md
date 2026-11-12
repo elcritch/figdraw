@@ -108,17 +108,26 @@ The most stable entry points today are:
 
 ### SVG drawing layers
 
-Import `figdraw/svgs/svg` to load SVGs as ordered paint layers. This code comes from
-Merenda: complex fills use compact MTSDF images, while circles and line/Bézier
-strokes remain vector drawables. The loader carries solid source paints, simple
-opacity, transforms, and fill rules into FigDraw nodes. Ellipse fills and strokes share one
-MTSDF image. The loader supports paths, lines, polylines, polygons, rectangles,
-circles, and ellipses. Gradient fills are unsupported and raise `SvgMtsdfError`.
-It retains Merenda's stroke-width approximation for nonuniform transforms and
-rounds fractional viewBox components to match Pixie's integer viewport parser.
-The imported subset does not yet implement SVG CSS/currentColor, use/symbol
-instances, clipping/masking, faithful stroke joins/dashes, or isolated group
-opacity. Documents currently require a viewBox.
+Import `figdraw/svgs/svg` to load SVGs as ordered paint layers. Ordinary circles,
+ellipses, square rectangle fills, lines, and independent Bézier strokes reuse
+FigDraw's native drawing primitives. Ellipses use rounded rectangles with separate
+X/Y corner radii; their strokes are centered on the SVG path. Opaque connected
+strokes use filled geometry, while translucent stroke unions and complex fills
+use compact MTSDF images.
+
+The loader supports solid colors (including RGB and inherited `currentColor`),
+inline styles, fill rules, transformed paths, stroke caps/joins, miter limits,
+dash arrays/offsets, and local `<use>/<symbol>` references. Fractional viewBoxes
+are preserved; documents without a viewBox can use explicit pixel dimensions.
+Nested object/group opacity, basic linear/radial gradients, geometric clip paths,
+and alpha/luminance masks use isolated cached RGBA layers. These compositing
+layers use at least the document's natural resolution, capped at 4096 pixels
+on the long edge; `longEdge` can request more detail within that cap.
+
+This remains an SVG subset. Stylesheets/selectors, text, filters, patterns,
+external references, gradient `href` inheritance, non-pad gradient spread,
+off-center radial focal points, nested clip/mask references, and explicit mask
+regions are unsupported and raise `SvgMtsdfError` where encountered.
 
 ```nim
 import figdraw/svgs/svg
@@ -150,8 +159,31 @@ names for different resources. Parse, generation, and file-read failures raise
 
 Run `nim r examples/svg_layers.nim [input.svg] [output.png]` to render an SVG
 with the software backend. The demo uses the bundled Ghostscript tiger by default
-and writes `svg_layers.png`. The imported code's licenses and source revision
-are recorded in [SVG source notices](docs/licenses/SVG-SOURCES.md).
+and writes `svg_layers.png`. The imported SVG code is covered by FigDraw's MIT license; its source revision
+is recorded in [SVG source history](docs/svg_sources.md).
+
+### Reusable primitive helpers
+
+The regular `figdraw` import exports `figEllipse`, `figCircle`, `figLine`, and
+`figDashedLine`, alongside the existing rounded-border helpers:
+
+```nim
+import figdraw
+
+let border = RenderStroke(weight: 3, fill: fill(rgba(40, 120, 220, 255)), cap: scRound)
+let oval = figEllipse(rect(20, 20, 120, 60), fill(rgba(240, 245, 255, 255)), border)
+let line = figDashedLine(vec2(20, 100), vec2(200, 100), border, [8'f32, 4], dashOffset = 2)
+var list: RenderList
+list.addRoot(oval)
+list.addRoot(line)
+```
+
+The ellipse/circle helpers center strokes on the supplied path bounds. Existing
+raw drawable constructors retain their inset-stroke behavior. Lower-level
+`drawableDashedLineOps`, `drawableFilledQuad`, `strokeOutline`, and
+`drawableStrokeOutlineOps` expose reusable geometry. Dashed line operations and
+stroke-outline meshes can overlap: use a combined outline for translucent cap
+or join geometry. The SVG loader selects that union fallback automatically.
 
 ### Experimental software rendering with uirelays or Siwin
 

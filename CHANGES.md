@@ -5,9 +5,16 @@
 ## 0.47.0
 
 - Import Merenda's SVG parser and ordered drawing layers through `figdraw/svgs/svg`.
-  Support solid source paints, simple opacity, transforms, and fill rules using MTSDF
-  fills and vector strokes/circles, with tint and RenderList parent support.
-  Retain generated images through FigDraw's ImageRef ownership API.
+  Reuse native ellipse/circle, rectangle, line/curve and filled-quad primitives;
+  retain MTSDF fields for complex fills and translucent stroke unions.
+- Preserve RGB colors, inline styles/currentColor, fractional viewBoxes, local
+  use/symbol instances, connected joins, dash phase, and isolated group opacity.
+  Support basic gradients, geometric clips, and alpha/luminance masks through
+  cached compositing layers; normalize parse failures to SvgMtsdfError.
+- Add reusable figEllipse, figCircle, figLine, figDashedLine and stroke geometry
+  helpers. Center new ellipse/circle helper strokes while preserving existing
+  raw drawable behavior, and scale software distance fields like GPU fields.
+- Retain generated images through FigDraw's thread-local ImageRef ownership API.
 
 - Load Vulkan lazily so a missing loader can fall back to OpenGL.
 
