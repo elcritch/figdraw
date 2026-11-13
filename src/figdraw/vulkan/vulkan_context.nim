@@ -1,4 +1,4 @@
-import std/[atomics, hashes, math, strformat, tables]
+import std/[atomics, hashes, math, sequtils, strformat, tables]
 
 import pkg/pixie
 import pkg/pixie/simd
@@ -9,6 +9,7 @@ import ./vulkan_dispatch
 
 import ../commons
 import ../figbackend as figbackend
+import ../common/texturecompression
 import ../common/formatflippy
 import ../fignodes
 import ../utils/drawextras
@@ -112,7 +113,16 @@ type
     clipRects: seq[Rect]
     rectMasks: seq[RectMask]
 
+  CompressedTexture = ref object
+    image: VulkanImage
+    width, height, bytes: int
+    data: seq[uint8]
+    pendingUpload: bool
+
   VulkanContext* = ref object of figbackend.BackendContext
+    compressedImages: Table[Hash, CompressedTexture]
+    batchTexture: CompressedTexture
+    bc3Supported: bool
     atlasSize: int
     initialAtlasSize: int
     atlasMargin: int
@@ -310,7 +320,7 @@ proc hasPresentTarget(ctx: VulkanContext): bool =
   ctx.presentTargetKind != presentTargetNone
 
 method hasImage*(ctx: VulkanContext, key: Hash): bool =
-  key in ctx.entries
+  key in ctx.entries or key in ctx.compressedImages
 
 proc tryGetImageRect(ctx: VulkanContext, imageId: Hash, rect: var Rect): bool
 proc updateDescriptorSet(ctx: VulkanContext, vsUpload, fsUpload: VulkanUpload)
@@ -787,7 +797,8 @@ proc updateDescriptorSet(ctx: VulkanContext, vsUpload, fsUpload: VulkanUpload) =
   var atlasImageInfo = newVkDescriptorImageInfo(
     sampler = ctx.atlasSampler,
     imageView = (
-      if ctx.compositeImage.isNilOrEmpty: ctx.atlasImage.view
+      if not ctx.batchTexture.isNil: ctx.batchTexture.image.view
+      elif ctx.compositeImage.isNilOrEmpty: ctx.atlasImage.view
       else: ctx.compositeImage.view
     ),
     imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1421,6 +1432,100 @@ proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
   ctx.atlasDirty = false
   ctx.atlasLayoutReady = true
 
+proc recordCompressedUpload(
+    ctx: VulkanContext, cmd: VkCommandBuffer, tex: CompressedTexture
+) =
+  let bytes = VkDeviceSize(tex.data.len)
+  let upload = ctx.allocateFrameUpload(bytes, 16.VkDeviceSize)
+  copyMem(upload.data, tex.data[0].addr, int(bytes))
+
+  let atlasOldLayout = VK_IMAGE_LAYOUT_UNDEFINED
+  let atlasSrcAccess = 0.VkAccessFlags
+  let atlasSrcStage = VkPipelineStageFlags{TopOfPipeBit}
+
+  var barrierToTransfer = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    pNext: nil,
+    srcAccessMask: atlasSrcAccess,
+    dstAccessMask: VkAccessFlags{TransferWriteBit},
+    oldLayout: atlasOldLayout,
+    newLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: tex.image.handle,
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  ctx.vk.vkCmdPipelineBarrier(
+    cmd,
+    atlasSrcStage,
+    VkPipelineStageFlags{TransferBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    barrierToTransfer.addr,
+  )
+
+  var region = VkBufferImageCopy(
+    bufferOffset: upload.offset,
+    bufferRowLength: 0,
+    bufferImageHeight: 0,
+    imageSubresource: newVkImageSubresourceLayers(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      mipLevel = 0,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+    imageOffset: newVkOffset3D(x = 0, y = 0, z = 0),
+    imageExtent:
+      newVkExtent3D(width = tex.width.uint32, height = tex.height.uint32, depth = 1),
+  )
+  ctx.vk.vkCmdCopyBufferToImage(
+    cmd, upload.buffer.handle, tex.image.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    1, region.addr,
+  )
+
+  var barrierToRead = VkImageMemoryBarrier(
+    sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    pNext: nil,
+    srcAccessMask: VkAccessFlags{TransferWriteBit},
+    dstAccessMask: VkAccessFlags{ShaderReadBit},
+    oldLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    newLayout: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
+    image: tex.image.handle,
+    subresourceRange: newVkImageSubresourceRange(
+      aspectMask = VkImageAspectFlags{ColorBit},
+      baseMipLevel = 0,
+      levelCount = 1,
+      baseArrayLayer = 0,
+      layerCount = 1,
+    ),
+  )
+  ctx.vk.vkCmdPipelineBarrier(
+    cmd,
+    VkPipelineStageFlags{TransferBit},
+    VkPipelineStageFlags{FragmentShaderBit},
+    0.VkDependencyFlags,
+    0,
+    nil,
+    0,
+    nil,
+    1,
+    barrierToRead.addr,
+  )
+
+  tex.pendingUpload = false
+
 proc recordSwapchainReadback(ctx: VulkanContext) =
   if not ctx.swapchainTransferSrcSupported:
     return
@@ -1836,6 +1941,8 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
   if ctx.clipRects.len > 0:
     ctx.applyClipScissor()
 
+proc restoreCompressedImages(ctx: VulkanContext)
+
 proc ensureGpuRuntime(ctx: VulkanContext) =
   if ctx.gpuReady:
     return
@@ -1955,11 +2062,26 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     else:
       @[]
 
+  var supportedFeatures: VkPhysicalDeviceFeatures
+  ctx.vk.vkGetPhysicalDeviceFeatures(ctx.physicalDevice, supportedFeatures.addr)
+  var formatProperties: VkFormatProperties
+  ctx.vk.vkGetPhysicalDeviceFormatProperties(
+    ctx.physicalDevice, VK_FORMAT_BC3_UNORM_BLOCK, formatProperties.addr
+  )
+  let features = formatProperties.optimalTilingFeatures
+  ctx.bc3Supported =
+    uint32(supportedFeatures.textureCompressionBC) != 0 and SampledImageBit in features and
+    SampledImageFilterLinearBit in features and
+    VkFormatFeatureFlagBits.TransferDstBit in features
+  var enabledFeatures: VkPhysicalDeviceFeatures
+  if ctx.bc3Supported:
+    enabledFeatures.textureCompressionBC = VkBool32(VkTrue)
+
   let deviceInfo = newVkDeviceCreateInfo(
     queueCreateInfos = queueCreateInfos,
     pEnabledLayerNames = [],
     pEnabledExtensionNames = deviceExtensions,
-    enabledFeatures = [],
+    enabledFeatures = [enabledFeatures],
   )
   ctx.device = ctx.vk.createDevice(ctx.physicalDevice, deviceInfo)
   ctx.queue = ctx.vk.getDeviceQueue(ctx.device, ctx.queueFamily, 0)
@@ -2098,6 +2220,7 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
     ctx.presentReady = true
 
   ctx.gpuReady = true
+  ctx.restoreCompressedImages()
 
 proc flush(ctx: VulkanContext) =
   if ctx.quadCount == 0:
@@ -2113,6 +2236,11 @@ proc flush(ctx: VulkanContext) =
       ctx.vk.vkCmdEndRenderPass(ctx.commandBuffer)
       ctx.renderPassBegun = false
     ctx.recordAtlasUpload(ctx.commandBuffer)
+  if not ctx.batchTexture.isNil and ctx.batchTexture.pendingUpload:
+    if ctx.renderPassBegun:
+      ctx.vk.vkCmdEndRenderPass(ctx.commandBuffer)
+      ctx.renderPassBegun = false
+    ctx.recordCompressedUpload(ctx.commandBuffer, ctx.batchTexture)
   ctx.beginRenderPassIfNeeded()
 
   let vertexCount = ctx.quadCount * 4
@@ -2190,7 +2318,9 @@ proc flush(ctx: VulkanContext) =
 
   var vsu = VSUniforms(proj: ctx.proj)
   var fsu = FSUniforms(
-    windowFrame: ctx.frameSize, aaFactor: ctx.aaFactor, maskTexEnabled: 0'u32
+    windowFrame: ctx.frameSize,
+    aaFactor: ctx.aaFactor,
+    maskTexEnabled: (if ctx.batchTexture.isNil: 0'u32 else: 2'u32),
   )
 
   let vsUpload =
@@ -2548,10 +2678,112 @@ proc findEmptyRect(ctx: VulkanContext, width, height: int): Rect =
 
 method putImage*(ctx: VulkanContext, path: Hash, image: Image)
 
+proc retireCompressed(ctx: VulkanContext, key: Hash) =
+  if key in ctx.compressedImages:
+    ctx.frameImages.add(ctx.compressedImages[key].image)
+    ctx.compressedImages.del(key)
+
+method supportsTextureCompression*(
+    ctx: VulkanContext, format: TextureCompressionFormat
+): bool =
+  ctx.ensureGpuRuntime()
+  format == tcfBc3 and ctx.bc3Supported
+
+method compressedTextureBytes*(ctx: VulkanContext): int =
+  for tex in ctx.compressedImages.values:
+    if not tex.image.isNilOrEmpty:
+      result += tex.bytes
+
+method compressedTextureCount*(ctx: VulkanContext): int =
+  for tex in ctx.compressedImages.values:
+    if not tex.image.isNilOrEmpty:
+      inc result
+
+method hasImageEntry*(ctx: VulkanContext, id: ImageId): bool =
+  if id.Hash in ctx.compressedImages:
+    return true
+  let key = id.Hash
+  key in ctx.entries and key in ctx.atlasEntryMeta and
+    ctx.atlasEntryMeta[key].kind == aekImage and ctx.atlasEntryMeta[key].imageId == id
+
+proc restoreCompressedImages(ctx: VulkanContext) =
+  for key in toSeq(ctx.compressedImages.keys):
+    let tex = ctx.compressedImages[key]
+    if ctx.bc3Supported:
+      let limit = ctx.vk.getPhysicalDeviceProperties(ctx.physicalDevice).limits.maxImageDimension2D.int
+      if tex.width > limit or tex.height > limit:
+        raise newException(ValueError, "compressed image exceeds Vulkan image limit")
+      tex.image = ctx.createImage(
+        tex.width.uint32,
+        tex.height.uint32,
+        VK_FORMAT_BC3_UNORM_BLOCK,
+        VK_IMAGE_TILING_OPTIMAL,
+        VkImageUsageFlags{SampledBit, TransferDstBit},
+        VkMemoryPropertyFlags{DeviceLocalBit},
+      )
+      tex.pendingUpload = true
+    else:
+      let image = CompressedImage(
+        format: tcfBc3, width: tex.width, height: tex.height, data: tex.data
+      )
+      let hasMeta = key in ctx.atlasEntryMeta
+      let meta =
+        if hasMeta:
+          ctx.atlasEntryMeta[key]
+        else:
+          AtlasEntryMeta()
+      ctx.compressedImages.del(key)
+      ctx.putImage(key, image.decompressImage())
+      if hasMeta:
+        ctx.atlasEntryMeta[key] = meta
+
+method putCompressedImage*(ctx: VulkanContext, key: Hash, image: CompressedImage) =
+  image.validate()
+  ctx.flush()
+  if not ctx.supportsTextureCompression(image.format):
+    ctx.putImage(key, image.decompressImage())
+    return
+  let limit = ctx.vk.getPhysicalDeviceProperties(ctx.physicalDevice).limits.maxImageDimension2D.int
+  if image.width > limit or image.height > limit:
+    raise newException(ValueError, "compressed image exceeds Vulkan image limit")
+  let gpu = ctx.createImage(
+    image.width.uint32,
+    image.height.uint32,
+    VK_FORMAT_BC3_UNORM_BLOCK,
+    VK_IMAGE_TILING_OPTIMAL,
+    VkImageUsageFlags{SampledBit, TransferDstBit},
+    VkMemoryPropertyFlags{DeviceLocalBit},
+  )
+  ctx.retireCompressed(key)
+  ctx.removeAtlasEntry(key)
+  var dataCopy = newSeq[uint8](image.data.len)
+  copyMem(dataCopy[0].addr, image.data[0].unsafeAddr, image.data.len)
+  ctx.compressedImages[key] = CompressedTexture(
+    image: gpu,
+    width: image.width,
+    height: image.height,
+    bytes: image.data.len,
+    data: dataCopy,
+    pendingUpload: true,
+  )
+
+method removeImage*(ctx: VulkanContext, id: ImageId) =
+  ctx.flush()
+  ctx.retireCompressed(id.Hash)
+  let key = id.Hash
+  if key in ctx.atlasEntryMeta:
+    let meta = ctx.atlasEntryMeta[key]
+    if meta.kind == aekImage and meta.imageId == id:
+      ctx.removeAtlasEntry(key)
+  else:
+    ctx.entries.del(key)
+
 method addImage*(ctx: VulkanContext, key: Hash, image: Image) =
   ctx.putImage(key, image)
 
 method putImage*(ctx: VulkanContext, path: Hash, image: Image) =
+  ctx.flush()
+  ctx.retireCompressed(path)
   let rect = ctx.findEmptyRect(image.width, image.height)
   ctx.entries[path] = rect / float(ctx.atlasSize)
   ctx.markGeneratedEntry(path)
@@ -2582,7 +2814,10 @@ method putImage*(ctx: VulkanContext, imgObj: ImgObj) =
     ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
   of PixieImg:
     ctx.putImage(imgObj.id.Hash, imgObj.pimg)
-  ctx.markImageEntry(imgObj.id)
+  of CompressedImg:
+    ctx.putCompressedImage(imgObj.id.Hash, imgObj.compressed)
+  if imgObj.id.Hash notin ctx.compressedImages:
+    ctx.markImageEntry(imgObj.id)
 
 method clearImageAtlas*(ctx: VulkanContext) =
   ctx.resetImageAtlas(ctx.initialAtlasSize)
@@ -2590,6 +2825,8 @@ method clearImageAtlas*(ctx: VulkanContext) =
 method resetImageAtlas*(ctx: VulkanContext, minimumSize: int) =
   let nextSize = ctx.checkedAtlasSize(max(ctx.initialAtlasSize, minimumSize))
   ctx.flush()
+  for key in toSeq(ctx.compressedImages.keys):
+    ctx.retireCompressed(key)
   ctx.atlasSize = nextSize
   ctx.entries.clear()
   ctx.atlasEntryMeta.clear()
@@ -2671,12 +2908,8 @@ method drawFilledQuad*(
     uvQuad = [uv, uv, uv, uv]
 
   # Filled geometry can be thinner than a pixel; snapping collapses its edges.
-  let posQuad = [
-    ctx.mat * verts[0],
-    ctx.mat * verts[1],
-    ctx.mat * verts[2],
-    ctx.mat * verts[3],
-  ]
+  let posQuad =
+    [ctx.mat * verts[0], ctx.mat * verts[1], ctx.mat * verts[2], ctx.mat * verts[3]]
   ctx.drawQuad(posQuad, uvQuad, colors)
 
 proc drawUvRectAtlasSdf(
@@ -3054,6 +3287,27 @@ proc imageUvBounds(rect: Rect, flipY: bool): tuple[uvAt: Vec2, uvTo: Vec2] =
     return (vec2(rect.x, rect.y + rect.h), vec2(rect.x + rect.w, rect.y))
   (rect.xy, rect.xy + rect.wh)
 
+proc drawCompressed(
+    ctx: VulkanContext, tex: CompressedTexture, at, to, uvAt, uvTo: Vec2, color: Color
+) =
+  ctx.flush()
+  ctx.batchTexture = tex
+  ctx.drawUvRect(at, to, uvAt, uvTo, color)
+  ctx.flush()
+  ctx.batchTexture = nil
+
+proc drawCompressed(
+    ctx: VulkanContext,
+    tex: CompressedTexture,
+    at, to, uvAt, uvTo: Vec2,
+    colors: array[4, ColorRGBA],
+) =
+  ctx.flush()
+  ctx.batchTexture = tex
+  ctx.drawUvRect(at, to, uvAt, uvTo, colors)
+  ctx.flush()
+  ctx.batchTexture = nil
+
 proc drawImage*(
     ctx: VulkanContext,
     imageId: Hash,
@@ -3061,6 +3315,11 @@ proc drawImage*(
     color = color(1, 1, 1, 1),
     scale: float32,
 ) =
+  if imageId in ctx.compressedImages:
+    let tex = ctx.compressedImages[imageId]
+    let wh = vec2(tex.width.float32, tex.height.float32) * scale
+    ctx.drawCompressed(tex, pos, pos + wh, vec2(0, 0), vec2(1, 1), color)
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -3074,6 +3333,11 @@ proc drawImage*(
     colors: array[4, ColorRGBA],
     scale: float32,
 ) =
+  if imageId in ctx.compressedImages:
+    let tex = ctx.compressedImages[imageId]
+    let wh = vec2(tex.width.float32, tex.height.float32) * scale
+    ctx.drawCompressed(tex, pos, pos + wh, vec2(0, 0), vec2(1, 1), colors)
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -3088,6 +3352,16 @@ method drawImage*(
     size: Vec2,
     flipY: bool,
 ) =
+  if imageId in ctx.compressedImages:
+    let tex = ctx.compressedImages[imageId]
+    let drawSize =
+      if size.x > 0 and size.y > 0:
+        size
+      else:
+        vec2(tex.width.float32, tex.height.float32)
+    let (uvAt, uvTo) = imageUvBounds(rect(0, 0, 1, 1), flipY)
+    ctx.drawCompressed(tex, pos, pos + drawSize, uvAt, uvTo, colors)
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -3106,6 +3380,11 @@ method drawImageAdj*(
     color = color(1, 1, 1, 1),
     size: Vec2,
 ) =
+  if imageId in ctx.compressedImages:
+    let tex = ctx.compressedImages[imageId]
+    let adj = vec2(2 / tex.width.float32, 2 / tex.height.float32)
+    ctx.drawCompressed(tex, pos, pos + size, adj, vec2(1, 1) - adj, color)
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -3119,6 +3398,11 @@ proc drawSprite*(
     color = color(1, 1, 1, 1),
     scale = 1.0,
 ) =
+  if imageId in ctx.compressedImages:
+    let tex = ctx.compressedImages[imageId]
+    let wh = vec2(tex.width.float32, tex.height.float32) * scale
+    ctx.drawCompressed(tex, pos - wh / 2, pos + wh / 2, vec2(0, 0), vec2(1, 1), color)
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -3132,6 +3416,12 @@ proc drawSprite*(
     color = color(1, 1, 1, 1),
     size: Vec2,
 ) =
+  if imageId in ctx.compressedImages:
+    let tex = ctx.compressedImages[imageId]
+    ctx.drawCompressed(
+      tex, pos - size / 2, pos + size / 2, vec2(0, 0), vec2(1, 1), color
+    )
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -4084,6 +4374,10 @@ proc destroyGpu(ctx: VulkanContext) =
   if ctx.atlasSampler != vkNullSampler:
     ctx.vk.vkDestroySampler(ctx.device, ctx.atlasSampler, nil)
     ctx.atlasSampler = vkNullSampler
+  ctx.batchTexture = nil
+  for tex in ctx.compressedImages.values:
+    tex.image = nil
+    tex.pendingUpload = true
   ctx.atlasImage = nil
   ctx.backdropImage = nil
   ctx.backdropBlurTempImage = nil
@@ -4335,6 +4629,7 @@ proc releaseBackendResources*(ctx: VulkanContext) =
   ## caller can replace its target; a backend fallback no longer needs it.
   ctx.destroyGpu()
   ctx.clearPresentTarget()
+  ctx.compressedImages.clear()
 
 proc setSwapchainProfile*(ctx: VulkanContext, profile: VulkanSwapchainProfile) =
   if ctx.requestedSwapchainProfile == profile:

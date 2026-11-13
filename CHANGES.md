@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add opt-in BC3 color images with native Metal, OpenGL S3TC, and Vulkan
+  storage, device capability checks, and a portable decoded RGBA fallback.
+- Retain compressed image messages across renderer replay and expose separate
+  compressed texture counters. Keep glyphs and distance fields lossless.
+
 - Add a reproducible tiger memory benchmark comparing layered SVG rendering
   with a cached Pixie raster, with measured results in the SVG benchmark notes.
 

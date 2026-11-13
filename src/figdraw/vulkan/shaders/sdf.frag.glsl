@@ -308,7 +308,8 @@ void main() {
   if (sdfModeInt == sdfModeAtlas) {
     vec4 tex = texture(atlasTex, vUv);
     // Pixie atlas pixels are premultiplied. This pipeline blends straight alpha.
-    vec3 straightRgb = tex.a > 0.0 ? tex.rgb / tex.a : vec3(0.0);
+    vec3 straightRgb = (uFS.maskTexEnabled & 2u) != 0u ? tex.rgb :
+      (tex.a > 0.0 ? tex.rgb / tex.a : vec3(0.0));
     fragColor = vec4(straightRgb * vColor.rgb, tex.a * vColor.a);
   } else if (
     sdfModeInt == sdfModeMsdf ||
@@ -425,7 +426,7 @@ void main() {
 
   fragColor.a *= rectMaskAlpha(vPos);
 
-  if (uFS.maskTexEnabled != 0u) {
+  if ((uFS.maskTexEnabled & 1u) != 0u) {
     vec2 normalizedPos = vec2(vPos.x / uFS.windowFrame.x, 1.0 - vPos.y / uFS.windowFrame.y);
     fragColor.a *= texture(maskTex, normalizedPos).r;
   }

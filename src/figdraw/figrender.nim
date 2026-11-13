@@ -101,7 +101,7 @@ proc atlasRebuildCount*[BackendState](renderer: FigRenderer[BackendState]): uint
 proc containsImage*[BackendState](
     renderer: FigRenderer[BackendState], id: ImageId
 ): bool =
-  renderer.ctx.hasImage(id.Hash)
+  renderer.ctx.hasImageEntry(id)
 
 proc ensureImage*[BackendState](
     renderer: FigRenderer[BackendState], id: ImageId, image: Image
@@ -1925,11 +1925,16 @@ proc processImageMessages*(ctx: BackendContext) {.forbids: [AppMainThreadEff].} 
       if legacyImg.pimg == nil:
         debug "skipping nil pixie image", imageId = legacyImg.id.Hash
         continue
+    of CompressedImg:
+      legacyImg.compressed.validate()
     of FlippyImg:
       if legacyImg.flippy.mipmaps.len == 0:
         debug "skipping empty flippy image", imageId = legacyImg.id.Hash
         continue
-    ctx.putImage(legacyImg)
+    if legacyImg.kind == CompressedImg:
+      ctx.putCompressedImage(legacyImg.id.Hash, legacyImg.compressed)
+    else:
+      ctx.putImage(legacyImg)
     ctx.markImageEntry(legacyImg.id)
 
   var img: ImageMsg
@@ -1944,6 +1949,11 @@ proc processImageMessages*(ctx: BackendContext) {.forbids: [AppMainThreadEff].} 
         debug "skipping nil pixie image", imageId = img.id.Hash
         continue
       ctx.replaceImageInAtlas(img.id, img.pimg)
+    of ImkPutCompressed:
+      if imageMessageCurrent(img):
+        ctx.removeImage(img.id)
+        ctx.putCompressedImage(img.id.Hash, img.compressed)
+        ctx.markImageEntry(img.id)
     of ImkPutGlyphPixie:
       trace "glyph image loaded", id = $img.id.Hash
       if not imageMessageCurrent(img):
