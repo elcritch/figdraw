@@ -11,6 +11,8 @@ import ./fonttypes
 import ./textbackends/state
 when figdrawTextBackend == "harfbuzzy" or runtimeTextBackends:
   import ./textrasters/glyphid_raster
+when figdrawTextBackend == "uirelays":
+  import ./textrasters/uirelays_raster
 import ./textrasters/pixie_raster
 
 export applyLcdFilter
@@ -18,12 +20,16 @@ export applyLcdFilter
 proc clearGlyphRasterFontCache*(fontId: FontId) =
   when figdrawTextBackend == "harfbuzzy" or runtimeTextBackends:
     clearGlyphIdFontCache(fontId)
+  elif figdrawTextBackend == "uirelays":
+    clearUirelaysFontCache(fontId)
   else:
     discard
 
 proc clearGlyphRasterTypefaceCache*(typefaceId: TypefaceId) =
   when figdrawTextBackend == "harfbuzzy" or runtimeTextBackends:
     clearGlyphIdTypefaceCache(typefaceId)
+  elif figdrawTextBackend == "uirelays":
+    clearUirelaysTypefaceCache(typefaceId)
   else:
     discard
 
@@ -100,6 +106,9 @@ proc generateGlyph*(
         subpixelSteps = glyphVariantSubpixelSteps,
         upload = upload,
       )
+  when figdrawTextBackend == "uirelays":
+    return
+      renderUirelaysGlyph(hashFill.ImageId, glyph.fontId, glyph.rune, upload = upload)
   renderPixieGlyph(
     hashFill.ImageId,
     glyph.fontId,

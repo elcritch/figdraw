@@ -31,6 +31,8 @@ feature "harfbuzz":
   discard # Kept for compatibility with existing Atlas configurations.
 feature "textBackendHarfbuzzy":
   discard
+feature "textBackendUirelays":
+  requires "gh:elcritch/uirelays#fix/native-font-lifetime"
 feature "lottie":
   requires "jsony"
 feature "sdl2":
@@ -47,7 +49,7 @@ feature "siwin":
   # Includes native Win32 handles and the software-present toggle.
   requires "gh:levovix0/siwin#5827ee9dadb5e2597db85375e0e87b8a2272174b"
 feature "uirelays":
-  requires "gh:elcritch/uirelays#feat/rgba-alpha"
+  requires "gh:elcritch/uirelays#fix/native-font-lifetime"
 feature "vulkan":
   requires "https://github.com/elcritch/vulkan#0fc8dd2"
 feature "metal":

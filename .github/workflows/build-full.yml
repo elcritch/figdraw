@@ -382,6 +382,15 @@ jobs:
         nim test
         nim r "${nim_flags[@]}" -d:figdrawTextBackend=harfbuzzy tests/tfontutils.nim
 
+    - name: Test native UIRelays text
+      if: runner.os == 'Windows'
+      env:
+        NIMFLAGS: ${{ matrix.nimflags }}
+      run: |
+        read -r -a nim_flags <<< "$NIMFLAGS"
+        nim r "${nim_flags[@]}" -d:figdrawTextBackend=uirelays -d:harfbuzzDynlib=figdraw-missing-harfbuzz -d:harfbuzzyFribidiDynlib=figdraw-missing-fribidi tests/tuirelays_text.nim
+        nim r "${nim_flags[@]}" -d:figdrawTextBackend=uirelays tests/ttext_backend_info.nim
+
     - name: Run Windows Vulkan graphics tests
       if: runner.os == 'Windows' && matrix.renderer == 'vulkan'
       env:

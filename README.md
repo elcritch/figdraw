@@ -985,6 +985,14 @@ Useful backend modes:
 - `-d:figdrawTextBackend=hybrid`: Harfbuzzy layout converted through the Pixie
   compatibility raster path, useful for diagnostics.
 
+On Windows, `-d:figdrawTextBackend=uirelays` uses native GDI measurements and
+per-rune rasterization with the existing GPU glyph atlas. Enable the `uirelays`
+dependency feature, or select `textBackendUirelays` to install it and choose the
+backend together. HarfBuzz and FriBidi are not required for this build.
+This is an opt-in baseline: contextual shaping, ligatures, bidi layout, color
+emoji, and native glyph-run extraction are not yet supported. Font case
+conversion and glyph overhang beyond the advance remain limitations.
+
 When shaping is enabled, one visual glyph is not necessarily one source rune.
 Use the source-aware helpers for selection, hit testing, and carets:
 
