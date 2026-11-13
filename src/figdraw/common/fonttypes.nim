@@ -443,6 +443,7 @@ proc textBackend*(): string =
   of TextBackendKind.Pixie: "pixie"
   of TextBackendKind.Harfbuzzy: "harfbuzzy"
   of TextBackendKind.Hybrid: "hybrid"
+  of TextBackendKind.Uirelays: "uirelays"
 
 proc textBackendFeatures*(): seq[string] =
   ## Capabilities of the calling thread's selected text backend.
@@ -459,6 +460,8 @@ proc textBackendFeatures*(): seq[string] =
       "harfbuzz-shaping", "pixie-rasterization", "bidirectional-text", "font-fallback",
       "opentype-features", "font-variations",
     ]
+  of TextBackendKind.Uirelays:
+    @["platform-measurement", "platform-rasterization"]
 
 func supportedFontFileExtensions*(): seq[string] =
   ## Typeface file extensions accepted by FigDraw's font loader.

@@ -25,6 +25,9 @@ suite "text backend information":
           "harfbuzz-shaping", "pixie-rasterization", "bidirectional-text",
           "font-fallback", "opentype-features", "font-variations",
         ]
+    of "uirelays":
+      check textBackendFeatures() ==
+        @["platform-measurement", "platform-rasterization"]
     else:
       discard
 
