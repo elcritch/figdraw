@@ -91,6 +91,23 @@ when defined(linux) or defined(bsd):
       display: pointer
     ): pointer {.cdecl, dynlib: "libX11-xcb.so.1", importc: "XGetXCBConnection".}
 
+when defined(windows):
+  # The generated bindings declare HINSTANCE and HWND as empty placeholder
+  # objects, so their create info cannot carry the native handles.
+  type VkWin32SurfaceCreateInfoKHRNative* {.bycopy.} = object
+    sType*: VkStructureType
+    pNext*: pointer
+    flags*: VkWin32SurfaceCreateFlagsKHR
+    hinstance*: pointer
+    hwnd*: pointer
+
+  type VkCreateWin32SurfaceKHRNativeProc* = proc(
+    instance: VkInstance,
+    pCreateInfo: ptr VkWin32SurfaceCreateInfoKHRNative,
+    pAllocator: ptr VkAllocationCallbacks,
+    pSurface: ptr VkSurfaceKHR,
+  ): VkResult {.stdcall.}
+
 proc findGraphicsQueueFamily*(vk: VulkanDispatch, device: VkPhysicalDevice): int =
   let families = vk.getQueueFamilyProperties(device)
   for i, family in families:

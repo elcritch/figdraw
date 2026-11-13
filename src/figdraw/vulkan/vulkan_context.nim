@@ -475,11 +475,18 @@ proc createPresentSurface(ctx: VulkanContext) =
       raise newException(ValueError, "Wayland Vulkan surface unsupported on this OS")
   of presentTargetWin32:
     when defined(windows):
-      let createInfo = newVkWin32SurfaceCreateInfoKHR(
-        hinstance = cast[HINSTANCE](cast[uint](ctx.presentWin32Hinstance)),
-        hwnd = cast[HWND](cast[uint](ctx.presentWin32Hwnd)),
+      let fnPtr = vkGetInstanceProcAddrNative(ctx.instance, "vkCreateWin32SurfaceKHR")
+      if fnPtr.isNil:
+        raise newException(ValueError, "vkCreateWin32SurfaceKHR unavailable")
+      let vkCreateWin32SurfaceKHRNative = cast[VkCreateWin32SurfaceKHRNativeProc](fnPtr)
+      var createInfo = VkWin32SurfaceCreateInfoKHRNative(
+        sType: VkStructureType.Win32SurfaceCreateInfoKHR,
+        pNext: nil,
+        flags: 0.VkWin32SurfaceCreateFlagsKHR,
+        hinstance: ctx.presentWin32Hinstance,
+        hwnd: ctx.presentWin32Hwnd,
       )
-      checkVkResult ctx.vk.vkCreateWin32SurfaceKHR(
+      checkVkResult vkCreateWin32SurfaceKHRNative(
         ctx.instance, createInfo.addr, nil, ctx.surface.addr
       )
       ctx.surfaceOwnedByContext = true

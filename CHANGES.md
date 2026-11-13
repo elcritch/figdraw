@@ -6,6 +6,7 @@
   per-rune rasterization feed the existing GPU atlas without HarfBuzz/FriBiDi.
   Font collection faces, custom line spacing, and bounded native-font ownership
   are supported; contextual shaping and native glyph-run layout remain future work.
+- Load Vulkan lazily so a missing loader can fall back to OpenGL.
 
 - Select Harfbuzzy automatically when HarfBuzz and FriBidi are available at
   runtime, falling back to Pixie otherwise. Existing layouts retain their
