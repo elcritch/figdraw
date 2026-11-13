@@ -230,7 +230,19 @@ proc addSvgMtsdfLayers(
           transformIndex, target.svgPathNode(svg.size, svgLayer, fillValue)
         )
     of slkStrokeMesh:
-      if fillValue.kind == flColor and fillValue.color.a == 255:
+      let screenScale = max(abs(target.w / svg.size.x), abs(target.h / svg.size.y))
+      let screenWidth = svgLayer.meshStrokeWidth * screenScale
+      if screenWidth > 0 and screenWidth < 2:
+        let coverage = svgLayer.meshCoverage(screenScale)
+        result = list.addSvgNode(
+          currentParent,
+          Fig(
+            kind: nkImage,
+            screenBox: target.svgLayerRect(svg.size, coverage.frame),
+            image: imageStyle(coverage.image, fillValue),
+          ),
+        )
+      elif fillValue.kind == flColor and fillValue.color.a == 255:
         let transformIndex =
           list.svgTransformNode(currentParent, target, svg.size, svgLayer.transform)
         result = list.addSvgNode(

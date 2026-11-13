@@ -1137,10 +1137,10 @@ proc drawUvRectAtlasSdf(
 
   let
     posQuad = [
-      ceil(ctx.mat * vec2(at.x, to.y)),
-      ceil(ctx.mat * vec2(to.x, to.y)),
-      ceil(ctx.mat * vec2(to.x, at.y)),
-      ceil(ctx.mat * vec2(at.x, at.y)),
+      ctx.mat * vec2(at.x, to.y),
+      ctx.mat * vec2(to.x, to.y),
+      ctx.mat * vec2(to.x, at.y),
+      ctx.mat * vec2(at.x, at.y),
     ]
     uvQuad = [
       vec2(uvAt.x, uvTo.y),
@@ -1277,10 +1277,10 @@ proc drawUvRect(ctx: OpenGlContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color
 
   let
     posQuad = [
-      ceil(ctx.mat * vec2(at.x, to.y)),
-      ceil(ctx.mat * vec2(to.x, to.y)),
-      ceil(ctx.mat * vec2(to.x, at.y)),
-      ceil(ctx.mat * vec2(at.x, at.y)),
+      ctx.mat * vec2(at.x, to.y),
+      ctx.mat * vec2(to.x, to.y),
+      ctx.mat * vec2(to.x, at.y),
+      ctx.mat * vec2(at.x, at.y),
     ]
     uvQuad = [
       vec2(uvAt.x, uvTo.y),
@@ -1346,10 +1346,10 @@ proc drawUvRect(
 
   let
     posQuad = [
-      ceil(ctx.mat * vec2(at.x, to.y)),
-      ceil(ctx.mat * vec2(to.x, to.y)),
-      ceil(ctx.mat * vec2(to.x, at.y)),
-      ceil(ctx.mat * vec2(at.x, at.y)),
+      ctx.mat * vec2(at.x, to.y),
+      ctx.mat * vec2(to.x, to.y),
+      ctx.mat * vec2(to.x, at.y),
+      ctx.mat * vec2(at.x, at.y),
     ]
     uvQuad = [
       vec2(uvAt.x, uvTo.y),

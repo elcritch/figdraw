@@ -61,3 +61,28 @@ suite "SVG opaque stroke meshes":
         check image[x, 32].a <= 128
       check image[12, 32].a > 100
       check image[10, 32].a > 100
+
+  test "thin stroke coverage tiers retain cache identities and tint opacity":
+    let svg = newSvgMtsdfResource(
+      """<svg viewBox='0 0 64 64'>
+      <path d='M8 32 L32 32 L56 32' fill='none' stroke='black' stroke-width='.4'/></svg>"""
+    )
+    var small, again, large, tinted: RenderList
+    small.addSvgMtsdf(rect(0, 0, 64, 64), svg)
+    large.addSvgMtsdf(rect(0, 0, 128, 128), svg)
+    again.addSvgMtsdf(rect(0, 0, 64, 64), svg)
+    tinted.addSvgMtsdf(rect(0, 0, 64, 64), svg, fill(rgba(0, 0, 255, 128)))
+    check small.nodes[0].kind == nkImage
+    check small.nodes[0].image.id == again.nodes[0].image.id
+    check small.nodes[0].image.id == tinted.nodes[0].image.id
+    check small.nodes[0].image.id != large.nodes[0].image.id
+    # Building the larger list must not invalidate the original texture.
+    var scene = newRenders()
+    scene.setLayer(0.ZLevel, tinted)
+    let ctx = newSoftwareContext(workers = 1)
+    newFigRenderer(ctx).renderFrame(scene, vec2(64), clearColor = color(0, 0, 0, 0))
+    let image = ctx.readPixels(rect(0, 0, 0, 0), false)
+    for x in 10 .. 54:
+      let alpha = image[x, 31].a.int + image[x, 32].a.int
+      check abs(alpha - 51) <= 5
+      check image[x, 32].b == image[x, 32].a

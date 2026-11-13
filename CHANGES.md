@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add a reproducible tiger memory benchmark comparing layered SVG rendering
+  with a cached Pixie raster, with measured results in the SVG benchmark notes.
+
+- Add a Siwin SVG viewer with drag panning, pointer-centered wheel zoom,
+  keyboard zoom, and fit-to-window controls.
+
+- Antialias thin SVG stroke meshes with cached coverage images, retaining
+  fractional opacity and reusing resolution tiers across render lists.
+- Preserve fractional image and distance-field rectangles on GPU backends so
+  SVG fills and strokes stay aligned instead of snapping independently.
+
 ## 0.47.1
 
 - Preserve fractional GPU filled-quad vertices so thin SVG stroke meshes no

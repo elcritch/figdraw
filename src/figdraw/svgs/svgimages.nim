@@ -52,6 +52,11 @@ type
   SvgAffineTransform* = object ## A 2D affine transform in SVG document coordinates.
     a*, b*, c*, d*, tx*, ty*: float32
 
+  SvgCoverageCache = object
+    scale: float32
+    image: ImageRef
+    frame: Rect
+
   SvgMeshCache = ref object
     path: Path
     sourcePath: Path
@@ -63,6 +68,7 @@ type
     key: string
     documentScale, requestedRange: float64
     adaptive: bool
+    coverage: seq[SvgCoverageCache]
     image: ImageRef
     frame: Rect
     pixelRange: float32
@@ -79,6 +85,7 @@ type
       mtsdfStrokeWidth*: float32
     of slkStrokeMesh:
       meshOps*: seq[DrawableOp]
+      meshStrokeWidth*: float32 ## Approximate stroke width in document coordinates.
     of slkStrokePath:
       segments*: seq[SvgPathSegment]
       strokeWidth*: float32
@@ -291,6 +298,44 @@ proc meshFallback*(
     cache.pixelRange = field.pixelRange
   (cache.image, cache.frame, cache.pixelRange)
 
+proc meshCoverage*(
+    layer: SvgLayer, screenScale: float32
+): tuple[image: ImageRef, frame: Rect] =
+  ## Cached antialiased union coverage for a thin connected stroke. Resolution
+  ## follows the target scale in power-of-two tiers, with a 2048px texture cap.
+  ## Retain every requested tier so nodes from earlier lists keep valid IDs.
+  if layer.kind != slkStrokeMesh or layer.meshCache.isNil:
+    raiseSvgMtsdfError("SVG layer has no stroke coverage fallback")
+  if screenScale <= 0 or screenScale.classify in {fcNan, fcInf, fcNegInf}:
+    raiseSvgMtsdfError("SVG coverage scale must be finite and positive")
+  let cache = layer.meshCache
+  let bounds = cache.path.computeBounds()
+  let tier = clamp(ceil(log2(screenScale)).int, -8, 8)
+  let factor = min(pow(2'f32, tier.float32), 2040'f32 / max(bounds.w, bounds.h))
+  for entry in cache.coverage:
+    if entry.scale == factor:
+      return (entry.image, entry.frame)
+  # Snap the texture frame, not the geometry; the path retains subpixel edges.
+  let origin = vec2(floor(bounds.x * factor), floor(bounds.y * factor)) - vec2(2)
+  let width = max(1, int(ceil((bounds.x + bounds.w) * factor) - origin.x) + 2)
+  let height = max(1, int(ceil((bounds.y + bounds.h) * factor) - origin.y) + 2)
+  let image = newImage(width, height)
+  image.fillPath(
+    cache.path, color(1, 1, 1, 1), translate(-origin) * scale(vec2(factor)), NonZero
+  )
+  let entry = SvgCoverageCache(
+    scale: factor,
+    image: imageRef(imgId(cache.key & ":coverage:" & $tier), image),
+    frame: rect(
+      origin.x / factor,
+      origin.y / factor,
+      width.float32 / factor,
+      height.float32 / factor,
+    ),
+  )
+  cache.coverage.add entry
+  (entry.image, entry.frame)
+
 proc newSvgMtsdfResource*(
     svgData: string,
     name = "",
@@ -450,6 +495,7 @@ proc newSvgMtsdfResource*(
                     paint: element.strokeColor,
                     transform: element.sourceTransform.toAffine(),
                     meshOps: ops,
+                    meshStrokeWidth: element.strokeWidth,
                     meshCache: SvgMeshCache(
                       path: outline,
                       key: layerName(resourceName, imageIndex, imageCount),

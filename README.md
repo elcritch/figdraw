@@ -112,8 +112,11 @@ Import `figdraw/svgs/svg` to load SVGs as ordered paint layers. Ordinary circles
 ellipses, square rectangle fills, lines, and independent Bézier strokes reuse
 FigDraw's native drawing primitives. Ellipses use rounded rectangles with separate
 X/Y corner radii; their strokes are centered on the SVG path. Opaque connected
-strokes use filled geometry, while translucent stroke unions and complex fills
-use compact MTSDF images.
+strokes use filled geometry. At target widths below two pixels, connected strokes
+use cached antialiased coverage images to avoid isolated black pixels. Coverage
+resolution follows the target size in power-of-two tiers, capped at 2048 pixels
+per texture; cached tiers remain alive with the resource. Translucent stroke
+unions at larger widths and complex fills use compact MTSDF images.
 
 The loader supports solid colors (including RGB and inherited `currentColor`),
 inline styles, fill rules, transformed paths, stroke caps/joins, miter limits,
@@ -179,6 +182,19 @@ and scene/capture timings. Metal captures
 an offscreen target; OpenGL and Vulkan create a window for rendering and capture.
 The imported SVG code is covered by FigDraw's MIT license; its source revision
 is recorded in [SVG source history](docs/svg_sources.md).
+See the [tiger memory benchmark](docs/svg_memory_benchmark.md) for a comparison
+with a whole-SVG Pixie raster.
+
+For an interactive Siwin window, run:
+
+```sh
+nim r examples/siwin_svg.nim [input.svg]
+```
+
+The viewer opens the tiger by default. Drag with the left mouse button to pan,
+scroll to zoom around the pointer, and press `R`, `0`, or Home to fit the SVG.
+Use `+`/`-` to zoom around the window center and Escape to close. Resizing keeps
+the current view centered; the SVG resource and coverage tiers are reused.
 
 ### Reusable primitive helpers
 
