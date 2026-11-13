@@ -6,6 +6,10 @@
   storage, device capability checks, and a portable decoded RGBA fallback.
 - Retain compressed image messages across renderer replay and expose separate
   compressed texture counters. Keep glyphs and distance fields lossless.
+- Add the opt-in Windows UIRelays text backend. Native font measurements and
+  per-rune rasterization feed the existing GPU atlas without HarfBuzz/FriBiDi.
+  Font collection faces, custom line spacing, and bounded native-font ownership
+  are supported; contextual shaping and native glyph-run layout remain future work.
 
 - Add a reproducible tiger memory benchmark comparing layered SVG rendering
   with a cached Pixie raster, with measured results in the SVG benchmark notes.
