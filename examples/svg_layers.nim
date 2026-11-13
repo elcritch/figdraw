@@ -1,6 +1,6 @@
 ## Render an SVG on the GPU and save a screenshot of the frame.
-## Run: nim r examples/svg_layers.nim [input.svg] [output.png]
-import std/os
+## Run: nim r examples/svg_layers.nim [input.svg] [output.png] [longEdge] [adaptive|fixed]
+import std/[os, strutils, monotimes, times]
 import pixie
 import figdraw/svgs/svg
 import figdraw/figrender
@@ -70,5 +70,16 @@ let
       paramStr(2)
     else:
       "svg_layers.png"
-  resource = newSvgMtsdfResourceFromFile(input)
+  longEdge =
+    if paramCount() > 2:
+      parseInt(paramStr(3))
+    else:
+      DefaultSvgMtsdfLongEdge
+  adaptive = paramCount() < 4 or paramStr(4) != "fixed"
+  start = getMonoTime()
+  resource =
+    newSvgMtsdfResourceFromFile(input, longEdge = longEdge, adaptive = adaptive)
+let loaded = getMonoTime()
+echo "Load ms: ", (loaded - start).inMilliseconds
 renderScreenshot(resource, output)
+echo "Scene and capture ms: ", (getMonoTime() - loaded).inMilliseconds

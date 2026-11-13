@@ -153,7 +153,14 @@ scene.setLayer(0.ZLevel, list)
 ```
 
 Use `newSvgMtsdfResource(svgText)` for an in-memory document. `longEdge`,
-`minimumShortEdge`, and `pixelRange` control the generated distance fields.
+`minimumShortEdge`, and `pixelRange` control the base distance-field budget.
+By default, `adaptive = true` uses a cheap raster probe to estimate each path's
+average feature width and increases resolution by 2× or 4× for narrow fills.
+Broad fills keep the base resolution. This costs extra loading time and texture
+memory only for selected layers; generated fields are retained and reused.
+It is a bounded heuristic, not a screen-space error guarantee: small details in
+otherwise broad paths may still need a larger `longEdge`. Set `adaptive = false`
+to retain the fixed budget. Native geometry and raster-effect layers are unaffected.
 Each resource exposes its ordered `layers`, document `size` (`Vec2`), and
 `elementCount`. Pass `parent = someFigIdx` to append beneath an existing node.
 Targets stretch the document to the supplied rectangle.
@@ -165,9 +172,10 @@ cache identities. An explicit `name` selects a shared identity, so use distinct
 names for different resources. Parse, generation, and file-read failures raise
 `SvgMtsdfError`.
 
-Run `nim r examples/svg_layers.nim [input.svg] [output.png]` to render an SVG
+Run `nim r examples/svg_layers.nim [input.svg] [output.png] [longEdge] [adaptive|fixed]` to render an SVG
 with the GPU backend and save a screenshot of that frame. The demo uses the
-bundled Ghostscript tiger by default and writes `svg_layers.png`. Metal captures
+bundled Ghostscript tiger by default and writes `svg_layers.png`, reporting load
+and scene/capture timings. Metal captures
 an offscreen target; OpenGL and Vulkan create a window for rendering and capture.
 The imported SVG code is covered by FigDraw's MIT license; its source revision
 is recorded in [SVG source history](docs/svg_sources.md).

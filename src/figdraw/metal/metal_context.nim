@@ -929,11 +929,12 @@ method drawFilledQuad*(
     uv = ctx.entries[imgKey].xy + ctx.entries[imgKey].wh / 2.0'f32
     uvQuad = [uv, uv, uv, uv]
 
+  # Filled geometry can be thinner than a pixel; snapping collapses its edges.
   let posQuad = [
-    ceil(ctx.mat * verts[0]),
-    ceil(ctx.mat * verts[1]),
-    ceil(ctx.mat * verts[2]),
-    ceil(ctx.mat * verts[3]),
+    ctx.mat * verts[0],
+    ctx.mat * verts[1],
+    ctx.mat * verts[2],
+    ctx.mat * verts[3],
   ]
   ctx.drawQuad(posQuad, uvQuad, colors)
 

@@ -1,4 +1,4 @@
-import std/unittest
+import std/[math, unittest]
 import pkg/pixie
 import figdraw/svgs/svgfields
 
@@ -46,3 +46,42 @@ suite "SVG ellipse stroke rendering":
         if width == 16:
           check image[53 * factor, 32 * factor].a > 200
           check image[42 * factor, 32 * factor].a > 200
+
+suite "SVG adaptive field resolution":
+  test "narrow diagonal fills reconstruct more accurately without enlarging broad fills":
+    let path = parsePath("M4 8 L60 52 L60 53 L4 9 Z")
+    let fixed = generateSvgField(path, NonZero, 0.25, 6, adaptive = false)
+    let adaptive = generateSvgField(path, NonZero, 0.25, 6)
+    let reference = newImage(64, 64)
+    reference.fillPath(path, color(1, 1, 1, 1))
+    proc error(field: SvgField): float64 =
+      let factor = field.image.width.float32 / field.frame.w
+      for y in 0 ..< 64:
+        for x in 0 ..< 64:
+          let p =
+            (vec2(x.float32 + 0.5, y.float32 + 0.5) - field.frame.xy) * factor -
+            vec2(0.5)
+          let ix = floor(p.x).int
+          let iy = floor(p.y).int
+          var alpha = 0'f32
+          if ix >= 0 and iy >= 0 and ix + 1 < field.image.width and
+              iy + 1 < field.image.height:
+            let f = p - vec2(ix.float32, iy.float32)
+            let a =
+              field.image[ix, iy].a.float32 * (1 - f.x) +
+              field.image[ix + 1, iy].a.float32 * f.x
+            let b =
+              field.image[ix, iy + 1].a.float32 * (1 - f.x) +
+              field.image[ix + 1, iy + 1].a.float32 * f.x
+            alpha = clamp(
+              ((a * (1 - f.y) + b * f.y) / 255 - 0.5) * field.pixelRange / factor + 0.5,
+              0,
+              1,
+            )
+          result += abs(alpha.float64 - reference[x, y].a.float64 / 255)
+
+    check error(adaptive) < error(fixed) * 0.8
+    let broad = parsePath("M4 4 H60 V60 H4 Z")
+    let broadFixed = generateSvgField(broad, NonZero, 1, 6, adaptive = false)
+    let broadAdaptive = generateSvgField(broad, NonZero, 1, 6)
+    check broadFixed.image.data == broadAdaptive.image.data

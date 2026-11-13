@@ -62,6 +62,7 @@ type
     dashes: seq[float32]
     key: string
     documentScale, requestedRange: float64
+    adaptive: bool
     image: ImageRef
     frame: Rect
     pixelRange: float32
@@ -174,8 +175,10 @@ proc newMtsdfLayer(
     name: string,
     imageIndex, imageCount: int,
     documentScale, pixelRange: float64,
+    adaptive: bool,
 ): SvgLayer =
-  let field = generateSvgField(path, windingRule, documentScale, pixelRange)
+  let field =
+    generateSvgField(path, windingRule, documentScale, pixelRange, adaptive = adaptive)
   SvgLayer(
     kind: slkMtsdfFill,
     paint: paint,
@@ -276,8 +279,13 @@ proc meshFallback*(
         cache.dashes, cache.dashOffset,
       )
       cache.path.transform(cache.sourceTransform.matrix())
-    let field =
-      generateSvgField(cache.path, NonZero, cache.documentScale, cache.requestedRange)
+    let field = generateSvgField(
+      cache.path,
+      NonZero,
+      cache.documentScale,
+      cache.requestedRange,
+      adaptive = cache.adaptive,
+    )
     cache.image = imageRef(imgId(cache.key), field.image)
     cache.frame = field.frame
     cache.pixelRange = field.pixelRange
@@ -289,12 +297,15 @@ proc newSvgMtsdfResource*(
     longEdge: Positive = DefaultSvgMtsdfLongEdge,
     minimumShortEdge: Positive = DefaultSvgMtsdfMinimumShortEdge,
     pixelRange = DefaultSvgMtsdfPixelRange,
+    adaptive = true,
 ): SvgMtsdfResource =
   ## Parses an SVG into ordered FigDraw vector strokes and MTSDF fill layers.
   ##
   ## Circles, ellipses, rectangles and independent stroke segments use native
   ## drawables. Opaque connected strokes use meshes; translucent strokes and
   ## complex fills use MTSDF images.
+  ## `adaptive` increases the base field scale by up to 4x for narrow paths,
+  ## trading bounded extra texture memory and load time for finer details.
   ## Opacity groups retain vector children and composite on the selected backend.
   ## Gradients, clip paths and masks use cached RGBA images.
   ## Keep the resource alive while rendering its nodes, as with `ImageRef`.
@@ -318,7 +329,7 @@ proc newSvgMtsdfResource*(
         "figdraw.svg:" & name
       else:
         "figdraw.svg:" & $hash(svgData) & ":" & $longEdge & ":" & $minimumShortEdge & ":" &
-          $pixelRange
+          $pixelRange & ":" & $adaptive
     let imageCount = max(2, parsed.elements.len * 2)
     var imageIndex = 0
     var index = 0
@@ -386,7 +397,7 @@ proc newSvgMtsdfResource*(
                 raiseSvgMtsdfError("SVG MTSDF dimensions must exceed the pixel range")
               result.layers.add newMtsdfLayer(
                 element.fillPath, element.fillRule, element.fillColor, resourceName,
-                imageIndex, imageCount, documentScale, pixelRange,
+                imageIndex, imageCount, documentScale, pixelRange, adaptive,
               )
               inc imageIndex
           if element.hasStroke:
@@ -416,6 +427,7 @@ proc newSvgMtsdfResource*(
                   key: layerName(resourceName, imageIndex, imageCount),
                   documentScale: documentScale,
                   requestedRange: pixelRange,
+                  adaptive: adaptive,
                 ),
               )
               inc imageIndex
@@ -443,6 +455,7 @@ proc newSvgMtsdfResource*(
                       key: layerName(resourceName, imageIndex, imageCount),
                       documentScale: documentScale,
                       requestedRange: pixelRange,
+                      adaptive: adaptive,
                     ),
                   )
                 else:
@@ -453,7 +466,7 @@ proc newSvgMtsdfResource*(
                     )
                   result.layers.add newMtsdfLayer(
                     outline, NonZero, element.strokeColor, resourceName, imageIndex,
-                    imageCount, documentScale, pixelRange,
+                    imageCount, documentScale, pixelRange, adaptive,
                   )
                 inc imageIndex
         if result.layers.len > firstLayer:
@@ -473,6 +486,7 @@ proc newSvgMtsdfResourceFromFile*(
     longEdge: Positive = DefaultSvgMtsdfLongEdge,
     minimumShortEdge: Positive = DefaultSvgMtsdfMinimumShortEdge,
     pixelRange = DefaultSvgMtsdfPixelRange,
+    adaptive = true,
 ): SvgMtsdfResource =
   ## Reads an SVG file and creates its ordered vector and MTSDF layers.
   let data =
@@ -480,7 +494,7 @@ proc newSvgMtsdfResourceFromFile*(
       readFile(filePath)
     except IOError as error:
       raiseSvgMtsdfError("Failed to read SVG: " & error.msg)
-  newSvgMtsdfResource(data, name, longEdge, minimumShortEdge, pixelRange)
+  newSvgMtsdfResource(data, name, longEdge, minimumShortEdge, pixelRange, adaptive)
 
 proc len*(resource: SvgMtsdfResource): int =
   ## Returns the number of ordered layers, including opacity-group boundaries.

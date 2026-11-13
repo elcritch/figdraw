@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.47.1
+
+- Preserve fractional GPU filled-quad vertices so thin SVG stroke meshes no
+  longer collapse through whole-pixel rounding on Metal, OpenGL, and Vulkan.
+- Adapt SVG distance-field resolution to estimated feature width, with bounded
+  2×/4× tiers for narrow paths and `adaptive = false` for a fixed budget.
+- Expose field resolution and timing comparisons in the SVG screenshot demo.
+
 ## 0.47.0
 
 - Import Merenda's SVG parser and ordered drawing layers through `figdraw/svgs/svg`.
