@@ -146,6 +146,8 @@ type VulkanDispatch* = ref object
   vkGetBufferMemoryRequirements*: typeof(vkGetBufferMemoryRequirements)
   vkGetDeviceQueue*: typeof(vkGetDeviceQueue)
   vkGetImageMemoryRequirements*: typeof(vkGetImageMemoryRequirements)
+  vkGetPhysicalDeviceFeatures*: typeof(vkGetPhysicalDeviceFeatures)
+  vkGetPhysicalDeviceFormatProperties*: typeof(vkGetPhysicalDeviceFormatProperties)
   vkGetPhysicalDeviceMemoryProperties*: typeof(vkGetPhysicalDeviceMemoryProperties)
   vkGetPhysicalDeviceProperties*: typeof(vkGetPhysicalDeviceProperties)
   vkGetPhysicalDeviceQueueFamilyProperties*:

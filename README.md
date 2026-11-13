@@ -503,6 +503,35 @@ For a complete working example (window + GL context + render loop), see:
 - `examples/windy_renderlist.nim`
 - `examples/sdl2_renderlist.nim`
 
+### Opt-in GPU texture compression
+
+Static color images can use BC3 (DXT5) to reduce their texture payload. This is
+lossy and explicit; ordinary images, glyphs, and distance fields keep their
+existing formats.
+
+```nim
+import pixie
+import figdraw
+
+let pixels = pixie.readImage("photo.png")
+let compressed = compressImage(pixels)
+let photo = imageRef(imgId("compressed-photo"), compressed)
+let node = Fig(kind: nkImage, screenBox: rect(0, 0, 640, 480),
+  image: imageStyle(photo))
+# Retain photo for as long as nodes borrow its ID.
+```
+
+Metal, OpenGL, and Vulkan use a separate compressed texture when the device
+supports BC3; other configurations decode into the normal RGBA image path.
+`renderer.ctx.supportsTextureCompression(tcfBc3)` reports native support.
+`compressedTextureBytes()` and `compressedTextureCount()` report native storage
+separately from atlas occupancy. Compression saves image payload bytes, but
+texture switches may add draw calls and do not shrink an existing atlas.
+
+See [format choices, limitations, and the tiger comparison](docs/texture_compression.md).
+Run `nim r examples/compressed_images.nim bc3 512 comparison.png` for an
+offscreen Metal capture; use `rgba` for the uncompressed comparison.
+
 ### Image Cache Management
 
 Image IDs are the stable, thread-safe handles for image nodes. `ImageRef` is the

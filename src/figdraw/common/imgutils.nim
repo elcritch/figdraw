@@ -8,6 +8,8 @@ import sigils/rchannels
 import ./formatflippy
 import ./fonttypes
 import ./shared
+import ./texturecompression
+export texturecompression
 
 type
   ImageId* = distinct Hash
@@ -15,6 +17,7 @@ type
   ImgKind* = enum
     FlippyImg
     PixieImg
+    CompressedImg
 
   ImgObj* = object
     id*: ImageId
@@ -23,9 +26,12 @@ type
       flippy*: Flippy
     of PixieImg:
       pimg*: Image
+    of CompressedImg:
+      compressed*: CompressedImage
 
   ImageMsgKind* = enum
     ImkPutFlippy
+    ImkPutCompressed
     ImkPutPixie
     ImkReplacePixie
     ImkPutGlyphPixie
@@ -51,6 +57,8 @@ type
     case kind*: ImageMsgKind
     of ImkPutFlippy:
       flippy*: Flippy
+    of ImkPutCompressed:
+      compressed*: CompressedImage
     of ImkPutPixie, ImkReplacePixie, ImkPutGlyphPixie:
       pimg*: Image
     of ImkClearImage, ImkClearImages, ImkClearImageCache, ImkClearFontGlyphs,
@@ -134,6 +142,8 @@ proc copyImageMessage(msg: ImageMsg): ImageMsg =
         nil
       else:
         msg.pimg.copy()
+  of ImkPutCompressed:
+    result.compressed.data = @(msg.compressed.data)
   of ImkClearImages:
     result.ids = @(msg.ids)
   of ImkClearImage, ImkClearImageCache, ImkClearFontGlyphs, ImkClearTypefaceGlyphs,
@@ -142,7 +152,7 @@ proc copyImageMessage(msg: ImageMsg): ImageMsg =
 
 proc updateImageMessageReplay(msg: ImageMsg) =
   case msg.kind
-  of ImkPutFlippy, ImkPutPixie, ImkReplacePixie, ImkPutGlyphPixie:
+  of ImkPutFlippy, ImkPutCompressed, ImkPutPixie, ImkReplacePixie, ImkPutGlyphPixie:
     imageMessageReplay[msg.id] = msg.copyImageMessage()
   of ImkClearImage:
     imageMessageReplay.del(msg.id)
@@ -449,6 +459,14 @@ proc toImageMsg(
       cacheGeneration: cacheGeneration,
       pimg: move(imgObj.pimg),
     )
+  of CompressedImg:
+    result = ImageMsg(
+      kind: ImkPutCompressed,
+      id: imgObj.id,
+      generation: generation,
+      cacheGeneration: cacheGeneration,
+      compressed: move(imgObj.compressed),
+    )
 
 proc sendImage*(imgObj: var ImgObj) =
   var generation: uint64
@@ -569,6 +587,18 @@ proc loadFigImage*(filePath: string): ImageId =
 proc loadImage*(id: ImageId, image: sink Image) =
   var imgObj = ImgObj(id: id, kind: PixieImg, pimg: ensureMove image)
   sendImage(imgObj)
+
+proc imageRef*(id: ImageId): ImageRef
+
+proc loadCompressedImage*(id: ImageId, image: sink CompressedImage) =
+  ## Publish an opt-in compressed static color image, replacing any prior image.
+  image.validate()
+  var imgObj = ImgObj(id: id, kind: CompressedImg, compressed: image)
+  sendImage(imgObj)
+
+proc imageRef*(id: ImageId, image: sink CompressedImage): ImageRef =
+  loadCompressedImage(id, image)
+  imageRef(id)
 
 proc replaceImage*(id: ImageId, image: sink Image) =
   ## Replace the pixels associated with an image ID.
