@@ -1,4 +1,4 @@
-version = "0.46.3"
+version = "0.46.4"
 author = "Jaremy Creechley"
 description = "UI Engine for Nim"
 license = "MIT"
@@ -31,6 +31,8 @@ feature "harfbuzz":
   discard # Kept for compatibility with existing Atlas configurations.
 feature "textBackendHarfbuzzy":
   discard
+feature "textBackendUirelays":
+  requires "gh:elcritch/uirelays#fix/native-font-lifetime"
 feature "lottie":
   requires "jsony"
 feature "sdl2":
@@ -47,7 +49,7 @@ feature "siwin":
   # Includes native Win32 handles and the software-present toggle.
   requires "gh:levovix0/siwin#5827ee9dadb5e2597db85375e0e87b8a2272174b"
 feature "uirelays":
-  requires "gh:elcritch/uirelays#feat/rgba-alpha"
+  requires "gh:elcritch/uirelays#fix/native-font-lifetime"
 feature "vulkan":
   requires "https://github.com/treeform/vk14#183cf440d6460d97c6b35d6346079d9982f8cd57"
 feature "metal":
