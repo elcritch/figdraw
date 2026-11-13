@@ -41,7 +41,7 @@ suite "GPU subpixel stroke geometry":
           raise
         skip()
         break renderOnce
-      let factor = image.width div 32
+      let factor = image.height div 32
       check image[8 * factor + factor div 2, 12 * factor].r < 200
       check image[10 * factor, 12 * factor].r == 255
 
@@ -75,7 +75,7 @@ suite "GPU subpixel stroke geometry":
           raise
         skip()
         break renderOnce
-      let factor = image.width div 32
+      let factor = image.height div 32
       for x in 6 .. 25:
         var darkness = 0
         for dy in 15 * factor ..< 19 * factor:
@@ -85,7 +85,7 @@ suite "GPU subpixel stroke geometry":
             darkness += 255 - red
         check abs(darkness.float32 / (factor * factor).float32 - 51) < 12
       # Fractional placement must not be rounded to the next pixel row.
-      if image.width == 32:
+      if image.height == 32:
         check image[10, 16].r < 230
 
   test "fractional image placement preserves bilinear coverage":
@@ -126,6 +126,6 @@ suite "GPU subpixel stroke geometry":
           raise
         skip()
         break renderOnce
-      if image.width == 32:
+      if image.height == 32:
         check image[10, 9].r in 150'u8 .. 170'u8
         check image[10, 10].r in 215'u8 .. 230'u8
