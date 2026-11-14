@@ -24,8 +24,10 @@ when UseVulkanBackend:
   proc captureUpload(ctx: VulkanContext): VulkanBuffer =
     result = ctx.createBuffer(
       4.VkDeviceSize,
-      VkBufferUsageFlags{TransferDstBit},
-      VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
+      VkBufferUsageFlags(VK_BUFFER_USAGE_TRANSFER_DST_BIT),
+      VkMemoryPropertyFlags(
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT or VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+      ),
     )
     var region = VkBufferCopy(srcOffset: copiedOffset, size: 4.VkDeviceSize)
     ctx.vk.vkCmdCopyBuffer(
@@ -33,8 +35,8 @@ when UseVulkanBackend:
     )
     var barrier = VkBufferMemoryBarrier(
       sType: VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-      srcAccessMask: VkAccessFlags{TransferWriteBit},
-      dstAccessMask: VkAccessFlags{HostReadBit},
+      srcAccessMask: VkAccessFlags(VK_ACCESS_TRANSFER_WRITE_BIT),
+      dstAccessMask: VkAccessFlags(VK_ACCESS_HOST_READ_BIT),
       srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
       dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
       buffer: result.handle,
@@ -42,8 +44,8 @@ when UseVulkanBackend:
     )
     ctx.vk.vkCmdPipelineBarrier(
       ctx.commandBuffer,
-      VkPipelineStageFlags{TransferBit},
-      VkPipelineStageFlags{HostBit},
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_TRANSFER_BIT),
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_HOST_BIT),
       0.VkDependencyFlags,
       0,
       nil,
