@@ -1,11 +1,26 @@
 ## Interactive SVG viewer: drag to pan, scroll to zoom around the pointer.
-## Run: nim r examples/siwin_svg.nim [input.svg]
+## Run: nim r examples/siwin_svg.nim [input.svg] [--size=N] [--adaptive|--fixed]
 import std/[math, os, strutils]
 import figdraw
 import figdraw/windowing
 import figdraw/svgs/svg
 
 const RunOnce {.booldefine: "figdraw.runOnce".}: bool = false
+
+const FieldSizes* = [48, 96, 192, 384, 768]
+
+proc nextFieldSize*(current: int, increase: bool): int =
+  ## Move to the next preset without wrapping at either end.
+  if increase:
+    for size in FieldSizes:
+      if size > current:
+        return size
+    max(current, FieldSizes[^1])
+  else:
+    for i in countdown(FieldSizes.high, 0):
+      if FieldSizes[i] < current:
+        return FieldSizes[i]
+    min(current, FieldSizes[0])
 
 type SvgView* = object
   offset*: Vec2
@@ -46,12 +61,31 @@ proc svgScene(resource: SvgMtsdfResource, view: SvgView, size: Vec2): Renders =
   result.setLayer(0.ZLevel, list)
 
 when isMainModule:
-  let input =
-    if paramCount() > 0:
-      paramStr(1)
+  var
+    input = ""
+    fieldSize = DefaultSvgMtsdfLongEdge
+    adaptive = true
+  for arg in commandLineParams():
+    if arg.startsWith("--size="):
+      try:
+        fieldSize = parseInt(arg[7 .. ^1])
+      except ValueError:
+        quit "Invalid --size; use an integer from 32 to 1024"
+      if fieldSize notin 32 .. 1024:
+        quit "Invalid --size; use an integer from 32 to 1024"
+    elif arg == "--adaptive":
+      adaptive = true
+    elif arg == "--fixed":
+      adaptive = false
+    elif arg.startsWith("-") or input.len > 0:
+      quit "Usage: siwin_svg [input.svg] [--size=N] [--adaptive|--fixed]"
     else:
-      currentSourcePath().parentDir.parentDir / "data" / "Ghostscript_Tiger.svg"
-  let resource = newSvgMtsdfResourceFromFile(input)
+      input = arg
+  if input.len == 0:
+    input = currentSourcePath().parentDir.parentDir / "data" / "Ghostscript_Tiger.svg"
+  let svgData = readFile(input)
+  var resource = newSvgMtsdfResource(svgData, longEdge = fieldSize, adaptive = adaptive)
+  echo "Drag: pan | Scroll: zoom | [ / ]: field size | A: adaptive/fixed | R: fit"
   let initialSize = ivec2(900, 800)
   let title = "SVG Viewer - " & input.extractFilename()
   when UseVulkanBackend:
@@ -95,6 +129,21 @@ when isMainModule:
     view.zoomAt(anchor, factor)
     requestRedraw()
 
+  proc setFieldQuality(newSize: int, newAdaptive: bool) =
+    if newSize == fieldSize and newAdaptive == adaptive:
+      return
+    try:
+      # Generate before releasing the old resource so an error leaves the view usable.
+      let replacement =
+        newSvgMtsdfResource(svgData, longEdge = newSize, adaptive = newAdaptive)
+      scene = newRenders()
+      resource = replacement
+      fieldSize = newSize
+      adaptive = newAdaptive
+      requestRedraw()
+    except SvgMtsdfError as error:
+      stderr.writeLine("Unable to rebuild SVG fields: " & error.msg)
+
   proc redraw() =
     let size = window.logicalSize()
     if size.x <= 0 or size.y <= 0:
@@ -111,8 +160,9 @@ when isMainModule:
       window.title = siwinWindowTitle(
         renderer,
         window,
-        title & " | " & formatFloat(view.zoom * 100, ffDecimal, 0) &
-          "% | Drag: pan | Scroll: zoom | R: fit | Esc: close",
+        title & " | " & formatFloat(view.zoom * 100, ffDecimal, 0) & "% | MTSDF " &
+          $fieldSize & (if adaptive: " adaptive" else: " fixed") &
+          " | [ ]: size | A: mode | R: fit",
       )
       dirty = false
     renderer.beginFrame()
@@ -154,6 +204,12 @@ when isMainModule:
           window.close()
         of Key.r, Key.n0, Key.home:
           resetView()
+        of Key.lbracket:
+          setFieldQuality(nextFieldSize(fieldSize, false), adaptive)
+        of Key.rbracket:
+          setFieldQuality(nextFieldSize(fieldSize, true), adaptive)
+        of Key.a:
+          setFieldQuality(fieldSize, not adaptive)
         of Key.equal, Key.add:
           zoom(1.2, window.logicalSize() / 2)
         of Key.minus, Key.subtract:

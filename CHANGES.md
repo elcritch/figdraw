@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Let the Siwin SVG viewer change MTSDF base size and toggle adaptive sizing,
+  including command-line starting options, while preserving the view.
+
 - Add the opt-in Windows UIRelays text backend. Native font measurements and
   per-rune rasterization feed the existing GPU atlas without HarfBuzz/FriBiDi.
   Font collection faces, custom line spacing, and bounded native-font ownership

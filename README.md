@@ -188,13 +188,20 @@ with a whole-SVG Pixie raster.
 For an interactive Siwin window, run:
 
 ```sh
-nim r examples/siwin_svg.nim [input.svg]
+nim r examples/siwin_svg.nim [input.svg] [--size=N] [--adaptive|--fixed]
 ```
 
 The viewer opens the tiger by default. Drag with the left mouse button to pan,
 scroll to zoom around the pointer, and press `R`, `0`, or Home to fit the SVG.
 Use `+`/`-` to zoom around the window center and Escape to close. Resizing keeps
 the current view centered; the SVG resource and coverage tiers are reused.
+Press `[` or `]` to change the MTSDF base size (48, 96, 192, 384, 768), and
+`A` to toggle adaptive sizing. The title shows the active settings. `--size=N`
+sets a custom starting base from 32 to 1024; the default is 192 and adaptive.
+Adaptive mode still uses that base: narrow paths can receive 2× or 4× the base
+scale. Changing either setting rebuilds the resource and may take time, while
+preserving pan and zoom. Coverage images for thin strokes use their own
+screen-dependent sizing.
 
 ### Reusable primitive helpers
 

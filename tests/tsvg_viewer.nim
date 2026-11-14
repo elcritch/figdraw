@@ -30,3 +30,12 @@ suite "SVG viewer navigation":
     view.zoomAt(anchor, 0.000001)
     check view.zoom == 0.01'f32
     check length(view.offset + point * view.zoom - anchor) < 0.001
+
+  test "field quality presets handle custom sizes and boundaries":
+    check nextFieldSize(192, true) == 384
+    check nextFieldSize(192, false) == 96
+    check nextFieldSize(128, true) == 192
+    check nextFieldSize(128, false) == 96
+    check nextFieldSize(48, false) == 48
+    check nextFieldSize(768, true) == 768
+    check nextFieldSize(1024, true) == 1024
