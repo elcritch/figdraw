@@ -45,6 +45,7 @@ type
     nkMsdfImage
     nkMtsdfImage
     nkBackdropBlur
+    nkOpacityGroup
     nkTransform
 
   FigFlags* = enum

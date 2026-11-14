@@ -2,6 +2,9 @@ import os, strformat, strutils
 
 --path:"../src"
 
+if projectName() == "svg_layers":
+  switch("define", "figdraw.vulkanReadback")
+
 when defined(emscripten):
   --os:linux
   --cpu:wasm32

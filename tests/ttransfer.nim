@@ -114,6 +114,11 @@ suite "test layers":
     # print 30.Zlevel, lispRepr(renders[30.ZLevel])
     # # check uids1.repr == "@[8]"
 
+  test "transfer keeps opacity group value":
+    let converted = Fig(kind: nkOpacityGroup, opacity: 0.35'f32).toRenderFig()
+    check converted.kind == nkOpacityGroup
+    check converted.opacity == 0.35'f32
+
   test "transfer keeps nkBackdropBlur style":
     var blurNode = Fig(kind: nkBackdropBlur)
     blurNode.backdropBlur.blur = 14.0'f32
@@ -156,13 +161,12 @@ suite "test layers":
       RenderStroke(weight: 2.5'f32, fill: fill(rgba(200, 40, 70, 255)))
     drawable.drawSteps = 36'u16
     drawable.drawAa = 0.85'f32
-    drawable.drawOps =
-      @[
-        drawableLine(vec2(1.0'f32, 2.0'f32), vec2(3.0'f32, 4.0'f32)),
-        drawableCircle(vec2(8.0'f32, 9.0'f32), 5.0'f32),
-        drawableArc(vec2(12.0'f32, 13.0'f32), 7.0'f32, 0.0'f32, 1.0'f32),
-        drawableEllipse(vec2(15.0'f32, 16.0'f32), vec2(9.0'f32, 4.0'f32)),
-      ]
+    drawable.drawOps = @[
+      drawableLine(vec2(1.0'f32, 2.0'f32), vec2(3.0'f32, 4.0'f32)),
+      drawableCircle(vec2(8.0'f32, 9.0'f32), 5.0'f32),
+      drawableArc(vec2(12.0'f32, 13.0'f32), 7.0'f32, 0.0'f32, 1.0'f32),
+      drawableEllipse(vec2(15.0'f32, 16.0'f32), vec2(9.0'f32, 4.0'f32)),
+    ]
 
     let converted = drawable.toRenderFig()
     check converted.kind == nkDrawable

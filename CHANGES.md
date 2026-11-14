@@ -2,10 +2,59 @@
 
 ## Unreleased
 
+- Add an SVG image-rendering mode with separately cached fill and stroke
+  layers, and let the Siwin viewer toggle between image and MTSDF modes.
+
+- Let the Siwin SVG viewer change MTSDF base size and toggle adaptive sizing,
+  including command-line starting options, while preserving the view.
+
 - Add the opt-in Windows UIRelays text backend. Native font measurements and
   per-rune rasterization feed the existing GPU atlas without HarfBuzz/FriBiDi.
   Font collection faces, custom line spacing, and bounded native-font ownership
   are supported; contextual shaping and native glyph-run layout remain future work.
+
+- Add a reproducible tiger memory benchmark comparing layered SVG rendering
+  with a cached Pixie raster, with measured results in the SVG benchmark notes.
+
+- Add a Siwin SVG viewer with drag panning, pointer-centered wheel zoom,
+  keyboard zoom, and fit-to-window controls.
+
+- Antialias thin SVG stroke meshes with cached coverage images, retaining
+  fractional opacity and reusing resolution tiers across render lists.
+- Preserve fractional image and distance-field rectangles on GPU backends so
+  SVG fills and strokes stay aligned instead of snapping independently.
+
+## 0.47.1
+
+- Preserve fractional GPU filled-quad vertices so thin SVG stroke meshes no
+  longer collapse through whole-pixel rounding on Metal, OpenGL, and Vulkan.
+- Adapt SVG distance-field resolution to estimated feature width, with bounded
+  2×/4× tiers for narrow paths and `adaptive = false` for a fixed budget.
+- Expose field resolution and timing comparisons in the SVG screenshot demo.
+
+## 0.47.0
+
+- Import Merenda's SVG parser and ordered drawing layers through `figdraw/svgs/svg`.
+  Reuse native ellipse/circle, rectangle, line/curve and filled-quad primitives;
+  retain MTSDF fields for complex fills and translucent stroke unions.
+- Preserve RGB colors, inline styles/currentColor, fractional viewBoxes, local
+  use/symbol instances, connected joins, dash phase, and isolated group opacity.
+  Support basic gradients, geometric clips, and alpha/luminance masks through
+  cached compositing layers; normalize parse failures to SvgMtsdfError.
+- Add reusable figEllipse, figCircle, figLine, figDashedLine and stroke geometry
+  helpers. Center new ellipse/circle helper strokes while preserving existing
+  raw drawable behavior, and scale software distance fields like GPU fields.
+- Prepare centered stroke bounds in CPU constructors and pack band half-widths
+  on the CPU. Select explicit GPU band modes to remove per-fragment placement
+  comparisons; refresh edited nodes with prepareDrawableStroke.
+- Decode packed GPU ellipse radii without rounding full elliptical corners to
+  zero at the float32 precision limit.
+- Composite nested SVG opacity groups on the GPU while retaining native child
+  geometry. Expose nkOpacityGroup for other callers, pool GPU group targets, and
+  preserve inherited clip coverage when overlapping children are composited.
+- Render examples/svg_layers through the GPU and save a screenshot of the frame.
+- Retain generated images through FigDraw's thread-local ImageRef ownership API.
+
 - Load Vulkan lazily so a missing loader can fall back to OpenGL.
 
 - Select Harfbuzzy automatically when HarfBuzz and FriBidi are available at

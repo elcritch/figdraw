@@ -106,6 +106,138 @@ The most stable entry points today are:
 - Scene graph nodes: `import figdraw/fignodes`
 - OpenGL backend: `import figdraw/figrender`
 
+### SVG drawing layers
+
+Import `figdraw/svgs/svg` to load SVGs as ordered paint layers. Ordinary circles,
+ellipses, square rectangle fills, lines, and independent Bézier strokes reuse
+FigDraw's native drawing primitives. Ellipses use rounded rectangles with separate
+X/Y corner radii; their strokes are centered on the SVG path. Opaque connected
+strokes use filled geometry. At target widths below two pixels, connected strokes
+use cached antialiased coverage images to avoid isolated black pixels. Coverage
+resolution follows the target size in power-of-two tiers, capped at 2048 pixels
+per texture; cached tiers remain alive with the resource. Translucent stroke
+unions at larger widths and complex fills use compact MTSDF images.
+
+The loader supports solid colors (including RGB and inherited `currentColor`),
+inline styles, fill rules, transformed paths, stroke caps/joins, miter limits,
+dash arrays/offsets, and local `<use>/<symbol>` references. Fractional viewBoxes
+are preserved; documents without a viewBox can use explicit pixel dimensions.
+Nested object/group opacity retains native vector children and composites each
+group once using an offscreen GPU texture. Overlapping children receive the
+group opacity once. Basic linear/radial gradients, geometric clip paths, and
+alpha/luminance masks use cached RGBA layers, which can nest inside opacity
+groups. These cached layers use at least the document's natural resolution,
+capped at 4096 pixels on the long edge; `longEdge` can request more detail
+within that cap.
+
+Other callers can create `Fig(kind: nkOpacityGroup, opacity: 0.5)` and append
+children to it. Metal, OpenGL, and Vulkan reuse offscreen targets by nesting
+depth; software backends provide the same compositing semantics. Group targets
+cover the frame, and ordinary draws keep their existing shader path.
+
+This remains an SVG subset. Stylesheets/selectors, text, filters, patterns,
+external references, gradient `href` inheritance, non-pad gradient spread,
+off-center radial focal points, nested clip/mask references, and explicit mask
+regions are unsupported and raise `SvgMtsdfError` where encountered.
+
+```nim
+import figdraw/svgs/svg
+
+# Load once and retain while rendering the resulting nodes.
+let icon = newSvgMtsdfResourceFromFile("data/Yellow_Star_with_rounded_edges.svg")
+var list: RenderList
+list.addSvgMtsdf(rect(16, 16, 128, 128), icon)
+
+# Optional: override every source fill and stroke with one tint.
+list.addSvgMtsdf(rect(160, 16, 128, 128), icon, fill(rgba(40, 120, 220, 255)))
+
+let scene = newRenders()
+scene.setLayer(0.ZLevel, list)
+```
+
+Use `newSvgMtsdfResource(svgText)` for an in-memory document. `longEdge`,
+`minimumShortEdge`, and `pixelRange` control the base distance-field budget.
+Set `renderMode = srmRaster` to cache ordinary fills and strokes as separate,
+cropped RGBA images instead of MTSDF fields and native primitives. `longEdge`
+sets their document resolution (capped at 4096); scaling reuses the images, so
+rebuild the resource for a different raster resolution. Opacity groups remain
+isolated, and gradients, masks, and clips retain their existing raster fallback.
+
+By default, `adaptive = true` uses a cheap raster probe to estimate each path's
+average feature width and increases resolution by 2× or 4× for narrow fills.
+Broad fills keep the base resolution. This costs extra loading time and texture
+memory only for selected layers; generated fields are retained and reused.
+It is a bounded heuristic, not a screen-space error guarantee: small details in
+otherwise broad paths may still need a larger `longEdge`. Set `adaptive = false`
+to retain the fixed budget. Native geometry and raster-effect layers are unaffected.
+Each resource exposes its ordered `layers`, document `size` (`Vec2`), and
+`elementCount`. Pass `parent = someFigIdx` to append beneath an existing node.
+Targets stretch the document to the supplied rectangle.
+
+Resources retain ordinary `ImageRef` handles; render nodes borrow their IDs.
+Keep resources on their creating thread and alive for as long as their nodes
+are rendered. Unnamed resources use document contents and field settings as
+cache identities. An explicit `name` selects a shared identity, so use distinct
+names for different resources. Parse, generation, and file-read failures raise
+`SvgMtsdfError`.
+
+Run `nim r examples/svg_layers.nim [input.svg] [output.png] [longEdge] [adaptive|fixed]` to render an SVG
+with the GPU backend and save a screenshot of that frame. The demo uses the
+bundled Ghostscript tiger by default and writes `svg_layers.png`, reporting load
+and scene/capture timings. Metal captures
+an offscreen target; OpenGL and Vulkan create a window for rendering and capture.
+The imported SVG code is covered by FigDraw's MIT license; its source revision
+is recorded in [SVG source history](docs/svg_sources.md).
+See the [tiger memory benchmark](docs/svg_memory_benchmark.md) for a comparison
+with a whole-SVG Pixie raster.
+
+For an interactive Siwin window, run:
+
+```sh
+nim r examples/siwin_svg.nim [input.svg] [--size=N] [--adaptive|--fixed] [--raster|--mtsdf]
+```
+
+The viewer opens the tiger by default. Drag with the left mouse button to pan,
+scroll to zoom around the pointer, and press `R`, `0`, or Home to fit the SVG.
+Use `+`/`-` to zoom around the window center and Escape to close. Resizing keeps
+the current view centered; the SVG resource and coverage tiers are reused.
+Press `I` to toggle image and MTSDF modes. Press `[` or `]` to change the base
+size (48, 96, 192, 384, 768), and `A` to toggle adaptive sizing. The title
+shows the active settings. In image mode, the size controls raster resolution
+and adaptive sizing has no effect. `--size=N` sets a custom starting base from
+32 to 1024; the default is 192 and adaptive.
+Adaptive mode still uses that base: narrow paths can receive 2× or 4× the base
+scale. Changing either setting rebuilds the resource and may take time, while
+preserving pan and zoom. Coverage images for thin strokes use their own
+screen-dependent sizing.
+
+### Reusable primitive helpers
+
+The regular `figdraw` import exports `figEllipse`, `figCircle`, `figLine`, and
+`figDashedLine`, alongside the existing rounded-border helpers:
+
+```nim
+import figdraw
+
+let border = RenderStroke(weight: 3, fill: fill(rgba(40, 120, 220, 255)), cap: scRound)
+let oval = figEllipse(rect(20, 20, 120, 60), fill(rgba(240, 245, 255, 255)), border)
+let line = figDashedLine(vec2(20, 100), vec2(200, 100), border, [8'f32, 4], dashOffset = 2)
+var list: RenderList
+list.addRoot(oval)
+list.addRoot(line)
+```
+
+The ellipse/circle helpers center strokes on the supplied path bounds and prepare
+the drawing bounds on the CPU. After changing a node's stroke width or drawable
+geometry, call `node.prepareDrawableStroke()` to refresh those bounds. Existing
+raw drawable constructors retain their inset-stroke behavior. The CPU selects an
+explicit stroke mode and packs its half-width, so fragment shaders evaluate the
+band directly without inferring placement from the quad dimensions. Lower-level
+`drawableDashedLineOps`, `drawableFilledQuad`, `strokeOutline`, and
+`drawableStrokeOutlineOps` expose reusable geometry. Dashed line operations and
+stroke-outline meshes can overlap: use a combined outline for translucent cap
+or join geometry. The SVG loader selects that union fallback automatically.
+
 ### Experimental software rendering with uirelays or Siwin
 
 The software backend renders ordinary FigDraw scenes into Pixie images using
