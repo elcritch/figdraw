@@ -18,6 +18,10 @@ type
   SvgMtsdfError* = object of CatchableError
     ## Raised when SVG path loading or MTSDF generation fails.
 
+  SvgRenderMode* = enum
+    srmMtsdf ## Use vector primitives and MTSDF fields.
+    srmRaster ## Cache each ordinary fill and stroke as a cropped RGBA image.
+
   SvgLayerKind* = enum
     slkMtsdfFill
     slkMtsdfStroke
@@ -336,6 +340,37 @@ proc meshCoverage*(
   cache.coverage.add entry
   (entry.image, entry.frame)
 
+proc rasterPathLayer(
+    path: Path,
+    windingRule: WindingRule,
+    paint: Color,
+    name: string,
+    imageIndex, imageCount: int,
+    documentScale: float32,
+): SvgLayer =
+  let bounds = path.computeBounds()
+  let origin =
+    vec2(floor(bounds.x * documentScale), floor(bounds.y * documentScale)) - vec2(2)
+  let width = max(1, int(ceil((bounds.x + bounds.w) * documentScale) - origin.x) + 2)
+  let height = max(1, int(ceil((bounds.y + bounds.h) * documentScale) - origin.y) + 2)
+  let transform = translate(-origin) * scale(vec2(documentScale))
+  let image = newImage(width, height)
+  let tint = newImage(width, height)
+  image.fillPath(path, paint, transform, windingRule)
+  tint.fillPath(path, color(1, 1, 1, paint.a), transform, windingRule)
+  let key = layerName(name, imageIndex, imageCount)
+  SvgLayer(
+    kind: slkRasterGroup,
+    rasterImage: imageRef(imgId(key), image),
+    tintImage: imageRef(imgId(key & ":tint"), tint),
+    rasterFrame: rect(
+      origin.x / documentScale,
+      origin.y / documentScale,
+      width.float32 / documentScale,
+      height.float32 / documentScale,
+    ),
+  )
+
 proc newSvgMtsdfResource*(
     svgData: string,
     name = "",
@@ -343,6 +378,7 @@ proc newSvgMtsdfResource*(
     minimumShortEdge: Positive = DefaultSvgMtsdfMinimumShortEdge,
     pixelRange = DefaultSvgMtsdfPixelRange,
     adaptive = true,
+    renderMode = srmMtsdf,
 ): SvgMtsdfResource =
   ## Parses an SVG into ordered FigDraw vector strokes and MTSDF fill layers.
   ##
@@ -351,6 +387,8 @@ proc newSvgMtsdfResource*(
   ## complex fills use MTSDF images.
   ## `adaptive` increases the base field scale by up to 4x for narrow paths,
   ## trading bounded extra texture memory and load time for finer details.
+  ## `srmRaster` caches ordinary fills and strokes as cropped RGBA images at
+  ## `longEdge` document resolution; changing display size does not rerasterize.
   ## Opacity groups retain vector children and composite on the selected backend.
   ## Gradients, clip paths and masks use cached RGBA images.
   ## Keep the resource alive while rendering its nodes, as with `ImageRef`.
@@ -374,7 +412,7 @@ proc newSvgMtsdfResource*(
         "figdraw.svg:" & name
       else:
         "figdraw.svg:" & $hash(svgData) & ":" & $longEdge & ":" & $minimumShortEdge & ":" &
-          $pixelRange & ":" & $adaptive
+          $pixelRange & ":" & $adaptive & ":" & $renderMode
     let imageCount = max(2, parsed.elements.len * 2)
     var imageIndex = 0
     var index = 0
@@ -417,6 +455,37 @@ proc newSvgMtsdfResource*(
         for closing in keepEnds ..< parsed.elements[last].compositeGroupEnds:
           result.layers.add SvgLayer(kind: slkGroupEnd)
         index = last + 1
+      elif renderMode == srmRaster:
+        let rasterScale =
+          min(4096'f32, longEdge.float32) / max(result.size.x, result.size.y)
+        if element.hasFill and element.fillPath.hasArea():
+          result.layers.add rasterPathLayer(
+            element.fillPath, element.fillRule, element.fillColor, resourceName,
+            imageIndex, imageCount, rasterScale,
+          )
+          inc imageIndex
+        if element.hasStroke:
+          let outline = strokeOutline(
+            element.strokePath,
+            element.sourceStrokeWidth,
+            element.strokeCap.lineCap(),
+            element.strokeJoin.lineJoin(),
+            element.strokeMiterLimit,
+            element.strokeDashArray,
+            element.strokeDashOffset,
+          )
+          outline.transform(element.sourceTransform.matrix())
+          if outline.hasArea():
+            result.layers.add rasterPathLayer(
+              outline, NonZero, element.strokeColor, resourceName, imageIndex,
+              imageCount, rasterScale,
+            )
+            inc imageIndex
+        if result.layers.len > firstLayer:
+          inc result.elementCount
+        for closing in 0 ..< element.compositeGroupEnds:
+          result.layers.add SvgLayer(kind: slkGroupEnd)
+        inc index
       else:
         let plainPrimitive =
           element.kind in {sekCircle, sekEllipse} and element.strokeDashArray.len == 0
@@ -533,6 +602,7 @@ proc newSvgMtsdfResourceFromFile*(
     minimumShortEdge: Positive = DefaultSvgMtsdfMinimumShortEdge,
     pixelRange = DefaultSvgMtsdfPixelRange,
     adaptive = true,
+    renderMode = srmMtsdf,
 ): SvgMtsdfResource =
   ## Reads an SVG file and creates its ordered vector and MTSDF layers.
   let data =
@@ -540,7 +610,9 @@ proc newSvgMtsdfResourceFromFile*(
       readFile(filePath)
     except IOError as error:
       raiseSvgMtsdfError("Failed to read SVG: " & error.msg)
-  newSvgMtsdfResource(data, name, longEdge, minimumShortEdge, pixelRange, adaptive)
+  newSvgMtsdfResource(
+    data, name, longEdge, minimumShortEdge, pixelRange, adaptive, renderMode
+  )
 
 proc len*(resource: SvgMtsdfResource): int =
   ## Returns the number of ordered layers, including opacity-group boundaries.

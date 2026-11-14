@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add an SVG image-rendering mode with separately cached fill and stroke
+  layers, and let the Siwin viewer toggle between image and MTSDF modes.
+
 - Let the Siwin SVG viewer change MTSDF base size and toggle adaptive sizing,
   including command-line starting options, while preserving the view.
 
