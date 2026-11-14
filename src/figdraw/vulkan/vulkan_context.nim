@@ -739,8 +739,11 @@ proc ensureOpacityTarget(ctx: VulkanContext, depth: int) =
     height = extent.height,
     format = ctx.swapchainFormat,
     tiling = VK_IMAGE_TILING_OPTIMAL,
-    usage = VkImageUsageFlags{SampledBit, ColorAttachmentBit, TransferSrcBit},
-    properties = VkMemoryPropertyFlags{DeviceLocalBit},
+    usage = VkImageUsageFlags(
+      VK_IMAGE_USAGE_SAMPLED_BIT or VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT or
+        VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+    ),
+    properties = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
   )
   target.width = extent.width
   target.height = extent.height
@@ -1746,28 +1749,32 @@ proc transitionOpacityTarget(ctx: VulkanContext, index: int, layout: VkImageLayo
   let oldLayout = target.layout
   let sourceStage =
     if oldLayout == VK_IMAGE_LAYOUT_UNDEFINED:
-      VkPipelineStageFlags{TopOfPipeBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT)
     elif oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-      VkPipelineStageFlags{FragmentShaderBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
     else:
-      VkPipelineStageFlags{ColorAttachmentOutputBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
   let sourceAccess =
     if oldLayout == VK_IMAGE_LAYOUT_UNDEFINED:
       0.VkAccessFlags
     elif oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-      VkAccessFlags{ShaderReadBit}
+      VkAccessFlags(VK_ACCESS_SHADER_READ_BIT)
     else:
-      VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit}
+      VkAccessFlags(
+        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT or VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+      )
   let destStage =
     if layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-      VkPipelineStageFlags{FragmentShaderBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
     else:
-      VkPipelineStageFlags{ColorAttachmentOutputBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
   let destAccess =
     if layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-      VkAccessFlags{ShaderReadBit}
+      VkAccessFlags(VK_ACCESS_SHADER_READ_BIT)
     else:
-      VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit}
+      VkAccessFlags(
+        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT or VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+      )
   var barrier = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     srcAccessMask: sourceAccess,
@@ -1778,7 +1785,7 @@ proc transitionOpacityTarget(ctx: VulkanContext, index: int, layout: VkImageLayo
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: target.image.handle,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -2694,12 +2701,8 @@ method drawFilledQuad*(
     uvQuad = [uv, uv, uv, uv]
 
   # Filled geometry can be thinner than a pixel; snapping collapses its edges.
-  let posQuad = [
-    ctx.mat * verts[0],
-    ctx.mat * verts[1],
-    ctx.mat * verts[2],
-    ctx.mat * verts[3],
-  ]
+  let posQuad =
+    [ctx.mat * verts[0], ctx.mat * verts[1], ctx.mat * verts[2], ctx.mat * verts[3]]
   ctx.drawQuad(posQuad, uvQuad, colors)
 
 proc drawUvRectAtlasSdf(
