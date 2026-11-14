@@ -1,7 +1,7 @@
 import std/[hashes, math, strformat, strutils]
 
 import pkg/chronicles
-import pkg/vulkan
+import ./vk14_compat
 import ./vulkan_dispatch
 
 import ../commons
@@ -111,7 +111,7 @@ when defined(windows):
 proc findGraphicsQueueFamily*(vk: VulkanDispatch, device: VkPhysicalDevice): int =
   let families = vk.getQueueFamilyProperties(device)
   for i, family in families:
-    if family.queueCount > 0 and VkQueueFlagBits.GraphicsBit in family.queueFlags:
+    if family.queueCount > 0 and VK_QUEUE_GRAPHICS_BIT in family.queueFlags:
       return i
   result = -1
 
@@ -241,20 +241,18 @@ proc chooseSwapExtent*(
 proc swapchainPreferences*(
     profile: VulkanSwapchainProfile
 ): VulkanSwapchainPreferences =
-  result.preferredFormats =
-    @[
-      VkSurfaceFormatKHR(
-        format: VK_FORMAT_B8G8R8A8_UNORM, colorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
-      ),
-      VkSurfaceFormatKHR(
-        format: VK_FORMAT_R8G8B8A8_UNORM, colorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
-      ),
-    ]
-  result.preferredCompositeAlpha =
-    @[
-      VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
-      VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
-    ]
+  result.preferredFormats = @[
+    VkSurfaceFormatKHR(
+      format: VK_FORMAT_B8G8R8A8_UNORM, colorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+    ),
+    VkSurfaceFormatKHR(
+      format: VK_FORMAT_R8G8B8A8_UNORM, colorSpace: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+    ),
+  ]
+  result.preferredCompositeAlpha = @[
+    VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+    VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+  ]
   result.enableTransferSrc = true
 
   case profile
@@ -329,7 +327,7 @@ proc chooseSwapchainConfig*(
     preferences: VulkanSwapchainPreferences,
     profile = vspLowLatency,
 ): VulkanSwapchainConfig =
-  if ColorAttachmentBit notin support.capabilities.supportedUsageFlags:
+  if VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT notin support.capabilities.supportedUsageFlags:
     raise newException(
       ValueError, "Vulkan swapchain images do not support color attachment usage"
     )
@@ -352,12 +350,14 @@ proc chooseSwapchainConfig*(
 
   result.transferSrcEnabled =
     preferences.enableTransferSrc and
-    TransferSrcBit in support.capabilities.supportedUsageFlags
+    VK_IMAGE_USAGE_TRANSFER_SRC_BIT in support.capabilities.supportedUsageFlags
   result.imageUsage =
     if result.transferSrcEnabled:
-      VkImageUsageFlags{ColorAttachmentBit, TransferSrcBit}
+      VkImageUsageFlags(
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT or VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+      )
     else:
-      VkImageUsageFlags{ColorAttachmentBit}
+      VkImageUsageFlags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
 
 proc chooseSwapchainConfig*(
     support: SwapChainSupportDetails,

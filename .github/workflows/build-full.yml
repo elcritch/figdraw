@@ -41,7 +41,7 @@ jobs:
             renderer: vulkan
             nimflags: '-d:figdraw.opengl=off -d:figdraw.vulkan=on -d:figdraw.vulkanValidation'
             force_opengl: '0'
-          - os: macos-14
+          - os: macos-15
             display: none
             renderer: native
             nimflags: ''
@@ -437,7 +437,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             platform: macos-arm64
             library: libfigdraw_native.dylib
           - os: ubuntu-24.04

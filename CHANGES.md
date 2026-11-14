@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Switch the Vulkan renderer to vk14 while keeping context-local dispatch and
+  Vulkan 1.0 fallback. The vk14 backend requires a 64-bit target and Nim 2.2.4
+  or newer.
+- Load Vulkan on demand and report missing libraries and entry points as
+  catchable errors.
 - Add the opt-in Windows UIRelays text backend. Native font measurements and
   per-rune rasterization feed the existing GPU atlas without HarfBuzz/FriBiDi.
   Font collection faces, custom line spacing, and bounded native-font ownership

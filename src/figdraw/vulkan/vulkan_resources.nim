@@ -4,7 +4,7 @@
 ## whole renderer context. A context must therefore drop all owners before it
 ## destroys the device.
 
-import pkg/vulkan
+import ./vk14_compat
 import ./vulkan_dispatch
 
 type

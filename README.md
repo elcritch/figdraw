@@ -281,6 +281,10 @@ The graphics requirement makes setup failures fail the tests instead of skipping
 
 ### Vulkan diagnostics
 
+The Vulkan backend uses vk14's bindings and requires a 64-bit target and Nim
+2.2.4 or newer. It can still use Vulkan 1.0 drivers when the required device and
+surface extensions are available.
+
 Build with `-d:figdraw.vulkan=on -d:figdraw.opengl=off` to exercise Vulkan
 without the OpenGL backend. Add `-d:figdraw.vulkanValidation` to enable the
 Khronos validation layer, including synchronization checks. This diagnostic

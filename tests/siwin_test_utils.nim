@@ -8,7 +8,7 @@ import figdraw/fignodes
 import figdraw/figrender as glrenderer
 
 when UseVulkanBackend:
-  import pkg/vulkan/wrapper
+  import figdraw/vulkan/vk14_compat
 
 when not UseMetalBackend and not UseVulkanBackend:
   import pkg/opengl

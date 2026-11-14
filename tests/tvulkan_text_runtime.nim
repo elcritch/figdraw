@@ -3,7 +3,7 @@ import std/unittest
 import figdraw/commons
 
 when UseVulkanBackend:
-  import pkg/vulkan
+  import figdraw/vulkan/vk14_compat
   import figdraw/vulkan/vulkan_context
   import figdraw/vulkan/vulkan_utils
 
