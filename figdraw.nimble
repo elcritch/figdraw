@@ -27,6 +27,8 @@ when defined(macosx):
 when defined(linux) or defined(bsd) or defined(windows):
   requires "https://github.com/treeform/vk14#183cf440d6460d97c6b35d6346079d9982f8cd57"
 
+feature "cbor":
+  requires "https://github.com/elcritch/cborious >= 0.7.2"
 feature "harfbuzz":
   discard # Kept for compatibility with existing Atlas configurations.
 feature "textBackendHarfbuzzy":
