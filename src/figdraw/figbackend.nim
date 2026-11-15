@@ -52,6 +52,14 @@ type SdfMode* {.pure.} = enum
   sdfModeBezierStrokeAA = 18
   sdfModeBezierStrokeButtAA = 19
   sdfModeBezierStrokeSquareAA = 20
+  sdfModeCenteredAnnularAA = 21
+
+func sdfFactor*(mode: SdfMode, factor: float32): float32 =
+  ## Pack band widths as half-widths while preserving full-width API inputs.
+  if mode in {sdfModeAnnular, sdfModeAnnularAA, sdfModeCenteredAnnularAA}:
+    max(factor, 0'f32) * 0.5'f32
+  else:
+    factor
 
 func bezierStrokeSdfMode*(cap: StrokeCap): SdfMode =
   case cap
@@ -606,6 +614,15 @@ method drawBackdropBlur*(
     impl: BackendContext, rect: Rect, radii: CornerRadii2D[float32], blurRadius: float32
 ) {.base.} =
   raise newException(ValueError, "Backend drawBackdropBlur unavailable")
+
+method beginOpacityGroup*(impl: BackendContext, opacity: float32) {.base.} =
+  ## Start an isolated, transparent layer for subsequent drawing. Opacity is
+  ## clamped to 0..1 and applied once when the matching group ends.
+  raise newException(ValueError, "Backend beginOpacityGroup unavailable")
+
+method endOpacityGroup*(impl: BackendContext) {.base.} =
+  ## Composite the current layer over its parent and restore its drawing state.
+  raise newException(ValueError, "Backend endOpacityGroup unavailable")
 
 method beginMask*(
     impl: BackendContext, clipRect: Rect, radii: CornerRadii2D[float32]

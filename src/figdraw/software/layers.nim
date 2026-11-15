@@ -48,6 +48,12 @@ type
     bounds: Rect
     fill: ColorRGBA
 
+  OpacityGroup = object
+    image: Image
+    opacity: float32
+    maskCount: int
+    inheritedMasks: seq[LayerMask]
+
   ImageLayerContext* = ref object of BackendContext
     raster: SoftwareContext
     composer: ImageComposer
@@ -65,6 +71,7 @@ type
     captureKeys: HashSet[Hash]
     captureValid: bool
     captured: seq[CapturedLayer]
+    opacityGroups: seq[OpacityGroup]
 
 const LayerCacheBytes = 64 * 1024 * 1024
 
@@ -112,7 +119,13 @@ proc rasterBounds(ctx: ImageLayerContext, bounds: Rect): Rect =
 
 proc configureRaster(ctx: ImageLayerContext, region: Rect) =
   ctx.raster.beginFrame(region.wh, true, color(0, 0, 0, 0))
-  for mask in ctx.masks:
+  let maskStart =
+    if ctx.opacityGroups.len > 0:
+      ctx.opacityGroups[^1].maskCount
+    else:
+      0
+  for i in maskStart ..< ctx.masks.len:
+    let mask = ctx.masks[i]
     ctx.raster.saveTransform()
     ctx.raster.translate(-region.xy)
     ctx.raster.apply(mask.transform)
@@ -164,6 +177,9 @@ proc discardCapture(ctx: ImageLayerContext) =
   ctx.captureKeys.clear()
 
 proc present(ctx: ImageLayerContext, key: Hash, layer: LayerImage, region: Rect) =
+  if ctx.opacityGroups.len > 0:
+    ctx.opacityGroups[^1].image.draw(layer.image, translate(region.xy))
+    return
   if ctx.composer.snapshot.isNil and ctx.clearMain and ctx.captureValid:
     if key notin ctx.cache or ctx.captured.len >= 32_768:
       ctx.discardCapture()
@@ -175,8 +191,8 @@ proc present(ctx: ImageLayerContext, key: Hash, layer: LayerImage, region: Rect)
 proc nativeRect(
     ctx: ImageLayerContext, bounds: Rect, fill: ColorRGBA, antialiased = false
 ): bool =
-  if ctx.composer.fillRect.isNil or ctx.masks.len != 0 or ctx.transform[0, 1] != 0 or
-      ctx.transform[1, 0] != 0:
+  if ctx.opacityGroups.len > 0 or ctx.composer.fillRect.isNil or ctx.masks.len != 0 or
+      ctx.transform[0, 1] != 0 or ctx.transform[1, 0] != 0:
     return false
   if antialiased and (
     ctx.raster.sdfAaFactor() < 1 or abs(ctx.transform[0, 0]) != abs(ctx.transform[1, 1])
@@ -243,7 +259,13 @@ proc drawLayer(ctx: ImageLayerContext, bounds: Rect, key: Hash, draw: RasterComm
   placement[2, 0] = origin.x
   placement[2, 1] = origin.y
   var maskKeys: seq[Hash]
-  for mask in ctx.masks:
+  let maskStart =
+    if ctx.opacityGroups.len > 0:
+      ctx.opacityGroups[^1].maskCount
+    else:
+      0
+  for i in maskStart ..< ctx.masks.len:
+    let mask = ctx.masks[i]
     var transform = mask.transform
     let maskOrigin = mask.transform * mask.bounds.xy - region.xy
     transform[2, 0] = maskOrigin.x
@@ -335,6 +357,8 @@ method beginFrame*(ctx: ImageLayerContext, size: Vec2, clear: bool, clearColor: 
   if size.x <= 0 or size.y <= 0 or classify(size.x) in {fcNan, fcInf, fcNegInf} or
       classify(size.y) in {fcNan, fcInf, fcNegInf}:
     raise newException(ValueError, "Frame dimensions must be positive")
+  if ctx.opacityGroups.len != 0:
+    raise newException(ValueError, "Unbalanced image-layer opacity groups")
   ctx.frameSize = vec2(ceil(size.x), ceil(size.y))
   if not ctx.composer.frameScale.isNil:
     ctx.composer.coordinateScale = ctx.composer.frameScale()
@@ -355,8 +379,67 @@ method beginFrame*(ctx: ImageLayerContext, size: Vec2, clear: bool, clearColor: 
   ctx.composer.beginFrame(ctx.frameSize, clear, clearColor)
 
 method endFrame*(ctx: ImageLayerContext) =
+  if ctx.opacityGroups.len != 0:
+    raise newException(ValueError, "Unbalanced image-layer opacity groups")
   if not ctx.composer.endFrame.isNil:
     ctx.composer.endFrame()
+
+method beginOpacityGroup*(ctx: ImageLayerContext, opacity: float32) =
+  let maskStart =
+    if ctx.opacityGroups.len > 0:
+      ctx.opacityGroups[^1].maskCount
+    else:
+      0
+  ctx.opacityGroups.add(
+    OpacityGroup(
+      image: newImage(ctx.frameSize.x.int, ctx.frameSize.y.int),
+      opacity: clamp(opacity, 0.0'f32, 1.0'f32),
+      maskCount: ctx.masks.len,
+      inheritedMasks: ctx.masks[maskStart ..< ctx.masks.len],
+    )
+  )
+
+method endOpacityGroup*(ctx: ImageLayerContext) =
+  if ctx.opacityGroups.len == 0:
+    raise newException(ValueError, "Unbalanced image-layer opacity groups")
+  let group = ctx.opacityGroups.pop()
+  if group.inheritedMasks.len > 0:
+    ctx.raster.beginFrame(ctx.frameSize, true, color(0, 0, 0, 0))
+    for mask in group.inheritedMasks:
+      ctx.raster.saveTransform()
+      ctx.raster.apply(mask.transform)
+      ctx.raster.beginMask(mask.bounds, mask.radii)
+      ctx.raster.endMask()
+      ctx.raster.restoreTransform()
+    ctx.raster.drawRect(rect(0, 0, ctx.frameSize.x, ctx.frameSize.y), color(1, 1, 1, 1))
+    let mask = ctx.raster.readPixels(rect(0, 0, 0, 0), false)
+    for i, pixel in group.image.data.mpairs:
+      let alpha = mask.data[i].a.uint32
+      pixel.r = ((pixel.r.uint32 * alpha + 127) div 255).uint8
+      pixel.g = ((pixel.g.uint32 * alpha + 127) div 255).uint8
+      pixel.b = ((pixel.b.uint32 * alpha + 127) div 255).uint8
+      pixel.a = ((pixel.a.uint32 * alpha + 127) div 255).uint8
+  for pixel in group.image.data.mitems:
+    pixel.r = (pixel.r.float32 * group.opacity + 0.5'f32).uint8
+    pixel.g = (pixel.g.float32 * group.opacity + 0.5'f32).uint8
+    pixel.b = (pixel.b.float32 * group.opacity + 0.5'f32).uint8
+    pixel.a = (pixel.a.float32 * group.opacity + 0.5'f32).uint8
+  if ctx.opacityGroups.len > 0:
+    ctx.opacityGroups[^1].image.draw(group.image)
+  else:
+    var layer = LayerImage(image: group.image)
+    if ctx.composer.packedPixels:
+      layer.pixels.setLen(group.image.data.len)
+      for i, p in group.image.data:
+        layer.pixels[i] =
+          (p.a.uint32 shl 24) or (p.r.uint32 shl 16) or (p.g.uint32 shl 8) or p.b.uint32
+    let region = rect(0, 0, ctx.frameSize.x, ctx.frameSize.y)
+    if ctx.composer.snapshot.isNil and ctx.clearMain and ctx.captureValid:
+      if ctx.captured.len >= 32_768:
+        ctx.discardCapture()
+      else:
+        ctx.captured.add(CapturedLayer(image: group.image, bounds: region))
+    ctx.composer.drawImage(layer, region / ctx.composer.coordinateScale)
 
 method translate*(ctx: ImageLayerContext, v: Vec2) =
   ctx.transform = ctx.transform * translate(v)

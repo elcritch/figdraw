@@ -131,6 +131,11 @@ proc toRenderFig*[N](current: N): Fig =
       result.backdropBlur.blur = current.blur
     else:
       result.backdropBlur.blur = 0.0'f32
+  of nkOpacityGroup:
+    when compiles(current.opacity):
+      result.opacity = current.opacity
+    else:
+      result.opacity = 1.0'f32
   of nkTransform:
     when compiles(current.transform):
       result.transform = current.transform

@@ -19,6 +19,7 @@ out vec4 fragColor;
 
 const int sdfModeAtlas = 0;
 const int sdfModeAnnularAA = 12;
+const int sdfModeCenteredAnnularAA = 21;
 const int sdfModeBezierStrokeAA = 18;
 const int sdfModeBezierStrokeButtAA = 19;
 const int sdfModeBezierStrokeSquareAA = 20;
@@ -61,7 +62,7 @@ float selectCornerRadius(vec4 radii, vec2 p) {
 }
 
 vec2 decodeEllipticalCornerRadii(vec4 packedRadii, vec2 halfExtents, vec2 p) {
-  float packedValue = floor(selectCornerRadius(packedRadii, p) + 0.5);
+  float packedValue = floor(selectCornerRadius(packedRadii, p));
   return vec2(
     mod(packedValue, 4096.0) * halfExtents.x / 4095.0,
     floor(packedValue / 4096.0) * halfExtents.y / 4095.0
@@ -219,8 +220,10 @@ void main() {
       dist = sdRoundedBox(vec2(p.x, -p.y), shapeHalfExtents, sdfRadii);
     }
     if (sdfModeInt == sdfModeAnnularAA) {
-      float halfWidth = max(sdfFactors.x, 0.0) * 0.5;
+      float halfWidth = sdfFactors.x;
       dist = abs(dist + halfWidth) - halfWidth;
+    } else if (sdfModeInt == sdfModeCenteredAnnularAA) {
+      dist = abs(dist) - sdfFactors.x;
     }
     float cl = clamp(aaFactor * dist + 0.5, 0.0, 1.0);
     alpha = (1.0 - cl) * color.a;

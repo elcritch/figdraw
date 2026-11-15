@@ -109,7 +109,7 @@ func isOpaqueFill(fill: Fill): bool =
 
 func isDrawableNode(node: Fig): bool =
   case node.kind
-  of nkFrame, nkTransform:
+  of nkFrame, nkTransform, nkOpacityGroup:
     false
   of nkRectangle:
     hasFillAlpha(node.fill) or node.stroke.weight > 0.0'f32

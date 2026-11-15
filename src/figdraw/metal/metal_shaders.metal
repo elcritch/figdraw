@@ -80,7 +80,7 @@ float sdRoundedBox(float2 p, float2 b, float4 r) {
 float2 unpackEllipticalRadius(float packed, float2 halfExtents) {
   constexpr float quantization = 4095.0;
   constexpr float quantizationBase = 4096.0;
-  float roundedPacked = floor(packed + 0.5);
+  float roundedPacked = floor(packed);
   float qy = floor(roundedPacked / quantizationBase);
   float qx = roundedPacked - qy * quantizationBase;
   return float2(qx / quantization * halfExtents.x, qy / quantization * halfExtents.y);
@@ -359,6 +359,7 @@ float4 evalMainFragment(
   const int sdfModeInsetShadow = 9;
   const int sdfModeAnnular = 11;
   const int sdfModeAnnularAA = 12;
+  const int sdfModeCenteredAnnularAA = 21;
   const int sdfModeMsdf = 13;
   const int sdfModeMtsdf = 14;
   const int sdfModeMsdfAnnular = 15;
@@ -451,14 +452,18 @@ float4 evalMainFragment(
         break;
       }
       case sdfModeAnnular: {
-        float f = sdfFactor * 0.5;
-        float sd = abs(dist + f) - f;
+        float sd = abs(dist + sdfFactor) - sdfFactor;
         alpha = (sd < 0.0) ? 1.0 : 0.0;
         break;
       }
       case sdfModeAnnularAA: {
-        float f = sdfFactor * 0.5;
-        float sd = abs(dist + f) - f;
+        float sd = abs(dist + sdfFactor) - sdfFactor;
+        float cl = clamp(u.aaFactor * sd + 0.5, 0.0, 1.0);
+        alpha = 1.0 - cl;
+        break;
+      }
+      case sdfModeCenteredAnnularAA: {
+        float sd = abs(dist) - sdfFactor;
         float cl = clamp(u.aaFactor * sd + 0.5, 0.0, 1.0);
         alpha = 1.0 - cl;
         break;
@@ -584,6 +589,7 @@ fragment float4 fs_mask(
     texture2d<float> maskTex [[texture(1)]]) {
   const int sdfModeAtlas = 0;
   const int sdfModeAnnularAA = 12;
+  const int sdfModeCenteredAnnularAA = 21;
 
   float alpha;
   int packedSdfMode = int(in.sdfMode);
@@ -619,8 +625,10 @@ fragment float4 fs_mask(
         : sdRoundedBox(localPos, shapeHalfExtents, in.sdfRadii);
     }
     if (sdfModeInt == sdfModeAnnularAA) {
-      float halfWidth = max(in.sdfFactors.x, 0.0) * 0.5;
+      float halfWidth = in.sdfFactors.x;
       dist = abs(dist + halfWidth) - halfWidth;
+    } else if (sdfModeInt == sdfModeCenteredAnnularAA) {
+      dist = abs(dist) - in.sdfFactors.x;
     }
     float cl = clamp(u.aaFactor * dist + 0.5, 0.0, 1.0);
     alpha = (1.0 - cl) * in.color.a;
@@ -662,6 +670,22 @@ fragment float4 fs_blit(
     BlitVSOut in [[stage_in]],
     texture2d<float> src [[texture(0)]]) {
   return src.sample(s, in.uv);
+}
+
+struct OpacityUniforms {
+  float4 params, radii, matX, matY, controls, mask;
+};
+
+fragment float4 fs_opacity(
+    BlitVSOut in [[stage_in]],
+    constant OpacityUniforms& u [[buffer(0)]],
+    texture2d<float> src [[texture(0)]],
+    texture2d<float> maskTex [[texture(1)]]) {
+  float coverage = rectMaskAlpha(in.position.xy, u.params, u.radii, u.matX, u.matY, u.controls.y);
+  if (u.mask.x > 0.5) {
+    coverage *= maskTex.sample(s, in.position.xy / u.controls.zw).r;
+  }
+  return src.sample(s, in.uv) * (u.controls.x * coverage);
 }
 
 fragment float4 fs_blur(

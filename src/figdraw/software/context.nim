@@ -29,6 +29,7 @@ type
     pixelScaleValue, aaFactor: float32
     presenter: FramePresenter
     rasterWorkers: RasterWorkers
+    opacityGroups: seq[tuple[backing, mask: Image, opacity: float32]]
 
   PixelSampler = proc(p: Vec2, aaWidth: float32): ColorRGBX {.closure.}
   PixelBatchSampler =
@@ -270,6 +271,8 @@ method clearTypefaceGlyphs*(ctx: SoftwareContext, typefaceId: TypefaceId) =
 method beginFrame*(
     ctx: SoftwareContext, frameSize: Vec2, clearMain: bool, clearMainColor: Color
 ) =
+  if ctx.opacityGroups.len != 0:
+    raise newException(ValueError, "Unbalanced software opacity group stack")
   let
     width = ceil(frameSize.x * ctx.pixelScaleValue).int
     height = ceil(frameSize.y * ctx.pixelScaleValue).int
@@ -281,10 +284,13 @@ method beginFrame*(
   ctx.transforms.setLen(0)
   ctx.mask = nil
   ctx.masks.setLen(0)
+  ctx.opacityGroups.setLen(0)
   if clearMain:
     ctx.backing.fill(clearMainColor)
 
 method endFrame*(ctx: SoftwareContext) =
+  if ctx.opacityGroups.len != 0:
+    raise newException(ValueError, "Unbalanced software opacity group stack")
   if not ctx.presenter.isNil:
     ctx.presenter(ctx.backing)
 
@@ -459,7 +465,26 @@ method drawRoundedRectSdf*(
     factor, spread: float32,
     shapeSize: Vec2,
 ) =
-  ctx.drawRounded(rect, spanPaint(fill, rect), radii, mode, factor, spread, shapeSize)
+  if mode == sdfModeCenteredAnnularAA:
+    if rect.w <= 0 or rect.h <= 0:
+      return
+    let resolvedShapeSize =
+      if shapeSize.x > 0 and shapeSize.y > 0: shapeSize else: rect.wh
+    let field = initRoundedBoxField(
+      resolvedShapeSize * 0.5'f32,
+      cornerVector(radii.x),
+      cornerVector(radii.y),
+      rect.xy + rect.wh * 0.5'f32,
+    )
+    let halfWidth = sdfFactor(mode, factor)
+    ctx.rasterize(
+      rect,
+      proc(p: Vec2, aa: float32): ColorRGBX =
+        let distance = abs(field.distance(p)) - halfWidth
+        withCoverage(sampleFill(fill, (p - rect.xy) / rect.wh), coverage(distance, aa)),
+    )
+  else:
+    ctx.drawRounded(rect, spanPaint(fill, rect), radii, mode, factor, spread, shapeSize)
 
 method drawRoundedRectSdf*(
     ctx: SoftwareContext,
@@ -470,12 +495,56 @@ method drawRoundedRectSdf*(
     factor, spread: float32,
     shapeSize: Vec2,
 ) =
+  if mode == sdfModeCenteredAnnularAA:
+    if rect.w <= 0 or rect.h <= 0:
+      return
+    let resolvedShapeSize =
+      if shapeSize.x > 0 and shapeSize.y > 0: shapeSize else: rect.wh
+    let
+      field = initRoundedBoxField(
+        resolvedShapeSize * 0.5'f32,
+        cornerVector(radii.x),
+        cornerVector(radii.y),
+        rect.xy + rect.wh * 0.5'f32,
+      )
+      halfWidth = sdfFactor(mode, factor)
+    ctx.rasterize(
+      rect,
+      proc(p: Vec2, aa: float32): ColorRGBX =
+        let distance = abs(field.distance(p)) - halfWidth
+        withCoverage(
+          sampleColors(colors, (p - rect.xy) / rect.wh), coverage(distance, aa)
+        ),
+    )
+    return
   let paint =
     if rect.w > 0 and rect.h > 0:
       initBilinearPaint([colors[3], colors[2], colors[1], colors[0]], rect.xy, rect.wh)
     else:
       initSolidPaint(colors[0])
   ctx.drawRounded(rect, paint, radii, mode, factor, spread, shapeSize)
+
+method beginOpacityGroup*(ctx: SoftwareContext, opacity: float32) =
+  ctx.opacityGroups.add((ctx.backing, ctx.mask, clamp(opacity, 0'f32, 1'f32)))
+  ctx.backing = newImage(ctx.backing.width, ctx.backing.height)
+  ctx.mask = nil
+
+method endOpacityGroup*(ctx: SoftwareContext) =
+  if ctx.opacityGroups.len == 0:
+    raise newException(ValueError, "Unbalanced software opacity group stack")
+  let layer = ctx.backing
+  let group = ctx.opacityGroups.pop()
+  ctx.backing = group.backing
+  ctx.mask = group.mask
+  let alpha = round(group.opacity * 255).uint8
+  for y in 0 ..< layer.height:
+    for x in 0 ..< layer.width:
+      let mask =
+        if ctx.mask.isNil:
+          alpha
+        else:
+          ((alpha.uint32 * ctx.mask[x, y].a.uint32 + 127) div 255).uint8
+      ctx.backing[x, y] = over(layer[x, y], ctx.backing[x, y], mask)
 
 method beginMask*(ctx: SoftwareContext, clipRect: Rect, radii: CornerRadii2D[float32]) =
   let
@@ -680,6 +749,8 @@ proc drawDistanceImage(
   let
     image = ctx.images[path]
     dimensions = vec2(image.width.float32, image.height.float32)
+    screenRange =
+      max(pxRange * 0.5'f32 * (size.x / dimensions.x + size.y / dimensions.y), 1'f32)
   ctx.rasterize(
     rect(pos.x, pos.y, size.x, size.y),
     proc(p: Vec2, aa: float32): ColorRGBX =
@@ -687,7 +758,7 @@ proc drawDistanceImage(
       if flipY:
         uv.y = 1'f32 - uv.y
       var distance =
-        -pxRange *
+        -screenRange *
         (sampleDistance(image, uv * dimensions - vec2(0.5'f32), useAlpha) - threshold)
       if strokeWeight > 0:
         distance = abs(distance) - strokeWeight * 0.5'f32

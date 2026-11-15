@@ -47,6 +47,15 @@ type RectMask = object
   matX: Vec4
   matY: Vec4
 
+type OpacityGroup = object
+  opacity: float32
+  maskTextures: seq[ObjcOwned[MTLTexture]]
+  maskTextureWrite: int
+  rectMasks: seq[RectMask]
+
+type OpacityUniforms = object
+  params, radii, matX, matY, controls, mask: Vec4
+
 type CpuBuffer[T] = object
   data: seq[T]
 
@@ -74,6 +83,7 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   pipelineMainRectMask: ObjcOwned[MTLRenderPipelineState]
   pipelineMask: ObjcOwned[MTLRenderPipelineState]
   pipelineBlit: ObjcOwned[MTLRenderPipelineState]
+  pipelineOpacity: ObjcOwned[MTLRenderPipelineState]
   pipelineBlur: ObjcOwned[MTLRenderPipelineState]
 
   # Optional presentation target.
@@ -82,6 +92,8 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
 
   # Render targets
   offscreenTexture: ObjcOwned[MTLTexture]
+  opacityTextures: seq[ObjcOwned[MTLTexture]]
+  opacityStack: seq[OpacityGroup]
   backdropTexture: ObjcOwned[MTLTexture]
   backdropBlurTempTexture: ObjcOwned[MTLTexture]
   backdropUsedThisFrame: bool
@@ -183,9 +195,13 @@ proc newTexture2D(
   result = ctx.device.borrow.newTextureWithDescriptor(desc)
 
 proc updateSubImage(ctx: MetalContext, texture: MTLTexture, x, y: int, image: Image) =
-  # Pixie Image is RGBA; our atlas is RGBA8.
+  # Match OpenGL's ColorRGBX-to-ColorRGBA conversion for every atlas image,
+  # including distance fields, before the straight-alpha shader samples it.
+  var pixels = newSeq[ColorRGBA](image.data.len)
+  for i, pixel in image.data:
+    pixels[i] = pixel
   let region = mtlRegion2D(x, y, image.width, image.height)
-  texture.replaceRegion(region, 0, image.data[0].addr, NSUInteger(image.width * 4))
+  texture.replaceRegion(region, 0, pixels[0].addr, NSUInteger(image.width * 4))
 
 proc createAtlasTexture(ctx: MetalContext, size: int): MTLTexture =
   # No mipmaps for now; keep it simple and deterministic.
@@ -361,10 +377,16 @@ proc beginPass(
   ctx.encoder = renderCommandEncoderWithDescriptor(ctx.commandBuffer.borrow, pass)
   ctx.passKind = kind
 
+proc mainTarget(ctx: MetalContext): MTLTexture =
+  if ctx.opacityStack.len == 0:
+    ctx.offscreenTexture.borrow
+  else:
+    ctx.opacityTextures[ctx.opacityStack.len - 1].borrow
+
 proc ensureMainPass(ctx: MetalContext, clear: bool, clearColor: MTLClearColor) =
   if ctx.passKind == pkMain and not ctx.encoder.isNil:
     return
-  ctx.beginPass(pkMain, ctx.offscreenTexture.borrow, clear, clearColor)
+  ctx.beginPass(pkMain, ctx.mainTarget(), clear, clearColor)
 
 proc ensureMaskPass(ctx: MetalContext, clear: bool, clearColor: MTLClearColor) =
   if ctx.passKind == pkMask and not ctx.encoder.isNil:
@@ -376,7 +398,8 @@ proc ensureMaskPass(ctx: MetalContext, clear: bool, clearColor: MTLClearColor) =
 proc ensureDeviceAndPipelines(ctx: MetalContext) =
   if not ctx.device.isNil and not ctx.queue.isNil and not ctx.pipelineMain.isNil and
       not ctx.pipelineMainRectMask.isNil and not ctx.pipelineMask.isNil and
-      not ctx.pipelineBlit.isNil and not ctx.pipelineBlur.isNil:
+      not ctx.pipelineBlit.isNil and not ctx.pipelineOpacity.isNil and
+      not ctx.pipelineBlur.isNil:
     return
 
   withAutoreleasePool:
@@ -431,11 +454,16 @@ proc ensureDeviceAndPipelines(ctx: MetalContext) =
     let fsBlit = fromRetained(
       newFunctionWithName(library.borrow, NSString.withUTF8String(cstring("fs_blit")))
     )
+    let fsOpacity = fromRetained(
+      newFunctionWithName(
+        library.borrow, NSString.withUTF8String(cstring("fs_opacity"))
+      )
+    )
     let fsBlur = fromRetained(
       newFunctionWithName(library.borrow, NSString.withUTF8String(cstring("fs_blur")))
     )
     if vsMain.isNil or vsRectMask.isNil or fsMain.isNil or fsRectMask.isNil or
-        fsMask.isNil or vsBlit.isNil or fsBlit.isNil or fsBlur.isNil:
+        fsMask.isNil or vsBlit.isNil or fsBlit.isNil or fsOpacity.isNil or fsBlur.isNil:
       raise newException(ValueError, "Failed to find Metal shader functions")
 
     proc configureBlend(att: MTLRenderPipelineColorAttachmentDescriptor) =
@@ -509,6 +537,21 @@ proc ensureDeviceAndPipelines(ctx: MetalContext) =
         if not err.isNil:
           error "Failed to create Metal blit pipeline", error = $err
         raise newException(ValueError, "Failed to create Metal blit pipeline")
+
+    # Group textures hold premultiplied color, so composite with source factor one.
+    block:
+      let pd = fromRetained(MTLRenderPipelineDescriptor.alloc().init())
+      setVertexFunction(pd.borrow, vsBlit.borrow)
+      setFragmentFunction(pd.borrow, fsOpacity.borrow)
+      let ca0 = objectAtIndexedSubscript(colorAttachments(pd.borrow), 0)
+      setPixelFormat(ca0, MTLPixelFormatBGRA8Unorm)
+      configureBlend(ca0)
+      setSourceRGBBlendFactor(ca0, MTLBlendFactorOne)
+      ctx.pipelineOpacity.resetRetained(
+        newRenderPipelineStateWithDescriptor(ctx.device.borrow, pd.borrow, addr err)
+      )
+      if ctx.pipelineOpacity.isNil:
+        raise newException(ValueError, "Failed to create Metal opacity pipeline")
 
     # Blur pipeline (BGRA8, no blending).
     block:
@@ -886,11 +929,12 @@ method drawFilledQuad*(
     uv = ctx.entries[imgKey].xy + ctx.entries[imgKey].wh / 2.0'f32
     uvQuad = [uv, uv, uv, uv]
 
+  # Filled geometry can be thinner than a pixel; snapping collapses its edges.
   let posQuad = [
-    ceil(ctx.mat * verts[0]),
-    ceil(ctx.mat * verts[1]),
-    ceil(ctx.mat * verts[2]),
-    ceil(ctx.mat * verts[3]),
+    ctx.mat * verts[0],
+    ctx.mat * verts[1],
+    ctx.mat * verts[2],
+    ctx.mat * verts[3],
   ]
   ctx.drawQuad(posQuad, uvQuad, colors)
 
@@ -944,10 +988,10 @@ proc drawUvRectAtlasSdf(
 
   let
     posQuad = [
-      ceil(ctx.mat * vec2(at.x, to.y)),
-      ceil(ctx.mat * vec2(to.x, to.y)),
-      ceil(ctx.mat * vec2(to.x, at.y)),
-      ceil(ctx.mat * vec2(at.x, at.y)),
+      ctx.mat * vec2(at.x, to.y),
+      ctx.mat * vec2(to.x, to.y),
+      ctx.mat * vec2(to.x, at.y),
+      ctx.mat * vec2(at.x, at.y),
     ]
     uvQuad = [
       vec2(uvAt.x, uvTo.y),
@@ -1078,10 +1122,10 @@ proc drawUvRect(ctx: MetalContext, at, to: Vec2, uvAt, uvTo: Vec2, color: Color)
 
   let
     posQuad = [
-      ceil(ctx.mat * vec2(at.x, to.y)),
-      ceil(ctx.mat * vec2(to.x, to.y)),
-      ceil(ctx.mat * vec2(to.x, at.y)),
-      ceil(ctx.mat * vec2(at.x, at.y)),
+      ctx.mat * vec2(at.x, to.y),
+      ctx.mat * vec2(to.x, to.y),
+      ctx.mat * vec2(to.x, at.y),
+      ctx.mat * vec2(at.x, at.y),
     ]
     uvQuad = [
       vec2(uvAt.x, uvTo.y),
@@ -1141,10 +1185,10 @@ proc drawUvRect(
 
   let
     posQuad = [
-      ceil(ctx.mat * vec2(at.x, to.y)),
-      ceil(ctx.mat * vec2(to.x, to.y)),
-      ceil(ctx.mat * vec2(to.x, at.y)),
-      ceil(ctx.mat * vec2(at.x, at.y)),
+      ctx.mat * vec2(at.x, to.y),
+      ctx.mat * vec2(to.x, to.y),
+      ctx.mat * vec2(to.x, at.y),
+      ctx.mat * vec2(at.x, at.y),
     ]
     uvQuad = [
       vec2(uvAt.x, uvTo.y),
@@ -1422,9 +1466,9 @@ proc drawRoundedRectSdfMetal(
 
   let factors =
     if fillMode == SdfFillSolidOrVertex:
-      vec2(factor, spread)
+      vec2(sdfFactor(mode, factor), spread)
     else:
-      vec2(factor, clamp(fillMidPos, 0.01'f32, 0.99'f32))
+      vec2(sdfFactor(mode, factor), clamp(fillMidPos, 0.01'f32, 0.99'f32))
   ctx.sdfFactors.data.setVert2(offset + 0, factors)
   ctx.sdfFactors.data.setVert2(offset + 1, factors)
   ctx.sdfFactors.data.setVert2(offset + 2, factors)
@@ -1470,7 +1514,9 @@ method drawRoundedRectSdf*(
     shapeSize: Vec2 = vec2(0.0'f32, 0.0'f32),
 ) =
   if fill.kind == figbackend.bfLinear3 and
-      mode in {sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA}:
+      mode in {
+        sdfModeClipAA, sdfModeAnnular, sdfModeAnnularAA, sdfModeCenteredAnnularAA
+      }:
     ctx.drawRoundedRectSdfMetal(
       rect = rect,
       colors = [fill.lin3Start, fill.lin3Start, fill.lin3Start, fill.lin3Start],
@@ -1629,7 +1675,7 @@ method drawBackdropBlur*(
 
   ctx.ensureBackdropTexture(ctx.frameSize)
   ctx.backdropUsedThisFrame = true
-  ctx.blitToTexture(ctx.offscreenTexture.borrow, ctx.backdropTexture.borrow)
+  ctx.blitToTexture(ctx.mainTarget(), ctx.backdropTexture.borrow)
   ctx.runBackdropSeparableBlur(blurRadius)
 
   ctx.drawRoundedRectSdf(
@@ -1669,6 +1715,74 @@ proc line*(ctx: MetalContext, a: Vec2, b: Vec2, weight: float32, color: Color) =
 proc linePolygon*(ctx: MetalContext, poly: seq[Vec2], weight: float32, color: Color) =
   for i in 0 ..< poly.len:
     ctx.line(poly[i], poly[(i + 1) mod poly.len], weight, color)
+
+method beginOpacityGroup*(ctx: MetalContext, opacity: float32) =
+  assert ctx.frameBegun, "ctx.beginFrame has not been called."
+  assert not ctx.maskBegun, "Cannot begin an opacity group inside a mask."
+  ctx.flush()
+  let depth = ctx.opacityStack.len
+  if depth >= ctx.opacityTextures.len:
+    ctx.opacityTextures.setLen(depth + 1)
+  let w = max(1, ctx.frameSize.x.int)
+  let h = max(1, ctx.frameSize.y.int)
+  if ctx.opacityTextures[depth].isNil or ctx.opacityTextures[depth].borrow.width.int != w or
+      ctx.opacityTextures[depth].borrow.height.int != h:
+    ctx.opacityTextures[depth].resetRetained(
+      ctx.newTexture2D(
+        MTLPixelFormatBGRA8Unorm,
+        w,
+        h,
+        MTLTextureUsage(
+          cast[NSUInteger](MTLTextureUsageShaderRead) or
+            cast[NSUInteger](MTLTextureUsageRenderTarget)
+        ),
+      )
+    )
+  ctx.opacityStack.add(
+    OpacityGroup(
+      opacity: clamp(opacity, 0'f32, 1'f32),
+      maskTextures: move(ctx.maskTextures),
+      maskTextureWrite: ctx.maskTextureWrite,
+      rectMasks: move(ctx.rectMaskStack),
+    )
+  )
+  ctx.maskTextureWrite = 0
+  ctx.ensureMask0()
+  ctx.beginPass(
+    pkMain, ctx.mainTarget(), true, MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+  )
+
+method endOpacityGroup*(ctx: MetalContext) =
+  assert ctx.frameBegun and ctx.opacityStack.len > 0, "No opacity group is active."
+  assert not ctx.maskBegun, "Cannot end an opacity group inside a mask."
+  ctx.flush()
+  let depth = ctx.opacityStack.len - 1
+  assert ctx.maskTextureWrite == 0 and ctx.rectMaskStack.len == 0,
+    "Masks inside an opacity group must be popped before ending it."
+  let group = ctx.opacityStack.pop()
+  ctx.maskTextures = group.maskTextures
+  ctx.maskTextureWrite = group.maskTextureWrite
+  ctx.rectMaskStack = group.rectMasks
+  var uniforms = OpacityUniforms(
+    params: vec4(0'f32, 0, -1, -1),
+    controls: vec4(group.opacity, ctx.aaFactor, ctx.frameSize.x, ctx.frameSize.y),
+    mask: vec4(if ctx.maskTextureWrite > 0: 1'f32 else: 0'f32, 0, 0, 0),
+  )
+  for mask in ctx.rectMaskStack:
+    if mask.kind == rmkFast:
+      uniforms.params = mask.params
+      uniforms.radii = mask.radii
+      uniforms.matX = mask.matX
+      uniforms.matY = mask.matY
+  ctx.beginPass(
+    pkMain, ctx.mainTarget(), false, MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+  )
+  let enc = ctx.encoder
+  setRenderPipelineState(enc, ctx.pipelineOpacity.borrow)
+  setFragmentTexture(enc, ctx.opacityTextures[depth].borrow, 0)
+  setFragmentTexture(enc, ctx.maskTextures[ctx.maskTextureWrite].borrow, 1)
+  setFragmentBytes(enc, addr uniforms, NSUInteger(sizeof(uniforms)), 0)
+  drawPrimitives(enc, MTLPrimitiveTypeTriangle, 0, 3)
 
 method beginMask*(ctx: MetalContext, clipRect: Rect, radii: CornerRadii2D[float32]) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
@@ -1817,6 +1931,11 @@ proc beginFrame*(
     ctx.backdropBlurTempTexture.borrow.height.int != frameHeight
   ):
     ctx.backdropBlurTempTexture.clear()
+  for i in 0 ..< ctx.opacityTextures.len:
+    let cur = ctx.opacityTextures[i]
+    if not cur.isNil and
+        (cur.borrow.width.int != frameWidth or cur.borrow.height.int != frameHeight):
+      ctx.opacityTextures[i].clear()
   for i in 1 ..< ctx.maskTextures.len:
     let cur = ctx.maskTextures[i]
     if not cur.isNil and
@@ -1853,6 +1972,7 @@ method beginFrame*(
 
 method endFrame*(ctx: MetalContext) =
   assert ctx.frameBegun == true, "ctx.beginFrame was not called first."
+  assert ctx.opacityStack.len == 0, "Not all opacity groups have been ended."
   assert ctx.maskTextureWrite == 0, "Not all masks have been popped."
   assert ctx.rectMaskStack.len == 0, "Not all rect masks have been popped."
   ctx.frameBegun = false

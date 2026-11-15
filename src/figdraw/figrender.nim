@@ -1148,6 +1148,10 @@ proc renderDrawableStrokeJoin(
   of sjAuto:
     discard
 
+proc renderDrawableEllipse(
+  ctx: BackendContext, origin: Vec2, op: DrawableOp, fill: Fill, stroke: RenderStroke
+)
+
 proc renderDrawableCircle(
     ctx: BackendContext, origin: Vec2, op: DrawableOp, fill: Fill, stroke: RenderStroke
 ) =
@@ -1155,15 +1159,19 @@ proc renderDrawableCircle(
   if radius <= 0.0'f32:
     return
 
-  let
-    diameter = radius * 2.0'f32
-    box = rect(
+  if op.centeredStroke:
+    var ellipse = drawableEllipse(op.center, vec2(radius))
+    ellipse.centeredStroke = true
+    ellipse.strokeBounds = op.strokeBounds
+    ctx.renderDrawableEllipse(origin, ellipse, fill, stroke)
+  else:
+    let box = rect(
       origin.x + op.center.x - radius,
       origin.y + op.center.y - radius,
-      diameter,
-      diameter,
+      radius * 2.0'f32,
+      radius * 2.0'f32,
     )
-  ctx.renderRoundedShape(box, fill, stroke, uniformCorners(radius.radiusCorner()))
+    ctx.renderRoundedShape(box, fill, stroke, uniformCorners(radius.radiusCorner()))
 
 proc renderDrawableRect(
     ctx: BackendContext, origin: Vec2, op: DrawableOp, fill: Fill, stroke: RenderStroke
@@ -1667,7 +1675,26 @@ proc renderDrawableEllipse(
   for corner in DirectionCorners:
     corners.x[corner] = radii.x
     corners.y[corner] = radii.y
-  ctx.renderRoundedShape(box, fill, stroke, corners)
+  if not op.centeredStroke:
+    ctx.renderRoundedShape(box, fill, stroke, corners)
+    return
+  ctx.renderRoundedShape(box, fill, RenderStroke(), corners)
+  if fillAlphaMax(stroke.fill) > 0'u8 and stroke.weight > 0:
+    let outer = rect(
+      origin.x + op.strokeBounds.x,
+      origin.y + op.strokeBounds.y,
+      op.strokeBounds.w,
+      op.strokeBounds.h,
+    )
+    ctx.drawRoundedRectSdf(
+      rect = outer.scaled(),
+      fill = stroke.fill.toBackendFill(),
+      radii = corners.scaledCorners(),
+      mode = figbackend.SdfMode.sdfModeCenteredAnnularAA,
+      factor = stroke.weight.scaled(),
+      spread = 0.0,
+      shapeSize = box.wh.scaled(),
+    )
 
 proc renderDrawableOps(ctx: BackendContext, node: Fig) =
   let
@@ -1689,6 +1716,11 @@ proc renderDrawableOps(ctx: BackendContext, node: Fig) =
       ctx.renderDrawableArc(origin, op, stroke, nodeSteps)
     of dkEllipse:
       ctx.renderDrawableEllipse(origin, op, fill, stroke)
+    of dkFilledQuad:
+      var vertices: array[4, Vec2]
+      for i in 0 .. 3:
+        vertices[i] = origin + op.quadVertices[i]
+      ctx.renderDrawableFilledQuad(vertices, fill)
 
 proc renderDrawable*(ctx: BackendContext, node: Fig) =
   if node.drawAa <= 0.0'f32:
@@ -1827,6 +1859,11 @@ proc render[Input: RenderInput](
         ctx.applyTransform(node.transform.matrix)
     finally:
       ctx.restoreTransform()
+
+    ifrender node.kind == nkOpacityGroup:
+      ctx.beginOpacityGroup(node.opacity)
+    finally:
+      ctx.endOpacityGroup()
 
     ifrender node.kind == nkRectangle:
       ctx.renderDropShadows(node)
