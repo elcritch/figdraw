@@ -1,4 +1,4 @@
-version = "0.47.1"
+version = "0.47.2"
 author = "Jaremy Creechley"
 description = "UI Engine for Nim"
 license = "MIT"
@@ -49,7 +49,7 @@ feature "surfer":
   # TODO: Put this in surfer's manifest.
 feature "siwin":
   # Includes native Win32 handles and the software-present toggle.
-  requires "gh:levovix0/siwin#5827ee9dadb5e2597db85375e0e87b8a2272174b"
+  requires "gh:levovix0/siwin#911138b"
 feature "uirelays":
   requires "gh:elcritch/uirelays#fix/native-font-lifetime"
 feature "vulkan":
