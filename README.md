@@ -1469,6 +1469,10 @@ The same switch is supported by `siwin_cell_grid.nim`,
 - Rendering is structured so that preparing render lists/trees can be done off-thread.
 - GPU resource submission (OpenGL calls) must happen on the GL thread; the backend enforces this separation.
 
+### Optional CBOR scene interchange
+
+See [CBOR scene interchange](docs/cbor.md) for the opt-in versioned protocol, resource resolvers, and supported scene values.
+
 ## License
 
 See `LICENSE`.

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add opt-in compact CBOR scene interchange with text and image resource resolvers.
+
 - Add an SVG image-rendering mode with separately cached fill and stroke
   layers, and let the Siwin viewer toggle between image and MTSDF modes.
 
