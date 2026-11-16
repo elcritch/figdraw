@@ -49,7 +49,7 @@ feature "surfer":
   # TODO: Put this in surfer's manifest.
 feature "siwin":
   # Includes the Cocoa marked-text fix under review in siwin PR #63.
-  requires "gh:elcritch/siwin#fix/cocoa-stale-ime-state"
+  requires "siwin#aecbec9"
 feature "uirelays":
   requires "gh:elcritch/uirelays#fix/native-font-lifetime"
 feature "vulkan":
