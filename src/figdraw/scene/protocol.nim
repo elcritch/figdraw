@@ -1,7 +1,7 @@
 ## Optional, versioned CBOR scene interchange. See docs/cbor.md.
 import std/[math, unicode]
 import cborious
-import ./fignodes
+import ../fignodes
 
 const
   SceneWireVersion* = 1

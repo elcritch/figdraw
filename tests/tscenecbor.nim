@@ -1,6 +1,6 @@
 when defined(feature.figdraw.cbor):
   import std/unittest
-  import figdraw/scenecbor
+  import figdraw/scene/protocol
   import figdraw/fignodes
 
   suite "CBOR scene protocol":

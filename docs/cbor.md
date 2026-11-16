@@ -1,14 +1,15 @@
 # CBOR scene interchange, version 1
 
 Install the optional dependency with `atlas --feature=cbor install` and import
-`figdraw/scenecbor`. The core `figdraw` import does not import this module. Construct
+`figdraw/scene/protocol`. The core `figdraw` import does not import this module. Construct
 `Scene` values, call `encodeScene` to obtain binary CBOR in a Nim string, and
 call `decodeScene` to read it. `SceneWireError` reports invalid, unsupported,
 or oversized scenes. `toRenderList` converts a scene into FigDraw nodes; pass a
 `TextResolver` and/or `ImageResolver` when those node types occur.
 
 ```nim
-import figdraw/[scenecbor, fignodes]
+import figdraw/scene/protocol
+import figdraw/fignodes
 
 let scene = Scene(nodes: @[
   SceneNode(kind: snRectangle, bounds: rect(10, 20, 80, 40),
