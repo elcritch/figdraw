@@ -48,8 +48,8 @@ feature "surfer":
   requires "xkb#b4d50f4cccad1cd9e39d2f5a5e1fef2710edcc31"
   # TODO: Put this in surfer's manifest.
 feature "siwin":
-  # Includes native Win32 handles and the software-present toggle.
-  requires "gh:levovix0/siwin#911138b"
+  # Includes the Cocoa marked-text fix under review in siwin PR #63.
+  requires "gh:elcritch/siwin#fix/cocoa-stale-ime-state"
 feature "uirelays":
   requires "gh:elcritch/uirelays#fix/native-font-lifetime"
 feature "vulkan":
