@@ -303,6 +303,22 @@ method updateImage*(impl: BackendContext, path: Hash, image: Image) {.base.} =
 method putImage*(impl: BackendContext, imgObj: ImgObj) {.base.} =
   raise newException(ValueError, "Backend putImage unavailable")
 
+method supportsTextureCompression*(
+    impl: BackendContext, format: TextureCompressionFormat
+): bool {.base.} =
+  false
+
+method putCompressedImage*(
+    impl: BackendContext, key: Hash, image: CompressedImage
+) {.base.} =
+  impl.putImage(key, image.decompressImage())
+
+method compressedTextureBytes*(impl: BackendContext): int {.base.} =
+  0
+
+method compressedTextureCount*(impl: BackendContext): int {.base.} =
+  0
+
 func entryArea(rect: Rect, atlasSize: int): int =
   if atlasSize <= 0:
     return 0
@@ -369,17 +385,21 @@ proc removeAtlasEntry*(impl: BackendContext, key: Hash) =
 proc markImageEntry*(impl: BackendContext, id: ImageId) =
   impl.atlasEntryMetaPtr()[id.Hash] = AtlasEntryMeta(kind: aekImage, imageId: id)
 
-proc hasImageEntry*(impl: BackendContext, id: ImageId): bool =
+method hasImageEntry*(impl: BackendContext, id: ImageId): bool {.base.} =
   let key = id.Hash
   if key notin impl.entriesPtr()[] or key notin impl.atlasEntryMetaPtr():
     return false
   let meta = impl.atlasEntryMetaPtr()[key]
   meta.kind == aekImage and meta.imageId == id
 
+method removeImage*(impl: BackendContext, id: ImageId) {.base.}
+
 proc replaceImageInAtlas*(impl: BackendContext, id: ImageId, image: Image) =
   ## Update a matching image slot or allocate a replacement slot.
   let key = id.Hash
   var dimensionsMatch = false
+  if impl.hasImageEntry(id) and key notin impl.entriesPtr()[]:
+    impl.removeImage(id)
   if key in impl.entriesPtr()[] and key in impl.atlasEntryMetaPtr():
     let meta = impl.atlasEntryMetaPtr()[key]
     if meta.kind == aekImage and meta.imageId == id:

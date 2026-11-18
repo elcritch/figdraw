@@ -13,6 +13,7 @@ import metalx/objc_owned
 import ../commons
 import ../figbackend as figbackend
 import ./metal_sources
+import ../common/texturecompression
 import ../common/formatflippy
 import ../fignodes
 import ../utils/drawextras
@@ -72,6 +73,10 @@ type InFlightFrame = object
   commandBuffer: ObjcOwned[MTLCommandBuffer]
   arenaIndex: int
 
+type CompressedTexture = object
+  width, height, bytes: int
+  texture: ObjcOwned[MTLTexture]
+
 type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   device: ObjcOwned[MTLDevice]
   queue: ObjcOwned[MTLCommandQueue]
@@ -98,6 +103,8 @@ type MetalContext* = ref object of figbackend.BackendContext # Metal objects
   backdropBlurTempTexture: ObjcOwned[MTLTexture]
   backdropUsedThisFrame: bool
   backdropUnusedFrames: int
+  compressedTextures: Table[Hash, CompressedTexture]
+  activeCompressed: MTLTexture
   atlasTexture: ObjcOwned[MTLTexture]
   maskTextures: seq[ObjcOwned[MTLTexture]]
   maskTextureWrite: int ## Index of active mask stack (0 means no mask).
@@ -171,7 +178,43 @@ proc toKey*(h: Hash): Hash =
   h
 
 method hasImage*(ctx: MetalContext, key: Hash): bool =
-  key in ctx.entries
+  key in ctx.entries or key in ctx.compressedTextures
+
+method hasImageEntry*(ctx: MetalContext, id: ImageId): bool =
+  if id.Hash in ctx.compressedTextures:
+    return true
+  let key = id.Hash
+  key in ctx.entries and key in ctx.atlasEntryMeta and
+    ctx.atlasEntryMeta[key].kind == aekImage and ctx.atlasEntryMeta[key].imageId == id
+
+method compressedTextureCount*(ctx: MetalContext): int =
+  ctx.compressedTextures.len
+
+method compressedTextureBytes*(ctx: MetalContext): int =
+  for entry in ctx.compressedTextures.values:
+    result += entry.bytes
+
+proc flushCompressed(ctx: MetalContext) =
+  if ctx.maskBegun:
+    ctx.flush(ctx.maskTextureWrite - 1)
+  else:
+    ctx.flush()
+
+proc dropCompressed(ctx: MetalContext, key: Hash) =
+  if key in ctx.compressedTextures:
+    ctx.flushCompressed()
+    discard
+    ctx.compressedTextures.del(key)
+
+method removeImage*(ctx: MetalContext, id: ImageId) =
+  ctx.dropCompressed(id.Hash)
+  let key = id.Hash
+  if key in ctx.atlasEntryMeta:
+    let meta = ctx.atlasEntryMeta[key]
+    if meta.kind == aekImage and meta.imageId == id:
+      ctx.removeAtlasEntry(key)
+  else:
+    ctx.entries.del(key)
 
 proc tryGetImageRect(ctx: MetalContext, imageId: Hash, rect: var Rect): bool
 
@@ -570,7 +613,12 @@ proc ensureDeviceAndPipelines(ctx: MetalContext) =
 
 proc grow(ctx: MetalContext) =
   let nextSize = ctx.atlasSize * 2
-  ctx.resetImageAtlas(nextSize)
+  # Atlas growth does not invalidate separate textures.
+  var compressed = move(ctx.compressedTextures)
+  try:
+    ctx.resetImageAtlas(nextSize)
+  finally:
+    ctx.compressedTextures = move(compressed)
   info "grow atlasSize ", atlasSize = ctx.atlasSize
 
 proc findEmptyRect(ctx: MetalContext, width, height: int): Rect =
@@ -608,7 +656,52 @@ proc findEmptyRect(ctx: MetalContext, width, height: int): Rect =
     float32(height),
   )
 
+proc objcSupportsBc(device: MTLDevice): bool {.objc: "supportsBCTextureCompression".}
+
+method supportsTextureCompression*(
+    ctx: MetalContext, format: TextureCompressionFormat
+): bool =
+  if format != tcfBc3 or ctx.device.isNil:
+    return false
+  let device = ctx.device.borrow
+  if not cast[NSObject](device).respondsToSelector("supportsBCTextureCompression"):
+    return false
+  objcSupportsBc(device)
+
+method putCompressedImage*(ctx: MetalContext, key: Hash, image: CompressedImage) =
+  image.validate()
+  if not ctx.supportsTextureCompression(image.format):
+    ctx.putImage(key, image.decompressImage())
+    return
+  # All Metal devices supporting BC3 accept at least this 2D dimension.
+  const maxBcTextureDimension = 8192
+  if image.width > maxBcTextureDimension or image.height > maxBcTextureDimension:
+    raise newException(ValueError, "Compressed texture exceeds Metal size limit")
+  ctx.flushCompressed()
+  var texture = fromRetained(
+    ctx.newTexture2D(
+      MTLPixelFormat(134), image.width, image.height, MTLTextureUsageShaderRead
+    )
+  )
+  if texture.isNil:
+    raise newException(ValueError, "Cannot allocate Metal BC3 texture")
+  texture.borrow.replaceRegion(
+    mtlRegion2D(0, 0, image.width, image.height),
+    0,
+    unsafeAddr image.data[0],
+    NSUInteger(((image.width + 3) div 4) * 16),
+  )
+  ctx.dropCompressed(key)
+  ctx.removeAtlasEntry(key)
+  ctx.compressedTextures[key] = CompressedTexture(
+    width: image.width,
+    height: image.height,
+    bytes: image.data.len,
+    texture: move(texture),
+  )
+
 method putImage*(ctx: MetalContext, path: Hash, image: Image) =
+  ctx.dropCompressed(path)
   let rect = ctx.findEmptyRect(image.width, image.height)
   ctx.entries[path] = rect / float(ctx.atlasSize)
   ctx.markGeneratedEntry(path)
@@ -646,14 +739,22 @@ method putImage*(ctx: MetalContext, imgObj: ImgObj) =
     ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
   of PixieImg:
     ctx.putImage(imgObj.id.Hash, imgObj.pimg)
+  of CompressedImg:
+    ctx.putCompressedImage(imgObj.id.Hash, imgObj.compressed)
   ctx.markImageEntry(imgObj.id)
 
 method clearImageAtlas*(ctx: MetalContext) =
   ctx.resetImageAtlas(ctx.initialAtlasSize)
 
 method resetImageAtlas*(ctx: MetalContext, minimumSize: int) =
+  let nextSize = plannedAtlasSize(ctx.initialAtlasSize, minimumSize)
+  var compressedKeys: seq[Hash]
+  for key in ctx.compressedTextures.keys:
+    compressedKeys.add(key)
+  for key in compressedKeys:
+    ctx.dropCompressed(key)
   ctx.flush()
-  ctx.atlasSize = plannedAtlasSize(ctx.initialAtlasSize, minimumSize)
+  ctx.atlasSize = nextSize
   ctx.entries.clear()
   ctx.atlasEntryMeta.clear()
   ctx.heights = newSeq[uint16](ctx.atlasSize)
@@ -930,12 +1031,8 @@ method drawFilledQuad*(
     uvQuad = [uv, uv, uv, uv]
 
   # Filled geometry can be thinner than a pixel; snapping collapses its edges.
-  let posQuad = [
-    ctx.mat * verts[0],
-    ctx.mat * verts[1],
-    ctx.mat * verts[2],
-    ctx.mat * verts[3],
-  ]
+  let posQuad =
+    [ctx.mat * verts[0], ctx.mat * verts[1], ctx.mat * verts[2], ctx.mat * verts[3]]
   ctx.drawQuad(posQuad, uvQuad, colors)
 
 type SdfMode* = figbackend.SdfMode
@@ -1257,6 +1354,19 @@ proc imageUvBounds(rect: Rect, flipY: bool): tuple[uvAt: Vec2, uvTo: Vec2] =
     return (vec2(rect.x, rect.y + rect.h), vec2(rect.x + rect.w, rect.y))
   (rect.xy, rect.xy + rect.wh)
 
+proc drawCompressedRect(
+    ctx: MetalContext,
+    imageId: Hash,
+    pos, size, uvAt, uvTo: Vec2,
+    colors: array[4, ColorRGBA],
+) =
+  let entry = ctx.compressedTextures[imageId]
+  ctx.flushCompressed()
+  ctx.activeCompressed = entry.texture.borrow
+  ctx.drawUvRect(pos, pos + size, uvAt, uvTo, colors)
+  ctx.flushCompressed()
+  ctx.activeCompressed = nil
+
 proc drawImage*(
     ctx: MetalContext,
     imageId: Hash,
@@ -1264,6 +1374,18 @@ proc drawImage*(
     color = color(1, 1, 1, 1),
     scale: float32,
 ) =
+  if imageId in ctx.compressedTextures:
+    let entry = ctx.compressedTextures[imageId]
+    let c = color.rgba()
+    ctx.drawCompressedRect(
+      imageId,
+      pos,
+      vec2(entry.width.float32, entry.height.float32) * scale,
+      vec2(0, 0),
+      vec2(1, 1),
+      [c, c, c, c],
+    )
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -1277,6 +1399,17 @@ proc drawImage*(
     colors: array[4, ColorRGBA],
     scale: float32,
 ) =
+  if imageId in ctx.compressedTextures:
+    let entry = ctx.compressedTextures[imageId]
+    ctx.drawCompressedRect(
+      imageId,
+      pos,
+      vec2(entry.width.float32, entry.height.float32) * scale,
+      vec2(0, 0),
+      vec2(1, 1),
+      colors,
+    )
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -1291,6 +1424,16 @@ method drawImage*(
     size: Vec2,
     flipY: bool,
 ) =
+  if imageId in ctx.compressedTextures:
+    let entry = ctx.compressedTextures[imageId]
+    let drawSize =
+      if size.x > 0 and size.y > 0:
+        size
+      else:
+        vec2(entry.width.float32, entry.height.float32)
+    let (uvAt, uvTo) = imageUvBounds(rect(0, 0, 1, 1), flipY)
+    ctx.drawCompressedRect(imageId, pos, drawSize, uvAt, uvTo, colors)
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -1309,6 +1452,12 @@ method drawImageAdj*(
     color = color(1, 1, 1, 1),
     size: Vec2,
 ) =
+  if imageId in ctx.compressedTextures:
+    let entry = ctx.compressedTextures[imageId]
+    let adj = vec2(2 / entry.width.float32, 2 / entry.height.float32)
+    let c = color.rgba()
+    ctx.drawCompressedRect(imageId, pos, size, adj, vec2(1, 1) - adj, [c, c, c, c])
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -1322,6 +1471,14 @@ proc drawSprite*(
     color = color(1, 1, 1, 1),
     scale = 1.0,
 ) =
+  if imageId in ctx.compressedTextures:
+    let entry = ctx.compressedTextures[imageId]
+    let size = vec2(entry.width.float32, entry.height.float32) * scale
+    let c = color.rgba()
+    ctx.drawCompressedRect(
+      imageId, pos - size / 2, size, vec2(0, 0), vec2(1, 1), [c, c, c, c]
+    )
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -1335,6 +1492,12 @@ proc drawSprite*(
     color = color(1, 1, 1, 1),
     size: Vec2,
 ) =
+  if imageId in ctx.compressedTextures:
+    let c = color.rgba()
+    ctx.drawCompressedRect(
+      imageId, pos - size / 2, size, vec2(0, 0), vec2(1, 1), [c, c, c, c]
+    )
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -2291,7 +2454,11 @@ proc flush(ctx: MetalContext, maskTextureRead: int = ctx.maskTextureWrite) =
   )
   setFragmentBytes(enc, addr fsu, NSUInteger(sizeof(FSUniforms)), 0)
 
-  setFragmentTexture(enc, ctx.atlasTexture.borrow, 0)
+  setFragmentTexture(
+    enc,
+    if ctx.activeCompressed != nil: ctx.activeCompressed else: ctx.atlasTexture.borrow,
+    0,
+  )
   let maskIndex = clamp(maskTextureRead, 0, ctx.maskTextures.high)
   setFragmentTexture(enc, ctx.maskTextures[maskIndex].borrow, 1)
   setFragmentTexture(

@@ -233,6 +233,8 @@ method putImage*(ctx: SoftwareContext, image: ImgObj) =
   case image.kind
   of PixieImg:
     ctx.putImage(image.id.Hash, image.pimg)
+  of CompressedImg:
+    ctx.putCompressedImage(image.id.Hash, image.compressed)
   of FlippyImg:
     if image.flippy.mipmaps.len == 0:
       raise newException(ValueError, "Cannot cache an empty Flippy image")

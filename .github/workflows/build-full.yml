@@ -109,8 +109,8 @@ jobs:
       run: |
         for source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
           if [[ -f "$source" ]]; then
-            sudo sed -i \
-              's@https\?://azure.archive.ubuntu.com/ubuntu@https://archive.ubuntu.com/ubuntu@g' \
+            sudo sed -E -i \
+              's@https?://(azure\.|[a-z0-9-]+\.ec2\.)archive\.ubuntu\.com/ubuntu@https://archive.ubuntu.com/ubuntu@g' \
               "$source"
           fi
         done

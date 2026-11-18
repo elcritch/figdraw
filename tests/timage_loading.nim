@@ -42,6 +42,8 @@ method putImage*(ctx: TestContext, imgObj: ImgObj) =
       mip.width.float32 / ctx.atlasSize.float32,
       mip.height.float32 / ctx.atlasSize.float32,
     )
+  of CompressedImg:
+    ctx.putCompressedImage(imgObj.id.Hash, imgObj.compressed)
   of PixieImg:
     ctx.entries[imgObj.id.Hash] = rect(
       0,
@@ -784,3 +786,28 @@ suite "image loading":
     ctx.drainImages()
     check not hasImage(glyphImageId)
     check glyphImageId.Hash notin ctx.entries
+
+  test "compressed fallback replaces, replays and releases":
+    let id = imgId("tests/timage_loading/compressed-lifecycle")
+    let ctx = newTestContext()
+    clearImage(id)
+    ctx.drainImages()
+    let pixels = newImage(3, 2)
+    var compressed = pixels.compressImage()
+    var owner = imageRef(id, compressed)
+    compressed.data.setLen(0)
+    ctx.drainImages()
+    check id.Hash in ctx.entries
+    check ctx.pixels[id].width == 3
+    let late = newTestContext()
+    late.drainImages()
+    check id.Hash in late.entries
+    loadImage(id, newImage(2, 2))
+    ctx.drainImages()
+    check ctx.pixels[id].width == 2
+    loadCompressedImage(id, pixels.compressImage())
+    ctx.drainImages()
+    check ctx.pixels[id].width == 3
+    owner = nil
+    ctx.drainImages()
+    check id.Hash notin ctx.entries

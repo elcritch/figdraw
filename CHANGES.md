@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add opt-in BC3 color images with native Metal, OpenGL S3TC, and Vulkan
+  storage, device capability checks, and a portable decoded RGBA fallback.
+- Retain compressed image messages across renderer replay and expose separate
+  compressed texture counters. Keep glyphs and distance fields lossless.
+- Add opt-in compact CBOR scene interchange with text and image resource resolvers.
+
 - Add an SVG image-rendering mode with separately cached fill and stroke
   layers, and let the Siwin viewer toggle between image and MTSDF modes.
 

@@ -11,6 +11,7 @@ import pkg/chronicles
 import ../commons
 import ../figbackend as figbackend
 import ../common/filltypes
+import ../common/texturecompression
 import ../common/formatflippy
 import ../fignodes
 import ../utils/drawextras
@@ -51,9 +52,15 @@ type OpacityGroup = object
   outerMaskWrite: int
   outerRectMasks: seq[RectMask]
 
+type CompressedTexture = object
+  width, height, bytes: int
+  texture: Texture
+
 type OpenGlContext* = ref object of figbackend.BackendContext
   mainShader, rectMaskShader, maskShader, blurShader, compositeShader, activeShader:
     Shader
+  compressedTextures: Table[Hash, CompressedTexture]
+  activeCompressed: GLuint
   atlasTexture: Texture
   backdropTexture: Texture
   backdropBlurTempTexture: Texture
@@ -123,7 +130,37 @@ proc toKey*(h: Hash): Hash =
   h
 
 method hasImage*(ctx: OpenGlContext, key: Hash): bool =
-  key in ctx.entries
+  key in ctx.entries or key in ctx.compressedTextures
+
+method hasImageEntry*(ctx: OpenGlContext, id: ImageId): bool =
+  if id.Hash in ctx.compressedTextures:
+    return true
+  let key = id.Hash
+  key in ctx.entries and key in ctx.atlasEntryMeta and
+    ctx.atlasEntryMeta[key].kind == aekImage and ctx.atlasEntryMeta[key].imageId == id
+
+method compressedTextureCount*(ctx: OpenGlContext): int =
+  ctx.compressedTextures.len
+
+method compressedTextureBytes*(ctx: OpenGlContext): int =
+  for entry in ctx.compressedTextures.values:
+    result += entry.bytes
+
+proc dropCompressed(ctx: OpenGlContext, key: Hash) =
+  if key in ctx.compressedTextures:
+    ctx.flush()
+    glDeleteTextures(1, ctx.compressedTextures[key].texture.textureId.addr)
+    ctx.compressedTextures.del(key)
+
+method removeImage*(ctx: OpenGlContext, id: ImageId) =
+  ctx.dropCompressed(id.Hash)
+  let key = id.Hash
+  if key in ctx.atlasEntryMeta:
+    let meta = ctx.atlasEntryMeta[key]
+    if meta.kind == aekImage and meta.imageId == id:
+      ctx.removeAtlasEntry(key)
+  else:
+    ctx.entries.del(key)
 
 proc tryGetImageRect(ctx: OpenGlContext, imageId: Hash, rect: var Rect): bool
 
@@ -674,7 +711,70 @@ proc uploadAtlasImage(ctx: OpenGlContext, x, y: int, image: Image) =
           image[clamp(col - 1, 0, image.width - 1), clamp(row - 1, 0, image.height - 1)]
     updateSubImage(ctx.atlasTexture, x - 1, y - 1, padded)
 
+method supportsTextureCompression*(
+    ctx: OpenGlContext, format: TextureCompressionFormat
+): bool =
+  when defined(emscripten):
+    return false
+  else:
+    if format != tcfBc3:
+      return false
+    var count: GLint
+    glGetIntegerv(GL_NUM_COMPRESSED_TEXTURE_FORMATS, addr count)
+    if count <= 0 or count > 4096:
+      return false
+    var formats = newSeq[GLint](count)
+    glGetIntegerv(GL_COMPRESSED_TEXTURE_FORMATS, addr formats[0])
+    for value in formats:
+      if value.GLenum == GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
+        return true
+    false
+
+method putCompressedImage*(ctx: OpenGlContext, key: Hash, image: CompressedImage) =
+  image.validate()
+  if not ctx.supportsTextureCompression(image.format):
+    ctx.putImage(key, image.decompressImage())
+    return
+  if image.width > atlasSizeLimit() or image.height > atlasSizeLimit() or
+      image.data.len > high(GLsizei).int:
+    raise newException(ValueError, "Compressed texture exceeds OpenGL limits")
+  ctx.flush()
+  var texture: Texture
+  texture.width = image.width.GLint
+  texture.height = image.height.GLint
+  glGenTextures(1, addr texture.textureId)
+  glBindTexture(GL_TEXTURE_2D, texture.textureId)
+  withClientPixels(true):
+    glCompressedTexImage2D(
+      GL_TEXTURE_2D,
+      0,
+      GL_COMPRESSED_RGBA_S3TC_DXT5_EXT,
+      image.width.GLsizei,
+      image.height.GLsizei,
+      0,
+      image.data.len.GLsizei,
+      unsafeAddr image.data[0],
+    )
+  glTexParameteri(
+    GL_TEXTURE_2D,
+    GL_TEXTURE_MIN_FILTER,
+    (if ctx.pixelate: GL_NEAREST else: GL_LINEAR).GLint,
+  )
+  glTexParameteri(
+    GL_TEXTURE_2D,
+    GL_TEXTURE_MAG_FILTER,
+    (if ctx.pixelate: GL_NEAREST else: GL_LINEAR).GLint,
+  )
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE.GLint)
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE.GLint)
+  ctx.dropCompressed(key)
+  ctx.removeAtlasEntry(key)
+  ctx.compressedTextures[key] = CompressedTexture(
+    width: image.width, height: image.height, bytes: image.data.len, texture: texture
+  )
+
 method putImage*(ctx: OpenGlContext, path: Hash, image: Image) =
+  ctx.dropCompressed(path)
   if image.isNil:
     raise newException(ValueError, "Cannot upload a nil image")
   let rect = ctx.findEmptyRect(image.width, image.height)
@@ -718,6 +818,8 @@ method putImage*(ctx: OpenGlContext, imgObj: ImgObj) =
     ctx.putFlippy(imgObj.id.Hash, imgObj.flippy)
   of PixieImg:
     ctx.putImage(imgObj.id.Hash, imgObj.pimg)
+  of CompressedImg:
+    ctx.putCompressedImage(imgObj.id.Hash, imgObj.compressed)
   ctx.markImageEntry(imgObj.id)
 
 method clearImageAtlas*(ctx: OpenGlContext) =
@@ -725,6 +827,11 @@ method clearImageAtlas*(ctx: OpenGlContext) =
 
 method resetImageAtlas*(ctx: OpenGlContext, minimumSize: int) =
   let nextSize = ctx.checkedAtlasSize(minimumSize)
+  var compressedKeys: seq[Hash]
+  for key in ctx.compressedTextures.keys:
+    compressedKeys.add(key)
+  for key in compressedKeys:
+    ctx.dropCompressed(key)
   ctx.flush()
   let nextTexture = ctx.createAtlasTexture(nextSize)
   glDeleteTextures(1, ctx.atlasTexture.textureId.addr)
@@ -791,7 +898,10 @@ proc flush(ctx: OpenGlContext, maskTextureRead: int = -1) =
 
   if ctx.activeShader.hasUniform("atlasTex"):
     glActiveTexture(GL_TEXTURE0)
-    glBindTexture(GL_TEXTURE_2D, ctx.atlasTexture.textureId)
+    glBindTexture(
+      GL_TEXTURE_2D,
+      if ctx.activeCompressed != 0: ctx.activeCompressed else: ctx.atlasTexture.textureId,
+    )
     ctx.activeShader.setUniform("atlasTex", 0)
 
   if ctx.activeShader.hasUniform("maskTex"):
@@ -1076,12 +1186,8 @@ method drawFilledQuad*(
     uvQuad = [uv, uv, uv, uv]
 
   # Filled geometry can be thinner than a pixel; snapping collapses its edges.
-  let posQuad = [
-    ctx.mat * verts[0],
-    ctx.mat * verts[1],
-    ctx.mat * verts[2],
-    ctx.mat * verts[3],
-  ]
+  let posQuad =
+    [ctx.mat * verts[0], ctx.mat * verts[1], ctx.mat * verts[2], ctx.mat * verts[3]]
   ctx.drawQuad(posQuad, uvQuad, colors)
 
 type SdfMode* = figbackend.SdfMode
@@ -1422,6 +1528,19 @@ proc imageUvBounds(rect: Rect, flipY: bool): tuple[uvAt: Vec2, uvTo: Vec2] =
     return (vec2(rect.x, rect.y + rect.h), vec2(rect.x + rect.w, rect.y))
   (rect.xy, rect.xy + rect.wh)
 
+proc drawCompressedRect(
+    ctx: OpenGlContext,
+    imageId: Hash,
+    pos, size, uvAt, uvTo: Vec2,
+    colors: array[4, ColorRGBA],
+) =
+  let entry = ctx.compressedTextures[imageId]
+  ctx.flush()
+  ctx.activeCompressed = entry.texture.textureId
+  ctx.drawUvRect(pos, pos + size, uvAt, uvTo, colors)
+  ctx.flush()
+  ctx.activeCompressed = 0
+
 proc drawImage*(
     ctx: OpenGlContext,
     imageId: Hash,
@@ -1430,6 +1549,18 @@ proc drawImage*(
     scale: float32,
 ) =
   ## Draws image the UI way - pos at top-left.
+  if imageId in ctx.compressedTextures:
+    let entry = ctx.compressedTextures[imageId]
+    let c = color.rgba()
+    ctx.drawCompressedRect(
+      imageId,
+      pos,
+      vec2(entry.width.float32, entry.height.float32) * scale,
+      vec2(0, 0),
+      vec2(1, 1),
+      [c, c, c, c],
+    )
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -1444,6 +1575,17 @@ proc drawImage*(
     scale: float32,
 ) =
   ## Draws image the UI way - pos at top-left with per-vertex colors.
+  if imageId in ctx.compressedTextures:
+    let entry = ctx.compressedTextures[imageId]
+    ctx.drawCompressedRect(
+      imageId,
+      pos,
+      vec2(entry.width.float32, entry.height.float32) * scale,
+      vec2(0, 0),
+      vec2(1, 1),
+      colors,
+    )
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -1458,6 +1600,16 @@ method drawImage*(
     size: Vec2,
     flipY: bool,
 ) =
+  if imageId in ctx.compressedTextures:
+    let entry = ctx.compressedTextures[imageId]
+    let drawSize =
+      if size.x > 0 and size.y > 0:
+        size
+      else:
+        vec2(entry.width.float32, entry.height.float32)
+    let (uvAt, uvTo) = imageUvBounds(rect(0, 0, 1, 1), flipY)
+    ctx.drawCompressedRect(imageId, pos, drawSize, uvAt, uvTo, colors)
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -1477,6 +1629,12 @@ method drawImageAdj*(
     size: Vec2,
 ) =
   ## Draws image the UI way - pos at top-left.
+  if imageId in ctx.compressedTextures:
+    let entry = ctx.compressedTextures[imageId]
+    let adj = vec2(2 / entry.width.float32, 2 / entry.height.float32)
+    let c = color.rgba()
+    ctx.drawCompressedRect(imageId, pos, size, adj, vec2(1, 1) - adj, [c, c, c, c])
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -1491,6 +1649,14 @@ proc drawSprite*(
     scale = 1.0,
 ) =
   ## Draws image the game way - pos at center.
+  if imageId in ctx.compressedTextures:
+    let entry = ctx.compressedTextures[imageId]
+    let size = vec2(entry.width.float32, entry.height.float32) * scale
+    let c = color.rgba()
+    ctx.drawCompressedRect(
+      imageId, pos - size / 2, size, vec2(0, 0), vec2(1, 1), [c, c, c, c]
+    )
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
@@ -1505,6 +1671,12 @@ proc drawSprite*(
     size: Vec2,
 ) =
   ## Draws image the game way - pos at center.
+  if imageId in ctx.compressedTextures:
+    let c = color.rgba()
+    ctx.drawCompressedRect(
+      imageId, pos - size / 2, size, vec2(0, 0), vec2(1, 1), [c, c, c, c]
+    )
+    return
   var rect: Rect
   if not ctx.tryGetImageRect(imageId, rect):
     return
