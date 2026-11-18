@@ -67,10 +67,9 @@ when UseVulkanBackend:
         let ctx = renderer.ctx.VulkanContext
         var window: Window
         try:
-          # Siwin must choose its surface extension before the GPU is initialized.
-          # The compressed upload still precedes attaching the presentation target.
-          window =
-            newSiwinWindow(renderer, size = ivec2(256, 200), title = "BC3 readback")
+          # Leave surface creation to FigDraw. Attaching the presentation target
+          # replaces the headless instance used for the first compressed upload.
+          window = newSiwinWindow(size = ivec2(256, 200), title = "BC3 readback")
           let native = ctx.supportsTextureCompression(tcfBc3)
           echo "Vulkan readback BC3 native: ", native
           ctx.putCompressedImage(10.Hash, blocks())
