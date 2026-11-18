@@ -63,7 +63,7 @@ template vulkanBlurUpdateDescriptorSet*(
       dstBinding = 0,
       dstArrayElement = 0,
       descriptorCount = 1,
-      descriptorType = VkDescriptorType.CombinedImageSampler,
+      descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
       pImageInfo = srcInfo.addr,
       pBufferInfo = nil,
       pTexelBufferView = nil,
@@ -73,7 +73,7 @@ template vulkanBlurUpdateDescriptorSet*(
       dstBinding = 1,
       dstArrayElement = 0,
       descriptorCount = 1,
-      descriptorType = VkDescriptorType.UniformBuffer,
+      descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
       pImageInfo = nil,
       pBufferInfo = blurInfo.addr,
       pTexelBufferView = nil,
@@ -131,19 +131,22 @@ template vulkanBlurCreatePipeline*(ctx: untyped) =
     VkSubpassDependency(
       srcSubpass: VK_SUBPASS_EXTERNAL,
       dstSubpass: 0,
-      srcStageMask: VkPipelineStageFlags{FragmentShaderBit, TransferBit},
-      dstStageMask: VkPipelineStageFlags{ColorAttachmentOutputBit},
-      srcAccessMask: VkAccessFlags{ShaderReadBit, TransferWriteBit},
-      dstAccessMask: VkAccessFlags{ColorAttachmentWriteBit},
+      srcStageMask: VkPipelineStageFlags(
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT or VK_PIPELINE_STAGE_TRANSFER_BIT
+      ),
+      dstStageMask: VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT),
+      srcAccessMask:
+        VkAccessFlags(VK_ACCESS_SHADER_READ_BIT or VK_ACCESS_TRANSFER_WRITE_BIT),
+      dstAccessMask: VkAccessFlags(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT),
       dependencyFlags: 0.VkDependencyFlags,
     ),
     VkSubpassDependency(
       srcSubpass: 0,
       dstSubpass: VK_SUBPASS_EXTERNAL,
-      srcStageMask: VkPipelineStageFlags{ColorAttachmentOutputBit},
-      dstStageMask: VkPipelineStageFlags{FragmentShaderBit},
-      srcAccessMask: VkAccessFlags{ColorAttachmentWriteBit},
-      dstAccessMask: VkAccessFlags{ShaderReadBit},
+      srcStageMask: VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT),
+      dstStageMask: VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT),
+      srcAccessMask: VkAccessFlags(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT),
+      dstAccessMask: VkAccessFlags(VK_ACCESS_SHADER_READ_BIT),
       dependencyFlags: 0.VkDependencyFlags,
     ),
   ]
@@ -163,13 +166,13 @@ template vulkanBlurCreatePipeline*(ctx: untyped) =
     ctx.blurFragShader = ctx.vk.createShaderModule(ctx.device, fragInfo)
 
   let vertStage = newVkPipelineShaderStageCreateInfo(
-    stage = VkShaderStageFlagBits.VertexBit,
+    stage = VK_SHADER_STAGE_VERTEX_BIT,
     module = ctx.blurVertShader,
     pName = "main",
     pSpecializationInfo = nil,
   )
   let fragStage = newVkPipelineShaderStageCreateInfo(
-    stage = VkShaderStageFlagBits.FragmentBit,
+    stage = VK_SHADER_STAGE_FRAGMENT_BIT,
     module = ctx.blurFragShader,
     pName = "main",
     pSpecializationInfo = nil,
@@ -228,7 +231,10 @@ template vulkanBlurCreatePipeline*(ctx: untyped) =
     srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
     dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
     alphaBlendOp = VK_BLEND_OP_ADD,
-    colorWriteMask = VkColorComponentFlags{RBit, GBit, BBit, ABit},
+    colorWriteMask = VkColorComponentFlags(
+      VK_COLOR_COMPONENT_R_BIT or VK_COLOR_COMPONENT_G_BIT or VK_COLOR_COMPONENT_B_BIT or
+        VK_COLOR_COMPONENT_A_BIT
+    ),
   )
   let colorBlending = VkPipelineColorBlendStateCreateInfo(
     sType: VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -334,27 +340,27 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
       VK_IMAGE_LAYOUT_UNDEFINED
   let tempSrcAccess =
     if ctx.backdropBlurTempLayoutReady:
-      VkAccessFlags{ShaderReadBit}
+      VkAccessFlags(VK_ACCESS_SHADER_READ_BIT)
     else:
       0.VkAccessFlags
   let tempSrcStage =
     if ctx.backdropBlurTempLayoutReady:
-      VkPipelineStageFlags{FragmentShaderBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
     else:
-      VkPipelineStageFlags{TopOfPipeBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT)
 
   var tempToColor = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
     srcAccessMask: tempSrcAccess,
-    dstAccessMask: VkAccessFlags{ColorAttachmentWriteBit},
+    dstAccessMask: VkAccessFlags(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT),
     oldLayout: tempOldLayout,
     newLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: ctx.backdropBlurTempImage.handle,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -364,7 +370,7 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
   ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
     tempSrcStage,
-    VkPipelineStageFlags{ColorAttachmentOutputBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT),
     0.VkDependencyFlags,
     0,
     nil,
@@ -418,15 +424,15 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
   var backdropToColor = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
-    srcAccessMask: VkAccessFlags{ShaderReadBit},
-    dstAccessMask: VkAccessFlags{ColorAttachmentWriteBit},
+    srcAccessMask: VkAccessFlags(VK_ACCESS_SHADER_READ_BIT),
+    dstAccessMask: VkAccessFlags(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT),
     oldLayout: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     newLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: ctx.backdropImage.handle,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -435,8 +441,8 @@ template vulkanBlurRunSeparable*(ctx, blurRadius, blurRect: untyped) =
   )
   ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
-    VkPipelineStageFlags{FragmentShaderBit},
-    VkPipelineStageFlags{ColorAttachmentOutputBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT),
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT),
     0.VkDependencyFlags,
     0,
     nil,

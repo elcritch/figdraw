@@ -1,11 +1,11 @@
-version = "0.47.1"
+version = "0.47.2"
 author = "Jaremy Creechley"
 description = "UI Engine for Nim"
 license = "MIT"
 srcDir = "src"
 
 # Dependencies
-requires "nim >= 2.2"
+requires "nim >= 2.2.4"
 requires "sigils >= 0.31.0"
 requires "threading >= 0.2.1"
 requires "pixie >= 5.0.1"
@@ -25,8 +25,10 @@ requires "vmath"
 when defined(macosx):
   requires "https://github.com/elcritch/metalx >= 0.4.2 "
 when defined(linux) or defined(bsd) or defined(windows):
-  requires "https://github.com/elcritch/vulkan#0fc8dd2"
+  requires "https://github.com/treeform/vk14#183cf440d6460d97c6b35d6346079d9982f8cd57"
 
+feature "cbor":
+  requires "https://github.com/elcritch/cborious >= 0.7.2"
 feature "harfbuzz":
   discard # Kept for compatibility with existing Atlas configurations.
 feature "textBackendHarfbuzzy":
@@ -46,12 +48,12 @@ feature "surfer":
   requires "xkb#b4d50f4cccad1cd9e39d2f5a5e1fef2710edcc31"
   # TODO: Put this in surfer's manifest.
 feature "siwin":
-  # Includes native Win32 handles and the software-present toggle.
-  requires "gh:levovix0/siwin#5827ee9dadb5e2597db85375e0e87b8a2272174b"
+  # Includes the Cocoa marked-text fix under review in siwin PR #63.
+  requires "siwin#aecbec9"
 feature "uirelays":
   requires "gh:elcritch/uirelays#fix/native-font-lifetime"
 feature "vulkan":
-  requires "https://github.com/elcritch/vulkan#0fc8dd2"
+  requires "https://github.com/treeform/vk14#183cf440d6460d97c6b35d6346079d9982f8cd57"
 feature "metal":
   requires "https://github.com/elcritch/metalx#head"
 feature "sharedlib":

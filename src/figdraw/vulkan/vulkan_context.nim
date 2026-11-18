@@ -4,7 +4,7 @@ import pkg/pixie
 import pkg/pixie/simd
 import pkg/chroma
 import pkg/chronicles
-import pkg/vulkan
+import ./vk14_compat
 import ./vulkan_dispatch
 
 import ../commons
@@ -16,6 +16,7 @@ import ../utils/drawextras
 import ./vulkan_blur
 import ./vulkan_resources
 import ./vulkan_utils
+import ./vulkan_versions
 
 export drawextras
 export vulkan_utils
@@ -304,7 +305,7 @@ when UseVulkanValidation:
       userData: pointer,
   ): VkBool32 {.cdecl.} =
     # The layer can call from a driver thread; avoid Nim allocation in the callback.
-    if severity == VkDebugUtilsMessageSeverityFlagBitsEXT.ErrorBit:
+    if severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
       discard cast[ptr Atomic[int]](userData)[].fetchAdd(1)
     if data != nil and data.pMessage != nil:
       discard printValidation(data.pMessage)
@@ -346,7 +347,7 @@ proc createBuffer(
   let bufferInfo = newVkBufferCreateInfo(
     size = size,
     usage = usage,
-    sharingMode = VkSharingMode.Exclusive,
+    sharingMode = VK_SHARING_MODE_EXCLUSIVE,
     queueFamilyIndices = [],
   )
   result.handle = ctx.vk.createBuffer(ctx.device, bufferInfo)
@@ -384,8 +385,13 @@ proc allocateFrameUpload(
     inc ctx.uploadBlockIndex
   let buffer = ctx.createBuffer(
     max(bytes, (4 * 1024 * 1024).VkDeviceSize),
-    VkBufferUsageFlags{TransferSrcBit, VertexBufferBit, UniformBufferBit},
-    VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
+    VkBufferUsageFlags(
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT or VK_BUFFER_USAGE_VERTEX_BUFFER_BIT or
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+    ),
+    VkMemoryPropertyFlags(
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT or VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    ),
   )
   buffer.mapped = ctx.vk.mapMemory(
     ctx.device, buffer.allocation, 0.VkDeviceSize, buffer.size, 0.VkMemoryMapFlags
@@ -403,10 +409,10 @@ proc allocateFrameDescriptorSet(
   if ctx.descriptorPoolIndex == ctx.frameDescriptorPools.len:
     let sizes = [
       newVkDescriptorPoolSize(
-        `type` = VkDescriptorType.UniformBuffer, descriptorCount = setsPerPool * 2
+        `type` = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptorCount = setsPerPool * 2
       ),
       newVkDescriptorPoolSize(
-        `type` = VkDescriptorType.CombinedImageSampler,
+        `type` = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         descriptorCount = setsPerPool * 3,
       ),
     ]
@@ -454,7 +460,7 @@ proc createPresentSurface(ctx: VulkanContext) =
           )
         let vkCreateXcbSurfaceKHRNative = cast[VkCreateXcbSurfaceKHRNativeProc](fnPtr)
         var createInfo = VkXcbSurfaceCreateInfoKHRNative(
-          sType: VkStructureType.XcbSurfaceCreateInfoKHR,
+          sType: VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
           pNext: nil,
           flags: 0.VkXcbSurfaceCreateFlagsKHR,
           connection: xcbConn,
@@ -472,7 +478,7 @@ proc createPresentSurface(ctx: VulkanContext) =
           raise newException(ValueError, "vkCreateXlibSurfaceKHR unavailable")
         let vkCreateXlibSurfaceKHRNative = cast[VkCreateXlibSurfaceKHRNativeProc](fnPtr)
         var createInfo = VkXlibSurfaceCreateInfoKHRNative(
-          sType: VkStructureType.XlibSurfaceCreateInfoKHR,
+          sType: VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
           pNext: nil,
           flags: 0.VkXlibSurfaceCreateFlagsKHR,
           dpy: ctx.presentXlibDisplay,
@@ -506,7 +512,7 @@ proc createPresentSurface(ctx: VulkanContext) =
         raise newException(ValueError, "vkCreateWin32SurfaceKHR unavailable")
       let vkCreateWin32SurfaceKHRNative = cast[VkCreateWin32SurfaceKHRNativeProc](fnPtr)
       var createInfo = VkWin32SurfaceCreateInfoKHRNative(
-        sType: VkStructureType.Win32SurfaceCreateInfoKHR,
+        sType: VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
         pNext: nil,
         flags: 0.VkWin32SurfaceCreateFlagsKHR,
         hinstance: ctx.presentWin32Hinstance,
@@ -550,7 +556,7 @@ proc createImage(
     samples = VK_SAMPLE_COUNT_1_BIT,
     tiling = tiling,
     usage = usage,
-    sharingMode = VkSharingMode.Exclusive,
+    sharingMode = VK_SHARING_MODE_EXCLUSIVE,
     queueFamilyIndices = [],
     initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
   )
@@ -569,7 +575,9 @@ proc createImage(
   checkVkResult ctx.vk.vkBindImageMemory(
     ctx.device, result.handle, result.allocation, 0.VkDeviceSize
   )
-  result.view = ctx.createImageView(result.handle, format, VkImageAspectFlags{ColorBit})
+  result.view = ctx.createImageView(
+    result.handle, format, VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT)
+  )
 
 proc createImageView(
     ctx: VulkanContext, image: VkImage, format: VkFormat, aspectMask: VkImageAspectFlags
@@ -624,16 +632,21 @@ proc ensureBackdropImage(ctx: VulkanContext, width, height: int32) =
     height = h.uint32,
     format = backdropFormat,
     tiling = VK_IMAGE_TILING_OPTIMAL,
-    usage = VkImageUsageFlags{SampledBit, TransferDstBit, ColorAttachmentBit},
-    properties = VkMemoryPropertyFlags{DeviceLocalBit},
+    usage = VkImageUsageFlags(
+      VK_IMAGE_USAGE_SAMPLED_BIT or VK_IMAGE_USAGE_TRANSFER_DST_BIT or
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+    ),
+    properties = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
   )
   let backdropTempAlloc = ctx.createImage(
     width = w.uint32,
     height = h.uint32,
     format = backdropFormat,
     tiling = VK_IMAGE_TILING_OPTIMAL,
-    usage = VkImageUsageFlags{SampledBit, ColorAttachmentBit},
-    properties = VkMemoryPropertyFlags{DeviceLocalBit},
+    usage = VkImageUsageFlags(
+      VK_IMAGE_USAGE_SAMPLED_BIT or VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+    ),
+    properties = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
   )
   ctx.backdropImage = backdropAlloc
   ctx.backdropBlurTempImage = backdropTempAlloc
@@ -736,8 +749,11 @@ proc ensureOpacityTarget(ctx: VulkanContext, depth: int) =
     height = extent.height,
     format = ctx.swapchainFormat,
     tiling = VK_IMAGE_TILING_OPTIMAL,
-    usage = VkImageUsageFlags{SampledBit, ColorAttachmentBit, TransferSrcBit},
-    properties = VkMemoryPropertyFlags{DeviceLocalBit},
+    usage = VkImageUsageFlags(
+      VK_IMAGE_USAGE_SAMPLED_BIT or VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT or
+        VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+    ),
+    properties = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
   )
   target.width = extent.width
   target.height = extent.height
@@ -819,7 +835,7 @@ proc updateDescriptorSet(ctx: VulkanContext, vsUpload, fsUpload: VulkanUpload) =
       dstBinding = 0,
       dstArrayElement = 0,
       descriptorCount = 1,
-      descriptorType = VkDescriptorType.UniformBuffer,
+      descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
       pImageInfo = nil,
       pBufferInfo = vsInfo.addr,
       pTexelBufferView = nil,
@@ -829,7 +845,7 @@ proc updateDescriptorSet(ctx: VulkanContext, vsUpload, fsUpload: VulkanUpload) =
       dstBinding = 1,
       dstArrayElement = 0,
       descriptorCount = 1,
-      descriptorType = VkDescriptorType.UniformBuffer,
+      descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
       pImageInfo = nil,
       pBufferInfo = fsInfo.addr,
       pTexelBufferView = nil,
@@ -839,7 +855,7 @@ proc updateDescriptorSet(ctx: VulkanContext, vsUpload, fsUpload: VulkanUpload) =
       dstBinding = 2,
       dstArrayElement = 0,
       descriptorCount = 1,
-      descriptorType = VkDescriptorType.CombinedImageSampler,
+      descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
       pImageInfo = atlasImageInfo.addr,
       pBufferInfo = nil,
       pTexelBufferView = nil,
@@ -849,7 +865,7 @@ proc updateDescriptorSet(ctx: VulkanContext, vsUpload, fsUpload: VulkanUpload) =
       dstBinding = 3,
       dstArrayElement = 0,
       descriptorCount = 1,
-      descriptorType = VkDescriptorType.CombinedImageSampler,
+      descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
       pImageInfo = atlasImageInfo.addr,
       pBufferInfo = nil,
       pTexelBufferView = nil,
@@ -859,7 +875,7 @@ proc updateDescriptorSet(ctx: VulkanContext, vsUpload, fsUpload: VulkanUpload) =
       dstBinding = 4,
       dstArrayElement = 0,
       descriptorCount = 1,
-      descriptorType = VkDescriptorType.CombinedImageSampler,
+      descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
       pImageInfo = backdropImageInfo.addr,
       pBufferInfo = nil,
       pTexelBufferView = nil,
@@ -887,8 +903,9 @@ proc recreateAtlasGpu(ctx: VulkanContext) =
     height = ctx.atlasSize.uint32,
     format = VK_FORMAT_R8G8B8A8_UNORM,
     tiling = VK_IMAGE_TILING_OPTIMAL,
-    usage = VkImageUsageFlags{SampledBit, TransferDstBit},
-    properties = VkMemoryPropertyFlags{DeviceLocalBit},
+    usage =
+      VkImageUsageFlags(VK_IMAGE_USAGE_SAMPLED_BIT or VK_IMAGE_USAGE_TRANSFER_DST_BIT),
+    properties = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
   )
   if not ctx.atlasImage.isNil:
     ctx.frameImages.add(ctx.atlasImage)
@@ -928,10 +945,12 @@ proc createPipeline(ctx: VulkanContext) =
   var dependency = VkSubpassDependency(
     srcSubpass: VK_SUBPASS_EXTERNAL,
     dstSubpass: 0,
-    srcStageMask: VkPipelineStageFlags{ColorAttachmentOutputBit},
-    dstStageMask: VkPipelineStageFlags{ColorAttachmentOutputBit},
-    srcAccessMask: VkAccessFlags{ColorAttachmentWriteBit},
-    dstAccessMask: VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit},
+    srcStageMask: VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT),
+    dstStageMask: VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT),
+    srcAccessMask: VkAccessFlags(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT),
+    dstAccessMask: VkAccessFlags(
+      VK_ACCESS_COLOR_ATTACHMENT_READ_BIT or VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+    ),
     dependencyFlags: 0.VkDependencyFlags,
   )
 
@@ -950,13 +969,13 @@ proc createPipeline(ctx: VulkanContext) =
     ctx.fragShader = ctx.vk.createShaderModule(ctx.device, fragInfo)
 
   let vertStage = newVkPipelineShaderStageCreateInfo(
-    stage = VkShaderStageFlagBits.VertexBit,
+    stage = VK_SHADER_STAGE_VERTEX_BIT,
     module = ctx.vertShader,
     pName = "main",
     pSpecializationInfo = nil,
   )
   let fragStage = newVkPipelineShaderStageCreateInfo(
-    stage = VkShaderStageFlagBits.FragmentBit,
+    stage = VK_SHADER_STAGE_FRAGMENT_BIT,
     module = ctx.fragShader,
     pName = "main",
     pSpecializationInfo = nil,
@@ -1105,7 +1124,10 @@ proc createPipeline(ctx: VulkanContext) =
     srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
     dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
     alphaBlendOp = VK_BLEND_OP_ADD,
-    colorWriteMask = VkColorComponentFlags{RBit, GBit, BBit, ABit},
+    colorWriteMask = VkColorComponentFlags(
+      VK_COLOR_COMPONENT_R_BIT or VK_COLOR_COMPONENT_G_BIT or VK_COLOR_COMPONENT_B_BIT or
+        VK_COLOR_COMPONENT_A_BIT
+    ),
   )
 
   let colorBlending = VkPipelineColorBlendStateCreateInfo(
@@ -1237,7 +1259,9 @@ proc createSwapchain(ctx: VulkanContext, width, height: int32) =
   ctx.swapchainViews.setLen(actualCount)
   for i in 0 ..< actualCount.int:
     ctx.swapchainViews[i] = ctx.createImageView(
-      ctx.swapchainImages[i], config.surfaceFormat.format, VkImageAspectFlags{ColorBit}
+      ctx.swapchainImages[i],
+      config.surfaceFormat.format,
+      VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
     )
 
   ctx.swapchainFormat = config.surfaceFormat.format
@@ -1320,8 +1344,10 @@ proc ensureReadbackBuffer(ctx: VulkanContext, bytes: VkDeviceSize) =
 
   let alloc = ctx.createBuffer(
     size = bytes,
-    usage = VkBufferUsageFlags{TransferDstBit},
-    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
+    usage = VkBufferUsageFlags(VK_BUFFER_USAGE_TRANSFER_DST_BIT),
+    properties = VkMemoryPropertyFlags(
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT or VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    ),
   )
   ctx.readbackBuffer = alloc
   ctx.readbackBytes = bytes
@@ -1338,27 +1364,27 @@ proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
       VK_IMAGE_LAYOUT_UNDEFINED
   let atlasSrcAccess =
     if ctx.atlasLayoutReady:
-      VkAccessFlags{ShaderReadBit}
+      VkAccessFlags(VK_ACCESS_SHADER_READ_BIT)
     else:
       0.VkAccessFlags
   let atlasSrcStage =
     if ctx.atlasLayoutReady:
-      VkPipelineStageFlags{FragmentShaderBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
     else:
-      VkPipelineStageFlags{TopOfPipeBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT)
 
   var barrierToTransfer = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
     srcAccessMask: atlasSrcAccess,
-    dstAccessMask: VkAccessFlags{TransferWriteBit},
+    dstAccessMask: VkAccessFlags(VK_ACCESS_TRANSFER_WRITE_BIT),
     oldLayout: atlasOldLayout,
     newLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: ctx.atlasImage.handle,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -1368,7 +1394,7 @@ proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
   ctx.vk.vkCmdPipelineBarrier(
     cmd,
     atlasSrcStage,
-    VkPipelineStageFlags{TransferBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_TRANSFER_BIT),
     0.VkDependencyFlags,
     0,
     nil,
@@ -1383,7 +1409,7 @@ proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
     bufferRowLength: 0,
     bufferImageHeight: 0,
     imageSubresource: newVkImageSubresourceLayers(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       mipLevel = 0,
       baseArrayLayer = 0,
       layerCount = 1,
@@ -1401,15 +1427,15 @@ proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
   var barrierToRead = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
-    srcAccessMask: VkAccessFlags{TransferWriteBit},
-    dstAccessMask: VkAccessFlags{ShaderReadBit},
+    srcAccessMask: VkAccessFlags(VK_ACCESS_TRANSFER_WRITE_BIT),
+    dstAccessMask: VkAccessFlags(VK_ACCESS_SHADER_READ_BIT),
     oldLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
     newLayout: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: ctx.atlasImage.handle,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -1418,8 +1444,8 @@ proc recordAtlasUpload(ctx: VulkanContext, cmd: VkCommandBuffer) =
   )
   ctx.vk.vkCmdPipelineBarrier(
     cmd,
-    VkPipelineStageFlags{TransferBit},
-    VkPipelineStageFlags{FragmentShaderBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_TRANSFER_BIT),
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT),
     0.VkDependencyFlags,
     0,
     nil,
@@ -1544,15 +1570,15 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
   var imageToTransfer = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
-    srcAccessMask: VkAccessFlags{ColorAttachmentWriteBit},
-    dstAccessMask: VkAccessFlags{TransferReadBit},
+    srcAccessMask: VkAccessFlags(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT),
+    dstAccessMask: VkAccessFlags(VK_ACCESS_TRANSFER_READ_BIT),
     oldLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     newLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: swapchainImage,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -1561,8 +1587,8 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
   )
   ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
-    VkPipelineStageFlags{ColorAttachmentOutputBit},
-    VkPipelineStageFlags{TransferBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT),
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_TRANSFER_BIT),
     0.VkDependencyFlags,
     0,
     nil,
@@ -1577,7 +1603,7 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
     bufferRowLength: 0,
     bufferImageHeight: 0,
     imageSubresource: newVkImageSubresourceLayers(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       mipLevel = 0,
       baseArrayLayer = 0,
       layerCount = 1,
@@ -1595,8 +1621,8 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
   var readbackBarrier = VkBufferMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
     pNext: nil,
-    srcAccessMask: VkAccessFlags{TransferWriteBit},
-    dstAccessMask: VkAccessFlags{HostReadBit},
+    srcAccessMask: VkAccessFlags(VK_ACCESS_TRANSFER_WRITE_BIT),
+    dstAccessMask: VkAccessFlags(VK_ACCESS_HOST_READ_BIT),
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     buffer: ctx.readbackBuffer.handle,
@@ -1605,8 +1631,8 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
   )
   ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
-    VkPipelineStageFlags{TransferBit},
-    VkPipelineStageFlags{HostBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_TRANSFER_BIT),
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_HOST_BIT),
     0.VkDependencyFlags,
     0,
     nil,
@@ -1619,15 +1645,17 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
   var imageToPresent = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
-    srcAccessMask: VkAccessFlags{TransferReadBit},
-    dstAccessMask: VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit},
+    srcAccessMask: VkAccessFlags(VK_ACCESS_TRANSFER_READ_BIT),
+    dstAccessMask: VkAccessFlags(
+      VK_ACCESS_COLOR_ATTACHMENT_READ_BIT or VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+    ),
     oldLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
     newLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: swapchainImage,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -1636,8 +1664,8 @@ proc recordSwapchainReadback(ctx: VulkanContext) =
   )
   ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
-    VkPipelineStageFlags{TransferBit},
-    VkPipelineStageFlags{ColorAttachmentOutputBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_TRANSFER_BIT),
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT),
     0.VkDependencyFlags,
     0,
     nil,
@@ -1728,12 +1756,7 @@ proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
     debug "Selected Linux Vulkan surface extension mode",
       linuxSurfaceKind = $ctx.linuxSurfaceKind
 
-  var attempts: seq[uint32] = @[]
-  if loaderApiVersion >= vkApiVersion1_1:
-    attempts.add(vkApiVersion1_1)
-  attempts.add(vkApiVersion1_0)
-
-  for apiVersion in attempts:
+  for apiVersion in instanceVersionAttempts(loaderApiVersion):
     let appInfo = newVkApplicationInfo(
       pApplicationName = "figdraw-vulkan",
       applicationVersion = vkMakeVersion(0, 0, 1, 0),
@@ -1749,7 +1772,7 @@ proc createInstanceWithFallback(ctx: VulkanContext): VkInstance =
     when UseVulkanValidation:
       let validationFeatures = newVkValidationFeaturesEXT(
         enabledValidationFeatures =
-          [VkValidationFeatureEnableEXT.SynchronizationValidation],
+          [VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT],
         disabledValidationFeatures = [],
       )
       instanceInfo.pNext = validationFeatures.unsafeAddr
@@ -1814,7 +1837,7 @@ proc transitionSwapchain(
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: ctx.swapchainImages[ctx.acquiredImageIndex.int],
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -1831,28 +1854,32 @@ proc transitionOpacityTarget(ctx: VulkanContext, index: int, layout: VkImageLayo
   let oldLayout = target.layout
   let sourceStage =
     if oldLayout == VK_IMAGE_LAYOUT_UNDEFINED:
-      VkPipelineStageFlags{TopOfPipeBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT)
     elif oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-      VkPipelineStageFlags{FragmentShaderBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
     else:
-      VkPipelineStageFlags{ColorAttachmentOutputBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
   let sourceAccess =
     if oldLayout == VK_IMAGE_LAYOUT_UNDEFINED:
       0.VkAccessFlags
     elif oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-      VkAccessFlags{ShaderReadBit}
+      VkAccessFlags(VK_ACCESS_SHADER_READ_BIT)
     else:
-      VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit}
+      VkAccessFlags(
+        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT or VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+      )
   let destStage =
     if layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-      VkPipelineStageFlags{FragmentShaderBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
     else:
-      VkPipelineStageFlags{ColorAttachmentOutputBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
   let destAccess =
     if layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-      VkAccessFlags{ShaderReadBit}
+      VkAccessFlags(VK_ACCESS_SHADER_READ_BIT)
     else:
-      VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit}
+      VkAccessFlags(
+        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT or VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+      )
   var barrier = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     srcAccessMask: sourceAccess,
@@ -1863,7 +1890,7 @@ proc transitionOpacityTarget(ctx: VulkanContext, index: int, layout: VkImageLayo
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: target.image.handle,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -1923,7 +1950,7 @@ proc beginRenderPassIfNeeded(ctx: VulkanContext) =
       )
     )
     var clearAttachment = VkClearAttachment(
-      aspectMask: VkImageAspectFlags{ColorBit},
+      aspectMask: VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       colorAttachment: 0,
       clearValue: clearValue,
     )
@@ -2093,7 +2120,7 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
 
   let poolInfo = newVkCommandPoolCreateInfo(
     queueFamilyIndex = ctx.queueFamily,
-    flags = VkCommandPoolCreateFlags{ResetCommandBufferBit},
+    flags = VkCommandPoolCreateFlags(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT),
   )
   ctx.commandPool = ctx.vk.createCommandPool(ctx.device, poolInfo)
 
@@ -2108,7 +2135,8 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   checkVkResult ctx.vk.vkCreateSemaphore(
     ctx.device, semaphoreInfo.addr, nil, ctx.imageAvailableSemaphore.addr
   )
-  let fenceInfo = newVkFenceCreateInfo(flags = VkFenceCreateFlags{SignaledBit})
+  let fenceInfo =
+    newVkFenceCreateInfo(flags = VkFenceCreateFlags(VK_FENCE_CREATE_SIGNALED_BIT))
   checkVkResult ctx.vk.vkCreateFence(
     ctx.device, fenceInfo.addr, nil, ctx.inFlightFence.addr
   )
@@ -2116,37 +2144,37 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   let setBindings = [
     newVkDescriptorSetLayoutBinding(
       binding = 0,
-      descriptorType = VkDescriptorType.UniformBuffer,
+      descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
       descriptorCount = 1,
-      stageFlags = VkShaderStageFlags{VertexBit},
+      stageFlags = VkShaderStageFlags(VK_SHADER_STAGE_VERTEX_BIT),
       pImmutableSamplers = nil,
     ),
     newVkDescriptorSetLayoutBinding(
       binding = 1,
-      descriptorType = VkDescriptorType.UniformBuffer,
+      descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
       descriptorCount = 1,
-      stageFlags = VkShaderStageFlags{FragmentBit},
+      stageFlags = VkShaderStageFlags(VK_SHADER_STAGE_FRAGMENT_BIT),
       pImmutableSamplers = nil,
     ),
     newVkDescriptorSetLayoutBinding(
       binding = 2,
-      descriptorType = VkDescriptorType.CombinedImageSampler,
+      descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
       descriptorCount = 1,
-      stageFlags = VkShaderStageFlags{FragmentBit},
+      stageFlags = VkShaderStageFlags(VK_SHADER_STAGE_FRAGMENT_BIT),
       pImmutableSamplers = nil,
     ),
     newVkDescriptorSetLayoutBinding(
       binding = 3,
-      descriptorType = VkDescriptorType.CombinedImageSampler,
+      descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
       descriptorCount = 1,
-      stageFlags = VkShaderStageFlags{FragmentBit},
+      stageFlags = VkShaderStageFlags(VK_SHADER_STAGE_FRAGMENT_BIT),
       pImmutableSamplers = nil,
     ),
     newVkDescriptorSetLayoutBinding(
       binding = 4,
-      descriptorType = VkDescriptorType.CombinedImageSampler,
+      descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
       descriptorCount = 1,
-      stageFlags = VkShaderStageFlags{FragmentBit},
+      stageFlags = VkShaderStageFlags(VK_SHADER_STAGE_FRAGMENT_BIT),
       pImmutableSamplers = nil,
     ),
   ]
@@ -2157,16 +2185,16 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   let blurSetBindings = [
     newVkDescriptorSetLayoutBinding(
       binding = 0,
-      descriptorType = VkDescriptorType.CombinedImageSampler,
+      descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
       descriptorCount = 1,
-      stageFlags = VkShaderStageFlags{FragmentBit},
+      stageFlags = VkShaderStageFlags(VK_SHADER_STAGE_FRAGMENT_BIT),
       pImmutableSamplers = nil,
     ),
     newVkDescriptorSetLayoutBinding(
       binding = 1,
-      descriptorType = VkDescriptorType.UniformBuffer,
+      descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
       descriptorCount = 1,
-      stageFlags = VkShaderStageFlags{FragmentBit},
+      stageFlags = VkShaderStageFlags(VK_SHADER_STAGE_FRAGMENT_BIT),
       pImmutableSamplers = nil,
     ),
   ]
@@ -2177,8 +2205,10 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   let indexBytes = VkDeviceSize(sizeof(uint16) * ctx.indices.len)
   let indexAlloc = ctx.createBuffer(
     size = indexBytes,
-    usage = VkBufferUsageFlags{IndexBufferBit},
-    properties = VkMemoryPropertyFlags{HostVisibleBit, HostCoherentBit},
+    usage = VkBufferUsageFlags(VK_BUFFER_USAGE_INDEX_BUFFER_BIT),
+    properties = VkMemoryPropertyFlags(
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT or VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    ),
   )
   ctx.indexBuffer = indexAlloc
   ctx.indexBufferBytes = indexBytes
@@ -3803,27 +3833,27 @@ method drawBackdropBlur*(
       VK_IMAGE_LAYOUT_UNDEFINED
   let backdropSrcAccess =
     if ctx.backdropLayoutReady:
-      VkAccessFlags{ShaderReadBit}
+      VkAccessFlags(VK_ACCESS_SHADER_READ_BIT)
     else:
       0.VkAccessFlags
   let backdropSrcStage =
     if ctx.backdropLayoutReady:
-      VkPipelineStageFlags{FragmentShaderBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
     else:
-      VkPipelineStageFlags{TopOfPipeBit}
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT)
 
   var backdropToTransfer = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
     srcAccessMask: backdropSrcAccess,
-    dstAccessMask: VkAccessFlags{TransferWriteBit},
+    dstAccessMask: VkAccessFlags(VK_ACCESS_TRANSFER_WRITE_BIT),
     oldLayout: backdropOldLayout,
     newLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: ctx.backdropImage.handle,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -3833,7 +3863,7 @@ method drawBackdropBlur*(
   ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
     backdropSrcStage,
-    VkPipelineStageFlags{TransferBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_TRANSFER_BIT),
     0.VkDependencyFlags,
     0,
     nil,
@@ -3851,15 +3881,15 @@ method drawBackdropBlur*(
   var swapchainToTransfer = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
-    srcAccessMask: VkAccessFlags{ColorAttachmentWriteBit},
-    dstAccessMask: VkAccessFlags{TransferReadBit},
+    srcAccessMask: VkAccessFlags(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT),
+    dstAccessMask: VkAccessFlags(VK_ACCESS_TRANSFER_READ_BIT),
     oldLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     newLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: swapchainImage,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -3868,8 +3898,8 @@ method drawBackdropBlur*(
   )
   ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
-    VkPipelineStageFlags{ColorAttachmentOutputBit},
-    VkPipelineStageFlags{TransferBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT),
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_TRANSFER_BIT),
     0.VkDependencyFlags,
     0,
     nil,
@@ -3881,14 +3911,14 @@ method drawBackdropBlur*(
 
   var copyRegion = VkImageCopy(
     srcSubresource: newVkImageSubresourceLayers(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       mipLevel = 0,
       baseArrayLayer = 0,
       layerCount = 1,
     ),
     srcOffset: newVkOffset3D(x = blurRect.offset.x, y = blurRect.offset.y, z = 0),
     dstSubresource: newVkImageSubresourceLayers(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       mipLevel = 0,
       baseArrayLayer = 0,
       layerCount = 1,
@@ -3906,15 +3936,15 @@ method drawBackdropBlur*(
   var backdropToRead = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
-    srcAccessMask: VkAccessFlags{TransferWriteBit},
-    dstAccessMask: VkAccessFlags{ShaderReadBit},
+    srcAccessMask: VkAccessFlags(VK_ACCESS_TRANSFER_WRITE_BIT),
+    dstAccessMask: VkAccessFlags(VK_ACCESS_SHADER_READ_BIT),
     oldLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
     newLayout: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: ctx.backdropImage.handle,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -3923,8 +3953,8 @@ method drawBackdropBlur*(
   )
   ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
-    VkPipelineStageFlags{TransferBit},
-    VkPipelineStageFlags{FragmentShaderBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_TRANSFER_BIT),
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT),
     0.VkDependencyFlags,
     0,
     nil,
@@ -3937,15 +3967,17 @@ method drawBackdropBlur*(
   var swapchainToPresent = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
-    srcAccessMask: VkAccessFlags{TransferReadBit},
-    dstAccessMask: VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit},
+    srcAccessMask: VkAccessFlags(VK_ACCESS_TRANSFER_READ_BIT),
+    dstAccessMask: VkAccessFlags(
+      VK_ACCESS_COLOR_ATTACHMENT_READ_BIT or VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+    ),
     oldLayout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
     newLayout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: swapchainImage,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -3954,8 +3986,8 @@ method drawBackdropBlur*(
   )
   ctx.vk.vkCmdPipelineBarrier(
     ctx.commandBuffer,
-    VkPipelineStageFlags{TransferBit},
-    VkPipelineStageFlags{ColorAttachmentOutputBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_TRANSFER_BIT),
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT),
     0.VkDependencyFlags,
     0,
     nil,
@@ -4100,7 +4132,7 @@ when defined(macosx):
     ## Skip a visually stale acquired image while still consuming the acquire semaphore.
     let
       waitSemaphores = [ctx.imageAvailableSemaphore]
-      waitStages = [VkPipelineStageFlags{ColorAttachmentOutputBit}]
+      waitStages = [VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)]
       commandBuffers: array[0, VkCommandBuffer] = []
       signalSemaphores: array[0, VkSemaphore] = []
 
@@ -4202,14 +4234,14 @@ proc beginFrame*(
     # first blur. Keep its declared layout valid for ordinary draws as well.
     var barrier = VkImageMemoryBarrier(
       sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-      dstAccessMask: VkAccessFlags{ShaderReadBit},
+      dstAccessMask: VkAccessFlags(VK_ACCESS_SHADER_READ_BIT),
       oldLayout: VK_IMAGE_LAYOUT_UNDEFINED,
       newLayout: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
       dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
       image: ctx.backdropImage.handle,
       subresourceRange: newVkImageSubresourceRange(
-        aspectMask = VkImageAspectFlags{ColorBit},
+        aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
         baseMipLevel = 0,
         levelCount = 1,
         baseArrayLayer = 0,
@@ -4218,8 +4250,8 @@ proc beginFrame*(
     )
     ctx.vk.vkCmdPipelineBarrier(
       ctx.commandBuffer,
-      VkPipelineStageFlags{TopOfPipeBit},
-      VkPipelineStageFlags{FragmentShaderBit},
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
+      VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT),
       0.VkDependencyFlags,
       0,
       nil,
@@ -4232,10 +4264,12 @@ proc beginFrame*(
   ctx.transitionSwapchain(
     VK_IMAGE_LAYOUT_UNDEFINED,
     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-    VkPipelineStageFlags{ColorAttachmentOutputBit},
-    VkPipelineStageFlags{ColorAttachmentOutputBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT),
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT),
     0.VkAccessFlags,
-    VkAccessFlags{ColorAttachmentReadBit, ColorAttachmentWriteBit},
+    VkAccessFlags(
+      VK_ACCESS_COLOR_ATTACHMENT_READ_BIT or VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+    ),
   )
 
 method beginFrame*(
@@ -4278,16 +4312,22 @@ method endFrame*(ctx: VulkanContext) =
     ctx.readbackReady = false
   ctx.transitionSwapchain(
     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-    VkImageLayout.PresentSrcKhr,
-    VkPipelineStageFlags{ColorAttachmentOutputBit, TransferBit},
-    VkPipelineStageFlags{BottomOfPipeBit},
-    VkAccessFlags{ColorAttachmentWriteBit, TransferReadBit},
+    VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+    VkPipelineStageFlags(
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT or VK_PIPELINE_STAGE_TRANSFER_BIT
+    ),
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT),
+    VkAccessFlags(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT or VK_ACCESS_TRANSFER_READ_BIT),
     0.VkAccessFlags,
   )
   checkVkResult ctx.vk.vkEndCommandBuffer(ctx.commandBuffer)
 
   let waitSemaphores = [ctx.imageAvailableSemaphore]
-  let waitStages = [VkPipelineStageFlags{ColorAttachmentOutputBit, TransferBit}]
+  let waitStages = [
+    VkPipelineStageFlags(
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT or VK_PIPELINE_STAGE_TRANSFER_BIT
+    )
+  ]
   let signalSemaphores = [ctx.renderFinishedSemaphores[ctx.acquiredImageIndex.int]]
   let submitInfo = newVkSubmitInfo(
     waitSemaphores = waitSemaphores,
@@ -4695,9 +4735,15 @@ proc ensureInstance*(ctx: VulkanContext) =
   ctx.vk.loadInstance(ctx.instance)
   when UseVulkanValidation:
     let debugInfo = newVkDebugUtilsMessengerCreateInfoEXT(
-      messageSeverity = VkDebugUtilsMessageSeverityFlagsEXT{WarningBit, ErrorBit},
-      messageType =
-        VkDebugUtilsMessageTypeFlagsEXT{GeneralBit, ValidationBit, PerformanceBit},
+      messageSeverity = VkDebugUtilsMessageSeverityFlagsEXT(
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT or
+          VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
+      ),
+      messageType = VkDebugUtilsMessageTypeFlagsEXT(
+        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT or
+          VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT or
+          VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT
+      ),
       pfnUserCallback = validationCallback,
       pUserData = ctx.validationErrors.addr,
     )

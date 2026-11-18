@@ -6,6 +6,19 @@
   storage, device capability checks, and a portable decoded RGBA fallback.
 - Retain compressed image messages across renderer replay and expose separate
   compressed texture counters. Keep glyphs and distance fields lossless.
+- Add opt-in compact CBOR scene interchange with text and image resource resolvers.
+
+- Add an SVG image-rendering mode with separately cached fill and stroke
+  layers, and let the Siwin viewer toggle between image and MTSDF modes.
+
+- Let the Siwin SVG viewer change MTSDF base size and toggle adaptive sizing,
+  including command-line starting options, while preserving the view.
+
+- Switch the Vulkan renderer to vk14 while keeping context-local dispatch and
+  Vulkan 1.0 fallback. The vk14 backend requires a 64-bit target and Nim 2.2.4
+  or newer.
+- Load Vulkan on demand and report missing libraries and entry points as
+  catchable errors.
 - Add the opt-in Windows UIRelays text backend. Native font measurements and
   per-rune rasterization feed the existing GPU atlas without HarfBuzz/FriBiDi.
   Font collection faces, custom line spacing, and bounded native-font ownership

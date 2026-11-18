@@ -157,6 +157,12 @@ scene.setLayer(0.ZLevel, list)
 
 Use `newSvgMtsdfResource(svgText)` for an in-memory document. `longEdge`,
 `minimumShortEdge`, and `pixelRange` control the base distance-field budget.
+Set `renderMode = srmRaster` to cache ordinary fills and strokes as separate,
+cropped RGBA images instead of MTSDF fields and native primitives. `longEdge`
+sets their document resolution (capped at 4096); scaling reuses the images, so
+rebuild the resource for a different raster resolution. Opacity groups remain
+isolated, and gradients, masks, and clips retain their existing raster fallback.
+
 By default, `adaptive = true` uses a cheap raster probe to estimate each path's
 average feature width and increases resolution by 2× or 4× for narrow fills.
 Broad fills keep the base resolution. This costs extra loading time and texture
@@ -188,13 +194,22 @@ with a whole-SVG Pixie raster.
 For an interactive Siwin window, run:
 
 ```sh
-nim r examples/siwin_svg.nim [input.svg]
+nim r examples/siwin_svg.nim [input.svg] [--size=N] [--adaptive|--fixed] [--raster|--mtsdf]
 ```
 
 The viewer opens the tiger by default. Drag with the left mouse button to pan,
 scroll to zoom around the pointer, and press `R`, `0`, or Home to fit the SVG.
 Use `+`/`-` to zoom around the window center and Escape to close. Resizing keeps
 the current view centered; the SVG resource and coverage tiers are reused.
+Press `I` to toggle image and MTSDF modes. Press `[` or `]` to change the base
+size (48, 96, 192, 384, 768), and `A` to toggle adaptive sizing. The title
+shows the active settings. In image mode, the size controls raster resolution
+and adaptive sizing has no effect. `--size=N` sets a custom starting base from
+32 to 1024; the default is 192 and adaptive.
+Adaptive mode still uses that base: narrow paths can receive 2× or 4× the base
+scale. Changing either setting rebuilds the resource and may take time, while
+preserving pan and zoom. Coverage images for thin strokes use their own
+screen-dependent sizing.
 
 ### Reusable primitive helpers
 
@@ -397,6 +412,10 @@ Use an X11 or Wayland session on Linux (`xvfb-run -a` provides X11 in CI).
 The graphics requirement makes setup failures fail the tests instead of skipping.
 
 ### Vulkan diagnostics
+
+The Vulkan backend uses vk14's bindings and requires a 64-bit target and Nim
+2.2.4 or newer. It can still use Vulkan 1.0 drivers when the required device and
+surface extensions are available.
 
 Build with `-d:figdraw.vulkan=on -d:figdraw.opengl=off` to exercise Vulkan
 without the OpenGL backend. Add `-d:figdraw.vulkanValidation` to enable the
@@ -1478,6 +1497,10 @@ The same switch is supported by `siwin_cell_grid.nim`,
 
 - Rendering is structured so that preparing render lists/trees can be done off-thread.
 - GPU resource submission (OpenGL calls) must happen on the GL thread; the backend enforces this separation.
+
+### Optional CBOR scene interchange
+
+See [CBOR scene interchange](docs/cbor.md) for the opt-in versioned protocol, resource resolvers, and supported scene values.
 
 ## License
 
