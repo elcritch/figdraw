@@ -1467,20 +1467,20 @@ proc recordCompressedUpload(
 
   let atlasOldLayout = VK_IMAGE_LAYOUT_UNDEFINED
   let atlasSrcAccess = 0.VkAccessFlags
-  let atlasSrcStage = VkPipelineStageFlags{TopOfPipeBit}
+  let atlasSrcStage = VkPipelineStageFlags(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT)
 
   var barrierToTransfer = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
     srcAccessMask: atlasSrcAccess,
-    dstAccessMask: VkAccessFlags{TransferWriteBit},
+    dstAccessMask: VkAccessFlags(VK_ACCESS_TRANSFER_WRITE_BIT),
     oldLayout: atlasOldLayout,
     newLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: tex.image.handle,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -1490,7 +1490,7 @@ proc recordCompressedUpload(
   ctx.vk.vkCmdPipelineBarrier(
     cmd,
     atlasSrcStage,
-    VkPipelineStageFlags{TransferBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_TRANSFER_BIT),
     0.VkDependencyFlags,
     0,
     nil,
@@ -1505,7 +1505,7 @@ proc recordCompressedUpload(
     bufferRowLength: 0,
     bufferImageHeight: 0,
     imageSubresource: newVkImageSubresourceLayers(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       mipLevel = 0,
       baseArrayLayer = 0,
       layerCount = 1,
@@ -1522,15 +1522,15 @@ proc recordCompressedUpload(
   var barrierToRead = VkImageMemoryBarrier(
     sType: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
     pNext: nil,
-    srcAccessMask: VkAccessFlags{TransferWriteBit},
-    dstAccessMask: VkAccessFlags{ShaderReadBit},
+    srcAccessMask: VkAccessFlags(VK_ACCESS_TRANSFER_WRITE_BIT),
+    dstAccessMask: VkAccessFlags(VK_ACCESS_SHADER_READ_BIT),
     oldLayout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
     newLayout: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     srcQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     dstQueueFamilyIndex: VK_QUEUE_FAMILY_IGNORED,
     image: tex.image.handle,
     subresourceRange: newVkImageSubresourceRange(
-      aspectMask = VkImageAspectFlags{ColorBit},
+      aspectMask = VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
       baseMipLevel = 0,
       levelCount = 1,
       baseArrayLayer = 0,
@@ -1539,8 +1539,8 @@ proc recordCompressedUpload(
   )
   ctx.vk.vkCmdPipelineBarrier(
     cmd,
-    VkPipelineStageFlags{TransferBit},
-    VkPipelineStageFlags{FragmentShaderBit},
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_TRANSFER_BIT),
+    VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT),
     0.VkDependencyFlags,
     0,
     nil,
@@ -2095,20 +2095,23 @@ proc ensureGpuRuntime(ctx: VulkanContext) =
   ctx.vk.vkGetPhysicalDeviceFormatProperties(
     ctx.physicalDevice, VK_FORMAT_BC3_UNORM_BLOCK, formatProperties.addr
   )
-  let features = formatProperties.optimalTilingFeatures
+  let requiredFormatFeatures =
+    VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT or
+    VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT or
+    VK_FORMAT_FEATURE_TRANSFER_DST_BIT
   ctx.bc3Supported =
-    uint32(supportedFeatures.textureCompressionBC) != 0 and SampledImageBit in features and
-    SampledImageFilterLinearBit in features and
-    VkFormatFeatureFlagBits.TransferDstBit in features
-  var enabledFeatures: VkPhysicalDeviceFeatures
+    uint32(supportedFeatures.textureCompressionBC) != 0 and
+    (uint32(formatProperties.optimalTilingFeatures) and requiredFormatFeatures) ==
+    requiredFormatFeatures
+  var enabledFeatures: array[1, VkPhysicalDeviceFeatures]
   if ctx.bc3Supported:
-    enabledFeatures.textureCompressionBC = VkBool32(VkTrue)
+    enabledFeatures[0].textureCompressionBC = VkBool32(VkTrue)
 
   let deviceInfo = newVkDeviceCreateInfo(
     queueCreateInfos = queueCreateInfos,
     pEnabledLayerNames = [],
     pEnabledExtensionNames = deviceExtensions,
-    enabledFeatures = [enabledFeatures],
+    enabledFeatures = enabledFeatures,
   )
   ctx.device = ctx.vk.createDevice(ctx.physicalDevice, deviceInfo)
   ctx.queue = ctx.vk.getDeviceQueue(ctx.device, ctx.queueFamily, 0)
@@ -2748,8 +2751,8 @@ proc restoreCompressedImages(ctx: VulkanContext) =
         tex.height.uint32,
         VK_FORMAT_BC3_UNORM_BLOCK,
         VK_IMAGE_TILING_OPTIMAL,
-        VkImageUsageFlags{SampledBit, TransferDstBit},
-        VkMemoryPropertyFlags{DeviceLocalBit},
+        VkImageUsageFlags(VK_IMAGE_USAGE_SAMPLED_BIT or VK_IMAGE_USAGE_TRANSFER_DST_BIT),
+        VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
       )
       tex.pendingUpload = true
     else:
@@ -2781,8 +2784,8 @@ method putCompressedImage*(ctx: VulkanContext, key: Hash, image: CompressedImage
     image.height.uint32,
     VK_FORMAT_BC3_UNORM_BLOCK,
     VK_IMAGE_TILING_OPTIMAL,
-    VkImageUsageFlags{SampledBit, TransferDstBit},
-    VkMemoryPropertyFlags{DeviceLocalBit},
+    VkImageUsageFlags(VK_IMAGE_USAGE_SAMPLED_BIT or VK_IMAGE_USAGE_TRANSFER_DST_BIT),
+    VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
   )
   ctx.retireCompressed(key)
   ctx.removeAtlasEntry(key)
