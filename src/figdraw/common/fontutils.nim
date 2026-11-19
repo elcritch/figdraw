@@ -4,9 +4,11 @@ import pkg/vmath
 
 import ./fonttypes
 import ./fontfallbacks
+import ./hyphenation
 import ./textbackends/state as backendState
 
 export fontfallbacks
+export hyphenation
 
 when not runtimeTextBackends and figdrawTextBackend != "harfbuzzy" and
     figdrawTextBackend notin ["hybrid", "uirelays"]:

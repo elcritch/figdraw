@@ -74,9 +74,52 @@ type
     features*: seq[FontFeature] ## OpenType features applied while shaping.
     variations*: seq[FontVariation] ## OpenType variable-axis coordinates.
 
+  ParagraphAlign* = enum
+    ## Horizontal placement of a paragraph's lines.
+    paInherit ## Use the typeset call's `hAlign`.
+    paLeft
+    paCenter
+    paRight
+    paJustify ## Stretch inter-word spaces so wrapped lines fill the measure.
+
+  ParagraphLineBreaking* = enum
+    plbGreedy ## Fill each line in turn; linear time.
+    plbOptimal
+      ## Choose breaks for the whole paragraph that minimize uneven spacing
+      ## (Knuth-Plass). Applies to justified paragraphs; falls back to greedy
+      ## breaking when no break set fits.
+
+  OverflowWrap* = enum
+    ## What to do with a word wider than the measure that has no
+    ## shaping-safe break point, like CSS `overflow-wrap`.
+    owNormal ## Let the word overflow; shaping stays exact.
+    owAnywhere
+      ## Break at any cluster boundary to stay inside the box. Glyphs beside
+      ## the break keep the shaping they had while joined, e.g. kerning.
+
+  ParagraphStyle* = object
+    ## Paragraph layout applied from the style of a paragraph's first span.
+    ## Lengths are pixels. The default value preserves unstyled layout.
+    firstLineIndent*: float32 ## Leading inset of a paragraph's first line.
+    headIndent*: float32 ## Leading inset of the paragraph's following lines.
+    tailIndent*: float32 ## Trailing inset of every line.
+    align*: ParagraphAlign
+    lastLineAlign*: ParagraphAlign
+      ## Last-line placement of a justified paragraph; `paInherit` uses the
+      ## paragraph direction's leading edge and `paJustify` stretches it too.
+    lineBreaking*: ParagraphLineBreaking
+    overflowWrap*: OverflowWrap
+    hyphenate*: bool
+      ## Break overflowing words at hyphenation points registered for the font
+      ## language. Soft hyphens (U+00AD) are honored whenever text wraps.
+    lineSpacing*: float32 ## Extra space after each line in the paragraph.
+    spacingBefore*: float32 ## Extra space above the paragraph, except the first.
+    spacingAfter*: float32 ## Extra space below the paragraph, except the last.
+
   FontStyle* = object
     font*: FigFont
     color*: Fill
+    paragraph*: ParagraphStyle
 
   TextStyleId* = distinct uint32
 
@@ -1120,10 +1163,22 @@ proc hash*(fnt: FigFont): Hash =
       h = h !& hash(f)
   result = !$h
 
+proc hash*(style: ParagraphStyle): Hash =
+  var h = Hash(0)
+  for value in style.fields():
+    h = h !& hash(value)
+  result = !$h
+
+func isDefault*(style: ParagraphStyle): bool =
+  ## Whether `style` leaves layout identical to unstyled text.
+  style == ParagraphStyle()
+
 proc hash*(style: FontStyle): Hash =
   var h = Hash(0)
   h = h !& hash(style.font)
   h = h !& hash(style.color)
+  if not style.paragraph.isDefault:
+    h = h !& hash(style.paragraph)
   result = !$h
 
 proc fs*(font: FigFont, color: Fill = fill(rgba(0, 0, 0, 255))): FontStyle =
@@ -1137,6 +1192,10 @@ proc fsp*(font: FigFont, color: Fill, text: string): (FontStyle, string) =
 proc span*(font: FigFont, color: Fill, text: string): (FontStyle, string) =
   ## helper for making font span objects
   (FontStyle(font: font, color: color), text)
+
+proc fs*(font: FigFont, color: Fill, paragraph: ParagraphStyle): FontStyle =
+  ## Style whose spans apply `paragraph` when they start a paragraph.
+  FontStyle(font: font, color: color, paragraph: paragraph)
 
 proc getId*(font: FigFont): FontId =
   FontId font.hash()

@@ -1098,6 +1098,21 @@ backends retain the original `Utf8Runes` as `sourceRunes`. Pixie also shares it
 as `runes` when display runes match the source. Case conversion and filtered
 controls require separate display runes, with glyph ranges mapped to source.
 
+Paragraph styles add indents, justification (including Knuth–Plass optimal
+breaking), hyphenation, and line or paragraph spacing to wrapped text with
+either backend:
+
+```nim
+let body = fs(
+  bodyFont,
+  fill(rgba(30, 34, 40, 255)),
+  ParagraphStyle(firstLineIndent: 24, align: paJustify, hyphenate: true),
+)
+```
+
+See [docs/paragraph_layout.md](docs/paragraph_layout.md) for the fields,
+hyphenation pattern loading, and benchmarks.
+
 Typeface metadata is parsed once when a face is registered and is available
 through the same API with every text backend:
 

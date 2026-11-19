@@ -1,4 +1,4 @@
-import std/[math, sequtils]
+import std/[algorithm, math, sequtils, strutils, unicode]
 
 import pkg/chronicles
 import pkg/pixie
@@ -9,6 +9,62 @@ import ../fonttypes
 import ../shared
 import ../typefaces
 import ./common
+import ./paragraphlayout
+
+proc pixieHyphenResolver(): HyphenResolver =
+  ## Visible hyphens in the Pixie font of the glyph that precedes a break.
+  result = proc(fontId: FontId): HyphenGlyph =
+    var font: FigFont
+    if not tryGetFigFont(fontId, font):
+      return
+    let info = glyphFontFor(font)
+    result = HyphenGlyph(
+      found: true,
+      glyphFont: info.glyph,
+      glyphId: syntheticFontGlyphId(info.glyph.fontId, Rune('-')),
+      advance: info.font.typeface.getAdvance(Rune('-')) * info.font.scale,
+    )
+
+proc layoutStyledParagraphs(
+    result: var GlyphArrangement,
+    box: Rect,
+    uiSpans: openArray[(FontStyle, string)],
+    runs: openArray[StyledTextRun],
+    hAlign: FontHorizontal,
+    vAlign: FontVertical,
+    minContent, wrap: bool,
+) =
+  ## Lays out unwrapped Pixie lines, one per paragraph, with FigDraw's
+  ## paragraph layout so indents, justification, and hyphenation match the
+  ## HarfBuzz backend. `runs[i]` locates `uiSpans[i]` in the source that
+  ## glyph source ranges index, unaffected by Pixie's filtered display text.
+  var spanStarts = newSeqOfCap[int](runs.len)
+  for run in runs:
+    spanStarts.add int(run.byteStart)
+  var paragraphs = newSeqOfCap[LayoutParagraph](result.lines.len)
+  for line in result.lines:
+    var style = uiSpans[0][0]
+    if line.a <= line.b:
+      let spanIndex = max(
+        spanStarts.upperBound(result.arrangedGlyphs[line.a].source.byteStart) - 1, 0
+      )
+      style = uiSpans[min(spanIndex, uiSpans.high)][0]
+    paragraphs.add LayoutParagraph(
+      glyphs: line, style: style.paragraph, language: style.font.language
+    )
+  let lines =
+    result.breakParagraphLines(paragraphs, [], box.w, wrap, pixieHyphenResolver())
+  result.reflowParagraphLines(lines, paragraphs, box.w, wrap)
+  var alignmentBox = box
+  if minContent:
+    alignmentBox.h = max(alignmentBox.h, result.calcMinMaxContent().bounding.h)
+  result.alignParagraphLines(lines, paragraphs, alignmentBox, hAlign, vAlign)
+  let content = result.calcMinMaxContent()
+  result.minSize = content.minSize
+  result.maxSize = content.maxSize
+  result.bounding = content.bounding
+  if minContent:
+    result.minSize.y = max(result.minSize.y, result.bounding.h)
 
 proc typesetWithSource(
     box: Rect,
@@ -68,6 +124,41 @@ proc typesetWithSource(
     va = MiddleAlign
   of Bottom:
     va = BottomAlign
+
+  # Pixie wraps unstyled text itself; FigDraw lays out paragraph styles and
+  # soft hyphens, which Pixie would draw as visible glyphs.
+  if uiSpans.anyIt(not it[0].paragraph.isDefault or "\u00AD" in it[1]):
+    let unwrapped = pixie.typeset(
+      spans, bounds = vec2(0, wh.y), hAlign = LeftAlign, vAlign = TopAlign, wrap = false
+    )
+    var
+      source = sourceRunes
+      runs = @sourceRuns
+    if source.isNil:
+      # Map glyphs to the caller's text so styles follow original offsets.
+      var
+        text = newStringOfCap(uiSpans.len * 16)
+        runeOffset = 0
+      for index, (_, part) in uiSpans:
+        let runeCount = part.runeLen
+        runs.add StyledTextRun(
+          byteStart: uint32(text.len),
+          byteEnd: uint32(text.len + part.len),
+          runeStart: uint32(runeOffset),
+          runeEnd: uint32(runeOffset + runeCount),
+          styleId: TextStyleId(uint32(index)),
+        )
+        text.add part
+        runeOffset += runeCount
+      source = initUtf8Runes(text)
+    result = convertArrangementWithSource(
+      unwrapped, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap, source, runs
+    )
+    result.layoutStyledParagraphs(box, uiSpans, runs, hAlign, vAlign, minContent, wrap)
+    result.addFontSizePadding(sz)
+    if rasterize:
+      result.generateGlyphImages()
+    return
 
   let arrangement =
     pixie.typeset(spans, bounds = wh, hAlign = ha, vAlign = va, wrap = wrap)

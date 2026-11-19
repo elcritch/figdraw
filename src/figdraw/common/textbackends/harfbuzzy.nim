@@ -8,6 +8,7 @@ import ../fontfallbacks
 import ../shared
 import ../typefaces
 import ./common
+import ./paragraphlayout
 import ./state
 
 when figdrawTextBackend == "hybrid" or runtimeTextBackends:
@@ -274,26 +275,84 @@ proc fillForByte(group: ShapedGroup, byteOffset: int): Fill =
       return span.style.color
   result = group.style.color
 
+func firstAbove(values: openArray[int], value: int): int {.inline.} =
+  ## Index of the first sorted value greater than `value`; avoids the closure
+  ## comparisons of `algorithm.upperBound` in per-glyph loops.
+  var
+    low = 0
+    high = values.len
+  while low < high:
+    let middle = (low + high) shr 1
+    if values[middle] <= value:
+      low = middle + 1
+    else:
+      high = middle
+  low
+
+func firstAtLeast(values: openArray[int], value: int): int {.inline.} =
+  var
+    low = 0
+    high = values.len
+  while low < high:
+    let middle = (low + high) shr 1
+    if values[middle] < value:
+      low = middle + 1
+    else:
+      high = middle
+  low
+
+type RuneCursor = object
+  ## Last resolved rune start. Glyph sources mostly advance, so stepping
+  ## forward avoids rescanning from a rune-index checkpoint for every glyph.
+  byteOffset: int
+  runeIndex: int
+  valid: bool
+
+const RuneCursorMaxStep = 512
+
+proc runeAtOrBefore(cursor: var RuneCursor, runes: Utf8Runes, byteOffset: int): int =
+  if not cursor.valid or byteOffset < cursor.byteOffset or
+      byteOffset - cursor.byteOffset > RuneCursorMaxStep:
+    cursor.runeIndex = runes.runeIndexAtOrBeforeByte(byteOffset)
+    cursor.byteOffset = runes.byteOffsetForRune(cursor.runeIndex)
+    cursor.valid = true
+  else:
+    # Read the borrowed bytes in place; binding `lent` to a `let` copies them.
+    while cursor.byteOffset < byteOffset:
+      let next = cursor.byteOffset + max(runes.bytes.runeLenAt(cursor.byteOffset), 1)
+      if next > byteOffset:
+        break
+      cursor.byteOffset = next
+      inc cursor.runeIndex
+  cursor.runeIndex
+
+proc runeAtOrAfter(cursor: var RuneCursor, runes: Utf8Runes, byteOffset: int): int =
+  result = cursor.runeAtOrBefore(runes, byteOffset)
+  if cursor.byteOffset < byteOffset:
+    inc result
+
 proc runeRangeForBytes(
-    decoded: DecodedSource, byteStart, byteEnd: int
+    decoded: DecodedSource, cursor: var RuneCursor, byteStart, byteEnd: int
 ): GlyphSourceRange =
   if decoded.directSource:
     result.byteStart = byteStart
     result.byteEnd = byteEnd
-    result.runeStart = decoded.runes.runeIndexAtOrBeforeByte(byteStart)
-    result.runeEnd = decoded.runes.runeIndexAtOrAfterByte(byteEnd)
+    result.runeStart = cursor.runeAtOrBefore(decoded.runes, byteStart)
+    result.runeEnd = cursor.runeAtOrAfter(decoded.runes, byteEnd)
     return
   result.byteStart = high(int)
   result.byteEnd = 0
   result.runeStart = decoded.runes.len
   result.runeEnd = 0
 
-  for i in 0 ..< decoded.displayByteStarts.len:
-    if decoded.displayByteEnds[i] > byteStart and decoded.displayByteStarts[i] < byteEnd:
-      result.byteStart = min(result.byteStart, decoded.sourceByteStarts[i])
-      result.byteEnd = max(result.byteEnd, decoded.sourceByteEnds[i])
-      result.runeStart = min(result.runeStart, decoded.sourceRuneStarts[i])
-      result.runeEnd = max(result.runeEnd, decoded.sourceRuneEnds[i])
+  # Display runes are ordered, so only the overlapping run needs scanning.
+  var i = decoded.displayByteEnds.firstAbove(byteStart)
+  while i < decoded.displayByteStarts.len and decoded.displayByteStarts[i] < byteEnd:
+    result.byteStart = min(result.byteStart, decoded.sourceByteStarts[i])
+    result.byteEnd = max(result.byteEnd, decoded.sourceByteEnds[i])
+    result.runeStart = min(result.runeStart, decoded.sourceRuneStarts[i])
+    result.runeEnd = max(result.runeEnd, decoded.sourceRuneEnds[i])
+    inc i
 
   if result.byteStart == high(int):
     result.byteStart = 0
@@ -308,13 +367,13 @@ proc sourceInsertionForDisplayByte(
     result.runeStart = decoded.runes.runeIndexAtOrBeforeByte(byteOffset)
     result.runeEnd = result.runeStart
     return
-  for i in 0 ..< decoded.displayByteStarts.len:
-    if decoded.displayByteStarts[i] >= byteOffset:
-      result.byteStart = decoded.sourceByteStarts[i]
-      result.byteEnd = result.byteStart
-      result.runeStart = decoded.sourceRuneStarts[i]
-      result.runeEnd = result.runeStart
-      return
+  let i = decoded.displayByteStarts.firstAtLeast(byteOffset)
+  if i < decoded.displayByteStarts.len:
+    result.byteStart = decoded.sourceByteStarts[i]
+    result.byteEnd = result.byteStart
+    result.runeStart = decoded.sourceRuneStarts[i]
+    result.runeEnd = result.runeStart
+    return
 
   if decoded.sourceByteEnds.len > 0:
     result.byteStart = decoded.sourceByteEnds[^1]
@@ -323,39 +382,22 @@ proc sourceInsertionForDisplayByte(
     result.runeEnd = result.runeStart
 
 proc firstRune(decoded: DecodedSource, source: GlyphSourceRange): Rune =
+  ## Decodes from source bytes; rune indexing would rescan from a checkpoint.
   if source.runeStart >= 0 and source.runeStart < source.runeEnd and
-      source.runeStart < decoded.runes.len:
-    return decoded.runes[source.runeStart]
+      source.byteStart >= 0 and source.byteStart < decoded.runes.byteLength:
+    return decoded.runes.bytes.runeAt(source.byteStart)
   Rune(0)
 
 proc sourceIsWhitespace(decoded: DecodedSource, source: GlyphSourceRange): bool =
-  if source.runeStart >= source.runeEnd:
+  if source.runeStart >= source.runeEnd or source.byteStart < 0 or
+      source.byteEnd > decoded.runes.byteLength:
     return false
-  for i in source.runeStart ..< source.runeEnd:
-    if i >= decoded.runes.len or not decoded.runes[i].isWhiteSpace:
+  var offset = source.byteStart
+  while offset < source.byteEnd:
+    if not decoded.runes.bytes.runeAt(offset).isSpaceRune:
       return false
+    offset += max(decoded.runes.bytes.runeLenAt(offset), 1)
   true
-
-func isCjkLineBreakRune(rune: Rune): bool =
-  let cp = rune.uint32
-  cp in 0x1100'u32 .. 0x11ff'u32 or cp in 0x2e80'u32 .. 0x30ff'u32 or
-    cp in 0x3400'u32 .. 0x4dbf'u32 or cp in 0x4e00'u32 .. 0x9fff'u32 or
-    cp in 0xac00'u32 .. 0xd7af'u32 or cp in 0xf900'u32 .. 0xfaff'u32 or
-    cp in 0xff65'u32 .. 0xff9f'u32
-
-func canBreakAfterRune(rune: Rune): bool =
-  if rune.isWhiteSpace:
-    return true
-
-  case rune.uint32
-  of 0x002d'u32, 0x002f'u32, 0x00ad'u32, 0x058a'u32, 0x05be'u32, 0x1400'u32, 0x1806'u32,
-      0x200b'u32, 0x2053'u32, 0x207b'u32, 0x208b'u32, 0x2212'u32, 0x2e17'u32,
-      0x2e1a'u32, 0x301c'u32, 0x3030'u32, 0x30a0'u32, 0xfe58'u32, 0xfe63'u32, 0xff0d'u32:
-    true
-  of 0x2010'u32 .. 0x2015'u32, 0xfe31'u32 .. 0xfe32'u32:
-    true
-  else:
-    false
 
 proc imageOffsetForGlyph(
     typeface: hb.Typeface, glyphId: hb.Codepoint, font: GlyphFont, scale: float32
@@ -571,230 +613,46 @@ proc resolvePlacedGlyph*(
     result.imageOffset =
       imageOffsetForGlyph(selected.typeface, glyphId, selected.glyphFont, scale)
 
-proc nextClusterBoundary(run: hb.ShapedRun, cluster: int): int =
-  var boundaries = @[run.textRun.byteEnd]
+proc harfbuzzHyphenResolver(): HyphenResolver =
+  ## Visible hyphens in the font of the glyph that precedes a break.
+  result = proc(fontId: FontId): HyphenGlyph =
+    var font: FigFont
+    if not tryGetFigFont(fontId, font):
+      return
+    try:
+      let placed = resolvePlacedGlyph(font, Rune('-'))
+      if placed.glyphId != FontGlyphId(0):
+        result = HyphenGlyph(
+          found: true,
+          glyphFont: placed.glyphFont,
+          glyphId: placed.glyphId,
+          advance: placed.advance,
+          imageOffset: placed.imageOffset,
+        )
+    except CatchableError:
+      discard # No visible hyphen: soft hyphens become plain breaks.
+
+proc clusterStarts(run: hb.ShapedRun): seq[int] =
+  ## Sorted distinct cluster starts, computed once per run.
+  result = newSeqOfCap[int](run.glyphRun.glyphs.len)
   for glyph in run.glyphRun.glyphs:
-    let glyphCluster = int(glyph.cluster)
-    if glyphCluster > cluster:
-      boundaries.add glyphCluster
-  boundaries.sort()
-  result = boundaries[0]
+    result.add int(glyph.cluster)
+  result.sort()
+  var unique = 0
+  for index in 0 ..< result.len:
+    if unique == 0 or result[index] != result[unique - 1]:
+      result[unique] = result[index]
+      inc unique
+  result.setLen(unique)
 
-proc shiftGlyph(arrangement: var GlyphArrangement, glyphIndex: int, delta: Vec2) =
-  arrangement.arrangedGlyphs[glyphIndex].pos += delta
-  arrangement.arrangedGlyphs[glyphIndex].rect =
-    arrangement.arrangedGlyphs[glyphIndex].rect + rect(delta.x, delta.y, 0, 0)
-  arrangement.positions[glyphIndex] += delta
-  arrangement.selectionRects[glyphIndex] =
-    arrangement.selectionRects[glyphIndex] + rect(delta.x, delta.y, 0, 0)
-
-proc lineBounds(arrangement: GlyphArrangement, line: Slice[int]): Rect =
-  result = rect(float32.high, float32.high, 0, 0)
-  if line.a > line.b:
-    return rect(0, 0, 0, 0)
-  for glyphIndex in line:
-    let glyphRect = arrangement.arrangedGlyphs[glyphIndex].rect
-    result.x = min(result.x, glyphRect.x)
-    result.y = min(result.y, glyphRect.y)
-    result.w = max(result.w, glyphRect.x + glyphRect.w)
-    result.h = max(result.h, glyphRect.y + glyphRect.h)
-  result.w -= result.x
-  result.h -= result.y
-
-proc applyAlignment(
-    arrangement: var GlyphArrangement,
-    box: Rect,
-    hAlign: FontHorizontal,
-    vAlign: FontVertical,
-) =
-  if arrangement.arrangedGlyphs.len == 0:
-    return
-
-  let lines =
-    if arrangement.lines.len > 0:
-      arrangement.lines
-    else:
-      @[0 .. arrangement.arrangedGlyphs.len - 1]
-
-  for line in lines:
-    let bounds = arrangement.lineBounds(line)
-    var dx = -bounds.x
-    case hAlign
-    of Left:
-      discard
-    of Center:
-      dx += (box.w - bounds.w) / 2
-    of Right:
-      dx += box.w - bounds.w
-    if dx != 0:
-      for glyphIndex in line:
-        arrangement.shiftGlyph(glyphIndex, vec2(dx, 0))
-
-  let bounds = arrangement.calcMinMaxContent().bounding
-  var dy = -bounds.y
-  case vAlign
-  of Top:
-    discard
-  of Middle:
-    dy += (box.h - bounds.h) / 2
-  of Bottom:
-    dy += box.h - bounds.h
-
-  if dy != 0:
-    for glyphIndex in 0 ..< arrangement.arrangedGlyphs.len:
-      arrangement.shiftGlyph(glyphIndex, vec2(0, dy))
-
-proc lineHeight(arrangement: GlyphArrangement, line: Slice[int]): float32 =
-  for glyphIndex in line:
-    result = max(result, arrangement.arrangedGlyphs[glyphIndex].rect.h)
-  if result <= 0:
-    for font in arrangement.fonts:
-      result = max(result, font.lineHeight)
-
-proc glyphWrapWidth(glyph: ArrangedGlyph): float32 {.inline.} =
-  max(glyph.rect.w, abs(glyph.advance.x))
-
-proc preferredLineBreakAfter(arrangement: GlyphArrangement, glyphIndex: int): bool =
-  let glyph = arrangement.arrangedGlyphs[glyphIndex]
-  if glyph.isWhitespace:
-    return true
-  if glyph.source.runeEnd <= glyph.source.runeStart or
-      glyph.source.runeEnd > arrangement.sourceRunes.len:
-    return false
-
-  let lastRune = arrangement.sourceRunes[glyph.source.runeEnd - 1]
-  if lastRune.canBreakAfterRune:
-    return true
-
-  if glyphIndex + 1 < arrangement.arrangedGlyphs.len:
-    let nextGlyph = arrangement.arrangedGlyphs[glyphIndex + 1]
-    if glyph.source.runeEnd == nextGlyph.source.runeStart and
-        nextGlyph.source.runeStart < arrangement.sourceRunes.len:
-      let nextRune = arrangement.sourceRunes[nextGlyph.source.runeStart]
-      return lastRune.isCjkLineBreakRune and nextRune.isCjkLineBreakRune
-
-  false
-
-proc buildWrappedLines(
-    arrangement: GlyphArrangement,
-    boxWidth: float32,
-    safeBreakAfter: openArray[bool],
-    glyphRange: Slice[int],
-): seq[Slice[int]] =
-  if arrangement.arrangedGlyphs.len == 0 or glyphRange.a > glyphRange.b:
-    return
-  if boxWidth <= 0:
-    return @[glyphRange]
-
-  var
-    lineStart = glyphRange.a
-    lineWidth = 0.0'f32
-    lastBreak = -1
-    lastSafeBreak = -1
-    glyphIndex = glyphRange.a
-
-  while glyphIndex <= glyphRange.b:
-    let glyph = arrangement.arrangedGlyphs[glyphIndex]
-    let width = glyph.glyphWrapWidth()
-    var startNextLine = false
-    if glyphIndex > lineStart and lineWidth + width > boxWidth:
-      let breakIndex =
-        if lastBreak >= lineStart and lastBreak < glyphIndex:
-          lastBreak
-        elif lastSafeBreak >= lineStart and lastSafeBreak < glyphIndex:
-          lastSafeBreak
-        else:
-          -1
-      if breakIndex >= lineStart:
-        result.add lineStart .. breakIndex
-        lineStart = breakIndex + 1
-        lineWidth = 0
-        lastBreak = -1
-        lastSafeBreak = -1
-        glyphIndex = lineStart
-        startNextLine = true
-
-    if not startNextLine:
-      lineWidth += width
-      let
-        breakAfter = glyphIndex >= safeBreakAfter.len or safeBreakAfter[glyphIndex]
-        preferredBreakAfter = arrangement.preferredLineBreakAfter(glyphIndex)
-        clusterBoundary =
-          glyphIndex == glyphRange.b or
-          arrangement.arrangedGlyphs[glyphIndex].source !=
-          arrangement.arrangedGlyphs[glyphIndex + 1].source
-      if breakAfter and clusterBoundary:
-        lastSafeBreak = glyphIndex
-      if preferredBreakAfter and breakAfter:
-        lastBreak = glyphIndex
-      inc glyphIndex
-
-  if lineStart <= glyphRange.b:
-    result.add lineStart .. glyphRange.b
-
-func lineSourceStart(arrangement: GlyphArrangement, line: Slice[int]): int =
-  result = high(int)
-  for glyphIndex in line:
-    let source = arrangement.arrangedGlyphs[glyphIndex].source
-    if source.runeStart < source.runeEnd:
-      result = min(result, source.runeStart)
-  if result == high(int):
-    result = 0
-
-func linesNeedLogicalReverse(
-    arrangement: GlyphArrangement, lines: openArray[Slice[int]]
-): bool =
-  if lines.len < 2:
-    return false
-
-  var previous = arrangement.lineSourceStart(lines[0])
-  for i in 1 ..< lines.len:
-    let current = arrangement.lineSourceStart(lines[i])
-    if current < previous:
-      return true
-    if current > previous:
-      return false
-    previous = current
-
-proc addParagraphLines(
-    arrangement: var GlyphArrangement,
-    glyphRange: Slice[int],
-    boxWidth: float32,
-    safeBreakAfter: openArray[bool],
-    wrap: bool,
-) =
-  if glyphRange.a > glyphRange.b:
-    return
-
-  var lines =
-    if wrap:
-      arrangement.buildWrappedLines(boxWidth, safeBreakAfter, glyphRange)
-    else:
-      @[glyphRange]
-
-  if arrangement.linesNeedLogicalReverse(lines):
-    lines.reverse()
-  for line in lines:
-    arrangement.lines.add(line)
-
-proc reflowLines(arrangement: var GlyphArrangement) =
-  var lineTop = 0.0'f32
-  for line in arrangement.lines:
-    var lineX = 0.0'f32
-    let lineHeight = arrangement.lineHeight(line)
-    for glyphIndex in line:
-      let
-        oldGlyph = arrangement.arrangedGlyphs[glyphIndex]
-        posOffset = oldGlyph.pos - oldGlyph.rect.xy
-        newRect = rect(lineX, lineTop, oldGlyph.rect.w, oldGlyph.rect.h)
-        newPos = newRect.xy + posOffset
-
-      arrangement.arrangedGlyphs[glyphIndex].rect = newRect
-      arrangement.arrangedGlyphs[glyphIndex].pos = newPos
-      arrangement.positions[glyphIndex] = newPos
-      arrangement.selectionRects[glyphIndex] = newRect
-      lineX += oldGlyph.glyphWrapWidth()
-    lineTop += lineHeight
+proc nextClusterBoundary(
+    run: hb.ShapedRun, clusters: openArray[int], cluster: int
+): int =
+  let index = clusters.firstAbove(cluster)
+  if index < clusters.len:
+    clusters[index]
+  else:
+    run.textRun.byteEnd
 
 proc addGlyphSpan(
     arrangement: var GlyphArrangement, glyphFont: GlyphFont, color: Fill
@@ -841,11 +699,16 @@ proc appendShapedGroup(
     pen: var Vec2,
     safeBreakAfter: var seq[bool],
     glyphText: var string,
+    rightToLeft: var bool,
+    directionKnown: var bool,
 ) =
   let
     groupByteOffset = group.byteOffset()
     fontInfos = initHarfbuzzFontInfos(group.style.font)
     paragraph = fontInfos.shapeParagraph(group.style.font, groupText)
+  if not directionKnown and paragraph.visualRuns.len > 0:
+    rightToLeft = paragraph.baseDirection == hb.Direction.rtl
+    directionKnown = true
 
   for run in paragraph.visualRuns:
     if run.glyphRun.glyphs.len == 0:
@@ -859,13 +722,15 @@ proc appendShapedGroup(
           0
       fontInfo = fontInfos[fontIndex]
       scale = fontInfo.typeface.pxScale(group.style.font)
+      clusters = run.clusterStarts()
+    var cursor: RuneCursor
 
     for runGlyphIndex, glyph in run.glyphRun.glyphs:
       let
         cluster = int(glyph.cluster)
-        nextCluster = run.nextClusterBoundary(cluster)
+        nextCluster = run.nextClusterBoundary(clusters, cluster)
         source = decoded.runeRangeForBytes(
-          groupByteOffset + cluster, groupByteOffset + nextCluster
+          cursor, groupByteOffset + cluster, groupByteOffset + nextCluster
         )
         rune = decoded.firstRune(source)
         color = group.fillForByte(groupByteOffset + cluster)
@@ -923,8 +788,12 @@ proc typesetPrepared(
     glyphText = newStringOfCap(decoded.runes.len)
   var safeBreakAfter: seq[bool]
   var resolvedFonts: seq[FigFont]
+  var layoutParagraphs = newSeqOfCap[LayoutParagraph](paragraphs.len)
   for paragraph in paragraphs:
     let glyphStart = result.arrangedGlyphs.len
+    var
+      rightToLeft = false
+      directionKnown = false
     pen.x = 0
     for sourceGroup in paragraph.shapingGroups():
       var group = sourceGroup
@@ -937,7 +806,8 @@ proc typesetPrepared(
         if result.arrangedGlyphs.len == 0:
           pen.y = baseline
         result.appendShapedGroup(
-          decoded, group, groupText, pen, safeBreakAfter, glyphText
+          decoded, group, groupText, pen, safeBreakAfter, glyphText, rightToLeft,
+          directionKnown,
         )
 
     if result.arrangedGlyphs.len == glyphStart and paragraphs.len > 1 and
@@ -948,19 +818,34 @@ proc typesetPrepared(
         safeBreakAfter, glyphText,
       )
 
-    let glyphStop = result.arrangedGlyphs.len - 1
-    result.addParagraphLines(glyphStart .. glyphStop, box.w, safeBreakAfter, wrap)
+    let
+      glyphStop = result.arrangedGlyphs.len - 1
+      paragraphStyle =
+        if paragraph.spans.len > 0:
+          paragraph.spans[0].style
+        else:
+          paragraph.lineStyle
+    layoutParagraphs.add LayoutParagraph(
+      glyphs: glyphStart .. glyphStop,
+      style: paragraphStyle.paragraph,
+      language: paragraphStyle.font.language,
+      rightToLeft: rightToLeft,
+    )
 
   result.runes = initArrangementRunes(glyphText)
-  if wrap or paragraphs.len > 1 or result.arrangedGlyphs.len == 0:
-    result.reflowLines()
+  let styled = layoutParagraphs.hasLayoutStyle()
+  let lines = result.breakParagraphLines(
+    layoutParagraphs, safeBreakAfter, box.w, wrap, harfbuzzHyphenResolver()
+  )
+  if wrap or paragraphs.len > 1 or result.arrangedGlyphs.len == 0 or styled:
+    result.reflowParagraphLines(lines, layoutParagraphs, box.w, wrap)
 
   var alignmentBox = box
   if minContent:
     let content = result.calcMinMaxContent()
     alignmentBox.h = max(alignmentBox.h, content.bounding.h)
 
-  result.applyAlignment(alignmentBox, hAlign, vAlign)
+  result.alignParagraphLines(lines, layoutParagraphs, alignmentBox, hAlign, vAlign)
 
   let content = result.calcMinMaxContent()
   result.minSize = content.minSize
