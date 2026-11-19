@@ -469,9 +469,12 @@ proc greedyLines(
           cut = lastBreak
         elif lastSafe >= lineStart:
           cut = lastSafe
-        elif lastCluster >= lineStart:
-          # Overflowing the box is worse than breaking where shaping across
-          # the boundary differs, e.g. between kerned glyphs.
+        elif lastCluster >= lineStart and paragraph.style.overflowWrap == owAnywhere:
+          # The style prefers staying in the box over exact shaping, e.g.
+          # between kerned glyphs.
+          # TODO: Reshape the two fragments at this break so kerning and
+          # contextual (e.g. Arabic joining) forms match separate shaping.
+          # This needs a backend hook that reshapes a source range.
           cut = lastCluster
       if cut >= lineStart:
         lines.add BrokenLine(glyphs: lineStart .. cut, edit: edit)

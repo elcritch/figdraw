@@ -342,10 +342,23 @@ for backend in backends():
       let bounds = arrangement.contentBounds(arrangement.lines[0])
       check bounds.x + bounds.w <= 260.5
 
+    test "overflow wrap breaks shaping-unsafe words only when asked":
+      # HarfBuzz marks every boundary between kerned "x" glyphs unsafe.
+      let word = "x".repeat(60)
+      let anywhere = layout(word, ParagraphStyle(overflowWrap: owAnywhere), 200)
+      check anywhere.lines.len > 1
+      for line in anywhere.lines:
+        let bounds = anywhere.contentBounds(line)
+        check bounds.x + bounds.w <= 200.5
+      if backend == TextBackendKind.Harfbuzzy:
+        let normal = layout(word, ParagraphStyle(), 200)
+        check normal.lines.len == 1
+
     test "long unbroken text wraps every line within the measure":
       let
         word = "x".repeat(20_000)
-        arrangement = layout(word, ParagraphStyle(hyphenate: true), 200)
+        arrangement =
+          layout(word, ParagraphStyle(hyphenate: true, overflowWrap: owAnywhere), 200)
       require arrangement.lines.len > 100
       var glyphs = 0
       for line in arrangement.lines:

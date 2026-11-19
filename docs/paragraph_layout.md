@@ -34,6 +34,7 @@ The default `ParagraphStyle()` leaves layout and content hashes unchanged.
 | `align` | `paInherit` uses the typeset call's `hAlign`; `paLeft`, `paCenter`, `paRight`, or `paJustify`. |
 | `lastLineAlign` | Last line of a justified paragraph: `paInherit` uses the paragraph's leading edge; `paJustify` stretches it too. |
 | `lineBreaking` | `plbGreedy` fills lines in turn; `plbOptimal` uses Knuth–Plass for justified paragraphs. |
+| `overflowWrap` | `owNormal` lets a word with no shaping-safe break overflow; `owAnywhere` breaks it at any cluster boundary. |
 | `hyphenate` | Break overflowing words at registered hyphenation points. |
 | `lineSpacing` | Extra space after each line. |
 | `spacingBefore`, `spacingAfter` | Space between paragraphs, not applied above the first or below the last. |
@@ -48,8 +49,10 @@ Lines break after spaces, hyphens, dashes, slashes, and between adjacent CJK
 characters, only at shaping-safe cluster boundaries. Spaces where a line wraps
 hang past the measure instead of starting the next line, and alignment ignores
 them. A word longer than the measure breaks at the last shaping-safe cluster
-boundary, or at any cluster boundary when shaping marks none safe (for example
-between kerned glyphs).
+boundary. When shaping marks none safe, for example between kerned glyphs, the
+word overflows unless `overflowWrap` is `owAnywhere`, which breaks it at any
+cluster boundary; glyphs beside that break keep the shaping they had while
+joined.
 
 Lines are broken in reading order. Bidirectional paragraphs break in source
 order, so a right-to-left paragraph's first line holds its first words and uses
@@ -116,6 +119,13 @@ backend uses it when any span has a paragraph style or a soft hyphen, and
 otherwise keeps Pixie's own wrapping; Pixie has no bidirectional shaping. The
 UIRelays backend ignores paragraph styles and soft hyphens.
 
+## Future work
+
+- Reshape the two fragments at an `owAnywhere` break. Glyphs beside the break
+  currently keep the shaping they had while joined, such as kerning or Arabic
+  joining forms. Fixing this needs a backend hook that reshapes a source range,
+  including font fallback and bidi analysis.
+
 ## Performance
 
 `tests/bench_text_layout.nim` measures each mode on both backends:
@@ -137,8 +147,8 @@ On an Apple M-series laptop with a 108 KiB, 200-paragraph document at 420 px
 | justify, optimal | 36 ms | 112 ms |
 | justify, optimal + hyphenate | 44 ms | 121 ms |
 
-A 108 KiB paragraph without break opportunities wraps in 36 ms (HarfBuzzy) and
-104 ms (Pixie), so emergency breaking stays linear.
+A 108 KiB paragraph without break opportunities wraps with `owAnywhere` in
+36 ms (HarfBuzzy) and about 110 ms (Pixie), so emergency breaking stays linear.
 
 Before this layout pass, HarfBuzzy took about 8.6 s for the prose document:
 glyph source mapping and cluster lookups were quadratic in paragraph length.

@@ -80,7 +80,7 @@ else:
   proc styled(font: FigFont, style: int): FontStyle =
     fs(font)
 
-proc benchmark(backend: TextBackendKind, text: string) =
+proc benchmark(backend: TextBackendKind, text: string, anywhere = false) =
   setTextBackend(backend)
   let
     typefaceId = loadTypeface("Ubuntu.ttf", readFile(figDataDir() / "Ubuntu.ttf"), TTF)
@@ -90,7 +90,11 @@ proc benchmark(backend: TextBackendKind, text: string) =
     run = StyledTextRun(
       byteEnd: uint32(text.len), runeEnd: uint32(source.len), styleId: TextStyleId(0)
     )
-  for (name, style) in modes():
+  for (name, mode) in modes():
+    var style = mode
+    when compiles(style.overflowWrap):
+      if anywhere:
+        style.overflowWrap = owAnywhere
     for api in ["spans", "source"]:
       var
         timings: seq[float]
@@ -145,4 +149,4 @@ when isMainModule:
   echo &"unbroken text: {unbroken.len div 1024} KiB, width {Width}"
   for backend in [TextBackendKind.Harfbuzzy, TextBackendKind.Pixie]:
     if textBackendAvailable(backend):
-      benchmark(backend, unbroken)
+      benchmark(backend, unbroken, anywhere = true)

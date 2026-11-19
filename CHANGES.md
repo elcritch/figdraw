@@ -15,8 +15,8 @@
   fill their first lines and use the first-line measure there.
 - Let spaces at a wrap hang past the measure, and ignore them when centering or
   right-aligning wrapped lines.
-- Break words without a shaping-safe boundary at any cluster boundary instead of
-  overflowing the box.
+- Add `ParagraphStyle.overflowWrap`: `owAnywhere` breaks words without a
+  shaping-safe boundary at any cluster boundary instead of overflowing.
 - Speed up HarfBuzzy layout of long paragraphs about 250×: glyph source mapping
   and cluster lookups were quadratic. Add `tests/bench_text_layout.nim`.
 

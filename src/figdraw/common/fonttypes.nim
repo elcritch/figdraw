@@ -89,6 +89,14 @@ type
       ## (Knuth-Plass). Applies to justified paragraphs; falls back to greedy
       ## breaking when no break set fits.
 
+  OverflowWrap* = enum
+    ## What to do with a word wider than the measure that has no
+    ## shaping-safe break point, like CSS `overflow-wrap`.
+    owNormal ## Let the word overflow; shaping stays exact.
+    owAnywhere
+      ## Break at any cluster boundary to stay inside the box. Glyphs beside
+      ## the break keep the shaping they had while joined, e.g. kerning.
+
   ParagraphStyle* = object
     ## Paragraph layout applied from the style of a paragraph's first span.
     ## Lengths are pixels. The default value preserves unstyled layout.
@@ -100,6 +108,7 @@ type
       ## Last-line placement of a justified paragraph; `paInherit` uses the
       ## paragraph direction's leading edge and `paJustify` stretches it too.
     lineBreaking*: ParagraphLineBreaking
+    overflowWrap*: OverflowWrap
     hyphenate*: bool
       ## Break overflowing words at hyphenation points registered for the font
       ## language. Soft hyphens (U+00AD) are honored whenever text wraps.
