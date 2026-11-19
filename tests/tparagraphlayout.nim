@@ -168,7 +168,9 @@ for backend in backends():
           let
             ratio =
               if spaces > 0:
-                (spaceWidth / spaces.float - naturalSpace) / (naturalSpace * 0.5)
+                let extra = spaceWidth / spaces.float - naturalSpace
+                # Spaces stretch by half and shrink by a third of their width.
+                extra / (naturalSpace * (if extra < 0: 1.0 / 3.0 else: 0.5))
               else:
                 0.0
             badness = min(100.0 * pow(abs(ratio), 3.0), 10000.0)
@@ -281,3 +283,199 @@ for backend in backends():
       check abs(arrangement.contentBounds(arrangement.lines[0]).x) < 0.5
       check abs(arrangement.contentBounds(arrangement.lines[1]).x - 24) < 0.5
       check abs(arrangement.contentBounds(arrangement.lines[2]).x) < 0.5
+
+    test "right-aligned wrapped lines keep hanging spaces outside the box":
+      let arrangement = layout(
+        "abc" & " ".repeat(30) & "def ghi", ParagraphStyle(), 100, hAlign = Right
+      )
+      for line in arrangement.lines:
+        let bounds = arrangement.contentBounds(line)
+        check bounds.x >= -0.01
+        check bounds.x + bounds.w <= 100.01
+
+    test "a rejected soft hyphen is not reused as an invisible break":
+      let
+        prefix = "abcdefghij"
+        prefixWidth = block:
+          let measured = layout(prefix, ParagraphStyle(), 1000, wrap = false)
+          measured.contentBounds(measured.lines[0]).w
+        arrangement =
+          layout(prefix & "\u00ADklmnopqrs", ParagraphStyle(), prefixWidth + 1)
+      for line in arrangement.lines:
+        let last = arrangement.arrangedGlyphs[line.b]
+        if last.source.runeEnd - last.source.runeStart == 1 and
+            arrangement.sourceRunes[last.source.runeStart] == Rune(0x00AD):
+          check last.rune == Rune('-')
+
+    test "optimal breaking keeps an unjustified last line within the measure":
+      let
+        text = "aaaa bbbb"
+        natural = block:
+          let measured = layout(text, ParagraphStyle(), 1000, wrap = false)
+          measured.contentBounds(measured.lines[0]).w
+        measure = natural - 1
+        arrangement = layout(
+          text, ParagraphStyle(align: paJustify, lineBreaking: plbOptimal), measure
+        )
+      check arrangement.lines.len == 2
+      for line in arrangement.lines:
+        let bounds = arrangement.contentBounds(line)
+        check bounds.x + bounds.w <= measure + 0.01
+
+    test "indents wider than the box never overlap glyphs":
+      for style in [
+        ParagraphStyle(firstLineIndent: 500, headIndent: 500, align: paJustify),
+        ParagraphStyle(headIndent: 150, tailIndent: 150, align: paCenter),
+      ]:
+        let arrangement = layout(Prose, style, 200)
+        for line in arrangement.lines:
+          var previousRight = -float32.high
+          for index in line:
+            let glyph = arrangement.arrangedGlyphs[index]
+            check glyph.rect.x >= previousRight - 0.01
+            previousRight = glyph.rect.x + glyph.rect.w
+
+    test "justified lines keep leading spaces inside the measure":
+      let arrangement = layout("   " & Prose, ParagraphStyle(align: paJustify))
+      require arrangement.lines.len > 1
+      check arrangement.arrangedGlyphs[arrangement.lines[0].a].rect.x >= -0.01
+      let bounds = arrangement.contentBounds(arrangement.lines[0])
+      check bounds.x + bounds.w <= 260.5
+
+    test "long unbroken text wraps every line within the measure":
+      let
+        word = "x".repeat(20_000)
+        arrangement = layout(word, ParagraphStyle(hyphenate: true), 200)
+      require arrangement.lines.len > 100
+      var glyphs = 0
+      for line in arrangement.lines:
+        glyphs += line.len
+        let bounds = arrangement.contentBounds(line)
+        check bounds.x + bounds.w <= 200.5
+      check glyphs == 20_000
+
+    test "paragraph styles follow source offsets past dropped controls":
+      let
+        font = testFont()
+        quote = ParagraphStyle(firstLineIndent: 24, headIndent: 24)
+        arrangement = typesetForMeasurement(
+          rect(0, 0, 400, 400),
+          [
+            (fs(font), "Intro\r\n"),
+            (fs(font, fill(rgba(0, 0, 0, 255)), quote), "quoted\ttext"),
+            (fs(font), "\r\nAfter"),
+          ],
+          Left,
+          Top,
+          minContent = false,
+          wrap = true,
+        )
+      require arrangement.lines.len == 3
+      check abs(arrangement.contentBounds(arrangement.lines[0]).x) < 0.5
+      check abs(arrangement.contentBounds(arrangement.lines[1]).x - 24) < 0.5
+      check abs(arrangement.contentBounds(arrangement.lines[2]).x) < 0.5
+
+    test "styled paragraphs align vertically with min content":
+      let
+        font = testFont()
+        box = rect(0, 0, 260, 600)
+        arrangement = typesetForMeasurement(
+          box,
+          [(fs(font, fill(rgba(0, 0, 0, 255)), ParagraphStyle(headIndent: 10)), Prose)],
+          Left,
+          Middle,
+          minContent = true,
+          wrap = true,
+        )
+        bounds = arrangement.bounding
+      check abs((bounds.y + bounds.h / 2) - box.h / 2) < 1.0
+
+    test "unwrapped centered text centers between the indents":
+      let
+        style = ParagraphStyle(firstLineIndent: 40, tailIndent: 20, align: paCenter)
+        arrangement = layout("short", style, 300, wrap = false)
+        bounds = arrangement.contentBounds(arrangement.lines[0])
+      check abs((bounds.x + bounds.w / 2) - (40 + (300 - 40 - 20) / 2)) < 0.5
+
+    test "carets around an inserted hyphen stay on their lines":
+      registerHyphenationPatterns("en", parseTexHyphenationPatterns(LiangPatterns))
+      let arrangement = layout("a hyphenation", ParagraphStyle(hyphenate: true), 70)
+      require arrangement.lines.len > 1
+      var hyphenIndex = -1
+      for index, glyph in arrangement.arrangedGlyphs:
+        if glyph.rune == Rune('-'):
+          hyphenIndex = index
+          break
+      require hyphenIndex > 0
+      let
+        breakRune = arrangement.arrangedGlyphs[hyphenIndex].source.runeEnd
+        carets = arrangement.caretPositionsFor(breakRune)
+        hyphenRect = arrangement.arrangedGlyphs[hyphenIndex].rect
+      check carets.len == 2
+      var lines: seq[int]
+      for caret in carets:
+        lines.add caret.lineIndex
+      check 0 in lines
+      check 1 in lines
+      for caret in carets:
+        if caret.lineIndex == 0:
+          check abs(caret.pos.x - (hyphenRect.x + hyphenRect.w)) < 0.01
+      for rune in 0 .. arrangement.sourceRunes.len:
+        check arrangement.caretPositionsFor(rune).len > 0
+      check arrangement.nearestSourceRuneForCaretPoint(
+        vec2(hyphenRect.x + hyphenRect.w / 2, hyphenRect.y + hyphenRect.h / 2)
+      ) in [breakRune - 1, breakRune]
+
+if textBackendAvailable(TextBackendKind.Harfbuzzy):
+  setTextBackend(TextBackendKind.Harfbuzzy)
+  suite "right-to-left paragraph layout":
+    proc hebrew(): FigFont =
+      let path =
+        currentSourcePath().parentDir.parentDir / "examples" / "fonts" /
+        "NotoSansHebrew-wdth-wght.ttf"
+      let typefaceId = loadTypeface("NotoSansHebrew", readFile(path), TTF)
+      FigFont(typefaceId: typefaceId, size: 18, language: "he")
+
+    const Words =
+      "שלום עולם זהו טקסט ארוך מאוד שנשבר לשורות רבות בפסקה אחת"
+
+    proc layoutHebrew(style: ParagraphStyle, width: float32): GlyphArrangement =
+      typesetForMeasurement(
+        rect(0, 0, width, 2000),
+        [(fs(hebrew(), fill(rgba(0, 0, 0, 255)), style), Words & " " & Words)],
+        Left,
+        Top,
+        minContent = false,
+        wrap = true,
+      )
+
+    test "lines break from the logical start with each line's own measure":
+      let
+        style = ParagraphStyle(firstLineIndent: 60, align: paJustify)
+        arrangement = layoutHebrew(style, 300)
+      require arrangement.lines.len > 2
+      var previousStart = -1
+      for lineIndex, line in arrangement.lines:
+        var start = high(int)
+        for index in line:
+          start = min(start, arrangement.arrangedGlyphs[index].source.runeStart)
+        check start > previousStart
+        previousStart = start
+        let
+          bounds = arrangement.contentBounds(line)
+          lead = if lineIndex == 0: 60.0'f32 else: 0.0'f32
+        check bounds.x >= -0.5
+        check bounds.x + bounds.w <= 300 - lead + 0.5
+        if lineIndex < arrangement.lines.high:
+          check abs(bounds.x) < 0.75
+          check abs(bounds.x + bounds.w - (300 - lead)) < 0.75
+      let last = arrangement.contentBounds(arrangement.lines[^1])
+      check abs(last.x + last.w - 300) < 0.75
+
+    test "the first line holds the paragraph's first words":
+      let arrangement = layoutHebrew(ParagraphStyle(), 300)
+      require arrangement.lines.len > 1
+      var firstLineRunes: seq[int]
+      for index in arrangement.lines[0]:
+        firstLineRunes.add arrangement.arrangedGlyphs[index].source.runeStart
+      check 0 in firstLineRunes

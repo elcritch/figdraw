@@ -629,8 +629,8 @@ proc harfbuzzHyphenResolver(): HyphenResolver =
           advance: placed.advance,
           imageOffset: placed.imageOffset,
         )
-    except ValueError:
-      discard
+    except CatchableError:
+      discard # No visible hyphen: soft hyphens become plain breaks.
 
 proc clusterStarts(run: hb.ShapedRun): seq[int] =
   ## Sorted distinct cluster starts, computed once per run.
@@ -699,11 +699,16 @@ proc appendShapedGroup(
     pen: var Vec2,
     safeBreakAfter: var seq[bool],
     glyphText: var string,
+    rightToLeft: var bool,
+    directionKnown: var bool,
 ) =
   let
     groupByteOffset = group.byteOffset()
     fontInfos = initHarfbuzzFontInfos(group.style.font)
     paragraph = fontInfos.shapeParagraph(group.style.font, groupText)
+  if not directionKnown and paragraph.visualRuns.len > 0:
+    rightToLeft = paragraph.baseDirection == hb.Direction.rtl
+    directionKnown = true
 
   for run in paragraph.visualRuns:
     if run.glyphRun.glyphs.len == 0:
@@ -786,6 +791,9 @@ proc typesetPrepared(
   var layoutParagraphs = newSeqOfCap[LayoutParagraph](paragraphs.len)
   for paragraph in paragraphs:
     let glyphStart = result.arrangedGlyphs.len
+    var
+      rightToLeft = false
+      directionKnown = false
     pen.x = 0
     for sourceGroup in paragraph.shapingGroups():
       var group = sourceGroup
@@ -798,7 +806,8 @@ proc typesetPrepared(
         if result.arrangedGlyphs.len == 0:
           pen.y = baseline
         result.appendShapedGroup(
-          decoded, group, groupText, pen, safeBreakAfter, glyphText
+          decoded, group, groupText, pen, safeBreakAfter, glyphText, rightToLeft,
+          directionKnown,
         )
 
     if result.arrangedGlyphs.len == glyphStart and paragraphs.len > 1 and
@@ -820,6 +829,7 @@ proc typesetPrepared(
       glyphs: glyphStart .. glyphStop,
       style: paragraphStyle.paragraph,
       language: paragraphStyle.font.language,
+      rightToLeft: rightToLeft,
     )
 
   result.runes = initArrangementRunes(glyphText)

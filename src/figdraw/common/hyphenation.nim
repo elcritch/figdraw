@@ -2,7 +2,7 @@
 ## layout. FigDraw ships no language data; applications register patterns,
 ## for example TeX `hyph-*.tex` files or LibreOffice `hyph_*.dic` dictionaries.
 
-import std/[isolation, locks, os, strutils, tables, unicode]
+import std/[isolation, locks, os, parseutils, strutils, tables, unicode]
 import threading/smartptrs
 
 type HyphenationPatterns* = object
@@ -16,7 +16,7 @@ type HyphenationPatterns* = object
 proc initHyphenationPatterns*(leftMin = 2, rightMin = 3): HyphenationPatterns =
   HyphenationPatterns(leftMin: max(leftMin, 1), rightMin: max(rightMin, 1))
 
-func len*(patterns: HyphenationPatterns): int =
+func patternCount*(patterns: HyphenationPatterns): int =
   ## Number of compiled patterns, excluding exceptions.
   patterns.patterns.len
 
@@ -52,6 +52,14 @@ proc addException*(patterns: var HyphenationPatterns, word: string) =
   if count > 0:
     patterns.exceptions[letters] = points
 
+const Utf8Bom = "\xEF\xBB\xBF"
+
+func withoutBom(text: string): string =
+  if text.startsWith(Utf8Bom):
+    text[Utf8Bom.len .. ^1]
+  else:
+    text
+
 proc stripComment(line: string): string =
   let comment = line.find('%')
   if comment >= 0:
@@ -62,11 +70,13 @@ proc stripComment(line: string): string =
 proc parseTexHyphenationPatterns*(
     text: string, leftMin = 2, rightMin = 3
 ): HyphenationPatterns =
-  ## Parses TeX `\patterns{...}` and `\hyphenation{...}` groups. Text without
-  ## TeX groups is read as whitespace-separated patterns.
+  ## Parses TeX `\patterns{...}` and `\hyphenation{...}` groups, ignoring
+  ## other commands such as `\lccode` or `\relax`. Text without either
+  ## command is read as whitespace-separated patterns.
+  ## Raises `ValueError` for an unterminated group.
   result = initHyphenationPatterns(leftMin, rightMin)
   var cleaned = newStringOfCap(text.len)
-  for line in text.splitLines():
+  for line in text.withoutBom().splitLines():
     cleaned.add line.stripComment()
     cleaned.add '\n'
   if "\\patterns" notin cleaned and "\\hyphenation" notin cleaned:
@@ -78,23 +88,24 @@ proc parseTexHyphenationPatterns*(
     let command = cleaned.find('\\', position)
     if command < 0:
       break
-    let
-      open = cleaned.find('{', command)
-      close =
-        if open >= 0:
-          cleaned.find('}', open)
-        else:
-          -1
-    if open < 0 or close < 0:
-      break
-    let
-      name = cleaned[command + 1 ..< open].strip()
-      body = cleaned[open + 1 ..< close]
-    if name == "patterns":
-      for token in strutils.splitWhitespace(body):
+    var nameEnd = command + 1
+    while nameEnd < cleaned.len and cleaned[nameEnd] in Letters:
+      inc nameEnd
+    let name = cleaned[command + 1 ..< nameEnd]
+    position = max(nameEnd, command + 1)
+    if name notin ["patterns", "hyphenation"]:
+      continue
+    while position < cleaned.len and cleaned[position] in Whitespace:
+      inc position
+    if position >= cleaned.len or cleaned[position] != '{':
+      continue
+    let close = cleaned.find('}', position + 1)
+    if close < 0:
+      raise newException(ValueError, "unterminated \\" & name & " group")
+    for token in strutils.splitWhitespace(cleaned[position + 1 ..< close]):
+      if name == "patterns":
         result.addPattern(token)
-    elif name == "hyphenation":
-      for token in strutils.splitWhitespace(body):
+      else:
         result.addException(token)
     position = close + 1
 
@@ -110,6 +121,7 @@ proc parseHyphenDictionary*(text: string): HyphenationPatterns =
   ## Raises `ValueError` for other encodings.
   result = initHyphenationPatterns()
   let
+    text = text.withoutBom()
     firstBreak = text.find('\n')
     header = (if firstBreak < 0: text else: text[0 ..< firstBreak]).strip()
     encoding = header.toLowerAscii()
@@ -132,12 +144,14 @@ proc parseHyphenDictionary*(text: string): HyphenationPatterns =
       continue
     let fields = strutils.splitWhitespace(line)
     case fields[0]
-    of "LEFTHYPHENMIN":
-      if fields.len > 1:
-        result.leftMin = max(parseInt(fields[1]), 1)
-    of "RIGHTHYPHENMIN":
-      if fields.len > 1:
-        result.rightMin = max(parseInt(fields[1]), 1)
+    of "LEFTHYPHENMIN", "RIGHTHYPHENMIN":
+      # Malformed values keep the defaults.
+      var value = 0
+      if fields.len > 1 and fields[1].parseInt(value) == fields[1].len and value > 0:
+        if fields[0] == "LEFTHYPHENMIN":
+          result.leftMin = value
+        else:
+          result.rightMin = value
     of "NEXTLEVEL":
       break
     of "COMPOUNDLEFTHYPHENMIN", "COMPOUNDRIGHTHYPHENMIN", "NOHYPHEN":
@@ -159,8 +173,10 @@ proc loadHyphenationPatterns*(path: string): HyphenationPatterns =
   if path.toLowerAscii().endsWith(".dic"):
     return parseHyphenDictionary(text)
   result = parseTexHyphenationPatterns(text)
-  if path.endsWith(".pat.txt"):
-    let exceptions = path[0 ..< path.len - ".pat.txt".len] & ".hyp.txt"
+  if path.toLowerAscii().endsWith(".pat.txt"):
+    let
+      stem = path[0 ..< path.len - ".pat.txt".len]
+      exceptions = stem & (if path.endsWith(".pat.txt"): ".hyp.txt" else: ".HYP.TXT")
     if fileExists(exceptions):
       result.addExceptions(readFile(exceptions))
 

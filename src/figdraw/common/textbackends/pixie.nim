@@ -29,18 +29,18 @@ proc layoutStyledParagraphs(
     result: var GlyphArrangement,
     box: Rect,
     uiSpans: openArray[(FontStyle, string)],
+    runs: openArray[StyledTextRun],
     hAlign: FontHorizontal,
     vAlign: FontVertical,
     minContent, wrap: bool,
 ) =
   ## Lays out unwrapped Pixie lines, one per paragraph, with FigDraw's
   ## paragraph layout so indents, justification, and hyphenation match the
-  ## HarfBuzz backend.
-  var spanStarts = newSeqOfCap[int](uiSpans.len)
-  var offset = 0
-  for (_, text) in uiSpans:
-    spanStarts.add offset
-    offset += text.len
+  ## HarfBuzz backend. `runs[i]` locates `uiSpans[i]` in the source that
+  ## glyph source ranges index, unaffected by Pixie's filtered display text.
+  var spanStarts = newSeqOfCap[int](runs.len)
+  for run in runs:
+    spanStarts.add int(run.byteStart)
   var paragraphs = newSeqOfCap[LayoutParagraph](result.lines.len)
   for line in result.lines:
     var style = uiSpans[0][0]
@@ -131,11 +131,30 @@ proc typesetWithSource(
     let unwrapped = pixie.typeset(
       spans, bounds = vec2(0, wh.y), hAlign = LeftAlign, vAlign = TopAlign, wrap = false
     )
+    var
+      source = sourceRunes
+      runs = @sourceRuns
+    if source.isNil:
+      # Map glyphs to the caller's text so styles follow original offsets.
+      var
+        text = newStringOfCap(uiSpans.len * 16)
+        runeOffset = 0
+      for index, (_, part) in uiSpans:
+        let runeCount = part.runeLen
+        runs.add StyledTextRun(
+          byteStart: uint32(text.len),
+          byteEnd: uint32(text.len + part.len),
+          runeStart: uint32(runeOffset),
+          runeEnd: uint32(runeOffset + runeCount),
+          styleId: TextStyleId(uint32(index)),
+        )
+        text.add part
+        runeOffset += runeCount
+      source = initUtf8Runes(text)
     result = convertArrangementWithSource(
-      unwrapped, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap, sourceRunes,
-      sourceRuns,
+      unwrapped, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap, source, runs
     )
-    result.layoutStyledParagraphs(box, uiSpans, hAlign, vAlign, minContent, wrap)
+    result.layoutStyledParagraphs(box, uiSpans, runs, hAlign, vAlign, minContent, wrap)
     result.addFontSizePadding(sz)
     if rasterize:
       result.generateGlyphImages()

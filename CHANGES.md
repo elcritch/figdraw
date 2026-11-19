@@ -4,13 +4,19 @@
 
 - Add `ParagraphStyle` to `FontStyle` for first-line, hanging, and tail indents,
   per-paragraph alignment, justification, line spacing, and paragraph spacing.
-  The HarfBuzzy and Pixie backends share one paragraph layout pass.
+  The HarfBuzzy and Pixie backends share one paragraph layout pass; UIRelays
+  ignores paragraph styles.
 - Add Knuth–Plass optimal line breaking for justified paragraphs, falling back
   to greedy breaking when no set of breaks fits.
 - Show soft hyphens only at line breaks, and add Liang-pattern hyphenation with
   loaders for hyph-utf8, TeX, and LibreOffice `.dic` pattern files and a
   thread-safe per-language registry. FigDraw bundles no language patterns.
-- Let trailing spaces hang past the measure instead of starting the next line.
+- Break bidirectional paragraphs in source order, so right-to-left paragraphs
+  fill their first lines and use the first-line measure there.
+- Let spaces at a wrap hang past the measure, and ignore them when centering or
+  right-aligning wrapped lines.
+- Break words without a shaping-safe boundary at any cluster boundary instead of
+  overflowing the box.
 - Speed up HarfBuzzy layout of long paragraphs about 250×: glyph source mapping
   and cluster lookups were quadratic. Add `tests/bench_text_layout.nim`.
 

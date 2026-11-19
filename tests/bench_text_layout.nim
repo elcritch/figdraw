@@ -125,6 +125,15 @@ proc benchmark(backend: TextBackendKind, text: string) =
       let ms = timings.median()
       echo &"{$backend:>10} {api:<6} {name:<28} {ms:8.2f} ms {kilobytes / (ms / 1000):9.0f} KiB/s {lines:6} lines"
 
+proc unbrokenText(bytes: int): string =
+  ## Base64-like text without break opportunities, wrapped by emergency breaks.
+  const Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+  var seed = 29
+  result = newStringOfCap(bytes)
+  for _ in 0 ..< bytes:
+    seed = (seed * 1103515245 + 12345) and 0x7fffffff
+    result.add Alphabet[seed mod Alphabet.len]
+
 when isMainModule:
   registerPatterns()
   let text = document(paragraphs = 200, wordsPerParagraph = 80)
@@ -132,3 +141,8 @@ when isMainModule:
   for backend in [TextBackendKind.Harfbuzzy, TextBackendKind.Pixie]:
     if textBackendAvailable(backend):
       benchmark(backend, text)
+  let unbroken = unbrokenText(108 * 1024)
+  echo &"unbroken text: {unbroken.len div 1024} KiB, width {Width}"
+  for backend in [TextBackendKind.Harfbuzzy, TextBackendKind.Pixie]:
+    if textBackendAvailable(backend):
+      benchmark(backend, unbroken)

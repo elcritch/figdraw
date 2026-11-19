@@ -10,7 +10,7 @@ suite "hyphenation":
 
   test "Liang patterns produce the TeXbook hyphenation":
     let patterns = parseTexHyphenationPatterns(LiangPatterns)
-    check patterns.len == 9
+    check patterns.patternCount == 9
     check patterns.hyphenationPoints("hyphenation") == @[2, 6]
     check patterns.hyphenationPoints("Hyphenation") == @[2, 6]
     check patterns.hyphenationPoints("hy") == newSeq[int]()
@@ -28,7 +28,7 @@ suite "hyphenation":
       "% comment\n\\patterns{ % inline\n" & LiangPatterns & "\n}\n" &
         "\\hyphenation{ta-ble pro-ject}\n"
     )
-    check patterns.len == 9
+    check patterns.patternCount == 9
     check patterns.hyphenationPoints("hyphenation") == @[2, 6]
     check patterns.hyphenationPoints("project") == @[3]
     check patterns.hyphenationPoints("table") == @[2]
@@ -40,7 +40,7 @@ suite "hyphenation":
     )
     check dictionary.leftMin == 1
     check dictionary.rightMin == 1
-    check dictionary.len == 10
+    check dictionary.patternCount == 10
     check dictionary.hyphenationPoints("hyphenation") == @[2, 6]
     check dictionary.hyphenationPoints("äb") == @[1]
     expect ValueError:
@@ -74,3 +74,37 @@ suite "hyphenation":
     check "de-de" in languages
     check hyphenationPoints("en-US", "project") == @[3]
     check hyphenationPoints("de", "ababab") == @[3]
+
+  test "TeX files skip unrelated commands before pattern groups":
+    let patterns = parseTexHyphenationPatterns(
+      "\\relax\n\\lccode`\\'=`\\'\n\\begingroup\n\\patterns{\n" & LiangPatterns &
+        "\n}\n\\endgroup\n\\hyphenation{pro-ject}\n"
+    )
+    check patterns.patternCount == 9
+    check patterns.hyphenationPoints("hyphenation") == @[2, 6]
+    check patterns.hyphenationPoints("project") == @[3]
+    check parseTexHyphenationPatterns("\\patternsx{1a}\n\\patterns{1b}").patternCount ==
+      1
+    expect ValueError:
+      discard parseTexHyphenationPatterns("\\patterns{hy3ph")
+
+  test "byte-order marks and malformed directives keep defaults":
+    let dictionary = parseHyphenDictionary(
+      "\xEF\xBB\xBFUTF-8\nLEFTHYPHENMIN two\nRIGHTHYPHENMIN -1\n" &
+        LiangPatterns.replace(' ', '\n')
+    )
+    check dictionary.leftMin == 2
+    check dictionary.rightMin == 3
+    check dictionary.hyphenationPoints("hyphenation") == @[2, 6]
+    let tex = parseTexHyphenationPatterns("\xEF\xBB\xBF" & LiangPatterns)
+    check tex.patternCount == 9
+
+  test "pattern suffixes match regardless of case":
+    let directory = createTempDir("figdraw", "hyphenation-case")
+    defer:
+      removeDir(directory)
+    writeFile(directory / "HYPH-EN-US.PAT.TXT", LiangPatterns)
+    writeFile(directory / "HYPH-EN-US.HYP.TXT", "pro-ject\n")
+    let patterns = loadHyphenationPatterns(directory / "HYPH-EN-US.PAT.TXT")
+    check patterns.patternCount == 9
+    check patternFileLanguage("HYPH-EN-US.PAT.TXT") == "en-us"

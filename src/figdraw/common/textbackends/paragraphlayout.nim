@@ -9,6 +9,8 @@ import std/[algorithm, math, tables, unicode]
 
 import pkg/vmath
 
+import threading/smartptrs
+
 import ../fonttypes
 import ../hyphenation
 import ./common
@@ -18,6 +20,7 @@ type
     glyphs*: Slice[int] ## Visual glyph range of one source paragraph; may be empty.
     style*: ParagraphStyle
     language*: string ## BCP 47 language used for hyphenation.
+    rightToLeft*: bool ## Base direction of the paragraph.
 
   HyphenGlyph* = object
     found*: bool
@@ -48,13 +51,30 @@ type
     gfSpace ## Whitespace that hangs at line ends and stretches when justified.
     gfSoftHyphen
     gfSafe ## Shaping-safe cluster boundary after this glyph.
+    gfCluster ## Cluster boundary after this glyph, even if shaping-unsafe.
     gfPreferred ## Preferred break opportunity after this glyph.
     gfExplicitHyphen ## Break follows a visible hyphen character.
+
+  HyphenPoint = tuple[index: int, edit: HyphenEdit]
+
+  PatternLookup = object
+    found: bool
+    patterns: ConstPtr[HyphenationPatterns]
+
+  GlyphRecord = object
+    ## One glyph with the per-glyph data that spans and runes otherwise hold.
+    glyph: ArrangedGlyph
+    selection: Rect
+    font: GlyphFont
+    color: Fill
+    covered: bool
+    visualKey: float64 ## Original visual position; orders a line for display.
 
   LayoutContext = object
     flags: seq[set[GlyphFlag]]
     widths: seq[float32]
     hyphens: Table[FontId, HyphenGlyph]
+    patterns: Table[string, PatternLookup] ## Resolved once per language.
     wordPoints: Table[string, seq[int]] ## Hyphenation points by language and word.
     resolver: HyphenResolver
     boxWidth: float32
@@ -146,6 +166,106 @@ proc lastSourceRune(arrangement: GlyphArrangement, glyph: ArrangedGlyph): Rune =
     return Rune(0)
   source.bytes.lastRune(glyph.source.byteEnd - 1)[0]
 
+proc decompose(arrangement: GlyphArrangement): seq[GlyphRecord] =
+  result = newSeq[GlyphRecord](arrangement.arrangedGlyphs.len)
+  for index, glyph in arrangement.arrangedGlyphs:
+    result[index].glyph = glyph
+    result[index].selection = arrangement.selectionRects[index]
+    result[index].visualKey = index.float64
+  for spanIndex, span in arrangement.spans:
+    for glyphIndex in span:
+      if glyphIndex in 0 ..< result.len:
+        result[glyphIndex].font = arrangement.fonts[spanIndex]
+        result[glyphIndex].color = arrangement.spanColors[spanIndex]
+        result[glyphIndex].covered = true
+
+proc recompose(arrangement: var GlyphArrangement, records: openArray[GlyphRecord]) =
+  ## Rebuilds glyph arrays, merged spans, and display runes from records.
+  arrangement.arrangedGlyphs.setLen(records.len)
+  arrangement.positions.setLen(records.len)
+  arrangement.selectionRects.setLen(records.len)
+  arrangement.spans.setLen(0)
+  arrangement.fonts.setLen(0)
+  arrangement.spanColors.setLen(0)
+  var display = newStringOfCap(records.len)
+  for index, record in records:
+    arrangement.arrangedGlyphs[index] = record.glyph
+    arrangement.positions[index] = record.glyph.pos
+    arrangement.selectionRects[index] = record.selection
+    display.add record.glyph.rune
+    if not record.covered:
+      continue
+    if arrangement.spans.len > 0 and arrangement.spans[^1].b == index - 1 and
+        arrangement.fonts[^1] == record.font and
+        arrangement.spanColors[^1] == record.color:
+      arrangement.spans[^1].b = index
+    else:
+      arrangement.spans.add index .. index
+      arrangement.fonts.add record.font
+      arrangement.spanColors.add record.color
+  arrangement.runes = initArrangementRunes(display)
+
+proc runsInLogicalOrder(arrangement: GlyphArrangement, range: Slice[int]): bool =
+  for index in range.a ..< range.b:
+    if arrangement.arrangedGlyphs[index + 1].source.runeStart <
+        arrangement.arrangedGlyphs[index].source.runeStart:
+      return false
+  true
+
+proc orderLogically(
+    arrangement: var GlyphArrangement,
+    paragraphs: openArray[LayoutParagraph],
+    breakAfter: openArray[bool],
+    records: var seq[GlyphRecord],
+    reordered: var seq[bool],
+): seq[bool] =
+  ## Puts the glyphs of bidirectional paragraphs in source order so lines
+  ## break from the paragraph's logical start; display order is restored per
+  ## line afterward. Returns shaping-safe flags for the new order.
+  result = @breakAfter
+  reordered = newSeq[bool](paragraphs.len)
+  var any = false
+  for paragraphIndex, paragraph in paragraphs:
+    if paragraph.glyphs.a < paragraph.glyphs.b and
+        not arrangement.runsInLogicalOrder(paragraph.glyphs):
+      reordered[paragraphIndex] = true
+      any = true
+  if not any:
+    return
+  records = arrangement.decompose()
+  if result.len < records.len:
+    let known = result.len
+    result.setLen(records.len)
+    for index in known ..< records.len:
+      result[index] = true
+  let visualSafe = result
+  for paragraphIndex, paragraph in paragraphs:
+    if not reordered[paragraphIndex]:
+      continue
+    let range = paragraph.glyphs
+    var slice = records[range.a .. range.b]
+    slice.sort(
+      proc(a, b: GlyphRecord): int =
+        result = cmp(a.glyph.source.runeStart, b.glyph.source.runeStart)
+        if result == 0:
+          result = cmp(a.visualKey, b.visualKey)
+    )
+    for offset, record in slice:
+      records[range.a + offset] = record
+    # A logical neighbor pair is shaping-safe where it is visually adjacent
+    # and HarfBuzz marked that visual boundary safe.
+    for index in range.a ..< range.b:
+      let
+        here = int(records[index].visualKey)
+        next = int(records[index + 1].visualKey)
+      result[index] =
+        if abs(here - next) == 1:
+          visualSafe[min(here, next)]
+        else:
+          true
+    result[range.b] = true
+  arrangement.recompose(records)
+
 proc classifyGlyphs(
     ctx: var LayoutContext,
     arrangement: var GlyphArrangement,
@@ -186,6 +306,8 @@ proc classifyGlyphs(
         shapingSafe = index >= breakAfter.len or breakAfter[index]
         clusterBoundary =
           not hasNext or glyph.source != arrangement.arrangedGlyphs[index + 1].source
+      if clusterBoundary and gfSoftHyphen notin flags:
+        flags.incl gfCluster
       if shapingSafe and clusterBoundary:
         flags.incl gfSafe
       if shapingSafe and gfSoftHyphen notin flags:
@@ -193,7 +315,9 @@ proc classifyGlyphs(
           flags.incl gfPreferred
           if last.isHyphenRune:
             flags.incl gfExplicitHyphen
-        elif hasNext and last.isCjkLineBreakRune and nextFirst.isCjkLineBreakRune:
+        elif hasNext and last.isCjkLineBreakRune and nextFirst.isCjkLineBreakRune and
+            glyph.source.runeEnd ==
+            arrangement.arrangedGlyphs[index + 1].source.runeStart:
           flags.incl gfPreferred
       ctx.flags[index] = flags
       ctx.widths[index] = arrangement.arrangedGlyphs[index].glyphWrapWidth()
@@ -211,18 +335,28 @@ func lineIndent(style: ParagraphStyle, first: bool): float32 =
 func available(ctx: LayoutContext, style: ParagraphStyle, first: bool): float32 =
   max(ctx.boxWidth - style.lineIndent(first) - style.tailIndent, 0)
 
+proc patternPoints(ctx: var LayoutContext, language, word: string): seq[int] =
+  if language notin ctx.patterns:
+    var lookup: PatternLookup
+    lookup.found = hyphenationPatternsFor(language, lookup.patterns)
+    ctx.patterns[language] = lookup
+  let lookup = ctx.patterns[language]
+  if lookup.found:
+    result = lookup.patterns[].hyphenationPoints(word)
+
 proc wordHyphenPoints(
     ctx: var LayoutContext,
     arrangement: GlyphArrangement,
     paragraph: LayoutParagraph,
     wordStart, wordEnd: int,
-): seq[tuple[index: int, edit: HyphenEdit]] =
+    hyphenate: bool,
+): seq[HyphenPoint] =
   ## Ascending breaks inside a word: after soft hyphens, or else after glyphs
-  ## at registered hyphenation points. Right-to-left words are not hyphenated.
+  ## at registered hyphenation points when `hyphenate` is set.
   for index in wordStart .. wordEnd:
     if gfSoftHyphen in ctx.flags[index]:
       result.add (index, heSoftHyphen)
-  if result.len > 0 or not paragraph.style.hyphenate or wordStart >= wordEnd:
+  if result.len > 0 or not hyphenate or wordStart >= wordEnd:
     return
   let source = arrangement.sourceRunes
   if source.isNil:
@@ -250,7 +384,7 @@ proc wordHyphenPoints(
     key = paragraph.language & '\0' & source.bytes[byteStart ..< byteEnd]
   if key notin ctx.wordPoints:
     ctx.wordPoints[key] =
-      hyphenationPoints(paragraph.language, key[paragraph.language.len + 1 .. ^1])
+      ctx.patternPoints(paragraph.language, key[paragraph.language.len + 1 .. ^1])
   let points = ctx.wordPoints[key]
   var pointIndex = 0
   for index in first ..< last:
@@ -273,32 +407,37 @@ proc greedyLines(
     paragraph: LayoutParagraph,
     lines: var seq[BrokenLine],
 ) =
+  ## Fills each line in turn. Word bounds and hyphenation points are found
+  ## once per word, so long unbroken text stays linear.
   let range = paragraph.glyphs
   var
     lineStart = range.a
     lineWidth = 0.0'f32
     lastBreak = -1
     lastSafe = -1
+    lastCluster = -1
     index = range.a
     firstLine = true
+    wordStart = range.a ## First glyph of the word holding `index`.
+    pointsWord = -1
+    points: seq[HyphenPoint]
   while index <= range.b:
     let width = ctx.widths[index]
+    let available = ctx.available(paragraph.style, firstLine)
     if index > lineStart and gfSpace notin ctx.flags[index] and
-        lineWidth + width > ctx.available(paragraph.style, firstLine):
-      let available = ctx.available(paragraph.style, firstLine)
+        lineWidth + width > available:
       var
         cut = -1
         edit = heNone
-      # Hyphenate the whole word, even when an earlier line holds part of it.
-      var wordStart = index
-      while wordStart > range.a and gfSpace notin ctx.flags[wordStart - 1] and
-          gfPreferred notin ctx.flags[wordStart - 1]:
-        dec wordStart
-      var wordEnd = index
-      while wordEnd < range.b and gfSpace notin ctx.flags[wordEnd + 1] and
-          gfPreferred notin ctx.flags[wordEnd]:
-        inc wordEnd
-      let points = ctx.wordHyphenPoints(arrangement, paragraph, wordStart, wordEnd)
+      if pointsWord != wordStart:
+        var wordEnd = index
+        while wordEnd < range.b and gfSpace notin ctx.flags[wordEnd + 1] and
+            gfPreferred notin ctx.flags[wordEnd]:
+          inc wordEnd
+        points = ctx.wordHyphenPoints(
+          arrangement, paragraph, wordStart, wordEnd, paragraph.style.hyphenate
+        )
+        pointsWord = wordStart
       if points.len > 0:
         var
           tailWidth = 0.0'f32
@@ -308,11 +447,21 @@ proc greedyLines(
           while pointIndex >= 0 and points[pointIndex].index > candidate:
             dec pointIndex
           if pointIndex >= 0 and points[pointIndex].index == candidate:
-            let hyphen = ctx.hyphenWidth(arrangement, candidate)
-            if hyphen >= 0 and lineWidth - tailWidth + hyphen <= available:
+            let
+              hyphen = ctx.hyphenWidth(arrangement, candidate)
+              shown = max(hyphen, 0)
+            if lineWidth - tailWidth + shown <= available:
               cut = candidate
-              edit = points[pointIndex].edit
-              break
+              # Without a hyphen glyph a soft hyphen is a plain break.
+              edit =
+                if hyphen >= 0:
+                  points[pointIndex].edit
+                else:
+                  heNone
+              if hyphen < 0 and edit == heNone and points[pointIndex].edit == heInsert:
+                cut = -1
+              else:
+                break
           tailWidth += ctx.widths[candidate]
           dec candidate
       if cut < 0:
@@ -320,21 +469,33 @@ proc greedyLines(
           cut = lastBreak
         elif lastSafe >= lineStart:
           cut = lastSafe
+        elif lastCluster >= lineStart:
+          # Overflowing the box is worse than breaking where shaping across
+          # the boundary differs, e.g. between kerned glyphs.
+          cut = lastCluster
       if cut >= lineStart:
         lines.add BrokenLine(glyphs: lineStart .. cut, edit: edit)
+        if ctx.flags[cut] * {gfSpace, gfPreferred} != {}:
+          wordStart = cut + 1
         lineStart = cut + 1
         lineWidth = 0
         lastBreak = -1
         lastSafe = -1
+        lastCluster = -1
         index = lineStart
         firstLine = false
         continue
     lineWidth += width
     let flags = ctx.flags[index]
-    if gfSafe in flags:
+    # Discretionary hyphens break only where their hyphen is shown.
+    if gfSafe in flags and gfSoftHyphen notin flags:
       lastSafe = index
+    if gfCluster in flags:
+      lastCluster = index
     if gfPreferred in flags:
       lastBreak = index
+    if flags * {gfSpace, gfPreferred} != {}:
+      wordStart = index + 1
     inc index
   if lineStart <= range.b:
     lines.add BrokenLine(glyphs: lineStart .. range.b)
@@ -387,13 +548,13 @@ proc breakCandidates(
       )
     if gfPreferred in flags or index == range.b or gfSpace in ctx.flags[index + 1]:
       # Soft hyphens always qualify; pattern points only when `hyphenate`.
-      var wordParagraph = paragraph
-      wordParagraph.style.hyphenate = hyphenate
       for (point, edit) in ctx.wordHyphenPoints(
-        arrangement, wordParagraph, wordStart, index
+        arrangement, paragraph, wordStart, index, hyphenate
       ):
+        if point >= index:
+          continue
         let hyphen = ctx.hyphenWidth(arrangement, point)
-        if hyphen >= 0 and point < index:
+        if hyphen >= 0:
           result.add BreakCandidate(
             contentEnd: point,
             next: point + 1,
@@ -402,6 +563,8 @@ proc breakCandidates(
             flagged: true,
             edit: edit,
           )
+        elif edit == heSoftHyphen:
+          result.add BreakCandidate(contentEnd: point, next: point + 1)
       wordStart = index + 1
     inc index
   result.sort(
@@ -434,16 +597,14 @@ proc optimalLines(
     if gfSpace in ctx.flags[index]:
       stretch[offset + 1] += ctx.widths[index] * JustifyStretch
       shrink[offset + 1] += ctx.widths[index] * JustifyShrink
+  let justifiesLast = paragraph.style.lastLineAlign == paJustify
   var
     nodes = @[BreakNode(candidate: -1, fitness: 1, previous: -1)]
     active = @[0]
   for candidateIndex, candidate in candidates:
     var
-      best: array[4, array[2, float64]]
-      bestPrevious: array[4, array[2, int]]
-    for fitness in 0 .. 3:
-      for lineClass in 0 .. 1:
-        best[fitness][lineClass] = Inf
+      best: array[4, float64] = [Inf, Inf, Inf, Inf]
+      bestPrevious: array[4, int]
     var kept = newSeqOfCap[int](active.len)
     for nodeIndex in active:
       let
@@ -461,17 +622,23 @@ proc optimalLines(
         first = start - range.a
         stop = candidate.contentEnd - range.a + 1
         natural = widths[stop] - widths[first] + candidate.extraWidth
+        lineStretch = stretch[stop] - stretch[first]
+        lineShrink = shrink[stop] - shrink[first]
+        # A last line set at natural width cannot shrink to fit.
+        canAdjust = not candidate.forced or justifiesLast
         ratio =
           if natural < target:
-            if candidate.forced:
+            if candidate.forced and not justifiesLast:
               0.0
-            elif stretch[stop] - stretch[first] > 0:
-              (target - natural) / (stretch[stop] - stretch[first])
+            elif lineStretch > 0:
+              (target - natural) / lineStretch
+            elif candidate.forced:
+              0.0
             else:
               Inf
           elif natural > target:
-            if shrink[stop] - shrink[first] > 0:
-              (target - natural) / (shrink[stop] - shrink[first])
+            if canAdjust and lineShrink > 0:
+              (target - natural) / lineShrink
             else:
               -Inf
           else:
@@ -499,27 +666,26 @@ proc optimalLines(
         demerits += DoubleHyphenDemerits
       if abs(fitness - node.fitness) > 1:
         demerits += AdjacentFitnessDemerits
-      let
-        total = node.demerits + demerits
-        lineClass = min(node.line + 1, 1)
-      if total < best[fitness][lineClass]:
-        best[fitness][lineClass] = total
-        bestPrevious[fitness][lineClass] = nodeIndex
+      let total = node.demerits + demerits
+      if total < best[fitness]:
+        best[fitness] = total
+        bestPrevious[fitness] = nodeIndex
     active = kept
+    # Every break after the first sets later lines with the head indent, so
+    # nodes need no line-number classes beyond fitness.
     for fitness in 0 .. 3:
-      for lineClass in 0 .. 1:
-        if best[fitness][lineClass] < Inf:
-          let previous = bestPrevious[fitness][lineClass]
-          nodes.add BreakNode(
-            candidate: candidateIndex,
-            line: nodes[previous].line + 1,
-            fitness: fitness,
-            demerits: best[fitness][lineClass],
-            previous: previous,
-            flagged: candidate.flagged,
-          )
-          if not candidate.forced:
-            active.add nodes.high
+      if best[fitness] < Inf:
+        let previous = bestPrevious[fitness]
+        nodes.add BreakNode(
+          candidate: candidateIndex,
+          line: nodes[previous].line + 1,
+          fitness: fitness,
+          demerits: best[fitness],
+          previous: previous,
+          flagged: candidate.flagged,
+        )
+        if not candidate.forced:
+          active.add nodes.high
     if active.len == 0 and not candidate.forced:
       return false
   var
@@ -548,155 +714,118 @@ proc optimalLines(
     start = candidate.next
   true
 
-func lineSourceStart(arrangement: GlyphArrangement, line: Slice[int]): int =
-  result = high(int)
-  for glyphIndex in line:
-    let source = arrangement.arrangedGlyphs[glyphIndex].source
-    if source.runeStart < source.runeEnd:
-      result = min(result, source.runeStart)
-  if result == high(int):
-    result = 0
+proc hyphenRecord(
+    ctx: var LayoutContext, base: GlyphRecord, rect: Rect, visualKey: float64
+): GlyphRecord =
+  ## A visible hyphen styled like `base`, keeping its decorations.
+  let hyphen = ctx.hyphenFor(base.glyph.fontId)
+  result = base
+  result.font =
+    if hyphen.glyphFont.fontId == base.font.fontId:
+      base.font
+    else:
+      var font = hyphen.glyphFont
+      font.underline = base.font.underline
+      font.strikethrough = base.font.strikethrough
+      font
+  result.glyph.fontId = hyphen.glyphFont.fontId
+  result.glyph.glyphId = hyphen.glyphId
+  result.glyph.rune = Rune('-')
+  result.glyph.isWhitespace = false
+  result.glyph.advance = vec2(hyphen.advance, 0)
+  result.glyph.offset = vec2(0, 0)
+  result.glyph.imageOffset = hyphen.imageOffset
+  result.glyph.pos = vec2(rect.x, base.glyph.pos.y)
+  result.glyph.rect = rect
+  result.glyph.rect.w = hyphen.advance
+  result.selection = result.glyph.rect
+  result.visualKey = visualKey
 
-func linesNeedLogicalReverse(
-    arrangement: GlyphArrangement, lines: openArray[BrokenLine]
-): bool =
-  if lines.len < 2:
-    return false
-  var previous = arrangement.lineSourceStart(lines[0].glyphs)
-  for i in 1 ..< lines.len:
-    let current = arrangement.lineSourceStart(lines[i].glyphs)
-    if current < previous:
-      return true
-    if current > previous:
-      return false
-    previous = current
-
-func lineRunsRightToLeft(arrangement: GlyphArrangement, line: Slice[int]): bool =
-  var
-    first = -1
-    last = -1
-  for index in line:
-    let source = arrangement.arrangedGlyphs[index].source
-    if source.runeStart < source.runeEnd:
-      if first < 0:
-        first = source.runeStart
-      last = source.runeStart
-  first >= 0 and last < first
-
-proc applyHyphenEdits(
+proc finishLines(
     ctx: var LayoutContext,
     arrangement: var GlyphArrangement,
     lines: var seq[BrokenLine],
+    owners: openArray[int],
+    reordered: openArray[bool],
+    records: var seq[GlyphRecord],
 ) =
-  ## Shows hyphens at the line ends that need them. Inserted glyphs share the
-  ## source range of the glyph they follow, so selection treats them as part
-  ## of its cluster.
+  ## Shows hyphens at the line ends that need them and restores display order
+  ## within lines of reordered paragraphs. Inserted hyphens share the source
+  ## range of the glyph they follow, so selection treats them as part of that
+  ## cluster.
   var
     edited = false
-    inserts = 0
+    anyReordered = false
   for line in lines:
-    case line.edit
-    of heNone:
-      discard
-    of heSoftHyphen, heInsert:
+    if line.edit != heNone:
       edited = true
-      if line.edit == heInsert:
-        inc inserts
-  if not edited:
+  for flag in reordered:
+    anyReordered = anyReordered or flag
+  if not edited and not anyReordered:
     return
+  if records.len != arrangement.arrangedGlyphs.len:
+    records = arrangement.decompose()
+  else:
+    # Records predate classification, which hides soft hyphens.
+    for index, glyph in arrangement.arrangedGlyphs:
+      records[index].glyph = glyph
+      records[index].selection = arrangement.selectionRects[index]
 
-  let count = arrangement.arrangedGlyphs.len
-  var
-    glyphFonts = newSeq[GlyphFont](count)
-    glyphColors = newSeq[Fill](count)
-    covered = newSeq[bool](count)
-    endEdits = newSeq[HyphenEdit](count)
-    newIndex = newSeq[int](count)
-  for spanIndex, span in arrangement.spans:
-    for glyphIndex in span:
-      if glyphIndex in 0 ..< count:
-        glyphFonts[glyphIndex] = arrangement.fonts[spanIndex]
-        glyphColors[glyphIndex] = arrangement.spanColors[spanIndex]
-        covered[glyphIndex] = true
-  for line in lines:
-    if line.glyphs.b in 0 ..< count:
-      endEdits[line.glyphs.b] = line.edit
-
-  proc hyphenGlyph(
-      ctx: var LayoutContext, base: ArrangedGlyph, rect: Rect
-  ): (ArrangedGlyph, Rect, GlyphFont) =
-    let hyphen = ctx.hyphenFor(base.fontId)
-    var glyph = base
-    glyph.fontId = hyphen.glyphFont.fontId
-    glyph.glyphId = hyphen.glyphId
-    glyph.rune = Rune('-')
-    glyph.isWhitespace = false
-    glyph.advance = vec2(hyphen.advance, 0)
-    glyph.offset = vec2(0, 0)
-    glyph.imageOffset = hyphen.imageOffset
-    glyph.pos = vec2(rect.x, base.pos.y)
-    var hyphenRect = rect
-    hyphenRect.w = hyphen.advance
-    glyph.rect = hyphenRect
-    (glyph, hyphenRect, hyphen.glyphFont)
-
-  let total = count + inserts
-  var
-    glyphs = newSeqOfCap[ArrangedGlyph](total)
-    positions = newSeqOfCap[Vec2](total)
-    rects = newSeqOfCap[Rect](total)
-    fonts = newSeqOfCap[GlyphFont](total)
-    colors = newSeqOfCap[Fill](total)
-    coverage = newSeqOfCap[bool](total)
-  for index in 0 ..< count:
-    newIndex[index] = glyphs.len
-    var
-      current = arrangement.arrangedGlyphs[index]
-      currentRect = arrangement.selectionRects[index]
-      currentFont = glyphFonts[index]
-    if endEdits[index] == heSoftHyphen:
-      (current, currentRect, currentFont) = ctx.hyphenGlyph(current, currentRect)
-    glyphs.add current
-    positions.add current.pos
-    rects.add currentRect
-    fonts.add currentFont
-    colors.add glyphColors[index]
-    coverage.add covered[index]
-    if endEdits[index] == heInsert:
-      let (hyphen, hyphenRect, hyphenFont) = ctx.hyphenGlyph(
-        current, rect(currentRect.x + currentRect.w, currentRect.y, 0, currentRect.h)
+  var output = newSeqOfCap[GlyphRecord](records.len + lines.len)
+  var remapped = newSeq[BrokenLine](lines.len)
+  var order = newSeq[int](lines.len)
+  for index in 0 ..< lines.len:
+    order[index] = index
+  # Emit lines by glyph position so every glyph is copied exactly once.
+  var starts = newSeq[int](lines.len)
+  for index, line in lines:
+    starts[index] = line.glyphs.a
+  order.sort(
+    proc(a, b: int): int =
+      cmp(starts[a], starts[b])
+  )
+  var cursor = 0
+  for lineIndex in order:
+    let line = lines[lineIndex]
+    while cursor < line.glyphs.a:
+      output.add records[cursor]
+      inc cursor
+    let start = output.len
+    for index in line.glyphs:
+      var record = records[index]
+      if index == line.glyphs.b and line.edit == heSoftHyphen:
+        record = ctx.hyphenRecord(record, record.selection, record.visualKey)
+      output.add record
+      if index == line.glyphs.b and line.edit == heInsert:
+        # The hyphen follows its glyph in reading order: visually after it in
+        # left-to-right runs and before it in right-to-left runs.
+        let
+          next = min(index + 1, records.high)
+          leftward = next != index and records[next].visualKey < record.visualKey
+          key = record.visualKey + (if leftward: -0.5 else: 0.5)
+          base = output[^1]
+        output.add ctx.hyphenRecord(
+          base,
+          rect(
+            base.selection.x + base.selection.w, base.selection.y, 0, base.selection.h
+          ),
+          key,
+        )
+    cursor = line.glyphs.b + 1
+    if reordered[owners[lineIndex]]:
+      var slice = output[start .. output.high]
+      slice.sort(
+        proc(a, b: GlyphRecord): int =
+          cmp(a.visualKey, b.visualKey)
       )
-      glyphs.add hyphen
-      positions.add hyphen.pos
-      rects.add hyphenRect
-      fonts.add hyphenFont
-      colors.add glyphColors[index]
-      coverage.add covered[index]
-  for line in lines.mitems:
-    let stop = newIndex[line.glyphs.b] + (if line.edit == heInsert: 1 else: 0)
-    line.glyphs = newIndex[line.glyphs.a] .. stop
-
-  arrangement.arrangedGlyphs = move glyphs
-  arrangement.positions = move positions
-  arrangement.selectionRects = move rects
-  arrangement.spans.setLen(0)
-  arrangement.fonts.setLen(0)
-  arrangement.spanColors.setLen(0)
-  for index in 0 ..< fonts.len:
-    if not coverage[index]:
-      continue
-    if arrangement.spans.len > 0 and arrangement.spans[^1].b == index - 1 and
-        arrangement.fonts[^1] == fonts[index] and
-        arrangement.spanColors[^1] == colors[index]:
-      arrangement.spans[^1].b = index
-    else:
-      arrangement.spans.add index .. index
-      arrangement.fonts.add fonts[index]
-      arrangement.spanColors.add colors[index]
-  var display = newStringOfCap(arrangement.arrangedGlyphs.len)
-  for glyph in arrangement.arrangedGlyphs:
-    display.add glyph.rune
-  arrangement.runes = initArrangementRunes(display)
+      for offset, record in slice:
+        output[start + offset] = record
+    remapped[lineIndex] = BrokenLine(glyphs: start .. output.high)
+  while cursor < records.len:
+    output.add records[cursor]
+    inc cursor
+  lines = remapped
+  arrangement.recompose(output)
 
 proc breakParagraphLines*(
     arrangement: var GlyphArrangement,
@@ -706,11 +835,16 @@ proc breakParagraphLines*(
     wrap: bool,
     resolver: HyphenResolver,
 ): seq[ParagraphLine] =
-  ## Breaks every paragraph into `arrangement.lines`, showing hyphens where
-  ## words break. `breakAfter` marks shaping-safe breaks; empty means all.
-  ## Returns one entry per line in `arrangement.lines`.
+  ## Breaks every paragraph into `arrangement.lines` in reading order, showing
+  ## hyphens where words break. Bidirectional paragraphs break in source order
+  ## and keep display order within each line. `breakAfter` marks shaping-safe
+  ## breaks in display order; empty means all. Returns one entry per line.
   var ctx = LayoutContext(resolver: resolver, boxWidth: boxWidth, wrap: wrap)
-  ctx.classifyGlyphs(arrangement, paragraphs, breakAfter)
+  var
+    records: seq[GlyphRecord]
+    reordered: seq[bool]
+  let safe = arrangement.orderLogically(paragraphs, breakAfter, records, reordered)
+  ctx.classifyGlyphs(arrangement, paragraphs, safe)
   let wraps = wrap and boxWidth > 0
   var
     lines: seq[BrokenLine]
@@ -741,12 +875,10 @@ proc breakParagraphLines*(
           paragraphLines.setLen(0)
       if not placed:
         ctx.greedyLines(arrangement, paragraph, paragraphLines)
-    if arrangement.linesNeedLogicalReverse(paragraphLines):
-      paragraphLines.reverse()
     for line in paragraphLines:
       lines.add line
       owners.add paragraphIndex
-  ctx.applyHyphenEdits(arrangement, lines)
+  ctx.finishLines(arrangement, lines, owners, reordered, records)
   arrangement.lines.setLen(0)
   var previousOwner = -1
   for lineIndex, line in lines:
@@ -756,25 +888,9 @@ proc breakParagraphLines*(
       paragraph: owner,
       first: owner != previousOwner,
       last: lineIndex == lines.high or owners[lineIndex + 1] != owner,
+      rtl: paragraphs[owner].rightToLeft,
     )
     previousOwner = owner
-  var lineIndex = 0
-  while lineIndex < result.len:
-    var stop = lineIndex
-    while stop < result.high and
-        result[stop + 1].paragraph == result[lineIndex].paragraph:
-      inc stop
-    var rtl = false
-    if stop > lineIndex:
-      rtl =
-        arrangement.lineSourceStart(arrangement.lines[stop]) <
-        arrangement.lineSourceStart(arrangement.lines[lineIndex]) or
-        arrangement.lineRunsRightToLeft(arrangement.lines[lineIndex])
-    else:
-      rtl = arrangement.lineRunsRightToLeft(arrangement.lines[lineIndex])
-    for index in lineIndex .. stop:
-      result[index].rtl = rtl
-    lineIndex = stop + 1
 
 proc lineHeight*(arrangement: GlyphArrangement, line: Slice[int]): float32 =
   for glyphIndex in line:
@@ -786,9 +902,25 @@ proc lineHeight*(arrangement: GlyphArrangement, line: Slice[int]): float32 =
 func justifies(style: ParagraphStyle, line: ParagraphLine): bool =
   style.align == paJustify and (not line.last or style.lastLineAlign == paJustify)
 
-proc contentRange(arrangement: GlyphArrangement, line: Slice[int]): Slice[int] =
-  ## The line without leading or trailing whitespace.
+proc withoutTrailingSpace(
+    arrangement: GlyphArrangement, line: Slice[int], rtl: bool
+): Slice[int] =
+  ## The line without whitespace at its reading end, which hangs past the
+  ## measure: the right end of a left-to-right line, else the left end.
   result = line
+  if rtl:
+    while result.a <= result.b and arrangement.arrangedGlyphs[result.a].isWhitespace:
+      inc result.a
+  else:
+    while result.b >= result.a and arrangement.arrangedGlyphs[result.b].isWhitespace:
+      dec result.b
+
+proc stretchableSpaces(
+    arrangement: GlyphArrangement, line: Slice[int], rtl: bool
+): Slice[int] =
+  ## Glyphs between the line's first and last visible glyphs; leading and
+  ## hanging whitespace keep their natural widths.
+  result = arrangement.withoutTrailingSpace(line, rtl)
   while result.a <= result.b and arrangement.arrangedGlyphs[result.a].isWhitespace:
     inc result.a
   while result.b >= result.a and arrangement.arrangedGlyphs[result.b].isWhitespace:
@@ -805,8 +937,9 @@ proc reflowParagraphLines*(
   ## left to right and stretching interior spaces of justified lines.
   var lineTop = 0.0'f32
   for lineIndex, line in arrangement.lines:
-    var extraPerSpace = 0.0'f32
-    var content = line
+    var
+      extraPerSpace = 0.0'f32
+      stretchable = 1 .. 0
     if lineIndex < lines.len:
       let
         info = lines[lineIndex]
@@ -816,22 +949,24 @@ proc reflowParagraphLines*(
           paragraphs[lines[lineIndex - 1].paragraph].style.spacingAfter +
           style.spacingBefore
       if wrap and boxWidth > 0 and style.justifies(info):
-        content = arrangement.contentRange(line)
+        stretchable = arrangement.stretchableSpaces(line, info.rtl)
         var
           width = 0.0'f32
           spaces = 0
           narrowestSpace = float32.high
-        for glyphIndex in content:
+        for glyphIndex in arrangement.withoutTrailingSpace(line, info.rtl):
+          width += arrangement.arrangedGlyphs[glyphIndex].glyphWrapWidth()
+        for glyphIndex in stretchable:
           let glyph = arrangement.arrangedGlyphs[glyphIndex]
-          width += glyph.glyphWrapWidth()
           if glyph.isWhitespace and glyph.rect.w > 0:
             inc spaces
             narrowestSpace = min(narrowestSpace, glyph.glyphWrapWidth())
-        let target = boxWidth - style.lineIndent(info.first) - style.tailIndent
+        let target = max(boxWidth - style.lineIndent(info.first) - style.tailIndent, 0)
         if spaces > 0:
-          extraPerSpace = (target - width) / spaces.float32
-          # Never overlap glyphs when the measure is narrower than the words.
-          extraPerSpace = max(extraPerSpace, -narrowestSpace)
+          # Shrink no further than optimal breaking allows, so words never
+          # run together when the measure is narrower than the line.
+          extraPerSpace =
+            max((target - width) / spaces.float32, -narrowestSpace * JustifyShrink)
     let height = arrangement.lineHeight(line)
     var lineX = 0.0'f32
     for glyphIndex in line:
@@ -839,7 +974,7 @@ proc reflowParagraphLines*(
         oldGlyph = arrangement.arrangedGlyphs[glyphIndex]
         posOffset = oldGlyph.pos - oldGlyph.rect.xy
         stretched =
-          extraPerSpace != 0 and glyphIndex in content and oldGlyph.isWhitespace and
+          extraPerSpace != 0 and glyphIndex in stretchable and oldGlyph.isWhitespace and
           oldGlyph.rect.w > 0
         width = oldGlyph.glyphWrapWidth() + (if stretched: extraPerSpace else: 0)
         newRect = rect(
@@ -914,13 +1049,20 @@ proc alignParagraphLines*(
       else:
         leftEdge = lead
         rightEdge = box.w - style.tailIndent
+      # Indents wider than the box leave an empty measure at the leading edge.
+      if info.rtl:
+        leftEdge = min(leftEdge, rightEdge)
+      else:
+        rightEdge = max(rightEdge, leftEdge)
       if style.align != paInherit:
         align = style.align
+      if not info.last or style.justifies(info):
+        # Spaces where a line wraps hang past the measure.
+        let content = arrangement.withoutTrailingSpace(line, info.rtl)
+        if content.a <= content.b:
+          bounds = arrangement.lineBounds(content)
       if align == paJustify:
         if style.justifies(info):
-          let content = arrangement.contentRange(line)
-          if content.a <= content.b:
-            bounds = arrangement.lineBounds(content)
           align = if info.rtl: paRight else: paLeft
         else:
           align =
