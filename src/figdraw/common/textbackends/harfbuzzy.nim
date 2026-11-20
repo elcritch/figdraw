@@ -6,7 +6,6 @@ import pkg/vmath
 import ../fonttypes
 import ../fontfallbacks
 import ../shared
-import ../textbytes
 import ../typefaces
 import ./common
 import ./paragraphlayout
@@ -75,7 +74,9 @@ proc decodeSource(
 
   var direct = true
   for (style, text) in sourceSpans:
-    if style.font.fontCase != NormalCase or not isAsciiText(text):
+    # Each span must contain complete UTF-8 sequences so concatenating them
+    # preserves the rune boundaries that the per-span mapping would produce.
+    if style.font.fontCase != NormalCase or text.validateUtf8() >= 0:
       direct = false
       break
   if direct:
@@ -313,9 +314,7 @@ func firstAtLeast(values: openArray[int], value: int): int {.inline.} =
       high = middle
   low
 
-type RuneCursor = object
-  ## Last resolved rune start. Glyph sources mostly advance, so stepping
-  ## forward avoids rescanning from a rune-index checkpoint for every glyph.
+type RuneCursor = object ## Last resolved rune start within one HarfBuzz-validated run.
   byteOffset: int
   runeIndex: int
   valid: bool
@@ -323,13 +322,19 @@ type RuneCursor = object
 const RuneCursorMaxStep = 512
 
 proc runeAtOrBefore(cursor: var RuneCursor, runes: Utf8Runes, byteOffset: int): int =
-  if not cursor.valid or byteOffset < cursor.byteOffset or
-      byteOffset - cursor.byteOffset > RuneCursorMaxStep:
+  if not cursor.valid or abs(byteOffset - cursor.byteOffset) > RuneCursorMaxStep:
     cursor.runeIndex = runes.runeIndexAtOrBeforeByte(byteOffset)
     cursor.byteOffset = runes.byteOffsetForRune(cursor.runeIndex)
     cursor.valid = true
   else:
     # Read the borrowed bytes in place; binding `lent` to a `let` copies them.
+    while cursor.byteOffset > byteOffset:
+      # The bytes within this shaped run are valid UTF-8. RTL clusters can
+      # walk backward to the preceding leading byte without a fresh lookup.
+      dec cursor.byteOffset
+      while (ord(runes.bytes[cursor.byteOffset]) and 0xc0) == 0x80:
+        dec cursor.byteOffset
+      dec cursor.runeIndex
     while cursor.byteOffset < byteOffset:
       let next = cursor.byteOffset + max(runes.bytes.runeLenAt(cursor.byteOffset), 1)
       if next > byteOffset:

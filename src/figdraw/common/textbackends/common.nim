@@ -8,10 +8,8 @@ proc calcMinMaxContent*(
     textLayout: GlyphArrangement
 ): tuple[maxSize, minSize: Vec2, bounding: Rect] =
   ## Estimate maximum and minimum content size for a glyph arrangement.
-  var longestWord: Slice[int]
   var longestWordLen: float
 
-  var words = 0
   var wordsHeight = 0.0
   var curr: Slice[int]
   var currLen: float
@@ -27,6 +25,14 @@ proc calcMinMaxContent*(
       textLayout.arrangedGlyphs.len
     else:
       textLayout.runes.len
+
+  let spanCount = min(textLayout.spans.len, textLayout.fonts.len)
+  var orderedSpans = true
+  for index in 1 ..< spanCount:
+    if textLayout.spans[index].a < textLayout.spans[index - 1].a:
+      orderedSpans = false
+      break
+  var spanIndex = 0
 
   for idx in 0 ..< glyphCount:
     let glyphRect =
@@ -53,17 +59,20 @@ proc calcMinMaxContent*(
       currLen = 0.0
     else:
       if curr.len() == 1:
-        words.inc
-        for fontIndex, span in textLayout.spans:
-          if idx in span and fontIndex < textLayout.fonts.len:
-            wordsHeight += textLayout.fonts[fontIndex].lineHeight
-            break
+        if orderedSpans:
+          while spanIndex < spanCount and textLayout.spans[spanIndex].b < idx:
+            inc spanIndex
+          if spanIndex < spanCount and idx in textLayout.spans[spanIndex]:
+            wordsHeight += textLayout.fonts[spanIndex].lineHeight
+        else:
+          for fontIndex in 0 ..< spanCount:
+            if idx in textLayout.spans[fontIndex]:
+              wordsHeight += textLayout.fonts[fontIndex].lineHeight
+              break
       curr.b = idx
       currLen += glyphRect.w
 
-    if currLen > longestWordLen:
-      longestWord = curr
-      longestWordLen = currLen
+    longestWordLen = max(longestWordLen, currLen)
 
   var maxLine = 0.0
   for font in textLayout.fonts:

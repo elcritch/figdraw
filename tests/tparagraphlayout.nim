@@ -492,3 +492,27 @@ if textBackendAvailable(TextBackendKind.Harfbuzzy):
       for index in arrangement.lines[0]:
         firstLineRunes.add arrangement.arrangedGlyphs[index].source.runeStart
       check 0 in firstLineRunes
+
+    test "mixed-direction glyph ranges follow UTF-8 boundaries":
+      var font = testFont()
+      font.fallbackTypefaceIds.add hebrew().typefaceId
+      let
+        text = "Café e\u0301 " & Words & " (42) 🙂"
+        source = initUtf8Runes(text)
+        style = fs(font)
+        box = rect(0, 0, 300, 2000)
+        run = StyledTextRun(
+          byteEnd: uint32(text.len),
+          runeEnd: uint32(source.len),
+          styleId: TextStyleId(0),
+        )
+        owned = typesetForMeasurement(
+          box, [(style, text)], Left, Top, minContent = false, wrap = true
+        )
+        shared = typesetSourceSpansForMeasurement(
+          box, source, [run], [style], Left, Top, minContent = false, wrap = true
+        )
+      check owned.arrangedGlyphs == shared.arrangedGlyphs
+      for glyph in owned.arrangedGlyphs:
+        check glyph.source.byteStart == source.byteOffsetForRune(glyph.source.runeStart)
+        check glyph.source.byteEnd == source.byteOffsetForRune(glyph.source.runeEnd)

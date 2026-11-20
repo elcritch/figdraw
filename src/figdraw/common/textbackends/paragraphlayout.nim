@@ -243,15 +243,12 @@ proc orderLogically(
     if not reordered[paragraphIndex]:
       continue
     let range = paragraph.glyphs
-    var slice = records[range.a .. range.b]
-    slice.sort(
+    records.toOpenArray(range.a, range.b).sort(
       proc(a, b: GlyphRecord): int =
         result = cmp(a.glyph.source.runeStart, b.glyph.source.runeStart)
         if result == 0:
           result = cmp(a.visualKey, b.visualKey)
     )
-    for offset, record in slice:
-      records[range.a + offset] = record
     # A logical neighbor pair is shaping-safe where it is visually adjacent
     # and HarfBuzz marked that visual boundary safe.
     for index in range.a ..< range.b:
@@ -816,13 +813,10 @@ proc finishLines(
         )
     cursor = line.glyphs.b + 1
     if reordered[owners[lineIndex]]:
-      var slice = output[start .. output.high]
-      slice.sort(
+      output.toOpenArray(start, output.high).sort(
         proc(a, b: GlyphRecord): int =
           cmp(a.visualKey, b.visualKey)
       )
-      for offset, record in slice:
-        output[start + offset] = record
     remapped[lineIndex] = BrokenLine(glyphs: start .. output.high)
   while cursor < records.len:
     output.add records[cursor]

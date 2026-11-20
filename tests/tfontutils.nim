@@ -4,6 +4,7 @@ from std/strutils import repeat
 
 import figdraw
 import threading/smartptrs
+from figdraw/common/textbackends/common import calcMinMaxContent
 when figdrawTextBackend == "pixie":
   import figdraw/common/textbackends/pixie as pixieBackend
   import pkg/pixie/fonts as pixieFonts
@@ -215,6 +216,22 @@ suite "fontutils":
     check arranged[1].source.byteEnd == 5
     check arranged[2].source.byteStart == 5
     check arranged[2].source.byteEnd == 7
+
+  test "content measurement uses the first covering font span":
+    var layout = GlyphArrangement(
+      runes: initUtf8Runes("AA BB CC DD"),
+      spans: @[0 .. 1, 0 .. 4, 3 .. 4, 10 .. 10],
+      fonts: @[
+        GlyphFont(lineHeight: 10),
+        GlyphFont(lineHeight: 20),
+        GlyphFont(lineHeight: 30),
+        GlyphFont(lineHeight: 40),
+      ],
+    )
+    check layout.calcMinMaxContent().maxSize.y == 80
+    swap(layout.spans[1], layout.spans[3])
+    swap(layout.fonts[1], layout.fonts[3])
+    check layout.calcMinMaxContent().maxSize.y == 90
 
   test "frozen glyph views share source and geometry across line slices":
     let
