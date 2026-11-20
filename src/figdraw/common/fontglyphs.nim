@@ -9,7 +9,7 @@ import ./shared
 
 import ./fonttypes
 import ./textbackends/state
-when figdrawTextBackend == "harfbuzzy" or runtimeTextBackends:
+when glyphIdRasterEnabled:
   import ./textrasters/glyphid_raster
 when figdrawTextBackend == "uirelays":
   import ./textrasters/uirelays_raster
@@ -18,7 +18,7 @@ import ./textrasters/pixie_raster
 export applyLcdFilter
 
 proc clearGlyphRasterFontCache*(fontId: FontId) =
-  when figdrawTextBackend == "harfbuzzy" or runtimeTextBackends:
+  when glyphIdRasterEnabled:
     clearGlyphIdFontCache(fontId)
   elif figdrawTextBackend == "uirelays":
     clearUirelaysFontCache(fontId)
@@ -26,7 +26,7 @@ proc clearGlyphRasterFontCache*(fontId: FontId) =
     discard
 
 proc clearGlyphRasterTypefaceCache*(typefaceId: TypefaceId) =
-  when figdrawTextBackend == "harfbuzzy" or runtimeTextBackends:
+  when glyphIdRasterEnabled:
     clearGlyphIdTypefaceCache(typefaceId)
   elif figdrawTextBackend == "uirelays":
     clearUirelaysTypefaceCache(typefaceId)
@@ -92,8 +92,13 @@ proc generateGlyph*(
   if (not force) and hasImage(hashFill.ImageId):
     return nil
 
-  when figdrawTextBackend == "harfbuzzy" or runtimeTextBackends:
-    if effectiveGlyphRaster(glyph.rasterBackend) == GlyphRasterBackend.Harfbuzz:
+  when glyphIdRasterEnabled:
+    const glyphIdRaster =
+      when figdrawTextBackend == "harfnim":
+        GlyphRasterBackend.Harfnim
+      else:
+        GlyphRasterBackend.Harfbuzz
+    if effectiveGlyphRaster(glyph.rasterBackend) == glyphIdRaster:
       return renderGlyphIdGlyph(
         hashFill.ImageId,
         glyph.fontId,

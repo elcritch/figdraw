@@ -51,7 +51,9 @@ proc contentBounds(arrangement: GlyphArrangement, line: Slice[int]): Rect =
   rect(first, top, last - first, 0)
 
 proc backends(): seq[TextBackendKind] =
-  for backend in [TextBackendKind.Harfbuzzy, TextBackendKind.Pixie]:
+  for backend in [
+    TextBackendKind.Harfbuzzy, TextBackendKind.Harfnim, TextBackendKind.Pixie
+  ]:
     if textBackendAvailable(backend):
       result.add backend
 
@@ -350,7 +352,7 @@ for backend in backends():
       for line in anywhere.lines:
         let bounds = anywhere.contentBounds(line)
         check bounds.x + bounds.w <= 200.5
-      if backend == TextBackendKind.Harfbuzzy:
+      if backend in [TextBackendKind.Harfbuzzy, TextBackendKind.Harfnim]:
         let normal = layout(word, ParagraphStyle(), 200)
         check normal.lines.len == 1
 
@@ -439,8 +441,13 @@ for backend in backends():
         vec2(hyphenRect.x + hyphenRect.w / 2, hyphenRect.y + hyphenRect.h / 2)
       ) in [breakRune - 1, breakRune]
 
-if textBackendAvailable(TextBackendKind.Harfbuzzy):
-  setTextBackend(TextBackendKind.Harfbuzzy)
+let rtlBackend =
+  if figdrawTextBackend == "harfnim":
+    TextBackendKind.Harfnim
+  else:
+    TextBackendKind.Harfbuzzy
+if textBackendAvailable(rtlBackend):
+  setTextBackend(rtlBackend)
   suite "right-to-left paragraph layout":
     proc hebrew(): FigFont =
       let path =

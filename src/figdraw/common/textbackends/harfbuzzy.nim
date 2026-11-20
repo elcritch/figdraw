@@ -1,6 +1,5 @@
 import std/[algorithm, hashes, math, sequtils, strutils, tables, unicode]
 
-import pkg/harfbuzzy as hb
 import pkg/vmath
 
 import ../fonttypes
@@ -10,6 +9,11 @@ import ../typefaces
 import ./common
 import ./paragraphlayout
 import ./state
+
+when figdrawTextBackend == "harfnim":
+  import pkg/harfbuzzy/harfnim_backend as hb
+else:
+  import pkg/harfbuzzy as hb
 
 when figdrawTextBackend == "hybrid" or runtimeTextBackends:
   import ../fontglyphs

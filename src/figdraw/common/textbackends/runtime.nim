@@ -19,7 +19,7 @@ proc typeset*(
     pixieBackend.typeset(box, spans, hAlign, vAlign, minContent, wrap, rasterize)
   of TextBackendKind.Harfbuzzy, TextBackendKind.Hybrid:
     harfbuzzyBackend.typeset(box, spans, hAlign, vAlign, minContent, wrap, rasterize)
-  of TextBackendKind.Uirelays:
+  of TextBackendKind.Uirelays, TextBackendKind.Harfnim:
     raise newException(ValueError, "UIRelays requires a uirelays text build")
 
 proc typesetSourceSpans*(
@@ -40,7 +40,7 @@ proc typesetSourceSpans*(
     harfbuzzyBackend.typesetSourceSpans(
       box, source, runs, styles, hAlign, vAlign, minContent, wrap, rasterize
     )
-  of TextBackendKind.Uirelays:
+  of TextBackendKind.Uirelays, TextBackendKind.Harfnim:
     raise newException(ValueError, "UIRelays requires a uirelays text build")
 
 proc resolvePlacedGlyph*(

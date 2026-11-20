@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add the experimental `textBackendHarfnim` Atlas feature for Nim shaping,
+  bidirectional text, and glyph outline rasterization.
+
 - Add `NfInverseRectMaskContent` to cut a rounded rectangle out of a node's
   drawing and descendants.
 

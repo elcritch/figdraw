@@ -19,6 +19,12 @@ suite "text backend information":
           "harfbuzz-shaping", "glyph-id-rasterization", "bidirectional-text",
           "font-fallback", "opentype-features", "font-variations",
         ]
+    of "harfnim":
+      check textBackendFeatures() ==
+        @[
+          "harfnim-shaping", "glyph-id-rasterization", "bidirectional-text",
+          "font-fallback", "opentype-features", "font-variations",
+        ]
     of "hybrid":
       check textBackendFeatures() ==
         @[
@@ -26,8 +32,7 @@ suite "text backend information":
           "font-fallback", "opentype-features", "font-variations",
         ]
     of "uirelays":
-      check textBackendFeatures() ==
-        @["platform-measurement", "platform-rasterization"]
+      check textBackendFeatures() == @["platform-measurement", "platform-rasterization"]
     else:
       discard
 

@@ -6,15 +6,19 @@ type
     Harfbuzzy
     Hybrid
     Uirelays
+    Harfnim
 
   GlyphRasterBackend* {.pure.} = enum
     Automatic
     Pixie
     Harfbuzz
     Uirelays
+    Harfnim
 
 const figdrawTextBackend* {.strdefine.} =
-  when defined(feature.figdraw.textBackendHarfbuzzy):
+  when defined(feature.figdraw.textBackendHarfnim):
+    "harfnim"
+  elif defined(feature.figdraw.textBackendHarfbuzzy):
     "harfbuzzy"
   elif defined(feature.figdraw.textBackendUirelays):
     "uirelays"
@@ -24,9 +28,12 @@ const figdrawTextBackend* {.strdefine.} =
     "runtime"
 
 const runtimeTextBackends* = figdrawTextBackend == "runtime"
+const glyphIdRasterEnabled* =
+  runtimeTextBackends or figdrawTextBackend in ["harfbuzzy", "harfnim"]
 
 static:
-  doAssert figdrawTextBackend in ["pixie", "harfbuzzy", "hybrid", "runtime", "uirelays"]
+  doAssert figdrawTextBackend in
+    ["pixie", "harfbuzzy", "harfnim", "hybrid", "runtime", "uirelays"]
 
 when runtimeTextBackends:
   import std/macros
@@ -91,6 +98,8 @@ proc currentTextBackend*(): TextBackendKind =
     selectedBackend
   elif figdrawTextBackend == "harfbuzzy":
     TextBackendKind.Harfbuzzy
+  elif figdrawTextBackend == "harfnim":
+    TextBackendKind.Harfnim
   elif figdrawTextBackend == "uirelays":
     TextBackendKind.Uirelays
   elif figdrawTextBackend == "hybrid":
@@ -108,6 +117,8 @@ proc selectTextBackend*(backend: TextBackendKind) =
 proc currentGlyphRaster*(): GlyphRasterBackend =
   if currentTextBackend() == TextBackendKind.Harfbuzzy:
     GlyphRasterBackend.Harfbuzz
+  elif currentTextBackend() == TextBackendKind.Harfnim:
+    GlyphRasterBackend.Harfnim
   elif currentTextBackend() == TextBackendKind.Uirelays:
     GlyphRasterBackend.Uirelays
   else:

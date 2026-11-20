@@ -487,6 +487,7 @@ proc textBackend*(): string =
   of TextBackendKind.Harfbuzzy: "harfbuzzy"
   of TextBackendKind.Hybrid: "hybrid"
   of TextBackendKind.Uirelays: "uirelays"
+  of TextBackendKind.Harfnim: "harfnim"
 
 proc textBackendFeatures*(): seq[string] =
   ## Capabilities of the calling thread's selected text backend.
@@ -505,6 +506,11 @@ proc textBackendFeatures*(): seq[string] =
     ]
   of TextBackendKind.Uirelays:
     @["platform-measurement", "platform-rasterization"]
+  of TextBackendKind.Harfnim:
+    @[
+      "harfnim-shaping", "glyph-id-rasterization", "bidirectional-text",
+      "font-fallback", "opentype-features", "font-variations",
+    ]
 
 func supportedFontFileExtensions*(): seq[string] =
   ## Typeface file extensions accepted by FigDraw's font loader.

@@ -33,6 +33,9 @@ feature "harfbuzz":
   discard # Kept for compatibility with existing Atlas configurations.
 feature "textBackendHarfbuzzy":
   discard
+feature "textBackendHarfnim":
+  requires "gh:elcritch/harfbuzzy#feat/harfnim-backend"
+  requires "https://github.com/elcritch/harfnim#feat/figdraw-backend"
 feature "textBackendUirelays":
   requires "gh:elcritch/uirelays#fix/native-font-lifetime"
 feature "lottie":
