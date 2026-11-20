@@ -1,4 +1,4 @@
-import std/[algorithm, hashes, math, sequtils, strutils, tables, unicode]
+import std/[hashes, math, sequtils, strutils, tables, unicode]
 
 import pkg/harfbuzzy as hb
 import pkg/vmath
@@ -282,10 +282,23 @@ proc byteOffset(group: ShapedGroup): int =
     result = group.spans[0].byteOffset
 
 proc fillForByte(group: ShapedGroup, byteOffset: int): Fill =
-  for span in group.spans:
-    if byteOffset >= span.byteOffset and
-        byteOffset < span.byteOffset + span.spanByteLength:
-      return span.style.color
+  if group.spans.len <= 1:
+    return group.style.color
+
+  # Adjacent spans in a shaping group are ordered by their source offsets.
+  var
+    low = 0
+    high = group.spans.len
+  while low < high:
+    let middle = (low + high) shr 1
+    if group.spans[middle].byteOffset <= byteOffset:
+      low = middle + 1
+    else:
+      high = middle
+  if low > 0:
+    let index = low - 1
+    if byteOffset - group.spans[index].byteOffset < group.spans[index].spanByteLength:
+      return group.spans[index].style.color
   result = group.style.color
 
 func firstAbove(values: openArray[int], value: int): int {.inline.} =
@@ -478,7 +491,7 @@ proc initHarfbuzzFontInfos(font: FigFont): seq[HarfbuzzFontInfo] =
 proc codepointNeedsFallback(codepoint: uint32): bool =
   let rune = Rune(codepoint)
   not (
-    rune.isWhiteSpace or codepoint in [0x200C'u32, 0x200D'u32] or
+    rune.isSpaceRune or codepoint in [0x200C'u32, 0x200D'u32] or
     codepoint in 0xFE00'u32 .. 0xFE0F'u32 or codepoint in 0xE0100'u32 .. 0xE01EF'u32 or
     cast[uint32](hb.scriptFor(codepoint)) == cast[uint32](hb.scriptInherited)
   )
@@ -578,6 +591,7 @@ proc shapeParagraph(
           hb.languageInvalid,
       features: features.toHarfbuzzFeatures(),
       flags: {hb.beginningOfText, hb.endOfText},
+      clusterLevel: hb.ClusterLevel.monotoneGraphemes,
     ),
   )
   context.shapeParagraph(text)
@@ -590,7 +604,7 @@ proc pxScale(typeface: hb.Typeface, font: FigFont): float32 =
 
 func placedRuneSkipsRaster(rune: Rune): bool =
   let codepoint = rune.uint32
-  rune.isWhiteSpace or codepoint in [0x200C'u32, 0x200D'u32] or
+  rune.isSpaceRune or codepoint in [0x200C'u32, 0x200D'u32] or
     codepoint in 0xFE00'u32 .. 0xFE0F'u32 or codepoint in 0xE0100'u32 .. 0xE01EF'u32
 
 proc resolvePlacedGlyph*(
@@ -619,7 +633,7 @@ proc resolvePlacedGlyph*(
   let selected = fontInfos[selectedIndex]
   result.glyphFont = selected.glyphFont
   result.skipsRaster = rune.placedRuneSkipsRaster
-  if result.skipsRaster and not rune.isWhiteSpace:
+  if result.skipsRaster and not rune.isSpaceRune:
     return
 
   var glyphId: hb.Codepoint
@@ -653,27 +667,30 @@ proc harfbuzzHyphenResolver(): HyphenResolver =
     except CatchableError:
       discard # No visible hyphen: soft hyphens become plain breaks.
 
-proc clusterStarts(run: hb.ShapedRun): seq[int] =
-  ## Sorted distinct cluster starts, computed once per run.
-  result = newSeqOfCap[int](run.glyphRun.glyphs.len)
-  for glyph in run.glyphRun.glyphs:
-    result.add int(glyph.cluster)
-  result.sort()
-  var unique = 0
-  for index in 0 ..< result.len:
-    if unique == 0 or result[index] != result[unique - 1]:
-      result[unique] = result[index]
-      inc unique
-  result.setLen(unique)
-
-proc nextClusterBoundary(
-    run: hb.ShapedRun, clusters: openArray[int], cluster: int
-): int =
-  let index = clusters.firstAbove(cluster)
-  if index < clusters.len:
-    clusters[index]
-  else:
-    run.textRun.byteEnd
+iterator glyphClusters(
+    run: hb.ShapedRun
+): tuple[firstGlyph, afterGlyph, byteStart, byteEnd: int] =
+  ## Monotone clusters advance in LTR runs and retreat in RTL runs.
+  let rtl = run.textRun.direction == hb.Direction.rtl
+  var
+    first = 0
+    previous = run.textRun.byteEnd
+  while first < run.glyphRun.glyphs.len:
+    let cluster = run.glyphRun.glyphs[first].cluster
+    var after = first + 1
+    while after < run.glyphRun.glyphs.len and
+        run.glyphRun.glyphs[after].cluster == cluster:
+      inc after
+    let boundary =
+      if rtl:
+        previous
+      elif after < run.glyphRun.glyphs.len:
+        int(run.glyphRun.glyphs[after].cluster)
+      else:
+        run.textRun.byteEnd
+    yield (first, after, int(cluster), boundary)
+    previous = int(cluster)
+    first = after
 
 proc addGlyphSpan(
     arrangement: var GlyphArrangement, glyphFont: GlyphFont, color: Fill
@@ -743,53 +760,56 @@ proc appendShapedGroup(
           0
       fontInfo = fontInfos[fontIndex]
       scale = fontInfo.typeface.pxScale(group.style.font)
-      clusters = run.clusterStarts()
     var cursor: RuneCursor
-
-    for runGlyphIndex, glyph in run.glyphRun.glyphs:
+    let rasterBackend = currentGlyphRaster()
+    for cluster in run.glyphClusters():
       let
-        cluster = int(glyph.cluster)
-        nextCluster = run.nextClusterBoundary(clusters, cluster)
         source = decoded.runeRangeForBytes(
-          cursor, groupByteOffset + cluster, groupByteOffset + nextCluster
+          cursor, groupByteOffset + cluster.byteStart, groupByteOffset + cluster.byteEnd
         )
         rune = decoded.firstRune(source)
-        color = group.fillForByte(groupByteOffset + cluster)
-        advance = vec2(glyph.xAdvance.float32 * scale, -glyph.yAdvance.float32 * scale)
-        offset = vec2(glyph.xOffset.float32 * scale, -glyph.yOffset.float32 * scale)
-        pos = pen + offset
-        drawPos = vec2(pos.x, pos.y - fontInfo.glyphFont.descentAdj)
-        selectionWidth = max(abs(advance.x), 0.0'f32)
-        selection =
-          rect(drawPos.x, drawPos.y, selectionWidth, fontInfo.glyphFont.lineHeight)
-        imageOffset = fontInfo.typeface.imageOffsetForGlyph(
-          glyph.codepoint, fontInfo.glyphFont, scale
+        color = group.fillForByte(groupByteOffset + cluster.byteStart)
+        isWhitespace = decoded.sourceIsWhitespace(source)
+      for runGlyphIndex in cluster.firstGlyph ..< cluster.afterGlyph:
+        let
+          glyph = run.glyphRun.glyphs[runGlyphIndex]
+          advance =
+            vec2(glyph.xAdvance.float32 * scale, -glyph.yAdvance.float32 * scale)
+          offset = vec2(glyph.xOffset.float32 * scale, -glyph.yOffset.float32 * scale)
+          pos = pen + offset
+          drawPos = vec2(pos.x, pos.y - fontInfo.glyphFont.descentAdj)
+          selectionWidth = max(abs(advance.x), 0.0'f32)
+          selection =
+            rect(drawPos.x, drawPos.y, selectionWidth, fontInfo.glyphFont.lineHeight)
+          imageOffset = fontInfo.typeface.imageOffsetForGlyph(
+            glyph.codepoint, fontInfo.glyphFont, scale
+          )
+
+        arrangement.addGlyphSpan(fontInfo.glyphFont, color)
+        arrangement.arrangedGlyphs.add ArrangedGlyph(
+          rasterBackend: rasterBackend,
+          fontId: fontInfo.fontId,
+          glyphId: FontGlyphId(glyph.codepoint.uint32),
+          cluster: glyph.cluster,
+          source: source,
+          rune: rune,
+          isWhitespace: isWhitespace,
+          pos: pos,
+          advance: advance,
+          offset: offset,
+          imageOffset: imageOffset,
+          rect: selection,
         )
+        glyphText.add rune
+        arrangement.positions.add pos
+        arrangement.selectionRects.add selection
+        let nextGlyphUnsafeToBreak =
+          runGlyphIndex + 1 < run.glyphRun.glyphs.len and
+          (run.glyphRun.glyphs[runGlyphIndex + 1].flags and hbGlyphFlagUnsafeToBreak) !=
+          0
+        safeBreakAfter.add not nextGlyphUnsafeToBreak
 
-      arrangement.addGlyphSpan(fontInfo.glyphFont, color)
-      arrangement.arrangedGlyphs.add ArrangedGlyph(
-        rasterBackend: currentGlyphRaster(),
-        fontId: fontInfo.fontId,
-        glyphId: FontGlyphId(glyph.codepoint.uint32),
-        cluster: glyph.cluster,
-        source: source,
-        rune: rune,
-        isWhitespace: decoded.sourceIsWhitespace(source),
-        pos: pos,
-        advance: advance,
-        offset: offset,
-        imageOffset: imageOffset,
-        rect: selection,
-      )
-      glyphText.add rune
-      arrangement.positions.add pos
-      arrangement.selectionRects.add selection
-      let nextGlyphUnsafeToBreak =
-        runGlyphIndex + 1 < run.glyphRun.glyphs.len and
-        (run.glyphRun.glyphs[runGlyphIndex + 1].flags and hbGlyphFlagUnsafeToBreak) != 0
-      safeBreakAfter.add not nextGlyphUnsafeToBreak
-
-      pen += advance
+        pen += advance
 
 proc typesetPrepared(
     box: Rect,

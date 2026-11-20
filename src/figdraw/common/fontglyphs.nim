@@ -8,6 +8,7 @@ import ./imgutils
 import ./shared
 
 import ./fonttypes
+import ./textbytes
 import ./textbackends/state
 when figdrawTextBackend == "harfbuzzy" or runtimeTextBackends:
   import ./textrasters/glyphid_raster
@@ -164,7 +165,7 @@ proc buildArrangedGlyphsForUtf8(
           byteStart: byteStart, byteEnd: byteEnd, runeStart: idx, runeEnd: idx + 1
         ),
         rune: rune,
-        isWhitespace: unicode.isWhiteSpace(rune),
+        isWhitespace: rune.isSpaceRune,
         pos: pos,
         advance: vec2(selection.w, 0),
         offset: vec2(0, 0),
@@ -227,7 +228,7 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
               cluster: uint32(idx),
               source: GlyphSourceRange(runeStart: idx, runeEnd: idx + 1),
               rune: rune,
-              isWhitespace: unicode.isWhiteSpace(rune),
+              isWhitespace: rune.isSpaceRune,
               pos: arrangement.positions[idx],
               imageOffset: vec2(0, 0),
               rect: arrangement.selectionRects[idx],

@@ -1,8 +1,7 @@
-import std/unicode
-
 import pkg/vmath
 
 import ../fonttypes
+import ../textbytes
 
 proc calcMinMaxContent*(
     textLayout: GlyphArrangement
@@ -54,7 +53,7 @@ proc calcMinMaxContent*(
     maxX = max(maxX, glyphRect.x + glyphRect.w)
     maxY = max(maxY, glyphRect.y + glyphRect.h)
 
-    if glyphRune.isWhiteSpace:
+    if glyphRune.isSpaceRune:
       curr = idx + 1 .. idx
       currLen = 0.0
     else:
