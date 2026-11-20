@@ -2,6 +2,12 @@
 ##
 ##   nim r -d:release tests/bench_text_layout.nim
 ##
+## Pass `--mixed` for accented prose, or `--bidi` for Hebrew and Arabic prose.
+## Set FIGDRAW_BENCH_FALLBACK_FONT to a TTF file for an explicit fallback face.
+## Pass `--wrap-only` to measure plain wrapping and skip the unbroken document.
+## To include the companion HarfBuzzy checkout, add these options:
+##   --excludePath:"$PWD/deps/harfbuzzy/src" --path:"$PWD/../harfbuzzy/src"
+##
 ## Set FIGDRAW_HYPHEN_PATTERNS to a hyph-utf8 `.pat.txt`, TeX, or LibreOffice
 ## `.dic` file to measure hyphenation with real language patterns; otherwise a
 ## small built-in pattern set is used. Plain wrapping also compiles against
@@ -80,17 +86,25 @@ else:
   proc styled(font: FigFont, style: int): FontStyle =
     fs(font)
 
-proc benchmark(backend: TextBackendKind, text: string, anywhere = false) =
+proc benchmark(
+    backend: TextBackendKind, text: string, anywhere = false, wrapOnly = false
+) =
   setTextBackend(backend)
   let
     typefaceId = loadTypeface("Ubuntu.ttf", readFile(figDataDir() / "Ubuntu.ttf"), TTF)
-    font = FigFont(typefaceId: typefaceId, size: 16, language: "en")
     kilobytes = text.len.float / 1024
     source = initUtf8Runes(text)
     run = StyledTextRun(
       byteEnd: uint32(text.len), runeEnd: uint32(source.len), styleId: TextStyleId(0)
     )
-  for (name, mode) in modes():
+  var font = FigFont(typefaceId: typefaceId, size: 16, language: "en")
+  let fallback = getEnv("FIGDRAW_BENCH_FALLBACK_FONT")
+  if fallback.len > 0:
+    font.fallbackTypefaceIds.add loadTypeface(fallback, readFile(fallback), TTF)
+  let selectedModes = modes()
+  let modeCount = if wrapOnly: 1 else: selectedModes.len
+  for index in 0 ..< modeCount:
+    let (name, mode) = selectedModes[index]
     var style = mode
     when compiles(style.overflowWrap):
       if anywhere:
@@ -140,13 +154,30 @@ proc unbrokenText(bytes: int): string =
 
 when isMainModule:
   registerPatterns()
-  let text = document(paragraphs = 200, wordsPerParagraph = 80)
+  var text = document(paragraphs = 200, wordsPerParagraph = 80)
+  let
+    args = commandLineParams()
+    wrapOnly = "--wrap-only" in args
+  if "--bidi" in args:
+    text = text.multiReplace(
+      ("typesetting", "שלום עולם"),
+      ("balances", "مرحبا بالعالم"),
+      ("steady", "Café (42)"),
+    )
+  elif "--mixed" in args:
+    text = text.multiReplace(
+      ("typesetting", "typographie"),
+      ("balances", "équilibre"),
+      ("steady", "régulier"),
+      ("texture", "matière"),
+    )
   echo &"document: {text.len div 1024} KiB, width {Width}"
   for backend in [TextBackendKind.Harfbuzzy, TextBackendKind.Pixie]:
     if textBackendAvailable(backend):
-      benchmark(backend, text)
-  let unbroken = unbrokenText(108 * 1024)
-  echo &"unbroken text: {unbroken.len div 1024} KiB, width {Width}"
-  for backend in [TextBackendKind.Harfbuzzy, TextBackendKind.Pixie]:
-    if textBackendAvailable(backend):
-      benchmark(backend, unbroken, anywhere = true)
+      benchmark(backend, text, wrapOnly = wrapOnly)
+  if not wrapOnly:
+    let unbroken = unbrokenText(108 * 1024)
+    echo &"unbroken text: {unbroken.len div 1024} KiB, width {Width}"
+    for backend in [TextBackendKind.Harfbuzzy, TextBackendKind.Pixie]:
+      if textBackendAvailable(backend):
+        benchmark(backend, unbroken, anywhere = true)

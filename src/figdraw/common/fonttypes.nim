@@ -3,6 +3,7 @@ import threading/smartptrs
 import uimaths
 import filltypes
 import ./textbackends/state
+import ./textbytes
 
 export TextBackendKind, GlyphRasterBackend, figdrawTextBackend, runtimeTextBackends
 
@@ -211,6 +212,12 @@ func utf8RuneWidth(text: string, byteOffset: int): int {.inline.} =
 proc rebuildRuneIndex(runes: Utf8Runes) =
   if uint64(runes.text.len) > uint64(high(uint32)):
     raise newException(ValueError, "UTF-8 rune storage exceeds 4 GiB")
+  if isAsciiText(runes.text):
+    runes.runeLength = uint32(runes.text.len)
+    runes.runeByteOffsets = newSeq[uint32](runes.text.len div Utf8RuneIndexStride + 1)
+    for index in 0 ..< runes.runeByteOffsets.len:
+      runes.runeByteOffsets[index] = uint32(index * Utf8RuneIndexStride)
+    return
   runes.runeByteOffsets = @[0'u32]
   var byteOffset = 0
   while byteOffset < runes.text.len:
@@ -293,8 +300,8 @@ proc copyUtf8Runes*(runes: Utf8Runes): Utf8Runes =
 proc byteOffsetForRune*(runes: Utf8Runes, index: int): int =
   if index < 0 or index > runes.len:
     raise newException(IndexDefect, "UTF-8 rune index out of bounds")
-  if runes.len == 0:
-    return 0
+  if runes.len == runes.byteLength:
+    return index
 
   let checkpoint = index div Utf8RuneIndexStride
   var
@@ -309,8 +316,8 @@ proc runeIndexAtOrBeforeByte*(runes: Utf8Runes, byteOffset: int): int =
   ## Returns the rune containing this byte, or the rune at a byte boundary.
   if byteOffset < 0 or byteOffset > runes.byteLength:
     raise newException(IndexDefect, "UTF-8 byte index out of bounds")
-  if runes.isNil:
-    return 0
+  if runes.len == runes.byteLength:
+    return byteOffset
   var
     lo = 0
     hi = runes.runeByteOffsets.len

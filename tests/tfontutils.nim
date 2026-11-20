@@ -1,5 +1,7 @@
 import std/[hashes, options, os, tables, tempfiles, unicode, unittest]
 
+from std/strutils import repeat
+
 import figdraw
 import threading/smartptrs
 when figdrawTextBackend == "pixie":
@@ -171,6 +173,30 @@ suite "fontutils":
     var nilRunes: Utf8Runes
     check nilRunes.runeIndexAtOrBeforeByte(0) == 0
     check nilRunes.runeIndexAtOrAfterByte(0) == 0
+
+  test "ASCII indices and sparse checkpoints agree across checkpoint boundaries":
+    for length in [0, 1, 15, 16, 17, 255, 256, 257, 512]:
+      let runes = initUtf8Runes("x".repeat(length))
+      check runes.len == length
+      check runes.runeCheckpointCount == length div 256 + 1
+      for index in 0 .. length:
+        check runes.byteOffsetForRune(index) == index
+        check runes.runeIndexAtOrBeforeByte(index) == index
+        check runes.runeIndexAtOrAfterByte(index) == index
+
+    for prefix in 247 .. 263:
+      let text = "x".repeat(prefix) & "🙂" & "é中β".repeat(8) & "y".repeat(37)
+      let runes = initUtf8Runes(text)
+      var byteOffset = 0
+      for index in 0 ..< runes.len:
+        check runes.byteOffsetForRune(index) == byteOffset
+        byteOffset += text.runeLenAt(byteOffset)
+      check byteOffset == text.len
+      check runes.byteOffsetForRune(runes.len) == text.len
+      check runes.byteOffsetForRune(prefix + 1) == prefix + 4
+      for byteOffset in prefix + 1 .. prefix + 3:
+        check runes.runeIndexAtOrBeforeByte(byteOffset) == prefix
+        check runes.runeIndexAtOrAfterByte(byteOffset) == prefix + 1
 
   test "UTF-8 glyph builder preserves source byte ranges":
     let

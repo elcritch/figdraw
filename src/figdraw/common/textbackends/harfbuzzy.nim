@@ -6,6 +6,7 @@ import pkg/vmath
 import ../fonttypes
 import ../fontfallbacks
 import ../shared
+import ../textbytes
 import ../typefaces
 import ./common
 import ./paragraphlayout
@@ -71,6 +72,17 @@ proc decodeSource(
     sourceByteOffset = 0
     sourceRuneOffset = 0
     displayByteOffset = 0
+
+  var direct = true
+  for (style, text) in sourceSpans:
+    if style.font.fontCase != NormalCase or not isAsciiText(text):
+      direct = false
+      break
+  if direct:
+    for (_, text) in sourceSpans:
+      sourceRunesText.add text
+    return
+      DecodedSource(runes: initArrangementRunes(sourceRunesText), directSource: true)
 
   for spanIndex in 0 ..< sourceSpans.len:
     let
@@ -337,6 +349,10 @@ proc runeRangeForBytes(
   if decoded.directSource:
     result.byteStart = byteStart
     result.byteEnd = byteEnd
+    if decoded.runes.len == decoded.runes.byteLength:
+      result.runeStart = byteStart
+      result.runeEnd = byteEnd
+      return
     result.runeStart = cursor.runeAtOrBefore(decoded.runes, byteStart)
     result.runeEnd = cursor.runeAtOrAfter(decoded.runes, byteEnd)
     return
