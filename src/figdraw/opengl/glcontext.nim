@@ -34,12 +34,12 @@ else:
 
 type RectMaskKind = enum
   rmkFast
+  rmkFastIsolated
   rmkMask
   rmkEmpty
 
 type RectMask = object
   kind: RectMaskKind
-  isolated: bool
   params: Vec4
   radii: Vec4
   matX: Vec4
@@ -986,7 +986,7 @@ proc setRectMaskVert4(ctx: OpenGlContext, offset: int) =
   if ctx.rectMaskStack.len > 0:
     for i in countdown(ctx.rectMaskStack.len - 1, 0):
       let rectMask = ctx.rectMaskStack[i]
-      if rectMask.kind == rmkFast:
+      if rectMask.kind in {rmkFast, rmkFastIsolated}:
         hasRectMask = true
         params = rectMask.params
         radii = rectMask.radii
@@ -2047,7 +2047,7 @@ method endOpacityGroup*(ctx: OpenGlContext) =
     ctx.compositeShader.setUniform("maskTex", 1)
   var rectMask = RectMask(params: vec4(0, 0, -1, -1))
   for mask in ctx.rectMaskStack:
-    if mask.kind == rmkFast:
+    if mask.kind in {rmkFast, rmkFastIsolated}:
       rectMask = mask
   ctx.compositeShader.setUniform("rectMaskParams", rectMask.params)
   ctx.compositeShader.setUniform("rectMaskRadii", rectMask.radii)
@@ -2109,7 +2109,7 @@ method popMask*(ctx: OpenGlContext) =
 
 proc hasFastRectMask(ctx: OpenGlContext): bool =
   for mask in ctx.rectMaskStack:
-    if mask.kind == rmkFast:
+    if mask.kind in {rmkFast, rmkFastIsolated}:
       return true
 
 method beginRectMask*(
@@ -2137,20 +2137,22 @@ method beginInverseRectMask*(
     var mask = ctx.makeRectMask(maskRect, radii)
     # matX.w carries the mask polarity without adding a vertex attribute.
     mask.matX.w = -1.0'f32
-    mask.isolated = ctx.hasFastRectMask()
     # The shader has one fast mask slot. Composite an isolated layer through
     # the outer mask when both masks need that slot.
-    if mask.isolated:
+    if ctx.hasFastRectMask():
       ctx.beginOpacityGroup(1.0'f32)
+      mask.kind = rmkFastIsolated
     ctx.rectMaskStack.add(mask)
 
 method popRectMask*(ctx: OpenGlContext) =
   assert ctx.rectMaskStack.len > 0, "No rect mask has been pushed."
-  let rectMask = ctx.rectMaskStack.pop()
-  if rectMask.kind == rmkMask:
+  case ctx.rectMaskStack.pop().kind
+  of rmkMask:
     ctx.popMask()
-  elif rectMask.isolated:
+  of rmkFastIsolated:
     ctx.endOpacityGroup()
+  of rmkFast, rmkEmpty:
+    discard
 
 proc beginFrameProj(ctx: OpenGlContext, frameSize: Vec2, proj: Mat4) =
   ## Starts a new frame.
