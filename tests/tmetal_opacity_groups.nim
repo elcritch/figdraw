@@ -147,6 +147,31 @@ when UseMetalBackend:
               check abs(grouped[x, y].a.int * 2 - alpha) <= 5
         check fractionalPixels > 0
 
+    test "inverse rounded masks cut coverage and compose with a fast rect mask":
+      let device = fromRetained(MTLCreateSystemDefaultDevice())
+      if device.isNil:
+        skip()
+      else:
+        let ctx = newContext(atlasSize = 32, maxQuads = 8)
+        let cutter = rect(8.5, 4.5, 12, 16)
+        let radii = CornerRadii2D[float32](x: [4'f32, 4, 4, 4], y: [4'f32, 4, 4, 4])
+        ctx.beginFrame(vec2(32, 32), true, color(0, 0, 0, 0))
+        ctx.beginRectMask(rect(0, 0, 26, 24), default(CornerRadii2D[float32]))
+        ctx.beginInverseRectMask(cutter, radii)
+        ctx.beginOpacityGroup(1)
+        ctx.drawRect(rect(0, 0, 32, 24), color(1, 0, 0, 1))
+        ctx.endOpacityGroup()
+        ctx.popRectMask()
+        ctx.popRectMask()
+        ctx.drawRect(rect(12, 24, 8, 8), color(0, 1, 0, 1))
+        ctx.endFrame()
+        let image = ctx.readPixels()
+        image.checkPixel(6, 10, 255, 0, 0, 255)
+        image.checkPixel(14, 10, 0, 0, 0, 0)
+        image.checkPixel(8, 10, 128, 0, 0, 128)
+        image.checkPixel(28, 10, 0, 0, 0, 0)
+        image.checkPixel(14, 28, 0, 255, 0, 255)
+
     test "reuses nested targets and releases mismatched targets on resize":
       let device = fromRetained(MTLCreateSystemDefaultDevice())
       if device.isNil:

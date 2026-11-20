@@ -2,6 +2,7 @@ import std/[hashes, unittest, importutils]
 import pkg/[pixie, chroma, vmath]
 import figdraw/[commons, figbackend, fignodes, figrender]
 import figdraw/software/[context, layers]
+from figdraw/utils/drawutils import figRoundedRectBorder
 import ../examples/renderlist_100_common
 
 type ComposedFrame = ref object
@@ -275,3 +276,63 @@ suite "cached software image layers":
         if single[x, y].a > 0 and single[x, y].a < 127:
           fractional = true
     check fractional
+
+  test "inverse rect mask cuts a rounded gap in a border and preserves its fill":
+    let frame = ComposedFrame()
+    let ctx = frame.newContext(native = true)
+    let renderer = newFigRenderer(ctx)
+    let bounds = rect(4, 8, 48, 32)
+    let level = 0.ZLevel
+    var nodes = newRenders()
+    discard nodes.addRoot(
+      level, Fig(kind: nkRectangle, screenBox: bounds, fill: fill(rgba(0, 0, 255, 255)))
+    )
+    let cutter = nodes.addRoot(
+      level,
+      Fig(
+        kind: nkFrame,
+        screenBox: rect(18, 4, 16, 16),
+        corners: [8'u16, 8, 8, 8],
+        flags: {NfInverseRectMaskContent},
+      ),
+    )
+    discard nodes.addChild(
+      level,
+      cutter,
+      figRoundedRectBorder(bounds, default(CornerRadii), fill(rgba(255, 0, 0, 255)), 2),
+    )
+    discard nodes.addRoot(
+      level,
+      Fig(
+        kind: nkRectangle,
+        screenBox: rect(24, 4, 3, 3),
+        fill: fill(rgba(0, 255, 0, 255)),
+      ),
+    )
+    renderer.renderFrame(nodes, vec2(64, 64), clearColor = color(0, 0, 0, 0))
+    check frame.image[12, 8].r == 255
+    check frame.image[26, 8].b == 255
+    check frame.image[26, 8].r == 0
+    check frame.image[26, 7].a == 0
+    check frame.image[18, 8].r in 1'u8 .. 254'u8
+    check frame.image[25, 5].g == 255
+
+  test "inverse rect mask composes with a transformed cutter and inherited clip":
+    let ctx = ComposedFrame().newContext()
+    ctx.begin()
+    ctx.beginRectMask(rect(4, 4, 28, 24), default(CornerRadii2D[float32]))
+    ctx.saveTransform()
+    ctx.translate(vec2(8, 0))
+    ctx.beginInverseRectMask(rect(8, 4, 8, 16), default(CornerRadii2D[float32]))
+    ctx.restoreTransform()
+    ctx.beginOpacityGroup(0.5)
+    ctx.drawRect(rect(0, 0, 48, 32), color(1, 0, 0, 1))
+    ctx.endOpacityGroup()
+    ctx.popRectMask()
+    ctx.popRectMask()
+    ctx.endFrame()
+    let image = ctx.readPixels(rect(0, 0, 0, 0), false)
+    check image[12, 12].a in 127'u8 .. 128'u8
+    check image[20, 12].a == 0
+    check image[28, 12].a in 127'u8 .. 128'u8
+    check image[36, 12].a == 0

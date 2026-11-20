@@ -546,7 +546,9 @@ method endOpacityGroup*(ctx: SoftwareContext) =
           ((alpha.uint32 * ctx.mask[x, y].a.uint32 + 127) div 255).uint8
       ctx.backing[x, y] = over(layer[x, y], ctx.backing[x, y], mask)
 
-method beginMask*(ctx: SoftwareContext, clipRect: Rect, radii: CornerRadii2D[float32]) =
+proc pushMask(
+    ctx: SoftwareContext, clipRect: Rect, radii: CornerRadii2D[float32], inverted: bool
+) =
   let
     mask = newImage(ctx.backing.width, ctx.backing.height)
     center = clipRect.xy + clipRect.wh * 0.5'f32
@@ -555,6 +557,9 @@ method beginMask*(ctx: SoftwareContext, clipRect: Rect, radii: CornerRadii2D[flo
     )
     clip = initSpanClip(clipRect.xy, clipRect.xy + max(clipRect.wh, vec2(0)))
     paint = initSolidPaint(rgba(255, 255, 255, 255))
+  let parent = ctx.mask
+  if inverted:
+    ctx.mask = nil
   ctx.rasterize(
     clipRect,
     target = mask,
@@ -568,8 +573,28 @@ method beginMask*(ctx: SoftwareContext, clipRect: Rect, radii: CornerRadii2D[flo
         useSimd: softwareSimdEnabled,
       ),
   )
-  ctx.masks.add(ctx.mask)
+  if inverted:
+    for i, pixel in mask.data.mpairs:
+      let parentAlpha =
+        if parent.isNil:
+          255'u32
+        else:
+          parent.data[i].a.uint32
+      let coverage = (((255'u32 - pixel.a.uint32) * parentAlpha + 127) div 255).uint8
+      pixel = rgbx(coverage, coverage, coverage, coverage)
+  ctx.masks.add(parent)
   ctx.mask = mask
+
+method beginMask*(ctx: SoftwareContext, clipRect: Rect, radii: CornerRadii2D[float32]) =
+  ctx.pushMask(clipRect, radii, inverted = false)
+
+method beginInverseRectMask*(
+    ctx: SoftwareContext, maskRect: Rect, radii: CornerRadii2D[float32]
+) =
+  if maskRect.w <= 0 or maskRect.h <= 0:
+    ctx.masks.add(ctx.mask)
+  else:
+    ctx.pushMask(maskRect, radii, inverted = true)
 
 method endMask*(ctx: SoftwareContext) =
   discard

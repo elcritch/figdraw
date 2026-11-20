@@ -1875,8 +1875,11 @@ proc render[Input: RenderInput](
     finally:
       ctx.popMask()
 
-    ifrender NfRectMaskContent in node.flags:
-      ctx.beginRectMask(node.screenBox.scaled(), node.scaledCorners())
+    ifrender NfInverseRectMaskContent in node.flags or NfRectMaskContent in node.flags:
+      if NfInverseRectMaskContent in node.flags:
+        ctx.beginInverseRectMask(box, node.scaledCorners())
+      else:
+        ctx.beginRectMask(box, node.scaledCorners())
     finally:
       ctx.popRectMask()
 

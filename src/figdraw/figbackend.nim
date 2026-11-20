@@ -641,6 +641,12 @@ method beginRectMask*(
   impl.beginMask(maskRect, radii)
   impl.endMask()
 
+method beginInverseRectMask*(
+    impl: BackendContext, maskRect: Rect, radii: CornerRadii2D[float32]
+) {.base.} =
+  ## Keep coverage outside the rounded rectangle until the matching popRectMask.
+  raise newException(ValueError, "Backend beginInverseRectMask unavailable")
+
 method popRectMask*(impl: BackendContext) {.base.} =
   impl.popMask()
 
