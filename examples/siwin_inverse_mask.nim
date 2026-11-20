@@ -48,14 +48,12 @@ proc makeScene(size, pointer: Vec2): Renders =
 when isMainModule:
   let title = "Inverse mask | Move the pointer across the border"
   let size = ivec2(640, 400)
-  when UseOpenGlBackend:
-    let window = newSiwinWindow(size = size, title = title)
-    window.firstStep()
-    window.makeCurrent()
-    let renderer = newFigRenderer(atlasSize = 64, backendState = SiwinRenderBackend())
-  else:
+  when UseVulkanBackend:
     let renderer = newFigRenderer(atlasSize = 64, backendState = SiwinRenderBackend())
     let window = newSiwinWindow(renderer, size = size, title = title)
+  else:
+    let window = newSiwinWindow(size = size, title = title)
+    let renderer = newFigRenderer(atlasSize = 64, backendState = SiwinRenderBackend())
   let autoScale = window.configureUiScale()
   when defined(linux) or defined(bsd):
     if window.siwinDisplayServerName() == "x11" and size != size.scaled():
@@ -101,8 +99,7 @@ when isMainModule:
     onRender: proc(e: RenderEvent) =
       redraw(),
   )
-  when not UseOpenGlBackend:
-    window.firstStep()
+  window.firstStep()
   window.refreshUiScale(autoScale)
   window.redraw()
   try:
