@@ -1,4 +1,4 @@
-version = "0.48.1"
+version = "0.48.2"
 author = "Jaremy Creechley"
 description = "UI Engine for Nim"
 license = "MIT"
@@ -41,8 +41,6 @@ feature "sdl2":
   requires "sdl2"
 feature "windy":
   requires "windy"
-  # Typed query iterators avoid ambiguous converter overloads on Nim devel.
-  requires "gh:elcritch/urlly#61cacc8436a377151b6ebdc66e112d4adbce05c6"
 feature "surfer":
   requires "surfer >= 0.2.5"
   requires "xkb#b4d50f4cccad1cd9e39d2f5a5e1fef2710edcc31"
