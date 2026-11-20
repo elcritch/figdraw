@@ -235,7 +235,8 @@ float rectMaskAlpha(vec2 pixelPos) {
   float dist = (vRectMaskMatY.w > 0.0)
     ? sdRoundedEllipseBox(maskPos, vRectMaskParams.zw, vRectMaskRadii)
     : sdRoundedBox(maskPos, vRectMaskParams.zw, vRectMaskRadii);
-  return 1.0 - clamp(uFS.aaFactor * dist + 0.5, 0.0, 1.0);
+  float outside = clamp(uFS.aaFactor * dist + 0.5, 0.0, 1.0);
+  return vRectMaskMatX.w < 0.0 ? outside : 1.0 - outside;
 }
 
 float shadowProfile(float sd, float blurRadius) {

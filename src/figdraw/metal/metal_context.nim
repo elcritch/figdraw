@@ -38,7 +38,9 @@ type SdfModeData = uint16
 
 type RectMaskKind = enum
   rmkFast
+  rmkFastIsolated
   rmkMask
+  rmkEmpty
 
 type RectMask = object
   kind: RectMaskKind
@@ -842,7 +844,7 @@ proc setRectMaskVert4(ctx: MetalContext, offset: int) =
   if ctx.rectMaskStack.len > 0:
     for i in countdown(ctx.rectMaskStack.len - 1, 0):
       let rectMask = ctx.rectMaskStack[i]
-      if rectMask.kind == rmkFast:
+      if rectMask.kind in {rmkFast, rmkFastIsolated}:
         hasRectMask = true
         params = rectMask.params
         radii = rectMask.radii
@@ -1769,7 +1771,7 @@ method endOpacityGroup*(ctx: MetalContext) =
     mask: vec4(if ctx.maskTextureWrite > 0: 1'f32 else: 0'f32, 0, 0, 0),
   )
   for mask in ctx.rectMaskStack:
-    if mask.kind == rmkFast:
+    if mask.kind in {rmkFast, rmkFastIsolated}:
       uniforms.params = mask.params
       uniforms.radii = mask.radii
       uniforms.matX = mask.matX
@@ -1836,24 +1838,52 @@ method popMask*(ctx: MetalContext) =
   ctx.flush()
   dec ctx.maskTextureWrite
 
+proc hasFastRectMask(ctx: MetalContext): bool =
+  for mask in ctx.rectMaskStack:
+    if mask.kind in {rmkFast, rmkFastIsolated}:
+      return true
+
 method beginRectMask*(
     ctx: MetalContext, maskRect: Rect, radii: CornerRadii2D[float32]
 ) =
   assert ctx.frameBegun == true, "ctx.beginFrame has not been called."
   assert ctx.maskBegun == false, "ctx.beginRectMask cannot start inside a mask."
 
-  if ctx.rectMaskStack.len == 0 and maskRect.w > 0.0'f32 and maskRect.h > 0.0'f32:
+  if not ctx.hasFastRectMask() and maskRect.w > 0.0'f32 and maskRect.h > 0.0'f32:
     ctx.rectMaskStack.add(ctx.makeRectMask(maskRect, radii))
   else:
     ctx.beginMask(maskRect, radii)
     ctx.endMask()
     ctx.rectMaskStack.add(RectMask(kind: rmkMask))
 
+method beginInverseRectMask*(
+    ctx: MetalContext, maskRect: Rect, radii: CornerRadii2D[float32]
+) =
+  assert ctx.frameBegun, "ctx.beginFrame has not been called."
+  assert not ctx.maskBegun, "ctx.beginInverseRectMask cannot start inside a mask."
+
+  if maskRect.w <= 0 or maskRect.h <= 0:
+    ctx.rectMaskStack.add(RectMask(kind: rmkEmpty))
+  else:
+    var mask = ctx.makeRectMask(maskRect, radii)
+    # matX.w carries the mask polarity without adding a vertex attribute.
+    mask.matX.w = -1.0'f32
+    # The shader has one fast mask slot. Composite an isolated layer through
+    # the outer mask when both masks need that slot.
+    if ctx.hasFastRectMask():
+      ctx.beginOpacityGroup(1.0'f32)
+      mask.kind = rmkFastIsolated
+    ctx.rectMaskStack.add(mask)
+
 method popRectMask*(ctx: MetalContext) =
   assert ctx.rectMaskStack.len > 0, "No rect mask has been pushed."
-  let rectMask = ctx.rectMaskStack.pop()
-  if rectMask.kind == rmkMask:
+  case ctx.rectMaskStack.pop().kind
+  of rmkMask:
     ctx.popMask()
+  of rmkFastIsolated:
+    ctx.endOpacityGroup()
+  of rmkFast, rmkEmpty:
+    discard
 
 proc reapCompletedFrames(ctx: MetalContext) =
   if ctx.inFlightFrames.len == 0:

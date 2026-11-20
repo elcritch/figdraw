@@ -37,6 +37,7 @@ type
     bounds: Rect
     radii: CornerRadii2D[float32]
     transform: Mat3
+    inverted: bool
 
   CachedLayer = object
     image: LayerImage
@@ -117,6 +118,13 @@ proc rasterBounds(ctx: ImageLayerContext, bounds: Rect): Rect =
   high = min(ctx.frameSize, ceil(high / step) * step)
   rect(low.x, low.y, max(0'f32, high.x - low.x), max(0'f32, high.y - low.y))
 
+proc applyMask(raster: SoftwareContext, mask: LayerMask) =
+  if mask.inverted:
+    raster.beginInverseRectMask(mask.bounds, mask.radii)
+  else:
+    raster.beginMask(mask.bounds, mask.radii)
+    raster.endMask()
+
 proc configureRaster(ctx: ImageLayerContext, region: Rect) =
   ctx.raster.beginFrame(region.wh, true, color(0, 0, 0, 0))
   let maskStart =
@@ -129,8 +137,7 @@ proc configureRaster(ctx: ImageLayerContext, region: Rect) =
     ctx.raster.saveTransform()
     ctx.raster.translate(-region.xy)
     ctx.raster.apply(mask.transform)
-    ctx.raster.beginMask(mask.bounds, mask.radii)
-    ctx.raster.endMask()
+    ctx.raster.applyMask(mask)
     ctx.raster.restoreTransform()
   ctx.raster.translate(-region.xy)
   ctx.raster.apply(ctx.transform)
@@ -270,7 +277,7 @@ proc drawLayer(ctx: ImageLayerContext, bounds: Rect, key: Hash, draw: RasterComm
     let maskOrigin = mask.transform * mask.bounds.xy - region.xy
     transform[2, 0] = maskOrigin.x
     transform[2, 1] = maskOrigin.y
-    maskKeys.add(hash((mask.bounds.wh, mask.radii, transform)))
+    maskKeys.add(hash((mask.bounds.wh, mask.radii, transform, mask.inverted)))
   let completeKey =
     hash((key, region.wh, placement, maskKeys, ctx.raster.sdfAaFactor()))
   inc ctx.useCounter
@@ -408,8 +415,7 @@ method endOpacityGroup*(ctx: ImageLayerContext) =
     for mask in group.inheritedMasks:
       ctx.raster.saveTransform()
       ctx.raster.apply(mask.transform)
-      ctx.raster.beginMask(mask.bounds, mask.radii)
-      ctx.raster.endMask()
+      ctx.raster.applyMask(mask)
       ctx.raster.restoreTransform()
     ctx.raster.drawRect(rect(0, 0, ctx.frameSize.x, ctx.frameSize.y), color(1, 1, 1, 1))
     let mask = ctx.raster.readPixels(rect(0, 0, 0, 0), false)
@@ -466,6 +472,13 @@ method applyTransform*(ctx: ImageLayerContext, m: Mat4) =
 
 method beginMask*(ctx: ImageLayerContext, bounds: Rect, radii: CornerRadii2D[float32]) =
   ctx.masks.add LayerMask(bounds: bounds, radii: radii, transform: ctx.transform)
+
+method beginInverseRectMask*(
+    ctx: ImageLayerContext, maskRect: Rect, radii: CornerRadii2D[float32]
+) =
+  ctx.masks.add LayerMask(
+    bounds: maskRect, radii: radii, transform: ctx.transform, inverted: true
+  )
 
 method endMask*(ctx: ImageLayerContext) =
   discard

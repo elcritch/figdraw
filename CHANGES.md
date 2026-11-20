@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `NfInverseRectMaskContent` to cut a rounded rectangle out of a node's
+  drawing and descendants.
+
 - Add `ParagraphStyle` to `FontStyle` for first-line, hanging, and tail indents,
   per-paragraph alignment, justification, line spacing, and paragraph spacing.
   The HarfBuzzy and Pixie backends share one paragraph layout pass; UIRelays

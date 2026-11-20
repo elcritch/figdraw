@@ -235,7 +235,8 @@ float rectMaskAlpha(vec2 pixelPos) {
   float dist = rectMaskMatY.w > 0.5 ?
     sdEllipticalRoundedBox(vec2(q.x, -q.y), rectMaskParams.zw, rectMaskRadii) :
     sdRoundedBox(vec2(q.x, -q.y), rectMaskParams.zw, rectMaskRadii);
-  return 1.0 - clamp(aaFactor * dist + 0.5, 0.0, 1.0);
+  float outside = clamp(aaFactor * dist + 0.5, 0.0, 1.0);
+  return rectMaskMatX.w < 0.0 ? outside : 1.0 - outside;
 }
 
 float linear3T(int fillMode, vec2 uv) {

@@ -239,7 +239,8 @@ float rectMaskAlpha(
   float dist = matY.w > 0.5
     ? sdEllipticalRoundedBox(localPos, params.zw, radii)
     : sdRoundedBox(localPos, params.zw, radii);
-  return 1.0 - clamp(aaFactor * dist + 0.5, 0.0, 1.0);
+  float outside = clamp(aaFactor * dist + 0.5, 0.0, 1.0);
+  return matX.w < 0.0 ? outside : 1.0 - outside;
 }
 
 float linear3T(int fillMode, float2 uv) {

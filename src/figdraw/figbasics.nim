@@ -57,6 +57,7 @@ type
     NfInvertY
     NfRectMaskContent
     NfEllipticalCorners
+    NfInverseRectMaskContent
 
   ShadowStyle* = enum
     ## Supports drop and inner shadows.

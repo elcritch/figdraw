@@ -150,12 +150,16 @@ proc collectDebugFigs(
     )
     return
 
-  let nodeClips = NfClipContent in node.flags or NfRectMaskContent in node.flags
+  let
+    inverseMask = NfInverseRectMaskContent in node.flags
+    nodeClips =
+      NfClipContent in node.flags or
+      (NfRectMaskContent in node.flags and not inverseMask)
   var
     nextHasClip = hasClip
     nextClip = clipBounds
     approximate =
-      parentApproximate or node.rotation != 0.0'f32 or
+      parentApproximate or inverseMask or node.rotation != 0.0'f32 or
       (nodeClips and node.hasRoundedCorners()) or
       (node.kind == nkTransform and node.transform.useMatrix)
 

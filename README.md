@@ -1323,6 +1323,43 @@ nim r examples/windy_clip_mask_benchmark.nim
 The benchmark renders a table-like scene and compares `clip + sub-clip` against
 `clip + rect-mask`.
 
+An inverse mask hides the pixels where its shape overlaps the drawing it masks.
+Here a small rounded rectangle crosses the top edge of a card and cuts a gap
+in the blue border. The `nkFrame` draws nothing itself. Its box and corners
+define the cutout, and its only child is the border. The card fill is a separate
+root, so it stays visible through the gap.
+
+```nim
+var scene = newRenders()
+let card = rect(24, 24, 160, 80)
+let cardCorners = [12'u16, 12, 12, 12]
+
+discard scene.addRoot(0.ZLevel, Fig(
+  kind: nkRectangle,
+  screenBox: card,
+  corners: cardCorners,
+  fill: rgba(242, 247, 255, 255),
+))
+
+let cutout = scene.addRoot(0.ZLevel, Fig(
+  kind: nkFrame,
+  screenBox: rect(80, 20, 36, 16),
+  corners: [8'u16, 8, 8, 8],
+  flags: {NfInverseRectMaskContent},
+))
+discard scene.addChild(0.ZLevel, cutout, figRoundedRectBorder(
+  card, cardCorners, fill(rgba(43, 159, 234, 255)), 2,
+))
+```
+
+Metal, OpenGL, and Vulkan use the fast shader when its mask slot is free.
+When an inverse mask is nested inside another fast mask, the GPU composites
+the inner drawing as a group through the outer mask. Software renderers combine
+mask coverage directly.
+
+Run `nim r examples/siwin_inverse_mask.nim` and move the pointer across the
+border to move the cutout.
+
 ## Debug Helpers
 
 Import `figdraw/debugtools` for lightweight render-tree inspection helpers. `figVisibility` reports whether a `Fig` is disabled, clipped out, covered by a later opaque rectangle, or visible; `hitsAtPoint` and `topFigAtPoint` inspect clipped bounding-box hits in render order; `colorAt` samples a rendered `Image` or reads one pixel from a backend framebuffer. These helpers are intentionally conservative: clipping and hits use axis-aligned rectangles, and coverage detection handles simple later opaque rectangle covers rather than arbitrary partial overdraw.
