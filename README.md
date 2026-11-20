@@ -1323,19 +1323,32 @@ nim r examples/windy_clip_mask_benchmark.nim
 The benchmark renders a table-like scene and compares `clip + sub-clip` against
 `clip + rect-mask`.
 
-Use `NfInverseRectMaskContent` to keep drawing outside a rounded rectangle. The
-node's box and corner radii define the cutout. For a notch in a border, draw the
-fill separately and put just the border under an `nkFrame` cutter:
+An inverse mask hides the pixels where its shape overlaps the drawing it masks.
+Here a small rounded rectangle crosses the top edge of a card and cuts a gap
+in the blue border. The `nkFrame` draws nothing itself. Its box and corners
+define the cutout, and its only child is the border. The card fill is a separate
+root, so it stays visible through the gap.
 
 ```nim
-let cutter = result.addRoot(0.ZLevel, Fig(
+var scene = newRenders()
+let card = rect(24, 24, 160, 80)
+let cardCorners = [12'u16, 12, 12, 12]
+
+discard scene.addRoot(0.ZLevel, Fig(
+  kind: nkRectangle,
+  screenBox: card,
+  corners: cardCorners,
+  fill: rgba(242, 247, 255, 255),
+))
+
+let cutout = scene.addRoot(0.ZLevel, Fig(
   kind: nkFrame,
   screenBox: rect(80, 20, 36, 16),
   corners: [8'u16, 8, 8, 8],
   flags: {NfInverseRectMaskContent},
 ))
-discard result.addChild(0.ZLevel, cutter, figRoundedRectBorder(
-  rect(24, 24, 160, 80), [12'u16, 12, 12, 12], fill(rgba(43, 159, 234, 255)), 2,
+discard scene.addChild(0.ZLevel, cutout, figRoundedRectBorder(
+  card, cardCorners, fill(rgba(43, 159, 234, 255)), 2,
 ))
 ```
 
