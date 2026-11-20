@@ -1136,6 +1136,22 @@ Useful backend modes:
 - `-d:figdrawTextBackend=hybrid`: Harfbuzzy layout converted through the Pixie
   compatibility raster path, useful for diagnostics.
 
+The experimental `textBackendHarfnim` Atlas feature selects Harfnim shaping,
+bidi analysis, and glyph outline rasterization. It needs neither the HarfBuzz
+nor the FriBidi system library. With the development branches checked out at
+`deps/harfbuzzy` (`feat/harfnim-backend`) and `deps/harfnim`
+(`feat/figdraw-backend`), enable it with:
+
+```sh
+atlas --keepCommits --keepFeatures --feature=figdraw.textBackendHarfnim install
+atlas-run tests tests/tfontutils.nim tests/tparagraphlayout.nim
+```
+
+This build covers basic OpenType shaping, font fallback, mixed-direction
+paragraphs, and monochrome outlines. Language tags currently select the default
+OpenType language system. Ranged features and complex-script shaping can differ
+from HarfBuzz.
+
 On Windows, `-d:figdrawTextBackend=uirelays` uses native GDI measurements and
 per-rune rasterization with the existing GPU glyph atlas. Enable the `uirelays`
 dependency feature, or select `textBackendUirelays` to install it and choose the

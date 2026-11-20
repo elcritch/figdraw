@@ -1,4 +1,4 @@
-version = "0.48.2"
+version = "0.49.0"
 author = "Jaremy Creechley"
 description = "UI Engine for Nim"
 license = "MIT"
@@ -33,6 +33,9 @@ feature "harfbuzz":
   discard # Kept for compatibility with existing Atlas configurations.
 feature "textBackendHarfbuzzy":
   discard
+feature "textBackendHarfnim":
+  requires "gh:elcritch/harfbuzzy#feat/harfnim-backend"
+  requires "https://github.com/elcritch/harfnim#feat/figdraw-backend"
 feature "textBackendUirelays":
   requires "gh:elcritch/uirelays#fix/native-font-lifetime"
 feature "lottie":

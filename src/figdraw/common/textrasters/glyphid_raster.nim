@@ -1,7 +1,6 @@
 import std/[math, tables]
 
 import pkg/chroma
-import pkg/harfbuzzy as hb
 import pkg/pixie
 import pkg/vmath
 
@@ -9,7 +8,13 @@ import ../fonttypes
 import ../imgutils
 import ../shared
 import ../typefaces
+import ../textbackends/state
 import ./pixie_raster
+
+when figdrawTextBackend == "harfnim":
+  import pkg/harfbuzzy/harfnim_backend as hb
+else:
+  import pkg/harfbuzzy as hb
 
 var hbFontCache {.threadvar.}: Table[FontId, hb.Typeface]
 

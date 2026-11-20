@@ -10,8 +10,7 @@ import ./textbackends/state as backendState
 export fontfallbacks
 export hyphenation
 
-when not runtimeTextBackends and figdrawTextBackend != "harfbuzzy" and
-    figdrawTextBackend notin ["hybrid", "uirelays"]:
+when not glyphIdRasterEnabled and figdrawTextBackend notin ["hybrid", "uirelays"]:
   import pkg/pixie/fonts
 
 import ./shared
@@ -33,7 +32,7 @@ export canLoadTypeface
 
 when runtimeTextBackends:
   import ./textbackends/runtime as textBackend
-elif figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
+elif figdrawTextBackend in ["harfbuzzy", "harfnim", "hybrid"]:
   import ./textbackends/harfbuzzy as textBackend
 elif figdrawTextBackend == "uirelays":
   import ./textbackends/uirelays as textBackend
@@ -49,7 +48,7 @@ proc textBackendAvailable*(backend: TextBackendKind): bool =
       true
     of TextBackendKind.Harfbuzzy, TextBackendKind.Hybrid:
       backendState.harfbuzzyAvailable()
-    of TextBackendKind.Uirelays:
+    of TextBackendKind.Uirelays, TextBackendKind.Harfnim:
       false
   else:
     backend == selectedTextBackend()
@@ -252,8 +251,7 @@ proc placeGlyphs*(
   if glyphs.len == 0:
     return
 
-  when not runtimeTextBackends and figdrawTextBackend != "harfbuzzy" and
-      figdrawTextBackend notin ["hybrid", "uirelays"]:
+  when not glyphIdRasterEnabled and figdrawTextBackend notin ["hybrid", "uirelays"]:
     let fontInfo = glyphFontFor(style.font)
     let cachedFont = (font: fontInfo.font, glyph: fontInfo.glyph)
 
@@ -265,8 +263,7 @@ proc placeGlyphs*(
 
   for glyphIndex, (rune, pos) in glyphs:
     let resolved =
-      when runtimeTextBackends or figdrawTextBackend == "harfbuzzy" or
-          figdrawTextBackend in ["hybrid", "uirelays"]:
+      when glyphIdRasterEnabled or figdrawTextBackend in ["hybrid", "uirelays"]:
         textBackend.resolvePlacedGlyph(style.font, rune)
       else:
         (

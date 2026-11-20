@@ -76,7 +76,7 @@ proc firstLoadableSystemFontPath(candidates: openArray[string]): string =
 
   ""
 
-when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
+when figdrawTextBackend in ["harfbuzzy", "harfnim", "hybrid"]:
   proc firstLoadableNamedSystemFontPath(
       candidates: openArray[string], requiredText: string
   ): string =
@@ -793,7 +793,7 @@ suite "fontutils":
       h = h !& getContentHash(box.wh, spans, Left, Top)
       h = h !& hash(figUiScale())
       !$h
-    if textBackend() in ["harfbuzzy", "hybrid"]:
+    if textBackend() in ["harfbuzzy", "harfnim", "hybrid"]:
       expectedHash = hash((expectedHash, @[uiFont]))
     check arrangement.contentHash == expectedHash
     check arrangement.spans.len == spans.len
@@ -836,7 +836,7 @@ suite "fontutils":
           check glyph.glyphId != FontGlyphId(0)
         check glyph.source.runeStart >= 0
         check glyph.source.runeEnd == glyph.source.runeStart + 1
-        if textBackend() != "harfbuzzy":
+        if textBackend() notin ["harfbuzzy", "harfnim"]:
           check hasImage(glyph.hash().ImageId)
         break
     check foundNonWhitespace
@@ -1041,8 +1041,8 @@ suite "fontutils":
     check abs(endCarets[0].pos.x - 10.0'f32) < 0.01'f32
     check arrangement.selectionRectsFor(2 .. 2) == @[rect(10, 0, 10, 14)]
 
-  when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
-    test "harfbuzzy backend emits shaped glyph ids and source ranges":
+  when figdrawTextBackend in ["harfbuzzy", "harfnim", "hybrid"]:
+    test "shaping backend emits shaped glyph ids and source ranges":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
       let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
@@ -1155,7 +1155,7 @@ suite "fontutils":
       let glyphRange = arrangement.glyphRangeFor(1 .. 3)
       check glyphRange.b - glyphRange.a + 1 == 3
 
-    test "harfbuzzy fallback stores fallback font ids on shaped runs":
+    test "shaping backend fallback stores fallback font ids on shaped runs":
       let
         primaryId = loadTypeface(
           getCurrentDir() / "examples/fonts" / "NotoSansHebrew-wdth-wght.ttf"
@@ -1234,7 +1234,7 @@ suite "fontutils":
       check getFigFont(boldArrangement.arrangedGlyphs[0].fontId).variations ==
         boldFont.variations
 
-    test "harfbuzzy wrap creates line slices at shaped glyph boundaries":
+    test "shaping backend wrap creates line slices at shaped glyph boundaries":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
       let uiFont = FigFont(typefaceId: typefaceId, size: 24.0'f32)
@@ -1278,7 +1278,7 @@ suite "fontutils":
 
       check covered == arrangement.arrangedGlyphs.len
 
-    test "harfbuzzy wraps long text to fit the layout box":
+    test "shaping backend wraps long text to fit the layout box":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
       let uiFont = FigFont(typefaceId: typefaceId, size: 18.0'f32)
@@ -1318,7 +1318,7 @@ suite "fontutils":
         check glyphCount > 0
         check maxX - minX <= box.w + 0.1'f32
 
-    test "harfbuzzy hard line breaks do not render newline glyphs":
+    test "shaping backend hard line breaks do not render newline glyphs":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
       let uiFont = FigFont(typefaceId: typefaceId, size: 24.0'f32)
@@ -1346,7 +1346,7 @@ suite "fontutils":
           lineY[i] = min(lineY[i], arrangement.arrangedGlyphs[glyphIndex].rect.y)
       check lineY[0] < lineY[1]
 
-    test "harfbuzzy preserves empty hard-break lines":
+    test "shaping backend preserves empty hard-break lines":
       let
         fontData = readFile(figDataDir() / "Ubuntu.ttf")
         typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
@@ -1366,7 +1366,7 @@ suite "fontutils":
       check firstLine.y < emptyLine.y
       check emptyLine.y < lastLine.y
 
-    test "noKerningAdjustments disables Harfbuzz kerning":
+    test "noKerningAdjustments disables kerning":
       let
         fontData = readFile(figDataDir() / "Ubuntu.ttf")
         typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
@@ -1380,7 +1380,7 @@ suite "fontutils":
 
       check noKerningLayout.bounding.w > defaultLayout.bounding.w
 
-    test "harfbuzzy wrapped Hebrew lines stay in logical order":
+    test "shaping backend wrapped Hebrew lines stay in logical order":
       let fontPath =
         getCurrentDir() / "examples" / "fonts" / "NotoSansHebrew-wdth-wght.ttf"
       require fileExists(fontPath)
@@ -1416,7 +1416,7 @@ suite "fontutils":
         check lineY < float32.high
         previousLineStart = lineStart
 
-    test "harfbuzzy Hebrew hard line breaks stay in logical order":
+    test "shaping backend Hebrew hard line breaks stay in logical order":
       let fontPath =
         getCurrentDir() / "examples" / "fonts" / "NotoSansHebrew-wdth-wght.ttf"
       require fileExists(fontPath)
@@ -1453,7 +1453,7 @@ suite "fontutils":
         check lineStart >= previousLineStart
         previousLineStart = lineStart
 
-    test "harfbuzzy wrap keeps ligature source ranges on one line":
+    test "shaping backend wrap keeps ligature source ranges on one line":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
       let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
@@ -1484,7 +1484,7 @@ suite "fontutils":
             break
         check glyphLineIndex == lineIndex
 
-    test "harfbuzzy minContent keeps bottom-aligned wrapped text in bounds":
+    test "shaping backend minContent keeps bottom-aligned wrapped text in bounds":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
       let uiFont = FigFont(typefaceId: typefaceId, size: 24.0'f32)
@@ -1499,7 +1499,7 @@ suite "fontutils":
       check arrangement.bounding.y >= -0.01'f32
       check arrangement.minSize.y > box.h
 
-    test "harfbuzzy mixed direction text preserves source hit ranges":
+    test "shaping backend mixed direction text preserves source hit ranges":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
       let uiFont = FigFont(typefaceId: typefaceId, size: 28.0'f32)
@@ -1524,7 +1524,7 @@ suite "fontutils":
         check sourceRange.a >= 4
         check sourceRange.b <= 7
 
-    test "harfbuzzy wraps CJK text without whitespace":
+    test "shaping backend wraps CJK text without whitespace":
       let fontPath = "deps/pixie/tests/fonts/NotoSansJP-Regular.ttf"
       if not fileExists(fontPath):
         check true
@@ -1557,7 +1557,7 @@ suite "fontutils":
           check maxX - minX <= box.w + 0.1'f32
           previousStop = line.b
 
-    test "harfbuzzy source helpers cover combining marks":
+    test "shaping backend source helpers cover combining marks":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
       let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
@@ -1587,7 +1587,7 @@ suite "fontutils":
       check carets.len > 0
       check arrangement.nearestSourceRuneForCaretPoint(carets[0].pos) == 4
 
-    test "harfbuzzy source helpers cover Hebrew marks":
+    test "shaping backend source helpers cover Hebrew marks":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
       let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
@@ -1618,7 +1618,7 @@ suite "fontutils":
         let carets = arrangement.caretPositionsFor(markIndex)
         check carets.len > 0
 
-    test "harfbuzzy caret helpers expose split mixed-direction positions":
+    test "shaping backend caret helpers expose split mixed-direction positions":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
       let uiFont = FigFont(typefaceId: typefaceId, size: 28.0'f32)
@@ -1642,7 +1642,7 @@ suite "fontutils":
       for caret in hebrewEndCarets:
         check caret.sourceRune == 8
 
-    test "harfbuzzy shapes Arabic when a system Arabic font is available":
+    test "shapes Arabic when a system Arabic font is available":
       const arabicText = "سلام"
       let fontPath = firstLoadableNamedSystemFontPath(
         [
@@ -1671,8 +1671,8 @@ suite "fontutils":
           check glyph.source.runeStart >= 0
           check glyph.source.runeEnd <= arrangement.sourceRunes.len
 
-  when figdrawTextBackend == "harfbuzzy":
-    test "harfbuzzy glyph id raster provider renders shaped glyph images":
+  when figdrawTextBackend in ["harfbuzzy", "harfnim"]:
+    test "shaping backend glyph id raster provider renders shaped glyph images":
       let fontData = readFile(figDataDir() / "Ubuntu.ttf")
       let typefaceId = loadTypeface("Ubuntu.ttf", fontData, TTF)
       let uiFont = FigFont(typefaceId: typefaceId, size: 32.0'f32)
@@ -1868,7 +1868,7 @@ suite "fontutils":
       let charPos = vec2(glyph.pos.x, glyph.pos.y - glyph.descent)
       check abs(charPos.x - expected.x) < 0.01'f32
       check abs(charPos.y - expected.y) < 0.01'f32
-      if textBackend() in ["harfbuzzy", "hybrid"]:
+      if textBackend() in ["harfbuzzy", "harfnim", "hybrid"]:
         let shaped = typeset(
           rect(0, 0, 80, 40), uiFont, $glyph.rune, minContent = false, wrap = false
         )
@@ -1883,7 +1883,7 @@ suite "fontutils":
       inc idx
     check idx == positions.len
 
-  when figdrawTextBackend == "harfbuzzy" or figdrawTextBackend == "hybrid":
+  when figdrawTextBackend in ["harfbuzzy", "harfnim", "hybrid"]:
     test "placeGlyphs resolves fallback font and glyph ids":
       let
         primaryData = readFile(figDataDir() / "Ubuntu.ttf")
