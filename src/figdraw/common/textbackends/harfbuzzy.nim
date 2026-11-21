@@ -1,4 +1,4 @@
-import std/[hashes, math, sequtils, strutils, tables, unicode]
+import std/[hashes, math, strutils, tables, unicode]
 
 import pkg/harfbuzzy as hb
 import pkg/vmath
@@ -764,6 +764,15 @@ proc appendShapedGroup(
     let rasterBackend = currentGlyphRaster()
     for cluster in run.glyphClusters():
       let
+        # HarfBuzz marks the start of the later cluster in logical order.
+        boundaryGlyph =
+          if run.textRun.direction == hb.Direction.rtl:
+            cluster.firstGlyph
+          else:
+            cluster.afterGlyph
+        clusterBreak =
+          cluster.afterGlyph == run.glyphRun.glyphs.len or
+          (run.glyphRun.glyphs[boundaryGlyph].flags and hbGlyphFlagUnsafeToBreak) == 0
         source = decoded.runeRangeForBytes(
           cursor, groupByteOffset + cluster.byteStart, groupByteOffset + cluster.byteEnd
         )
@@ -803,11 +812,7 @@ proc appendShapedGroup(
         glyphText.add rune
         arrangement.positions.add pos
         arrangement.selectionRects.add selection
-        let nextGlyphUnsafeToBreak =
-          runGlyphIndex + 1 < run.glyphRun.glyphs.len and
-          (run.glyphRun.glyphs[runGlyphIndex + 1].flags and hbGlyphFlagUnsafeToBreak) !=
-          0
-        safeBreakAfter.add not nextGlyphUnsafeToBreak
+        safeBreakAfter.add runGlyphIndex + 1 == cluster.afterGlyph and clusterBreak
 
         pen += advance
 
@@ -815,7 +820,6 @@ proc typesetPrepared(
     box: Rect,
     decoded: DecodedSource,
     paragraphs: seq[Paragraph],
-    fontSizes: openArray[float],
     contentHash: Hash,
     hAlign: FontHorizontal,
     vAlign: FontVertical,
@@ -823,7 +827,9 @@ proc typesetPrepared(
 ): GlyphArrangement =
   threadEffects:
     AppMainThread
-  result = GlyphArrangement(contentHash: contentHash, sourceRunes: decoded.runes)
+  result = GlyphArrangement(
+    contentHash: contentHash, textLayout: FigTextLayout(sourceRunes: decoded.runes)
+  )
   var
     pen = vec2(0, 0)
     glyphText = newStringOfCap(decoded.runes.len)
@@ -894,7 +900,6 @@ proc typesetPrepared(
   result.bounding = content.bounding
   if minContent:
     result.minSize.y = max(result.minSize.y, result.bounding.h)
-  result.addFontSizePadding(fontSizes)
   result.contentHash = hash((result.contentHash, resolvedFonts))
 
   when figdrawTextBackend == "hybrid" or runtimeTextBackends:
@@ -920,15 +925,13 @@ proc typeset*(
   let
     decoded = decodeSource(uiSpans, shapedSpans)
     paragraphs = splitParagraphs(shapedSpans)
-    fontSizes = shapedSpans.mapIt(it[0].font.size.float)
     contentHash = block:
       var h = Hash(0)
       h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign, minContent, wrap)
       h = h !& hash(figUiScale())
       !$h
   typesetPrepared(
-    box, decoded, paragraphs, fontSizes, contentHash, hAlign, vAlign, minContent, wrap,
-    rasterize,
+    box, decoded, paragraphs, contentHash, hAlign, vAlign, minContent, wrap, rasterize
   )
 
 proc typesetSourceSpans*(
@@ -961,7 +964,6 @@ proc typesetSourceSpans*(
   let
     decoded = DecodedSource(runes: source, directSource: true)
     paragraphs = splitSourceParagraphs(source, runs, styles)
-    fontSizes = runs.mapIt(styles[int(uint32(it.styleId))].font.size.float)
     contentHash = block:
       var h = Hash(0)
       h = h !& hash(box.wh)
@@ -976,6 +978,5 @@ proc typesetSourceSpans*(
       h = h !& hash(figUiScale())
       !$h
   typesetPrepared(
-    box, decoded, paragraphs, fontSizes, contentHash, hAlign, vAlign, minContent, wrap,
-    rasterize,
+    box, decoded, paragraphs, contentHash, hAlign, vAlign, minContent, wrap, rasterize
   )

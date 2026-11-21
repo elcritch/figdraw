@@ -88,8 +88,10 @@ suite "native dynlib API":
       doAssert not compiles(default(FontRef).value)
       doAssert not compiles(default(ImageMessageSubscription).inbox)
 
-      let arrangement =
-        GlyphArrangement(lines: @[2 .. 5], arrangedGlyphs: newSeq[ArrangedGlyph](6))
+      let arrangement = GlyphArrangement(
+        textLayout:
+          FigTextLayout(lines: @[2 .. 5], arrangedGlyphs: newSeq[ArrangedGlyph](6))
+      )
       let ranges: seq[Slice[int]] = figdraw_native_abi.lineGlyphRanges(arrangement)
       check ranges == @[2 .. 5]
       check Fig(kind: nkText, selectionRange: 1'i16 .. 3'i16).selectionRange ==
@@ -317,7 +319,9 @@ suite "native dynlib API":
       check figdraw.toRunes(storage) == sourceRunes
       check storage == sourceRunes
 
-      let arrangement = GlyphArrangement(sourceRunes: sourceRunes, runes: sourceRunes)
+      let arrangement = GlyphArrangement(
+        textLayout: FigTextLayout(sourceRunes: sourceRunes, runes: sourceRunes)
+      )
       check arrangement.sourceRunes.len == sourceRunes.len
       check arrangement.runes.stringValue() == source
       check textBackend() == figdrawTextBackend

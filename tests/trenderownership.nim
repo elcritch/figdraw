@@ -18,9 +18,11 @@ proc makeTransfer(): RenderTransfer =
   let source = initArrangementRunes("a🙂b")
   let owner = shareGlyphArrangement(
     GlyphArrangement(
-      sourceRunes: source,
-      runes: source,
-      arrangedGlyphs: @[ArrangedGlyph(), ArrangedGlyph(), ArrangedGlyph()],
+      textLayout: FigTextLayout(
+        sourceRunes: source,
+        runes: source,
+        arrangedGlyphs: @[ArrangedGlyph(), ArrangedGlyph(), ArrangedGlyph()],
+      )
     )
   )
   result.fragments = newRenderFragments()

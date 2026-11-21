@@ -143,9 +143,7 @@ proc typesetWithSource(
     spans: seq[Slice[int]]
     glyphFonts: seq[GlyphFont]
     spanColors: seq[Fill]
-    sizes: seq[float]
   for (style, spanText) in uiSpans:
-    sizes.add style.font.size.float
     if spanText.len == 0:
       continue
     let first = runes.len
@@ -226,15 +224,17 @@ proc typesetWithSource(
       h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign, minContent, wrap)
       h = h !& hash(scale)
       !$h,
-    lines: lines,
     spans: spans,
     fonts: glyphFonts,
     spanColors: spanColors,
-    sourceRunes: displayRunes,
-    arrangedGlyphs: arranged,
-    runes: displayRunes,
-    positions: positions,
-    selectionRects: selectionRects,
+    textLayout: FigTextLayout(
+      lines: lines,
+      sourceRunes: displayRunes,
+      arrangedGlyphs: arranged,
+      runes: displayRunes,
+      positions: positions,
+      selectionRects: selectionRects,
+    ),
   )
 
   let content = result.calcMinMaxContent()
@@ -244,7 +244,6 @@ proc typesetWithSource(
   if minContent:
     result.minSize.y = max(result.minSize.y, result.bounding.h)
 
-  result.addFontSizePadding(sizes)
   if rasterize:
     result.generateGlyphImages()
 
