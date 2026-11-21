@@ -764,6 +764,15 @@ proc appendShapedGroup(
     let rasterBackend = currentGlyphRaster()
     for cluster in run.glyphClusters():
       let
+        # HarfBuzz marks the start of the later cluster in logical order.
+        boundaryGlyph =
+          if run.textRun.direction == hb.Direction.rtl:
+            cluster.firstGlyph
+          else:
+            cluster.afterGlyph
+        clusterBreak =
+          cluster.afterGlyph == run.glyphRun.glyphs.len or
+          (run.glyphRun.glyphs[boundaryGlyph].flags and hbGlyphFlagUnsafeToBreak) == 0
         source = decoded.runeRangeForBytes(
           cursor, groupByteOffset + cluster.byteStart, groupByteOffset + cluster.byteEnd
         )
@@ -803,11 +812,7 @@ proc appendShapedGroup(
         glyphText.add rune
         arrangement.positions.add pos
         arrangement.selectionRects.add selection
-        let nextGlyphUnsafeToBreak =
-          runGlyphIndex + 1 < run.glyphRun.glyphs.len and
-          (run.glyphRun.glyphs[runGlyphIndex + 1].flags and hbGlyphFlagUnsafeToBreak) !=
-          0
-        safeBreakAfter.add not nextGlyphUnsafeToBreak
+        safeBreakAfter.add runGlyphIndex + 1 == cluster.afterGlyph and clusterBreak
 
         pen += advance
 

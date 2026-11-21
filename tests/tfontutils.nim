@@ -1259,6 +1259,23 @@ suite "fontutils":
 
       check sawArabicFallback
 
+    test "harfbuzzy wrapping preserves joining across RTL clusters with marks":
+      let
+        path = getCurrentDir() / "examples/fonts/NotoNaskhArabic-wght.ttf"
+        uiFont = FigFont(typefaceId: loadTypeface(path), size: 30.0'f32)
+        box = rect(0, 0, 1, 200)
+      let arrangement = typeset(
+        box,
+        [(fs(uiFont), "ببِب")],
+        hAlign = Left,
+        vAlign = Top,
+        minContent = false,
+        wrap = true,
+      )
+
+      require arrangement.arrangedGlyphs.len > 3
+      check arrangement.lines == @[0 .. arrangement.arrangedGlyphs.high]
+
     test "variable axes are carried by shaped font ids":
       let typefaceId = loadTypeface(
         getCurrentDir() / "examples/fonts" / "NotoSansHebrew-wdth-wght.ttf"
