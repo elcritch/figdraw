@@ -363,15 +363,17 @@ proc convertArrangementImpl(
       h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign, minContent, wrap)
       h = h !& hash(figUiScale())
       !$h,
-    lines: lines,
     spans: spanSlices,
     fonts: visibleFonts,
     spanColors: visibleColors,
-    sourceRunes: (if sourceRunes.isNil: displayRunes else: sourceRunes),
-    arrangedGlyphs: arrangedGlyphs,
-    runes: displayRunes,
-    positions: arrangement.positions,
-    selectionRects: selectionRects,
+    textLayout: FigTextLayout(
+      lines: lines,
+      sourceRunes: (if sourceRunes.isNil: displayRunes else: sourceRunes),
+      arrangedGlyphs: arrangedGlyphs,
+      runes: displayRunes,
+      positions: arrangement.positions,
+      selectionRects: selectionRects,
+    ),
   )
 
 proc convertArrangement*(

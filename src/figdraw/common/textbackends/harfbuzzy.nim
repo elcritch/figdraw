@@ -823,7 +823,9 @@ proc typesetPrepared(
 ): GlyphArrangement =
   threadEffects:
     AppMainThread
-  result = GlyphArrangement(contentHash: contentHash, sourceRunes: decoded.runes)
+  result = GlyphArrangement(
+    contentHash: contentHash, textLayout: FigTextLayout(sourceRunes: decoded.runes)
+  )
   var
     pen = vec2(0, 0)
     glyphText = newStringOfCap(decoded.runes.len)

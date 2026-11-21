@@ -1,4 +1,5 @@
 import std/[hashes, isolation, unicode]
+from pkg/harfbuzzy/layout import TextLayout
 import threading/smartptrs
 import uimaths
 import filltypes
@@ -168,24 +169,19 @@ type
   ArrangementRunes = Utf8Runes
 
 type
+  FigTextLayout* = TextLayout[ArrangedGlyph, Utf8Runes, Vec2, Rect]
+    ## Shared geometry and source storage specialized for FigDraw glyphs.
+
   GlyphArrangement* = object
     ## Views retain immutable complete layouts; owners never retain their views.
+    textLayout*: FigTextLayout
     shared*: ConstPtr[GlyphArrangement] ## Immutable owner for a glyph-range view.
     viewGlyphStart*: uint32 ## Inclusive glyph offset in `shared`.
     viewGlyphEnd*: uint32 ## Exclusive glyph offset in `shared`.
     contentHash*: Hash
-    lines*: seq[Slice[int]] ## The (start, stop) of the lines of text.
     spans*: seq[Slice[int]] ## The (start, stop) of the spans in the text.
     fonts*: seq[GlyphFont] ## The font for each span.
     spanColors*: seq[Fill] ## The fill for each span.
-    sourceRunes*: Utf8Runes ## Source runes for glyph source ranges.
-    arrangedGlyphs*: seq[ArrangedGlyph] ## Glyph-id-first placement data.
-    runes*: Utf8Runes ## Display runes, one for each visual glyph where applicable.
-    positions*: seq[Vec2] ## The positions of the glyphs for each rune.
-    selectionRects*: seq[Rect] ## The selection rects for each glyph.
-    maxSize*: Vec2
-    minSize*: Vec2
-    bounding*: Rect
 
   TextCaretAffinity* = enum
     CaretLeading
@@ -203,6 +199,8 @@ type
   SelectionSourceKind = enum
     sskRunes
     sskBytes
+
+include ./textlayoutfields
 
 func utf8RuneWidth(text: string, byteOffset: int): int {.inline.} =
   if byteOffset < 0 or byteOffset >= text.len:

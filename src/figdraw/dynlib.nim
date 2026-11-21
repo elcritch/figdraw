@@ -89,6 +89,8 @@ exportNativeIndexers(figdraw_native_abi.`[]`)
 
 export initSystemTypefaceFile, initSystemTypeface
 
+include ./common/textlayoutfields
+
 proc systemFontDirs*(): seq[string] {.inline.} =
   figdraw_native_abi.systemFontDirs(figdraw_native_abi.detectDisplayServer())
 
