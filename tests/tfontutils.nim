@@ -884,6 +884,25 @@ suite "fontutils":
         break
     check foundNonWhitespace
 
+  test "text measurements report unpadded glyph bounds":
+    let
+      typeface = loadTypeface("Ubuntu.ttf")
+      font = FigFont(typefaceId: typeface, size: 12.0'f32)
+      box = rect(0, 0, 1000, 100)
+      measured = typesetForMeasurement(
+        box, font, "declarative-direct-views.md", minContent = false, wrap = false
+      )
+      drawn = typeset(
+        box, [(font, "declarative-direct-views.md")], minContent = false, wrap = false
+      )
+      content = measured.calcMinMaxContent()
+    require content.bounding.w > 0
+    check measured.minSize == content.minSize
+    check measured.maxSize == content.maxSize
+    check measured.bounding == content.bounding
+    check drawn.bounding == measured.bounding
+    check drawn.maxSize == measured.maxSize
+
   test "measurement-only typesetting does not publish glyph images":
     let
       fontData = readFile(figDataDir() / "Ubuntu.ttf")

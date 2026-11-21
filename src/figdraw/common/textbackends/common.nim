@@ -88,15 +88,3 @@ proc calcMinMaxContent*(
       rect(0, 0, 0, 0)
     else:
       rect(minX, minY, maxX - minX, maxY - minY)
-
-proc maxFontSize*(fontSizes: openArray[float]): float32 =
-  for size in fontSizes:
-    result = max(result, size.float32)
-
-proc addFontSizePadding*(
-    arrangement: var GlyphArrangement, fontSizes: openArray[float]
-) =
-  let maxLineHeight = maxFontSize(fontSizes)
-  arrangement.minSize += vec2(maxLineHeight / 2, 0)
-  arrangement.maxSize += vec2(maxLineHeight / 2, 0)
-  arrangement.bounding = arrangement.bounding + rect(0, 0, 0, maxLineHeight / 2)
