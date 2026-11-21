@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Report intrinsic text widths and glyph bounds without implicit font-size padding.
+
 - Add `NfInverseRectMaskContent` to cut a rounded rectangle out of a node's
   drawing and descendants.
 

@@ -1,4 +1,4 @@
-import std/[algorithm, math, sequtils, strutils, unicode]
+import std/[algorithm, math, strutils, unicode]
 
 import pkg/chronicles
 import pkg/pixie
@@ -81,9 +81,7 @@ proc typesetWithSource(
   threadEffects:
     AppMainThread
 
-  var
-    wh = box.wh
-    sz = uiSpans.mapIt(it[0].font.size.float)
+  let wh = box.wh
 
   var spans: seq[Span]
   var gfonts: seq[GlyphFont]
@@ -155,7 +153,6 @@ proc typesetWithSource(
       unwrapped, box, uiSpans, hAlign, vAlign, gfonts, minContent, wrap, source, runs
     )
     result.layoutStyledParagraphs(box, uiSpans, runs, hAlign, vAlign, minContent, wrap)
-    result.addFontSizePadding(sz)
     if rasterize:
       result.generateGlyphImages()
     return
@@ -217,7 +214,6 @@ proc typesetWithSource(
     else:
       result.minSize.y = max(result.minSize.y, result.bounding.h)
 
-  result.addFontSizePadding(sz)
   if rasterize:
     result.generateGlyphImages()
 
