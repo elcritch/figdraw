@@ -1,4 +1,6 @@
 import std/[hashes, isolation, unicode]
+import pkg/harfbuzzy/layout
+export layout
 import threading/smartptrs
 import uimaths
 import filltypes
@@ -27,16 +29,6 @@ type
     UpperCase
     LowerCase
     TitleCase
-
-  FontHorizontal* = enum
-    Left
-    Center
-    Right
-
-  FontVertical* = enum
-    Top
-    Middle
-    Bottom
 
   GlyphOrigin* = enum
     GlyphTopLeft
@@ -75,48 +67,6 @@ type
     features*: seq[FontFeature] ## OpenType features applied while shaping.
     variations*: seq[FontVariation] ## OpenType variable-axis coordinates.
 
-  ParagraphAlign* = enum
-    ## Horizontal placement of a paragraph's lines.
-    paInherit ## Use the typeset call's `hAlign`.
-    paLeft
-    paCenter
-    paRight
-    paJustify ## Stretch inter-word spaces so wrapped lines fill the measure.
-
-  ParagraphLineBreaking* = enum
-    plbGreedy ## Fill each line in turn; linear time.
-    plbOptimal
-      ## Choose breaks for the whole paragraph that minimize uneven spacing
-      ## (Knuth-Plass). Applies to justified paragraphs; falls back to greedy
-      ## breaking when no break set fits.
-
-  OverflowWrap* = enum
-    ## What to do with a word wider than the measure that has no
-    ## shaping-safe break point, like CSS `overflow-wrap`.
-    owNormal ## Let the word overflow; shaping stays exact.
-    owAnywhere
-      ## Break at any cluster boundary to stay inside the box. Glyphs beside
-      ## the break keep the shaping they had while joined, e.g. kerning.
-
-  ParagraphStyle* = object
-    ## Paragraph layout applied from the style of a paragraph's first span.
-    ## Lengths are pixels. The default value preserves unstyled layout.
-    firstLineIndent*: float32 ## Leading inset of a paragraph's first line.
-    headIndent*: float32 ## Leading inset of the paragraph's following lines.
-    tailIndent*: float32 ## Trailing inset of every line.
-    align*: ParagraphAlign
-    lastLineAlign*: ParagraphAlign
-      ## Last-line placement of a justified paragraph; `paInherit` uses the
-      ## paragraph direction's leading edge and `paJustify` stretches it too.
-    lineBreaking*: ParagraphLineBreaking
-    overflowWrap*: OverflowWrap
-    hyphenate*: bool
-      ## Break overflowing words at hyphenation points registered for the font
-      ## language. Soft hyphens (U+00AD) are honored whenever text wraps.
-    lineSpacing*: float32 ## Extra space after each line in the paragraph.
-    spacingBefore*: float32 ## Extra space above the paragraph, except the first.
-    spacingAfter*: float32 ## Extra space below the paragraph, except the last.
-
   FontStyle* = object
     font*: FigFont
     color*: Fill
@@ -131,12 +81,6 @@ type
     runeStart*: uint32
     runeEnd*: uint32
     styleId*: TextStyleId
-
-  GlyphSourceRange* = object
-    byteStart*: int ## Inclusive source byte index.
-    byteEnd*: int ## Exclusive source byte index.
-    runeStart*: int ## Inclusive index into GlyphArrangement.sourceRunes.
-    runeEnd*: int ## Exclusive index into GlyphArrangement.sourceRunes.
 
   ArrangedGlyph* = object
     rasterBackend*: GlyphRasterBackend ## Rasterizer retained across backend switches.
@@ -168,24 +112,19 @@ type
   ArrangementRunes = Utf8Runes
 
 type
+  FigTextLayout* = TextLayout[ArrangedGlyph, Utf8Runes, Vec2, Rect]
+    ## Shared geometry and source storage specialized for FigDraw glyphs.
+
   GlyphArrangement* = object
     ## Views retain immutable complete layouts; owners never retain their views.
+    textLayout*: FigTextLayout
     shared*: ConstPtr[GlyphArrangement] ## Immutable owner for a glyph-range view.
     viewGlyphStart*: uint32 ## Inclusive glyph offset in `shared`.
     viewGlyphEnd*: uint32 ## Exclusive glyph offset in `shared`.
     contentHash*: Hash
-    lines*: seq[Slice[int]] ## The (start, stop) of the lines of text.
     spans*: seq[Slice[int]] ## The (start, stop) of the spans in the text.
     fonts*: seq[GlyphFont] ## The font for each span.
     spanColors*: seq[Fill] ## The fill for each span.
-    sourceRunes*: Utf8Runes ## Source runes for glyph source ranges.
-    arrangedGlyphs*: seq[ArrangedGlyph] ## Glyph-id-first placement data.
-    runes*: Utf8Runes ## Display runes, one for each visual glyph where applicable.
-    positions*: seq[Vec2] ## The positions of the glyphs for each rune.
-    selectionRects*: seq[Rect] ## The selection rects for each glyph.
-    maxSize*: Vec2
-    minSize*: Vec2
-    bounding*: Rect
 
   TextCaretAffinity* = enum
     CaretLeading
@@ -203,6 +142,8 @@ type
   SelectionSourceKind = enum
     sskRunes
     sskBytes
+
+include ./textlayoutfields
 
 func utf8RuneWidth(text: string, byteOffset: int): int {.inline.} =
   if byteOffset < 0 or byteOffset >= text.len:
@@ -1175,10 +1116,6 @@ proc hash*(style: ParagraphStyle): Hash =
   for value in style.fields():
     h = h !& hash(value)
   result = !$h
-
-func isDefault*(style: ParagraphStyle): bool =
-  ## Whether `style` leaves layout identical to unstyled text.
-  style == ParagraphStyle()
 
 proc hash*(style: FontStyle): Hash =
   var h = Hash(0)

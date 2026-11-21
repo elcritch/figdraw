@@ -1200,6 +1200,22 @@ See [docs/font_shaping.md](docs/font_shaping.md) for the data model details and
 [examples/windy_text_shaping_demo.nim](examples/windy_text_shaping_demo.nim) for
 a complete Arabic, Hebrew, Devanagari, fallback, and ligature demo.
 
+### Constructing glyph arrangements
+
+`GlyphArrangement.textLayout` stores the geometry and source text in a shared
+HarfBuzzy layout type. Existing access such as `arrangement.lines` and
+`arrangement.positions` still works. For manually constructed layouts, put
+geometry and source fields in `FigTextLayout`:
+
+```nim
+let arrangement = GlyphArrangement(
+  textLayout: FigTextLayout(lines: @[0 .. 0], positions: @[vec2(0, 0)])
+)
+```
+
+Rebuild the generated bindings and native library together when upgrading
+across this change.
+
 ## Layers and ZLevel
 
 `Renders` is an ordered table of `ZLevel -> RenderList`. Lower zlevels are drawn first, so higher

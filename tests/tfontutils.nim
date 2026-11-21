@@ -159,7 +159,9 @@ suite "fontutils":
     check iterated == runes.len
     let sourceRunes = source.toRunes()
     let converted: Utf8Runes = sourceRunes
-    let arrangement = GlyphArrangement(sourceRunes: sourceRunes, runes: sourceRunes)
+    let arrangement = GlyphArrangement(
+      textLayout: FigTextLayout(sourceRunes: sourceRunes, runes: sourceRunes)
+    )
     let materialized: seq[Rune] = runes
     proc legacyRuneCount(values: seq[Rune]): int =
       values.len
@@ -217,9 +219,16 @@ suite "fontutils":
     check arranged[2].source.byteStart == 5
     check arranged[2].source.byteEnd == 7
 
+  test "arrangement fields use the shared layout storage":
+    var arrangement = GlyphArrangement()
+    arrangement.lines = @[0 .. 1]
+    arrangement.positions.add vec2(1, 2)
+    arrangement.textLayout.positions[0].x = 3
+    check arrangement.textLayout.lines == @[0 .. 1]
+    check arrangement.positions[0] == vec2(3, 2)
+
   test "content measurement uses the first covering font span":
     var layout = GlyphArrangement(
-      runes: initUtf8Runes("AA BB CC DD"),
       spans: @[0 .. 1, 0 .. 4, 3 .. 4, 10 .. 10],
       fonts: @[
         GlyphFont(lineHeight: 10),
@@ -227,6 +236,7 @@ suite "fontutils":
         GlyphFont(lineHeight: 30),
         GlyphFont(lineHeight: 40),
       ],
+      textLayout: FigTextLayout(runes: initUtf8Runes("AA BB CC DD")),
     )
     check layout.calcMinMaxContent().maxSize.y == 80
     swap(layout.spans[1], layout.spans[3])
@@ -241,15 +251,17 @@ suite "fontutils":
       positions = @[vec2(0, 0), vec2(10, 0), vec2(20, 0)]
       rects = @[rect(0, 0, 10, 14), rect(10, 0, 10, 14), rect(20, 0, 10, 14)]
     var layout = GlyphArrangement(
-      lines: @[0 .. 2],
       spans: @[0 .. 2],
       fonts: @[glyphFont],
-      sourceRunes: source,
-      runes: source,
-      positions: positions,
-      selectionRects: rects,
-      arrangedGlyphs:
-        buildArrangedGlyphs(source, positions, rects, @[0 .. 2], @[glyphFont]),
+      textLayout: FigTextLayout(
+        lines: @[0 .. 2],
+        sourceRunes: source,
+        runes: source,
+        positions: positions,
+        selectionRects: rects,
+        arrangedGlyphs:
+          buildArrangedGlyphs(source, positions, rects, @[0 .. 2], @[glyphFont]),
+      ),
     )
 
     let owner = shareGlyphArrangement(layout)
@@ -290,10 +302,12 @@ suite "fontutils":
       modern = GlyphArrangement(
         spans: @[0 .. 2],
         fonts: @[font],
-        sourceRunes: source,
-        runes: display,
-        arrangedGlyphs:
-          buildArrangedGlyphs(display, positions, rects, @[0 .. 2], @[font]),
+        textLayout: FigTextLayout(
+          sourceRunes: source,
+          runes: display,
+          arrangedGlyphs:
+            buildArrangedGlyphs(display, positions, rects, @[0 .. 2], @[font]),
+        ),
       )
       modernOwner = shareGlyphArrangement(modern)
     check modernOwner[].sourceRunes == modernOwner[].runes
@@ -303,9 +317,8 @@ suite "fontutils":
       GlyphArrangement(
         spans: @[0 .. 2],
         fonts: @[font],
-        runes: display,
-        positions: positions,
-        selectionRects: rects,
+        textLayout:
+          FigTextLayout(runes: display, positions: positions, selectionRects: rects),
       )
     )
     let legacyView = legacyOwner.glyphArrangementView(1 .. 2)
@@ -924,23 +937,25 @@ suite "fontutils":
       glyphFont = GlyphFont(fontId: fontId, lineHeight: 14, descentAdj: 10)
       sourceRunes = @["a".runeAt(0), "b".runeAt(0), "c".runeAt(0), "d".runeAt(0)]
       arrangement = GlyphArrangement(
-        lines: @[0 .. 3],
         spans: @[0 .. 3],
         fonts: @[glyphFont],
-        sourceRunes: sourceRunes,
-        arrangedGlyphs: @[
-          testGlyph(fontId, 0, 10, rect(0, 2, 12, 10)),
-          testGlyph(fontId, 1, 11, rect(12, 4, 8, 6)),
-          testGlyph(fontId, 2, 12, rect(20, 0, 10, 14)),
-          testGlyph(fontId, 3, 13, rect(30, 2, 10, 10)),
-        ],
-        runes: sourceRunes,
-        selectionRects: @[
-          rect(0, 2, 12, 10),
-          rect(12, 4, 8, 6),
-          rect(20, 0, 10, 14),
-          rect(30, 2, 10, 10),
-        ],
+        textLayout: FigTextLayout(
+          lines: @[0 .. 3],
+          sourceRunes: sourceRunes,
+          arrangedGlyphs: @[
+            testGlyph(fontId, 0, 10, rect(0, 2, 12, 10)),
+            testGlyph(fontId, 1, 11, rect(12, 4, 8, 6)),
+            testGlyph(fontId, 2, 12, rect(20, 0, 10, 14)),
+            testGlyph(fontId, 3, 13, rect(30, 2, 10, 10)),
+          ],
+          runes: sourceRunes,
+          selectionRects: @[
+            rect(0, 2, 12, 10),
+            rect(12, 4, 8, 6),
+            rect(20, 0, 10, 14),
+            rect(30, 2, 10, 10),
+          ],
+        ),
       )
 
     let rawRects = arrangement.glyphSelectionRectsFor(1 .. 2)
@@ -958,25 +973,27 @@ suite "fontutils":
       sourceRunes =
         @["a".runeAt(0), "b".runeAt(0), "c".runeAt(0), "d".runeAt(0), "e".runeAt(0)]
       arrangement = GlyphArrangement(
-        lines: @[0 .. 4],
         spans: @[0 .. 4],
         fonts: @[glyphFont],
-        sourceRunes: sourceRunes,
-        arrangedGlyphs: @[
-          testGlyph(fontId, 0, 10, rect(0, 0, 10, 14)),
-          testGlyph(fontId, 1, 11, rect(10, 0, 10, 14)),
-          testGlyph(fontId, 3, 13, rect(20, 0, 10, 14)),
-          testGlyph(fontId, 2, 12, rect(30, 0, 10, 14)),
-          testGlyph(fontId, 4, 14, rect(40, 0, 10, 14)),
-        ],
-        runes: sourceRunes,
-        selectionRects: @[
-          rect(0, 0, 10, 14),
-          rect(10, 0, 10, 14),
-          rect(20, 0, 10, 14),
-          rect(30, 0, 10, 14),
-          rect(40, 0, 10, 14),
-        ],
+        textLayout: FigTextLayout(
+          lines: @[0 .. 4],
+          sourceRunes: sourceRunes,
+          arrangedGlyphs: @[
+            testGlyph(fontId, 0, 10, rect(0, 0, 10, 14)),
+            testGlyph(fontId, 1, 11, rect(10, 0, 10, 14)),
+            testGlyph(fontId, 3, 13, rect(20, 0, 10, 14)),
+            testGlyph(fontId, 2, 12, rect(30, 0, 10, 14)),
+            testGlyph(fontId, 4, 14, rect(40, 0, 10, 14)),
+          ],
+          runes: sourceRunes,
+          selectionRects: @[
+            rect(0, 0, 10, 14),
+            rect(10, 0, 10, 14),
+            rect(20, 0, 10, 14),
+            rect(30, 0, 10, 14),
+            rect(40, 0, 10, 14),
+          ],
+        ),
       )
 
     let rawRects = arrangement.glyphSelectionRectsFor(1 .. 2)
@@ -990,13 +1007,15 @@ suite "fontutils":
       glyphFont = GlyphFont(fontId: fontId, lineHeight: 14, descentAdj: 10)
       sourceRunes = @["a".runeAt(0), "b".runeAt(0), "c".runeAt(0), "d".runeAt(0)]
       arrangement = GlyphArrangement(
-        lines: @[0 .. 0],
         spans: @[0 .. 0],
         fonts: @[glyphFont],
-        sourceRunes: sourceRunes,
-        arrangedGlyphs: @[testGlyphRange(fontId, 0 .. 3, 20, rect(10, 2, 40, 10))],
-        runes: sourceRunes,
-        selectionRects: @[rect(10, 2, 40, 10)],
+        textLayout: FigTextLayout(
+          lines: @[0 .. 0],
+          sourceRunes: sourceRunes,
+          arrangedGlyphs: @[testGlyphRange(fontId, 0 .. 3, 20, rect(10, 2, 40, 10))],
+          runes: sourceRunes,
+          selectionRects: @[rect(10, 2, 40, 10)],
+        ),
       )
 
     check arrangement.glyphSelectionRectsFor(1 .. 1) == @[rect(10, 2, 40, 10)]
@@ -1010,17 +1029,20 @@ suite "fontutils":
       sourceRunes =
         @["a".runeAt(0), "b".runeAt(0), "c".runeAt(0), "d".runeAt(0), "e".runeAt(0)]
       arrangement = GlyphArrangement(
-        lines: @[0 .. 2],
         spans: @[0 .. 2],
         fonts: @[glyphFont],
-        sourceRunes: sourceRunes,
-        arrangedGlyphs: @[
-          testGlyph(fontId, 4, 24, rect(0, 0, 10, 14)),
-          testGlyphRange(fontId, 1 .. 3, 21, rect(10, 0, 30, 14)),
-          testGlyph(fontId, 0, 20, rect(40, 0, 10, 14)),
-        ],
-        runes: sourceRunes,
-        selectionRects: @[rect(0, 0, 10, 14), rect(10, 0, 30, 14), rect(40, 0, 10, 14)],
+        textLayout: FigTextLayout(
+          lines: @[0 .. 2],
+          sourceRunes: sourceRunes,
+          arrangedGlyphs: @[
+            testGlyph(fontId, 4, 24, rect(0, 0, 10, 14)),
+            testGlyphRange(fontId, 1 .. 3, 21, rect(10, 0, 30, 14)),
+            testGlyph(fontId, 0, 20, rect(40, 0, 10, 14)),
+          ],
+          runes: sourceRunes,
+          selectionRects:
+            @[rect(0, 0, 10, 14), rect(10, 0, 30, 14), rect(40, 0, 10, 14)],
+        ),
       )
 
     check arrangement.selectionRectsFor(1 .. 1) == @[rect(30, 0, 10, 14)]
@@ -1032,23 +1054,25 @@ suite "fontutils":
       glyphFont = GlyphFont(fontId: fontId, lineHeight: 14, descentAdj: 10)
       sourceRunes = @["a".runeAt(0), "b".runeAt(0), "c".runeAt(0), "d".runeAt(0)]
       arrangement = GlyphArrangement(
-        lines: @[0 .. 3],
         spans: @[0 .. 3],
         fonts: @[glyphFont],
-        sourceRunes: sourceRunes,
-        arrangedGlyphs: @[
-          testGlyph(fontId, 0, 10, rect(0, 0, 10, 14)),
-          testGlyphRange(fontId, 1 .. 2, 21, rect(22, 0, 0, 14)),
-          testGlyphRange(fontId, 1 .. 2, 22, rect(10, 0, 20, 14)),
-          testGlyph(fontId, 3, 13, rect(30, 0, 10, 14)),
-        ],
-        runes: sourceRunes,
-        selectionRects: @[
-          rect(0, 0, 10, 14),
-          rect(22, 0, 0, 14),
-          rect(10, 0, 20, 14),
-          rect(30, 0, 10, 14),
-        ],
+        textLayout: FigTextLayout(
+          lines: @[0 .. 3],
+          sourceRunes: sourceRunes,
+          arrangedGlyphs: @[
+            testGlyph(fontId, 0, 10, rect(0, 0, 10, 14)),
+            testGlyphRange(fontId, 1 .. 2, 21, rect(22, 0, 0, 14)),
+            testGlyphRange(fontId, 1 .. 2, 22, rect(10, 0, 20, 14)),
+            testGlyph(fontId, 3, 13, rect(30, 0, 10, 14)),
+          ],
+          runes: sourceRunes,
+          selectionRects: @[
+            rect(0, 0, 10, 14),
+            rect(22, 0, 0, 14),
+            rect(10, 0, 20, 14),
+            rect(30, 0, 10, 14),
+          ],
+        ),
       )
 
     let
@@ -1071,23 +1095,25 @@ suite "fontutils":
       sourceRunes =
         @["a".runeAt(0), "b".runeAt(0), "c".runeAt(0), "d".runeAt(0), "e".runeAt(0)]
       arrangement = GlyphArrangement(
-        lines: @[0 .. 3],
         spans: @[0 .. 3],
         fonts: @[glyphFont],
-        sourceRunes: sourceRunes,
-        arrangedGlyphs: @[
-          testGlyph(fontId, 4, 14, rect(0, 0, 10, 14)),
-          testGlyphRange(fontId, 1 .. 2, 21, rect(22, 0, 0, 14)),
-          testGlyphRange(fontId, 1 .. 2, 22, rect(10, 0, 20, 14)),
-          testGlyph(fontId, 0, 10, rect(30, 0, 10, 14)),
-        ],
-        runes: sourceRunes,
-        selectionRects: @[
-          rect(0, 0, 10, 14),
-          rect(22, 0, 0, 14),
-          rect(10, 0, 20, 14),
-          rect(30, 0, 10, 14),
-        ],
+        textLayout: FigTextLayout(
+          lines: @[0 .. 3],
+          sourceRunes: sourceRunes,
+          arrangedGlyphs: @[
+            testGlyph(fontId, 4, 14, rect(0, 0, 10, 14)),
+            testGlyphRange(fontId, 1 .. 2, 21, rect(22, 0, 0, 14)),
+            testGlyphRange(fontId, 1 .. 2, 22, rect(10, 0, 20, 14)),
+            testGlyph(fontId, 0, 10, rect(30, 0, 10, 14)),
+          ],
+          runes: sourceRunes,
+          selectionRects: @[
+            rect(0, 0, 10, 14),
+            rect(22, 0, 0, 14),
+            rect(10, 0, 20, 14),
+            rect(30, 0, 10, 14),
+          ],
+        ),
       )
 
     let
@@ -1251,6 +1277,23 @@ suite "fontutils":
           sawArabicFallback = true
 
       check sawArabicFallback
+
+    test "harfbuzzy wrapping preserves joining across RTL clusters with marks":
+      let
+        path = getCurrentDir() / "examples/fonts/NotoNaskhArabic-wght.ttf"
+        uiFont = FigFont(typefaceId: loadTypeface(path), size: 30.0'f32)
+        box = rect(0, 0, 1, 200)
+      let arrangement = typeset(
+        box,
+        [(fs(uiFont), "ببِب")],
+        hAlign = Left,
+        vAlign = Top,
+        minContent = false,
+        wrap = true,
+      )
+
+      require arrangement.arrangedGlyphs.len > 3
+      check arrangement.lines == @[0 .. arrangement.arrangedGlyphs.high]
 
     test "variable axes are carried by shaped font ids":
       let typefaceId = loadTypeface(
@@ -1837,22 +1880,25 @@ suite "fontutils":
       firstFill = fill(rgba(220, 40, 40, 255))
       secondFill = fill(rgba(40, 90, 220, 255))
       arrangement = GlyphArrangement(
-        lines: @[0 .. 0],
         spans: @[0 .. -1, 0 .. 0],
         fonts: @[glyphFont, glyphFont],
         spanColors: @[firstFill, secondFill],
-        sourceRunes: @[rune],
-        arrangedGlyphs: @[
-          ArrangedGlyph(
-            fontId: fontId,
-            glyphId: FontGlyphId(65),
-            cluster: 0,
-            source: GlyphSourceRange(byteStart: 0, byteEnd: 1, runeStart: 0, runeEnd: 1),
-            rune: rune,
-            pos: vec2(10, 12),
-            rect: rect(10, 0, 8, 12),
-          )
-        ],
+        textLayout: FigTextLayout(
+          lines: @[0 .. 0],
+          sourceRunes: @[rune],
+          arrangedGlyphs: @[
+            ArrangedGlyph(
+              fontId: fontId,
+              glyphId: FontGlyphId(65),
+              cluster: 0,
+              source:
+                GlyphSourceRange(byteStart: 0, byteEnd: 1, runeStart: 0, runeEnd: 1),
+              rune: rune,
+              pos: vec2(10, 12),
+              rect: rect(10, 0, 8, 12),
+            )
+          ],
+        ),
       )
 
     var glyphs = newSeq[GlyphPosition]()

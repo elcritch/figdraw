@@ -224,15 +224,17 @@ proc typesetWithSource(
       h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign, minContent, wrap)
       h = h !& hash(scale)
       !$h,
-    lines: lines,
     spans: spans,
     fonts: glyphFonts,
     spanColors: spanColors,
-    sourceRunes: displayRunes,
-    arrangedGlyphs: arranged,
-    runes: displayRunes,
-    positions: positions,
-    selectionRects: selectionRects,
+    textLayout: FigTextLayout(
+      lines: lines,
+      sourceRunes: displayRunes,
+      arrangedGlyphs: arranged,
+      runes: displayRunes,
+      positions: positions,
+      selectionRects: selectionRects,
+    ),
   )
 
   let content = result.calcMinMaxContent()
