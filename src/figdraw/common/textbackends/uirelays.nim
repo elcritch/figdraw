@@ -143,9 +143,7 @@ proc typesetWithSource(
     spans: seq[Slice[int]]
     glyphFonts: seq[GlyphFont]
     spanColors: seq[Fill]
-    sizes: seq[float]
   for (style, spanText) in uiSpans:
-    sizes.add style.font.size.float
     if spanText.len == 0:
       continue
     let first = runes.len
@@ -246,7 +244,6 @@ proc typesetWithSource(
   if minContent:
     result.minSize.y = max(result.minSize.y, result.bounding.h)
 
-  result.addFontSizePadding(sizes)
   if rasterize:
     result.generateGlyphImages()
 

@@ -1,4 +1,4 @@
-import std/[hashes, math, sequtils, strutils, tables, unicode]
+import std/[hashes, math, strutils, tables, unicode]
 
 import pkg/harfbuzzy as hb
 import pkg/vmath
@@ -820,7 +820,6 @@ proc typesetPrepared(
     box: Rect,
     decoded: DecodedSource,
     paragraphs: seq[Paragraph],
-    fontSizes: openArray[float],
     contentHash: Hash,
     hAlign: FontHorizontal,
     vAlign: FontVertical,
@@ -901,7 +900,6 @@ proc typesetPrepared(
   result.bounding = content.bounding
   if minContent:
     result.minSize.y = max(result.minSize.y, result.bounding.h)
-  result.addFontSizePadding(fontSizes)
   result.contentHash = hash((result.contentHash, resolvedFonts))
 
   when figdrawTextBackend == "hybrid" or runtimeTextBackends:
@@ -927,15 +925,13 @@ proc typeset*(
   let
     decoded = decodeSource(uiSpans, shapedSpans)
     paragraphs = splitParagraphs(shapedSpans)
-    fontSizes = shapedSpans.mapIt(it[0].font.size.float)
     contentHash = block:
       var h = Hash(0)
       h = h !& getContentHash(box.wh, uiSpans, hAlign, vAlign, minContent, wrap)
       h = h !& hash(figUiScale())
       !$h
   typesetPrepared(
-    box, decoded, paragraphs, fontSizes, contentHash, hAlign, vAlign, minContent, wrap,
-    rasterize,
+    box, decoded, paragraphs, contentHash, hAlign, vAlign, minContent, wrap, rasterize
   )
 
 proc typesetSourceSpans*(
@@ -968,7 +964,6 @@ proc typesetSourceSpans*(
   let
     decoded = DecodedSource(runes: source, directSource: true)
     paragraphs = splitSourceParagraphs(source, runs, styles)
-    fontSizes = runs.mapIt(styles[int(uint32(it.styleId))].font.size.float)
     contentHash = block:
       var h = Hash(0)
       h = h !& hash(box.wh)
@@ -983,6 +978,5 @@ proc typesetSourceSpans*(
       h = h !& hash(figUiScale())
       !$h
   typesetPrepared(
-    box, decoded, paragraphs, fontSizes, contentHash, hAlign, vAlign, minContent, wrap,
-    rasterize,
+    box, decoded, paragraphs, contentHash, hAlign, vAlign, minContent, wrap, rasterize
   )
