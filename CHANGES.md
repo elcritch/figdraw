@@ -5,6 +5,8 @@
 - Store glyph geometry and source text in HarfBuzzy's shared `TextLayout`.
   Construct custom arrangements with `textLayout: FigTextLayout(...)`.
   Build the native library and its generated bindings together when upgrading.
+- Use HarfBuzzy's shared paragraph engine and hyphenation parser for the
+  HarfBuzzy and Pixie text backends.
 
 - Add `NfInverseRectMaskContent` to cut a rounded rectangle out of a node's
   drawing and descendants.
