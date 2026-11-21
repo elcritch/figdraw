@@ -13,7 +13,10 @@ import threading/smartptrs
 
 import ../fonttypes
 import ../hyphenation
+import ../textbytes
 import ./common
+
+export isSpaceRune
 
 type
   LayoutParagraph* = object
@@ -90,14 +93,6 @@ const
   DoubleHyphenDemerits = 3000.0
   AdjacentFitnessDemerits = 10000.0
 
-func isSpaceRune*(rune: Rune): bool {.inline.} =
-  ## `unicode.isWhiteSpace` with an ASCII fast path; its table search
-  ## dominates per-glyph classification otherwise.
-  if rune.int < 0x80:
-    rune.int in {0x09 .. 0x0d, 0x20}
-  else:
-    rune.isWhiteSpace
-
 func isCjkLineBreakRune*(rune: Rune): bool =
   let cp = rune.uint32
   cp in 0x1100'u32 .. 0x11ff'u32 or cp in 0x2e80'u32 .. 0x30ff'u32 or
@@ -127,7 +122,7 @@ func canBreakAfterRune*(rune: Rune): bool =
   ## Soft hyphens are handled separately because breaking shows a hyphen.
   if rune.int < 0x80:
     return rune.int in {0x09 .. 0x0d, 0x20, 0x2d, 0x2f}
-  if rune.isWhiteSpace or rune.isHyphenRune:
+  if rune.isSpaceRune or rune.isHyphenRune:
     return true
   case rune.uint32
   of 0x002f'u32,
@@ -243,15 +238,12 @@ proc orderLogically(
     if not reordered[paragraphIndex]:
       continue
     let range = paragraph.glyphs
-    var slice = records[range.a .. range.b]
-    slice.sort(
+    records.toOpenArray(range.a, range.b).sort(
       proc(a, b: GlyphRecord): int =
         result = cmp(a.glyph.source.runeStart, b.glyph.source.runeStart)
         if result == 0:
           result = cmp(a.visualKey, b.visualKey)
     )
-    for offset, record in slice:
-      records[range.a + offset] = record
     # A logical neighbor pair is shaping-safe where it is visually adjacent
     # and HarfBuzz marked that visual boundary safe.
     for index in range.a ..< range.b:
@@ -542,13 +534,6 @@ proc breakCandidates(
       index = runEnd + 1
       wordStart = index
       continue
-    if index < range.b and gfPreferred in flags:
-      result.add BreakCandidate(
-        contentEnd: index,
-        next: index + 1,
-        penalty: (if gfExplicitHyphen in flags: HyphenPenalty else: 0.0),
-        flagged: gfExplicitHyphen in flags,
-      )
     if gfPreferred in flags or index == range.b or gfSpace in ctx.flags[index + 1]:
       # Soft hyphens always qualify; pattern points only when `hyphenate`.
       for (point, edit) in ctx.wordHyphenPoints(
@@ -569,11 +554,16 @@ proc breakCandidates(
         elif edit == heSoftHyphen:
           result.add BreakCandidate(contentEnd: point, next: point + 1)
       wordStart = index + 1
+    # Internal hyphen points precede this boundary, so candidates are
+    # emitted in source order even when the word ends with a visible hyphen.
+    if index < range.b and gfPreferred in flags:
+      result.add BreakCandidate(
+        contentEnd: index,
+        next: index + 1,
+        penalty: (if gfExplicitHyphen in flags: HyphenPenalty else: 0.0),
+        flagged: gfExplicitHyphen in flags,
+      )
     inc index
-  result.sort(
-    proc(a, b: BreakCandidate): int =
-      cmp(a.contentEnd, b.contentEnd)
-  )
   var trailing = range.b
   while trailing > range.a and gfSpace in ctx.flags[trailing]:
     dec trailing
@@ -601,6 +591,9 @@ proc optimalLines(
       stretch[offset + 1] += ctx.widths[index] * JustifyStretch
       shrink[offset + 1] += ctx.widths[index] * JustifyShrink
   let justifiesLast = paragraph.style.lastLineAlign == paJustify
+  let
+    firstWidth = ctx.available(paragraph.style, true).float64
+    nextWidth = ctx.available(paragraph.style, false).float64
   var
     nodes = @[BreakNode(candidate: -1, fitness: 1, previous: -1)]
     active = @[0]
@@ -608,7 +601,7 @@ proc optimalLines(
     var
       best: array[4, float64] = [Inf, Inf, Inf, Inf]
       bestPrevious: array[4, int]
-    var kept = newSeqOfCap[int](active.len)
+    var kept = 0
     for nodeIndex in active:
       let
         node = nodes[nodeIndex]
@@ -617,9 +610,10 @@ proc optimalLines(
             range.a
           else:
             candidates[node.candidate].next
-        target = ctx.available(paragraph.style, node.line == 0).float64
+        target = if node.line == 0: firstWidth else: nextWidth
       if candidate.contentEnd < start:
-        kept.add nodeIndex
+        active[kept] = nodeIndex
+        inc kept
         continue
       let
         first = start - range.a
@@ -648,7 +642,8 @@ proc optimalLines(
             0.0
       if ratio < -1.0:
         continue # Later breaks only lengthen this line.
-      kept.add nodeIndex
+      active[kept] = nodeIndex
+      inc kept
       if ratio > tolerance:
         continue
       let
@@ -673,7 +668,7 @@ proc optimalLines(
       if total < best[fitness]:
         best[fitness] = total
         bestPrevious[fitness] = nodeIndex
-    active = kept
+    active.setLen(kept)
     # Every break after the first sets later lines with the head indent, so
     # nodes need no line-number classes beyond fitness.
     for fitness in 0 .. 3:
@@ -816,13 +811,10 @@ proc finishLines(
         )
     cursor = line.glyphs.b + 1
     if reordered[owners[lineIndex]]:
-      var slice = output[start .. output.high]
-      slice.sort(
+      output.toOpenArray(start, output.high).sort(
         proc(a, b: GlyphRecord): int =
           cmp(a.visualKey, b.visualKey)
       )
-      for offset, record in slice:
-        output[start + offset] = record
     remapped[lineIndex] = BrokenLine(glyphs: start .. output.high)
   while cursor < records.len:
     output.add records[cursor]

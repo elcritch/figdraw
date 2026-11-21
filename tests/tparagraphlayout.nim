@@ -492,3 +492,51 @@ if textBackendAvailable(TextBackendKind.Harfbuzzy):
       for index in arrangement.lines[0]:
         firstLineRunes.add arrangement.arrangedGlyphs[index].source.runeStart
       check 0 in firstLineRunes
+
+    test "mixed-direction glyph ranges follow UTF-8 boundaries":
+      var font = testFont()
+      font.fallbackTypefaceIds.add hebrew().typefaceId
+      let
+        prefix = "Café e"
+        suffix = "\u0301 " & Words & " (42) 🙂"
+        text = prefix & suffix
+        source = initUtf8Runes(text)
+        style = fs(font)
+        second = fs(font, fill(rgba(10, 30, 90, 255)))
+        box = rect(0, 0, 300, 2000)
+        runs = [
+          StyledTextRun(
+            byteEnd: uint32(prefix.len),
+            runeEnd: uint32(prefix.runeLen),
+            styleId: TextStyleId(0),
+          ),
+          StyledTextRun(
+            byteStart: uint32(prefix.len),
+            byteEnd: uint32(text.len),
+            runeStart: uint32(prefix.runeLen),
+            runeEnd: uint32(source.len),
+            styleId: TextStyleId(1),
+          ),
+        ]
+        owned = typesetForMeasurement(
+          box,
+          [(style, prefix), (second, suffix)],
+          Left,
+          Top,
+          minContent = false,
+          wrap = true,
+        )
+        shared = typesetSourceSpansForMeasurement(
+          box, source, runs, [style, second], Left, Top, minContent = false, wrap = true
+        )
+      check owned.arrangedGlyphs == shared.arrangedGlyphs
+      check owned.spans == shared.spans
+      check owned.spanColors == shared.spanColors
+      for glyph in owned.arrangedGlyphs:
+        check glyph.source.byteStart == source.byteOffsetForRune(glyph.source.runeStart)
+        check glyph.source.byteEnd == source.byteOffsetForRune(glyph.source.runeEnd)
+      for index, span in owned.spans:
+        for glyphIndex in span:
+          let glyph = owned.arrangedGlyphs[glyphIndex]
+          let expected = if glyph.source.byteStart < prefix.len: style else: second
+          check owned.spanColors[index] == expected.color

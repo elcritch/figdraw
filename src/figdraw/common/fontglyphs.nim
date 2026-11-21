@@ -8,6 +8,7 @@ import ./imgutils
 import ./shared
 
 import ./fonttypes
+import ./textbytes
 import ./textbackends/state
 when figdrawTextBackend == "harfbuzzy" or runtimeTextBackends:
   import ./textrasters/glyphid_raster
@@ -140,10 +141,11 @@ proc buildArrangedGlyphsForUtf8(
     if start > stop:
       continue
 
+    var byteStart = runes.byteOffsetForRune(start)
     for idx in start .. stop:
       let
-        rune = runes[idx]
-        byteRange = runes.byteRangeForRune(idx)
+        rune = runes.bytes.runeAt(byteStart)
+        byteEnd = min(byteStart + runes.bytes.runeLenAt(byteStart), runes.byteLength)
         pos =
           if idx < positions.len:
             positions[idx]
@@ -160,19 +162,17 @@ proc buildArrangedGlyphsForUtf8(
         glyphId: syntheticFontGlyphId(font.fontId, rune),
         cluster: uint32(idx),
         source: GlyphSourceRange(
-          byteStart: byteRange.start,
-          byteEnd: byteRange.stop,
-          runeStart: idx,
-          runeEnd: idx + 1,
+          byteStart: byteStart, byteEnd: byteEnd, runeStart: idx, runeEnd: idx + 1
         ),
         rune: rune,
-        isWhitespace: unicode.isWhiteSpace(rune),
+        isWhitespace: rune.isSpaceRune,
         pos: pos,
         advance: vec2(selection.w, 0),
         offset: vec2(0, 0),
         imageOffset: vec2(0, 0),
         rect: selection,
       )
+      byteStart = byteEnd
 
 proc buildArrangedGlyphs*(
     runes: Utf8Runes,
@@ -228,7 +228,7 @@ iterator glyphs*(arrangement: GlyphArrangement): GlyphPosition =
               cluster: uint32(idx),
               source: GlyphSourceRange(runeStart: idx, runeEnd: idx + 1),
               rune: rune,
-              isWhitespace: unicode.isWhiteSpace(rune),
+              isWhitespace: rune.isSpaceRune,
               pos: arrangement.positions[idx],
               imageOffset: vec2(0, 0),
               rect: arrangement.selectionRects[idx],
